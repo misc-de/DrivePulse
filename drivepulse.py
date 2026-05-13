@@ -20,6 +20,10 @@ Start:
 Optional mit Port:
   OBD_PORT=/dev/rfcomm0 python3 drivepulse.py
   OBD_PORT=/dev/ttyUSB0 python3 drivepulse.py
+
+Bluetooth-ELM327:
+  Adapter zuerst per Bluetooth koppeln und als seriellen Port binden, z. B. /dev/rfcomm0.
+  Danach: OBD_PORT=/dev/rfcomm0 python3 drivepulse.py
 """
 
 from __future__ import annotations
@@ -55,9 +59,13 @@ LOG_FILE = LOG_DIR / "obd-log.jsonl"
 CONNECTION_LOG_FILE = LOG_DIR / "connection-log.jsonl"
 POLL_INTERVAL_SECONDS = float(os.environ.get("OBD_POLL_INTERVAL", "0.5"))
 OBD_PORT = os.environ.get("OBD_PORT")
+OBD_BAUDRATE = int(os.environ["OBD_BAUDRATE"]) if os.environ.get("OBD_BAUDRATE") else None
+OBD_TIMEOUT_SECONDS = float(os.environ.get("OBD_TIMEOUT", "2.0"))
+OBD_FAST = os.environ.get("OBD_FAST", "0").lower() in {"1", "true", "yes", "on"}
 SETTINGS_FILE = LOG_DIR / "settings.json"
 REQUIRED_PYTHON_PACKAGES = (
     ("PyGObject", "gi", "GTK/libadwaita Python-Bindings"),
+    ("pyserial", "serial", "serielle Bluetooth/USB-Port-Anbindung"),
     ("obd", "obd", "OBD-II Dongle-Anbindung"),
 )
 
@@ -87,6 +95,13 @@ def _print_required_python_packages() -> None:
     for package_name, module_name, description in REQUIRED_PYTHON_PACKAGES:
         status = _python_package_status(package_name, module_name)
         print(f"  - {package_name}: {status} - {description}")
+    print("OBD-Konfiguration:")
+    print(f"  - OBD_PORT: {OBD_PORT or 'auto (/dev/rfcomm*, /dev/ttyUSB*, /dev/ttyACM*)'}")
+    print(f"  - OBD_BAUDRATE: {OBD_BAUDRATE or 'auto'}")
+    print(f"  - OBD_TIMEOUT: {OBD_TIMEOUT_SECONDS:.1f}s")
+    print(f"  - OBD_FAST: {'an' if OBD_FAST else 'aus'}")
+    if OBD_PORT is None:
+        print("  - Bluetooth-Hinweis: ELM327 koppeln und z. B. mit OBD_PORT=/dev/rfcomm0 starten.")
 
 
 def _make_label_responsive(label: Gtk.Label, max_width_chars: int = 34, xalign: float = 0.0) -> Gtk.Label:
@@ -239,6 +254,10 @@ class ObdReader(GObject.Object):
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
         self.connection = None
+        self.connected_port: str | None = None
+        self.failed_read_count = 0
+        self.next_mock_reconnect_attempt = 0.0
+        self.mock_reason = "python-obd fehlt" if obd is None else ""
         self.mock = obd is None
 
     def _connection_log(self, event: str, **fields: Any) -> None:
@@ -249,6 +268,9 @@ class ObdReader(GObject.Object):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "event": event,
                 "obd_port": OBD_PORT,
+                "obd_baudrate": OBD_BAUDRATE,
+                "obd_timeout": OBD_TIMEOUT_SECONDS,
+                "obd_fast": OBD_FAST,
                 "python_obd_available": obd is not None,
                 **fields,
             }
@@ -267,37 +289,52 @@ class ObdReader(GObject.Object):
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1.5)
         if self.connection:
-            try:
-                self.connection.close()
-            except Exception:
-                pass
+            self._close_connection()
 
     def _candidate_ports(self) -> list[str | None]:
         if OBD_PORT:
             return [OBD_PORT]
 
-        candidates: list[str | None] = [None]
+        candidates: list[str | None] = []
         for pattern in ("/dev/rfcomm*", "/dev/ttyUSB*", "/dev/ttyACM*", "/dev/serial/by-id/*"):
             candidates.extend(str(path) for path in sorted(Path("/").glob(pattern.lstrip("/"))))
-        return candidates
+        return candidates + [None]
+
+    def _close_connection(self) -> None:
+        try:
+            if self.connection:
+                self.connection.close()
+        except Exception as exc:
+            self._connection_log("connect_close_error", port=self.connected_port, error=str(exc))
+        finally:
+            self.connection = None
+            self.connected_port = None
 
     def _connect(self) -> None:
         self._connection_log("connect_begin")
 
         if obd is None:
             self.mock = True
-            self._connection_log("connect_failed", reason="python-obd nicht importierbar", fallback="mock")
+            self.mock_reason = "python-obd nicht importierbar"
+            self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
             return
 
+        self._close_connection()
         for port in self._candidate_ports():
             if self.stop_event.is_set():
                 self._connection_log("connect_aborted", reason="stop_event")
                 return
 
             try:
-                self._connection_log("connect_attempt", port=port, fast=False, timeout=1.0)
+                connect_kwargs = {
+                    "fast": OBD_FAST,
+                    "timeout": OBD_TIMEOUT_SECONDS,
+                }
+                if OBD_BAUDRATE is not None:
+                    connect_kwargs["baudrate"] = OBD_BAUDRATE
+                self._connection_log("connect_attempt", port=port, **connect_kwargs)
                 # fast=False ist oft stabiler bei günstigen ELM327-Adaptern.
-                self.connection = obd.OBD(port, fast=False, timeout=1.0)
+                self.connection = obd.OBD(port, **connect_kwargs)
                 connected = bool(self.connection and self.connection.is_connected())
                 self._connection_log(
                     "connect_result",
@@ -307,33 +344,72 @@ class ObdReader(GObject.Object):
                 )
                 if connected:
                     self.mock = False
+                    self.mock_reason = ""
+                    self.connected_port = port
+                    self.failed_read_count = 0
                     self._connection_log("connect_success", port=port)
                     return
 
-                try:
-                    if self.connection:
-                        self.connection.close()
-                except Exception as close_exc:
-                    self._connection_log("connect_close_error", port=port, error=str(close_exc))
-                self.connection = None
+                self._close_connection()
             except Exception as exc:
-                self.connection = None
+                self._close_connection()
                 self._connection_log("connect_exception", port=port, error=repr(exc), error_type=type(exc).__name__)
 
         self.mock = True
-        self._connection_log("connect_failed", reason="kein nutzbarer Dongle gefunden", fallback="mock")
+        self.mock_reason = "kein nutzbarer Dongle gefunden"
+        self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
 
     def _run(self) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self._connect()
 
         while not self.stop_event.is_set():
+            self._maybe_reconnect_from_mock()
             payload = self._read_mock() if self.mock else self._read_obd()
             payload["timestamp"] = datetime.now(timezone.utc).isoformat()
             payload["source"] = "mock" if self.mock else "obd"
+            payload["connection_status"] = self._connection_status()
+            payload["obd_port"] = self.connected_port
+            if self.mock_reason:
+                payload["mock_reason"] = self.mock_reason
             self._write_log(payload)
             GLib.idle_add(self.on_update, payload)
+            self._maybe_reconnect_after_read(payload)
             time.sleep(POLL_INTERVAL_SECONDS)
+
+    def _maybe_reconnect_from_mock(self) -> None:
+        if not self.mock or obd is None:
+            return
+
+        now = time.monotonic()
+        if now < self.next_mock_reconnect_attempt:
+            return
+
+        self.next_mock_reconnect_attempt = now + 8.0
+        self._connection_log("mock_reconnect_probe")
+        self._connect()
+
+    def _connection_status(self) -> str:
+        if self.mock:
+            return f"Mock: {self.mock_reason or 'aktiv'}"
+        return f"OBD verbunden: {self.connected_port or 'auto'}"
+
+    def _maybe_reconnect_after_read(self, payload: dict[str, Any]) -> None:
+        if self.mock:
+            return
+
+        command_count = int(payload.get("_command_count", 0))
+        read_error_count = int(payload.get("_read_error_count", 0))
+        disconnected = bool(self.connection and not self.connection.is_connected())
+        failed_read = disconnected or (command_count > 0 and read_error_count >= command_count)
+        self.failed_read_count = self.failed_read_count + 1 if failed_read else 0
+        if self.failed_read_count < 3:
+            return
+
+        self._connection_log("reconnect_begin", reason="wiederholte Lesefehler", failed_reads=self.failed_read_count)
+        self.mock = False
+        self.mock_reason = ""
+        self._connect()
 
     def _read_obd(self) -> dict[str, Any]:
         assert obd is not None
@@ -353,14 +429,20 @@ class ObdReader(GObject.Object):
         }
 
         data: dict[str, Any] = {}
+        command_count = 0
+        read_error_count = 0
         for key, command in commands.items():
             if command is None:
                 continue
+            command_count += 1
             try:
                 response = self.connection.query(command)
                 data[key] = self._response_to_plain_value(response)
             except Exception as exc:
+                read_error_count += 1
                 data[f"{key}_error"] = str(exc)
+        data["_command_count"] = command_count
+        data["_read_error_count"] = read_error_count
         return data
 
     def _response_to_plain_value(self, response: Any) -> Any:
@@ -841,8 +923,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
         self.acceleration_page.update_payload(payload, self._plain_number)
 
-        source = payload.get("source", "?")
-        self.status_label.set_text(f"Quelle: {source} | letzte Aktualisierung: {datetime.now().strftime('%H:%M:%S')}")
+        status = payload.get("connection_status") or payload.get("source", "?")
+        self.status_label.set_text(f"{status} | letzte Aktualisierung: {datetime.now().strftime('%H:%M:%S')}")
         return False
 
 
