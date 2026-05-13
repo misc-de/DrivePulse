@@ -42,3 +42,18 @@ def test_print_required_python_packages_includes_obd_config(monkeypatch, capsys,
     assert "OBD_BAUDRATE: 38400" in output
     assert "OBD_TIMEOUT: 2.5s" in output
     assert "OBD_FAST: an" in output
+
+
+def test_translate_uses_english_fallback_and_german_translation(drivepulse_module):
+    assert drivepulse_module._translate("de", "settings.title") == "Einstellungen"
+    assert drivepulse_module._translate("fr", "settings.title") == "Settings"
+    assert drivepulse_module._translate("de", "missing.key") == "missing.key"
+    assert drivepulse_module._translate("en", "status.updated", status="OBD", time="12:00") == "OBD | last update: 12:00"
+
+
+def test_detect_language_uses_supported_language_or_source_fallback(monkeypatch, drivepulse_module):
+    monkeypatch.setenv("DRIVEPULSE_LANG", "de_DE.UTF-8")
+    assert drivepulse_module._detect_language() == "de"
+
+    monkeypatch.setenv("DRIVEPULSE_LANG", "fr_FR.UTF-8")
+    assert drivepulse_module._detect_language() == "en"

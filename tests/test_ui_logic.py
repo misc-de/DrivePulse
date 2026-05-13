@@ -76,6 +76,7 @@ def test_swipe_changes_pages(drivepulse_module):
 def test_plain_number_and_speed_conversion(drivepulse_module):
     window = drivepulse_module.DashboardWindow.__new__(drivepulse_module.DashboardWindow)
     window.units = "metric"
+    window.language = "en"
 
     assert window._plain_number({"speed": {"value": "100"}}, "speed") == 100.0
     assert window._plain_number({"speed": "bad"}, "speed") is None
