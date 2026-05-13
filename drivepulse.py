@@ -239,7 +239,8 @@ class ObdReader(GObject.Object):
                     self.mock_reason = ""
                     self.connected_port = port
                     self.failed_read_count = 0
-                    self._connection_log("connect_success", port=port)
+                    supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
+                    self._connection_log("connect_success", port=port, supported_commands=supported)
                     return
 
                 self._close_connection()
