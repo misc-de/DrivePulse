@@ -1,0 +1,806 @@
+#!/usr/bin/env python3
+"""
+OBD-II Dashboard auf GTK4 / libadwaita-Basis.
+
+Funktionen:
+- Verbindung zu einem ELM327/OBD-II-Dongle via python-OBD.
+- Anzeige von Drehzahl, Geschwindigkeit und Kühlmitteltemperatur als Tachos.
+- Querformat: drei Tachos nebeneinander.
+- Hochformat: drei Tachos untereinander.
+- Zusätzliche OBD-Werte werden in JSONL geschrieben, damit sie später leicht eingebaut werden können.
+- Mock-Modus, falls kein Dongle oder python-OBD verfügbar ist.
+
+Debian/Ubuntu-Abhängigkeiten:
+  sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 python3-pip
+  python3 -m pip install --user obd
+
+Start:
+  python3 drivepulse.py
+
+Optional mit Port:
+  OBD_PORT=/dev/rfcomm0 python3 drivepulse.py
+  OBD_PORT=/dev/ttyUSB0 python3 drivepulse.py
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import signal
+import threading
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from importlib import metadata, util
+from pathlib import Path
+from typing import Any, Callable
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, GLib, GObject, Gtk  # noqa: E402
+
+try:
+    import obd  # type: ignore
+except Exception:
+    obd = None
+
+
+APP_ID = "de.cais.DrivePulse"
+LOG_DIR = Path(os.environ.get("OBD_LOG_DIR", Path.home() / ".local" / "state" / "drivepulse"))
+LOG_FILE = LOG_DIR / "obd-log.jsonl"
+CONNECTION_LOG_FILE = LOG_DIR / "connection-log.jsonl"
+POLL_INTERVAL_SECONDS = float(os.environ.get("OBD_POLL_INTERVAL", "0.5"))
+OBD_PORT = os.environ.get("OBD_PORT")
+SETTINGS_FILE = LOG_DIR / "settings.json"
+REQUIRED_PYTHON_PACKAGES = (
+    ("PyGObject", "gi", "GTK/libadwaita Python-Bindings"),
+    ("obd", "obd", "OBD-II Dongle-Anbindung"),
+)
+
+
+@dataclass
+class GaugeState:
+    value: float = 0.0
+    label: str = "--"
+    unit: str = ""
+    min_value: float = 0.0
+    max_value: float = 100.0
+
+
+def _python_package_status(package_name: str, module_name: str) -> str:
+    installed = util.find_spec(module_name) is not None
+    if not installed:
+        return "fehlt"
+
+    try:
+        return f"installiert ({metadata.version(package_name)})"
+    except metadata.PackageNotFoundError:
+        return "installiert"
+
+
+def _print_required_python_packages() -> None:
+    print("Benötigte Python-Pakete:")
+    for package_name, module_name, description in REQUIRED_PYTHON_PACKAGES:
+        status = _python_package_status(package_name, module_name)
+        print(f"  - {package_name}: {status} - {description}")
+
+
+class Gauge(Gtk.DrawingArea):
+    """Ein einfacher runder Tacho im Stil eines digitalen Cockpits."""
+
+    __gtype_name__ = "Gauge"
+
+    def __init__(
+        self,
+        title: str,
+        unit: str,
+        min_value: float,
+        max_value: float,
+        accent_rgb: tuple[float, float, float],
+    ) -> None:
+        super().__init__()
+        self.title = title
+        self.accent_rgb = accent_rgb
+        self.state = GaugeState(
+            value=0,
+            label="--",
+            unit=unit,
+            min_value=min_value,
+            max_value=max_value,
+        )
+        self.set_content_width(260)
+        self.set_content_height(260)
+        self.set_draw_func(self._draw)
+
+    def set_value(self, value: float | None, label: str | None = None) -> None:
+        if value is None or math.isnan(value):
+            self.state.label = "--"
+            self.state.value = self.state.min_value
+        else:
+            self.state.value = max(self.state.min_value, min(self.state.max_value, value))
+            self.state.label = label if label is not None else f"{value:.0f}"
+        self.queue_draw()
+
+    def _draw(self, area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
+        size = min(width, height)
+        cx = width / 2
+        cy = height / 2
+        radius = size * 0.39
+        line_width = max(7, size * 0.035)
+
+        start_angle = math.radians(135)
+        end_angle = math.radians(405)
+        span = end_angle - start_angle
+        normalized = (self.state.value - self.state.min_value) / (self.state.max_value - self.state.min_value)
+        normalized = max(0.0, min(1.0, normalized))
+        value_angle = start_angle + span * normalized
+
+        # Hintergrund
+        cr.set_source_rgb(0.02, 0.025, 0.03)
+        cr.arc(cx, cy, radius + line_width * 1.15, 0, math.tau)
+        cr.fill()
+
+        # Äußerer Ring
+        cr.set_line_width(2.0)
+        cr.set_source_rgba(0.86, 0.91, 0.96, 0.85)
+        cr.arc(cx, cy, radius + line_width * 1.4, start_angle, end_angle)
+        cr.stroke()
+
+        # Skala dunkel
+        cr.set_line_width(line_width)
+        cr.set_line_cap(1)
+        cr.set_source_rgba(0.35, 0.42, 0.48, 0.45)
+        cr.arc(cx, cy, radius, start_angle, end_angle)
+        cr.stroke()
+
+        # Wertbogen
+        cr.set_source_rgba(self.accent_rgb[0], self.accent_rgb[1], self.accent_rgb[2], 0.92)
+        cr.arc(cx, cy, radius, start_angle, value_angle)
+        cr.stroke()
+
+        # Marker/Ticks
+        cr.set_line_width(2.0)
+        for index in range(0, 11):
+            angle = start_angle + span * (index / 10)
+            outer = radius + line_width * 0.8
+            inner = radius + line_width * (0.18 if index % 5 else -0.4)
+            cr.set_source_rgba(0.95, 0.97, 1.0, 0.75 if index % 5 else 0.95)
+            cr.move_to(cx + math.cos(angle) * inner, cy + math.sin(angle) * inner)
+            cr.line_to(cx + math.cos(angle) * outer, cy + math.sin(angle) * outer)
+            cr.stroke()
+
+        # Nadelspitze oben als optischer Bezugspunkt
+        cr.set_source_rgba(1, 1, 1, 0.95)
+        top = -math.pi / 2
+        cr.move_to(cx + math.cos(top) * (radius + line_width * 1.5), cy + math.sin(top) * (radius + line_width * 1.5))
+        cr.line_to(cx + math.cos(top - 0.06) * (radius + line_width * 0.25), cy + math.sin(top - 0.06) * (radius + line_width * 0.25))
+        cr.line_to(cx + math.cos(top + 0.06) * (radius + line_width * 0.25), cy + math.sin(top + 0.06) * (radius + line_width * 0.25))
+        cr.close_path()
+        cr.fill()
+
+        # Text
+        self._draw_center_text(cr, cx, cy, size)
+
+    def _draw_text_centered(self, cr: Any, text: str, x: float, y: float, size: float, alpha: float = 1.0, bold: bool = False) -> None:
+        cr.select_font_face("Cantarell", 0, 1 if bold else 0)
+        cr.set_font_size(size)
+        ext = cr.text_extents(text)
+        cr.set_source_rgba(0.94, 0.96, 1.0, alpha)
+        cr.move_to(x - ext.width / 2 - ext.x_bearing, y - ext.height / 2 - ext.y_bearing)
+        cr.show_text(text)
+
+    def _draw_center_text(self, cr: Any, cx: float, cy: float, size: int) -> None:
+        value_size = max(28, size * 0.19)
+        unit_size = max(14, size * 0.075)
+        title_size = max(13, size * 0.062)
+
+        self._draw_text_centered(cr, self.state.label, cx, cy - size * 0.06, value_size, 1.0, True)
+        self._draw_text_centered(cr, self.state.unit, cx, cy + size * 0.09, unit_size, 0.78, True)
+        self._draw_text_centered(cr, self.title, cx, cy + size * 0.26, title_size, 0.62, False)
+
+
+class ObdReader(GObject.Object):
+    """Liest OBD-II-Werte in einem Hintergrund-Thread."""
+
+    __gtype_name__ = "ObdReader"
+
+    def __init__(self, on_update: Callable[[dict[str, Any]], None]) -> None:
+        super().__init__()
+        self.on_update = on_update
+        self.stop_event = threading.Event()
+        self.thread: threading.Thread | None = None
+        self.connection = None
+        self.mock = obd is None
+
+    def _connection_log(self, event: str, **fields: Any) -> None:
+        """Schreibt jeden Verbindungsversuch sofort in ein separates Debug-Log."""
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event": event,
+                "obd_port": OBD_PORT,
+                "python_obd_available": obd is not None,
+                **fields,
+            }
+            with CONNECTION_LOG_FILE.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+        except Exception:
+            pass
+
+    def start(self) -> None:
+        self._connection_log("reader_start")
+        self.thread = threading.Thread(target=self._run, name="obd-reader", daemon=True)
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.stop_event.set()
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.5)
+        if self.connection:
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+
+    def _candidate_ports(self) -> list[str | None]:
+        if OBD_PORT:
+            return [OBD_PORT]
+
+        candidates: list[str | None] = [None]
+        for pattern in ("/dev/rfcomm*", "/dev/ttyUSB*", "/dev/ttyACM*", "/dev/serial/by-id/*"):
+            candidates.extend(str(path) for path in sorted(Path("/").glob(pattern.lstrip("/"))))
+        return candidates
+
+    def _connect(self) -> None:
+        self._connection_log("connect_begin")
+
+        if obd is None:
+            self.mock = True
+            self._connection_log("connect_failed", reason="python-obd nicht importierbar", fallback="mock")
+            return
+
+        for port in self._candidate_ports():
+            if self.stop_event.is_set():
+                self._connection_log("connect_aborted", reason="stop_event")
+                return
+
+            try:
+                self._connection_log("connect_attempt", port=port, fast=False, timeout=1.0)
+                # fast=False ist oft stabiler bei günstigen ELM327-Adaptern.
+                self.connection = obd.OBD(port, fast=False, timeout=1.0)
+                connected = bool(self.connection and self.connection.is_connected())
+                self._connection_log(
+                    "connect_result",
+                    port=port,
+                    connected=connected,
+                    status=str(getattr(self.connection, "status", lambda: "unknown")()),
+                )
+                if connected:
+                    self.mock = False
+                    self._connection_log("connect_success", port=port)
+                    return
+
+                try:
+                    if self.connection:
+                        self.connection.close()
+                except Exception as close_exc:
+                    self._connection_log("connect_close_error", port=port, error=str(close_exc))
+                self.connection = None
+            except Exception as exc:
+                self.connection = None
+                self._connection_log("connect_exception", port=port, error=repr(exc), error_type=type(exc).__name__)
+
+        self.mock = True
+        self._connection_log("connect_failed", reason="kein nutzbarer Dongle gefunden", fallback="mock")
+
+    def _run(self) -> None:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        self._connect()
+
+        while not self.stop_event.is_set():
+            payload = self._read_mock() if self.mock else self._read_obd()
+            payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+            payload["source"] = "mock" if self.mock else "obd"
+            self._write_log(payload)
+            GLib.idle_add(self.on_update, payload)
+            time.sleep(POLL_INTERVAL_SECONDS)
+
+    def _read_obd(self) -> dict[str, Any]:
+        assert obd is not None
+        assert self.connection is not None
+
+        commands = {
+            "rpm": obd.commands.RPM,
+            "speed": obd.commands.SPEED,
+            "coolant_temp": obd.commands.COOLANT_TEMP,
+            "throttle_pos": obd.commands.THROTTLE_POS,
+            "engine_load": obd.commands.ENGINE_LOAD,
+            "intake_temp": obd.commands.INTAKE_TEMP,
+            "maf": obd.commands.MAF,
+            "fuel_level": getattr(obd.commands, "FUEL_LEVEL", None),
+            "runtime": getattr(obd.commands, "RUN_TIME", None),
+            "control_module_voltage": getattr(obd.commands, "CONTROL_MODULE_VOLTAGE", None),
+        }
+
+        data: dict[str, Any] = {}
+        for key, command in commands.items():
+            if command is None:
+                continue
+            try:
+                response = self.connection.query(command)
+                data[key] = self._response_to_plain_value(response)
+            except Exception as exc:
+                data[f"{key}_error"] = str(exc)
+        return data
+
+    def _response_to_plain_value(self, response: Any) -> Any:
+        if response is None or response.is_null():
+            return None
+        value = response.value
+        try:
+            # Pint-Quantity aus python-OBD.
+            magnitude = value.magnitude
+            unit = str(value.units)
+            return {"value": float(magnitude), "unit": unit}
+        except Exception:
+            return str(value)
+
+    def _read_mock(self) -> dict[str, Any]:
+        now = time.time()
+        rpm = 900 + 700 * (math.sin(now / 3) + 1) + random.uniform(-80, 80)
+        speed = max(0, 55 + 18 * math.sin(now / 6) + random.uniform(-3, 3))
+        temp = 84 + 4 * math.sin(now / 15) + random.uniform(-0.5, 0.5)
+        previous_speed = getattr(self, "_mock_previous_speed", speed)
+        previous_time = getattr(self, "_mock_previous_time", now)
+        dt = max(0.001, now - previous_time)
+        acceleration_ms2 = ((speed - previous_speed) / 3.6) / dt
+        acceleration_g = acceleration_ms2 / 9.80665
+        self._mock_previous_speed = speed
+        self._mock_previous_time = now
+
+        return {
+            "rpm": {"value": rpm, "unit": "rpm"},
+            "speed": {"value": speed, "unit": "km/h"},
+            "gps_speed": {"value": max(0, speed + random.uniform(-1.5, 1.5)), "unit": "km/h"},
+            "acceleration_g": {"value": acceleration_g, "unit": "g"},
+            "coolant_temp": {"value": temp, "unit": "degC"},
+            "throttle_pos": {"value": random.uniform(8, 42), "unit": "percent"},
+            "engine_load": {"value": random.uniform(12, 68), "unit": "percent"},
+            "intake_temp": {"value": 20 + random.uniform(-3, 5), "unit": "degC"},
+            "control_module_voltage": {"value": 13.8 + random.uniform(-0.25, 0.25), "unit": "volt"},
+        }
+
+    def _write_log(self, payload: dict[str, Any]) -> None:
+        try:
+            with LOG_FILE.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception:
+            # Dashboard soll auch bei Logging-Problemen weiterlaufen.
+            pass
+
+
+class SettingsDialog(Adw.PreferencesDialog):
+    __gtype_name__ = "SettingsDialog"
+
+    def __init__(self, parent: Gtk.Window, current_units: str, on_units_changed: Callable[[str], None]) -> None:
+        super().__init__()
+        self.set_title("Einstellungen")
+        self.on_units_changed = on_units_changed
+
+        page = Adw.PreferencesPage(title="Anzeige")
+        group = Adw.PreferencesGroup(title="Einheiten")
+
+        self.unit_row = Adw.ComboRow(title="Geschwindigkeit")
+        model = Gtk.StringList()
+        model.append("Metrisch (km/h)")
+        model.append("Imperial (mph)")
+        self.unit_row.set_model(model)
+        self.unit_row.set_selected(0 if current_units == "metric" else 1)
+        self.unit_row.connect("notify::selected", self._on_unit_selected)
+
+        group.add(self.unit_row)
+        page.add(group)
+        self.add(page)
+
+    def _on_unit_selected(self, *_args: Any) -> None:
+        self.on_units_changed("metric" if self.unit_row.get_selected() == 0 else "imperial")
+
+
+class AccelerationPage(Gtk.Box):
+    __gtype_name__ = "AccelerationPage"
+
+    SPEED_TARGETS_KMH = (30, 50, 70, 100, 150, 200)
+    G_FORCE_START_THRESHOLD = 0.02
+
+    def __init__(self) -> None:
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.set_margin_top(18)
+        self.set_margin_bottom(18)
+        self.set_margin_start(18)
+        self.set_margin_end(18)
+
+        self.armed = False
+        self.running = False
+        self.start_monotonic: float | None = None
+        self.last_obd_speed: float | None = None
+        self.last_speed_time: float | None = None
+        self.computed_acceleration_g: float | None = None
+        self.results: dict[int, dict[str, float | None]] = {
+            target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
+        }
+
+        title = Gtk.Label(label="DrivePulse Acceleration")
+        title.add_css_class("title-1")
+        title.set_halign(Gtk.Align.START)
+
+        self.status_label = Gtk.Label(label="Bereit. Start drücken und losfahren.")
+        self.status_label.add_css_class("dim-label")
+        self.status_label.set_halign(Gtk.Align.START)
+        self.status_label.set_wrap(True)
+
+        self.g_label = Gtk.Label(label="G: --")
+        self.g_label.add_css_class("heading")
+        self.g_label.set_halign(Gtk.Align.START)
+
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.start_button = Gtk.Button(label="Start")
+        self.start_button.add_css_class("suggested-action")
+        self.start_button.connect("clicked", self.start_measurement)
+        self.reset_button = Gtk.Button(label="Reset")
+        self.reset_button.connect("clicked", self.reset_measurement)
+        controls.append(self.start_button)
+        controls.append(self.reset_button)
+
+        self.grid = Gtk.Grid(column_spacing=16, row_spacing=8)
+        self.grid.set_halign(Gtk.Align.FILL)
+        self.grid.set_hexpand(True)
+        self._build_grid()
+
+        note = Gtk.Label(label="Startzeit wird erst gesetzt, wenn G-Kraft oder Geschwindigkeitsanstieg erkannt wird. GPS-Zeiten erscheinen nur, wenn gps_speed im Payload vorhanden ist.")
+        note.add_css_class("dim-label")
+        note.set_wrap(True)
+        note.set_halign(Gtk.Align.START)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        card.add_css_class("card")
+        card.set_margin_top(4)
+        card.set_margin_bottom(4)
+        card.set_margin_start(4)
+        card.set_margin_end(4)
+        card.append(self.status_label)
+        card.append(self.g_label)
+        card.append(controls)
+        card.append(self.grid)
+        card.append(note)
+
+        self.append(title)
+        self.append(card)
+
+    def _build_grid(self) -> None:
+        headers = ("Ziel", "Tacho", "GPS")
+        for col, text in enumerate(headers):
+            label = Gtk.Label(label=text)
+            label.add_css_class("heading")
+            label.set_halign(Gtk.Align.START)
+            self.grid.attach(label, col, 0, 1, 1)
+
+        self.result_labels: dict[tuple[int, str], Gtk.Label] = {}
+        for row, target in enumerate(self.SPEED_TARGETS_KMH, start=1):
+            target_label = Gtk.Label(label=f"0-{target} km/h")
+            target_label.set_halign(Gtk.Align.START)
+            self.grid.attach(target_label, 0, row, 1, 1)
+
+            for col, source in enumerate(("obd", "gps"), start=1):
+                label = Gtk.Label(label="--")
+                label.set_halign(Gtk.Align.START)
+                self.result_labels[(target, source)] = label
+                self.grid.attach(label, col, row, 1, 1)
+
+    def start_measurement(self, *_args: Any) -> None:
+        self.armed = True
+        self.running = False
+        self.start_monotonic = None
+        self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
+        for label in self.result_labels.values():
+            label.set_text("--")
+        self.status_label.set_text("Scharf. Zeit startet bei erkannter Beschleunigung.")
+
+    def reset_measurement(self, *_args: Any) -> None:
+        self.armed = False
+        self.running = False
+        self.start_monotonic = None
+        self.last_obd_speed = None
+        self.last_speed_time = None
+        self.computed_acceleration_g = None
+        self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
+        for label in self.result_labels.values():
+            label.set_text("--")
+        self.g_label.set_text("G: --")
+        self.status_label.set_text("Bereit. Start drücken und losfahren.")
+
+    def update_payload(self, payload: dict[str, Any], read_number: Callable[[dict[str, Any], str], float | None]) -> None:
+        now = time.monotonic()
+        obd_speed = read_number(payload, "speed")
+        gps_speed = read_number(payload, "gps_speed")
+        measured_g = read_number(payload, "acceleration_g")
+
+        if obd_speed is not None and self.last_obd_speed is not None and self.last_speed_time is not None:
+            dt = max(0.001, now - self.last_speed_time)
+            acceleration_ms2 = ((obd_speed - self.last_obd_speed) / 3.6) / dt
+            self.computed_acceleration_g = acceleration_ms2 / 9.80665
+
+        if obd_speed is not None:
+            self.last_obd_speed = obd_speed
+            self.last_speed_time = now
+
+        active_g = measured_g if measured_g is not None else self.computed_acceleration_g
+        self.g_label.set_text("G: --" if active_g is None else f"G: {active_g:.3f}")
+
+        if self.armed and not self.running:
+            speed_rising = self.computed_acceleration_g is not None and self.computed_acceleration_g > self.G_FORCE_START_THRESHOLD
+            g_rising = active_g is not None and active_g > self.G_FORCE_START_THRESHOLD
+            if speed_rising or g_rising:
+                self.running = True
+                self.start_monotonic = now
+                self.status_label.set_text("Messung läuft …")
+
+        if not self.running or self.start_monotonic is None:
+            return
+
+        elapsed = now - self.start_monotonic
+        for target in self.SPEED_TARGETS_KMH:
+            row = self.results[target]
+            if row["obd"] is None and obd_speed is not None and obd_speed >= target:
+                row["obd"] = elapsed
+                self.result_labels[(target, "obd")].set_text(f"{elapsed:.2f} s")
+            if row["gps"] is None and gps_speed is not None and gps_speed >= target:
+                row["gps"] = elapsed
+                self.result_labels[(target, "gps")].set_text(f"{elapsed:.2f} s")
+
+        all_done = all(values["obd"] is not None or values["gps"] is not None for values in self.results.values())
+        if all_done:
+            self.running = False
+            self.armed = False
+            self.status_label.set_text("Messung abgeschlossen.")
+
+
+class DashboardWindow(Adw.ApplicationWindow):
+    __gtype_name__ = "DashboardWindow"
+
+    PAGE_DASHBOARD = "dashboard"
+    PAGE_ACCELERATION = "acceleration"
+
+    def __init__(self, app: Adw.Application) -> None:
+        super().__init__(application=app, title="DrivePulse")
+        self.set_default_size(980, 520)
+        self.units = self._load_units()
+        self.last_payload: dict[str, Any] | None = None
+
+        self.rpm_gauge = Gauge("Drehzahl", "rpm", 0, 7000, (0.34, 0.62, 0.86))
+        speed_unit = "km/h" if self.units == "metric" else "mph"
+        speed_max = 240 if self.units == "metric" else 150
+        self.speed_gauge = Gauge("Geschwindigkeit", speed_unit, 0, speed_max, (0.50, 0.72, 0.92))
+        self.temp_gauge = Gauge("Kühlmittel", "°C", 40, 130, (0.72, 0.32, 0.48))
+
+        self.status_label = Gtk.Label(label="Verbinde …")
+        self.status_label.add_css_class("dim-label")
+        self.log_label = Gtk.Label(label=f"Datenlog: {LOG_FILE} | Verbindungslog: {CONNECTION_LOG_FILE}")
+        self.log_label.add_css_class("dim-label")
+        self.log_label.set_wrap(True)
+
+        self.gauge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        self.gauge_box.set_halign(Gtk.Align.FILL)
+        self.gauge_box.set_valign(Gtk.Align.FILL)
+        self.gauge_box.set_hexpand(True)
+        self.gauge_box.set_vexpand(True)
+
+        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
+            gauge.set_hexpand(True)
+            gauge.set_vexpand(True)
+            gauge.set_halign(Gtk.Align.FILL)
+            gauge.set_valign(Gtk.Align.FILL)
+            self.gauge_box.append(gauge)
+
+        footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        footer.set_halign(Gtk.Align.CENTER)
+        footer.append(self.status_label)
+        footer.append(self.log_label)
+
+        dashboard_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        dashboard_page.set_margin_top(18)
+        dashboard_page.set_margin_bottom(18)
+        dashboard_page.set_margin_start(18)
+        dashboard_page.set_margin_end(18)
+        dashboard_page.append(self.gauge_box)
+        dashboard_page.append(footer)
+
+        self.acceleration_page = AccelerationPage()
+
+        self.view_stack = Adw.ViewStack()
+        self.view_stack.set_vexpand(True)
+        self.view_stack.set_hexpand(True)
+        self.view_stack.set_enable_transitions(True)
+        self.view_stack.set_transition_duration(240)
+        self.view_stack.add_titled_with_icon(dashboard_page, self.PAGE_DASHBOARD, "Tachos", "dashboard-symbolic")
+        self.view_stack.add_titled_with_icon(self.acceleration_page, self.PAGE_ACCELERATION, "Acceleration", "view-statistics-symbolic")
+
+        swipe = Gtk.GestureSwipe()
+        swipe.connect("swipe", self._on_swipe)
+        self.view_stack.add_controller(swipe)
+
+        switcher_bar = Adw.ViewSwitcherBar()
+        switcher_bar.set_stack(self.view_stack)
+        switcher_bar.set_reveal(True)
+
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Gtk.Label(label="DrivePulse"))
+
+        settings_button = Gtk.Button(icon_name="emblem-system-symbolic")
+        settings_button.set_tooltip_text("Einstellungen")
+        settings_button.connect("clicked", self._open_settings)
+        header.pack_end(settings_button)
+
+        toolbar_view.add_top_bar(header)
+        toolbar_view.add_bottom_bar(switcher_bar)
+        toolbar_view.set_content(self.view_stack)
+
+        self.set_content(toolbar_view)
+        self.connect("notify::default-width", self._on_size_changed)
+        self.connect("notify::default-height", self._on_size_changed)
+        self.add_tick_callback(self._layout_tick)
+        GLib.idle_add(self._on_size_changed)
+
+        self.reader = ObdReader(self._update_from_payload)
+        self.reader.start()
+
+    def close(self) -> bool:
+        self.reader.stop()
+        return super().close()
+
+    def _load_units(self) -> str:
+        try:
+            data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+            units = data.get("units")
+            return units if units in {"metric", "imperial"} else "metric"
+        except Exception:
+            return "metric"
+
+    def _save_units(self) -> None:
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            SETTINGS_FILE.write_text(json.dumps({"units": self.units}, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _open_settings(self, *_args: Any) -> None:
+        dialog = SettingsDialog(self, self.units, self._set_units)
+        dialog.present(self)
+
+    def _set_units(self, units: str) -> None:
+        if units == self.units:
+            return
+        self.units = units
+        self._save_units()
+
+        if self.units == "metric":
+            self.speed_gauge.state.unit = "km/h"
+            self.speed_gauge.state.max_value = 240
+        else:
+            self.speed_gauge.state.unit = "mph"
+            self.speed_gauge.state.max_value = 150
+
+        if self.last_payload is not None:
+            self._update_from_payload(self.last_payload)
+        else:
+            self.speed_gauge.queue_draw()
+
+    def _layout_tick(self, *_args: Any) -> bool:
+        self._on_size_changed()
+        return True
+
+    def _on_size_changed(self, *_args: Any) -> bool:
+        width = self.get_width()
+        height = self.get_height()
+        if width <= 0 or height <= 0:
+            return False
+
+        self._set_gauge_layout(width, height)
+
+        return False
+
+    def _set_gauge_layout(self, width: int, height: int) -> None:
+        # Hoch- und Querformat: alle Tachos bleiben nebeneinander.
+        self.gauge_box.set_orientation(Gtk.Orientation.HORIZONTAL)
+        self.gauge_box.set_spacing(16)
+        self.gauge_box.set_halign(Gtk.Align.FILL)
+        self.gauge_box.set_valign(Gtk.Align.CENTER)
+
+        available_width = max(120, width - 36)
+        available_height = max(120, height - 120)
+        gauge_size = max(92, min(available_height, available_width // 3 - 16))
+
+        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
+            gauge.set_hexpand(True)
+            gauge.set_vexpand(True)
+            gauge.set_halign(Gtk.Align.CENTER)
+            gauge.set_valign(Gtk.Align.CENTER)
+            gauge.set_size_request(gauge_size, gauge_size)
+            gauge.set_content_width(gauge_size)
+            gauge.set_content_height(gauge_size)
+
+    def _on_swipe(self, _gesture: Gtk.GestureSwipe, velocity_x: float, velocity_y: float) -> None:
+        if abs(velocity_x) < 220 or abs(velocity_x) <= abs(velocity_y):
+            return
+
+        current = self.view_stack.get_visible_child_name()
+        pages = [self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
+        try:
+            index = pages.index(current)
+        except ValueError:
+            index = 0
+
+        if velocity_x < 0 and index < len(pages) - 1:
+            self.view_stack.set_visible_child_name(pages[index + 1])
+        elif velocity_x > 0 and index > 0:
+            self.view_stack.set_visible_child_name(pages[index - 1])
+
+    def _plain_number(self, data: dict[str, Any], key: str) -> float | None:
+        item = data.get(key)
+        if item is None:
+            return None
+        if isinstance(item, dict):
+            value = item.get("value")
+        else:
+            value = item
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    def _display_speed(self, speed_kmh: float | None) -> float | None:
+        if speed_kmh is None:
+            return None
+        return speed_kmh if self.units == "metric" else speed_kmh * 0.621371
+
+    def _update_from_payload(self, payload: dict[str, Any]) -> bool:
+        self.last_payload = payload
+        rpm = self._plain_number(payload, "rpm")
+        speed = self._display_speed(self._plain_number(payload, "speed"))
+        temp = self._plain_number(payload, "coolant_temp")
+
+        self.rpm_gauge.set_value(rpm, None if rpm is None else f"{rpm:.0f}")
+        self.speed_gauge.set_value(speed, None if speed is None else f"{speed:.0f}")
+        self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
+        self.acceleration_page.update_payload(payload, self._plain_number)
+
+        source = payload.get("source", "?")
+        self.status_label.set_text(f"Quelle: {source} | letzte Aktualisierung: {datetime.now().strftime('%H:%M:%S')}")
+        return False
+
+
+class ObdDashboardApp(Adw.Application):
+    def __init__(self) -> None:
+        super().__init__(application_id=APP_ID)
+        self.window: DashboardWindow | None = None
+
+    def do_activate(self) -> None:
+        if self.window is None:
+            self.window = DashboardWindow(self)
+        self.window.present()
+
+
+def main() -> int:
+    _print_required_python_packages()
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    app = ObdDashboardApp()
+    return app.run(None)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
