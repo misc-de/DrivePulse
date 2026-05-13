@@ -121,8 +121,9 @@ class Gauge(Gtk.DrawingArea):
             min_value=min_value,
             max_value=max_value,
         )
-        self.set_content_width(260)
-        self.set_content_height(260)
+        self.set_content_width(1)
+        self.set_content_height(1)
+        self.set_size_request(1, 1)
         self.set_draw_func(self._draw)
 
     def set_value(self, value: float | None, label: str | None = None) -> None:
@@ -632,23 +633,38 @@ class DashboardWindow(Adw.ApplicationWindow):
         footer.append(self.status_label)
         footer.append(self.log_label)
 
-        dashboard_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        dashboard_page.set_margin_top(18)
-        dashboard_page.set_margin_bottom(18)
-        dashboard_page.set_margin_start(18)
-        dashboard_page.set_margin_end(18)
-        dashboard_page.append(self.gauge_box)
-        dashboard_page.append(footer)
+        self.footer = footer
+
+        self.dashboard_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.dashboard_page.set_margin_top(12)
+        self.dashboard_page.set_margin_bottom(12)
+        self.dashboard_page.set_margin_start(12)
+        self.dashboard_page.set_margin_end(12)
+        self.dashboard_page.append(self.gauge_box)
+        self.dashboard_page.append(footer)
+
+        dashboard_scroller = Gtk.ScrolledWindow()
+        dashboard_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        dashboard_scroller.set_propagate_natural_width(False)
+        dashboard_scroller.set_propagate_natural_height(False)
+        dashboard_scroller.set_child(self.dashboard_page)
 
         self.acceleration_page = AccelerationPage()
+        acceleration_scroller = Gtk.ScrolledWindow()
+        acceleration_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        acceleration_scroller.set_propagate_natural_width(False)
+        acceleration_scroller.set_propagate_natural_height(False)
+        acceleration_scroller.set_child(self.acceleration_page)
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
         self.view_stack.set_hexpand(True)
+        self.view_stack.set_hhomogeneous(False)
+        self.view_stack.set_vhomogeneous(False)
         self.view_stack.set_enable_transitions(True)
         self.view_stack.set_transition_duration(240)
-        self.view_stack.add_titled_with_icon(dashboard_page, self.PAGE_DASHBOARD, "Tachos", "dashboard-symbolic")
-        self.view_stack.add_titled_with_icon(self.acceleration_page, self.PAGE_ACCELERATION, "Acceleration", "view-statistics-symbolic")
+        self.view_stack.add_titled_with_icon(dashboard_scroller, self.PAGE_DASHBOARD, "Tachos", "dashboard-symbolic")
+        self.view_stack.add_titled_with_icon(acceleration_scroller, self.PAGE_ACCELERATION, "Acceleration", "view-statistics-symbolic")
 
         swipe = Gtk.GestureSwipe()
         swipe.connect("swipe", self._on_swipe)
@@ -726,8 +742,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         return True
 
     def _on_size_changed(self, *_args: Any) -> bool:
-        width = self.get_width()
-        height = self.get_height()
+        width = self.dashboard_page.get_width() or self.view_stack.get_width() or self.get_width()
+        height = self.dashboard_page.get_height() or self.view_stack.get_height() or self.get_height()
         if width <= 0 or height <= 0:
             return False
 
@@ -745,9 +761,10 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.gauge_box.set_halign(Gtk.Align.FILL)
         self.gauge_box.set_valign(Gtk.Align.CENTER)
 
-        available_width = max(120, width - 36)
-        available_height = max(120, height - 120)
-        gauge_size = max(92, min(available_height, available_width // 3 - 16))
+        footer_height = max(0, self.footer.get_height())
+        available_width = max(1, width - 24)
+        available_height = max(1, height - 24 - footer_height - 8)
+        gauge_size = max(1, min(available_height, (available_width - 32) // 3))
 
         for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
             gauge.set_hexpand(True)
@@ -765,9 +782,10 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.gauge_box.set_halign(Gtk.Align.CENTER)
         self.gauge_box.set_valign(Gtk.Align.CENTER)
 
-        available_width = max(120, width - 36)
-        available_height = max(120, height - 120)
-        gauge_size = max(72, min(available_width, available_height // 3 - 8))
+        footer_height = max(0, self.footer.get_height())
+        available_width = max(1, width - 24)
+        available_height = max(1, height - 24 - footer_height - 8)
+        gauge_size = max(1, min(available_width, (available_height - 16) // 3))
 
         for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
             gauge.set_hexpand(False)
