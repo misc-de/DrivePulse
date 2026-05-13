@@ -30,12 +30,10 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import random
 import signal
 import threading
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import metadata, util
 from pathlib import Path
@@ -46,122 +44,38 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, GObject, Gtk  # noqa: E402
 
 try:
     import obd  # type: ignore
 except Exception:
     obd = None
 
+from common import (
+    APP_ID,
+    CONNECTION_LOG_FILE,
+    LOG_DIR,
+    LOG_FILE,
+    OBD_BAUDRATE,
+    OBD_FAST,
+    OBD_PORT,
+    OBD_TIMEOUT_SECONDS,
+    POLL_INTERVAL_SECONDS,
+    SETTINGS_FILE,
+    SUPPORTED_LANGUAGES,
+    _detect_language,
+    _make_label_responsive,
+    _normalize_language,
+    _translate,
+)
+from gauge import Gauge
+from acceleration import AccelerationPage
 
-APP_ID = "de.cais.DrivePulse"
-LOG_DIR = Path(os.environ.get("OBD_LOG_DIR", Path.home() / ".local" / "state" / "drivepulse"))
-LOG_FILE = LOG_DIR / "obd-log.jsonl"
-CONNECTION_LOG_FILE = LOG_DIR / "connection-log.jsonl"
-POLL_INTERVAL_SECONDS = float(os.environ.get("OBD_POLL_INTERVAL", "0.5"))
-OBD_PORT = os.environ.get("OBD_PORT")
-OBD_BAUDRATE = int(os.environ["OBD_BAUDRATE"]) if os.environ.get("OBD_BAUDRATE") else None
-OBD_TIMEOUT_SECONDS = float(os.environ.get("OBD_TIMEOUT", "2.0"))
-OBD_FAST = os.environ.get("OBD_FAST", "0").lower() in {"1", "true", "yes", "on"}
-SETTINGS_FILE = LOG_DIR / "settings.json"
 REQUIRED_PYTHON_PACKAGES = (
     ("PyGObject", "gi", "GTK/libadwaita Python-Bindings"),
     ("pyserial", "serial", "serielle Bluetooth/USB-Port-Anbindung"),
     ("obd", "obd", "OBD-II Dongle-Anbindung"),
 )
-SOURCE_LANGUAGE = "en"
-SUPPORTED_LANGUAGES = ("en", "de")
-TRANSLATIONS: dict[str, dict[str, str]] = {
-    "en": {
-        "acceleration.title": "Acceleration",
-        "acceleration.subtitle": "Measure 0-30, 0-50, 0-70, 0-100, 0-150 and 0-200 km/h runs from OBD and GPS data.",
-        "acceleration.ready": "Ready. Press Start and accelerate.",
-        "acceleration.armed": "Armed. Timing starts when acceleration is detected.",
-        "acceleration.running": "Measurement running...",
-        "acceleration.done": "Measurement complete.",
-        "acceleration.g": "G: {value}",
-        "acceleration.g.empty": "G: --",
-        "acceleration.start": "Start",
-        "acceleration.abort": "Abort",
-        "acceleration.reset": "Reset",
-        "acceleration.best": "Best",
-        "acceleration.obd": "OBD",
-        "acceleration.gps": "GPS",
-        "acceleration.note": "Timing starts when g-force or a rising speed signal is detected. GPS times appear when gps_speed is available.",
-        "settings.title": "Settings",
-        "settings.display": "Display",
-        "settings.units": "Units",
-        "settings.speed": "Speed",
-        "settings.metric": "Metric (km/h)",
-        "settings.imperial": "Imperial (mph)",
-        "settings.language": "Language",
-        "settings.language.en": "English",
-        "settings.language.de": "Deutsch",
-        "settings.mock_mode": "Mock Mode",
-        "settings.mock_mode.subtitle": "Simulate OBD and GPS data without hardware",
-        "gauge.rpm": "RPM",
-        "gauge.speed": "Speed",
-        "gauge.coolant": "Coolant",
-        "status.connecting": "Connecting...",
-        "status.obd": "OBD",
-        "status.gps": "GPS",
-        "status.log_paths": "Data log: {data_log} | Connection log: {connection_log}",
-        "status.updated": "{status} | last update: {time}",
-        "nav.gauges": "Gauges",
-        "nav.acceleration": "Acceleration",
-        "window.title": "DrivePulse",
-        "settings.tooltip": "Settings",
-    },
-    "de": {
-        "acceleration.title": "Beschleunigung",
-        "acceleration.subtitle": "Misst 0-30, 0-50, 0-70, 0-100, 0-150 und 0-200 km/h mit OBD- und GPS-Daten.",
-        "acceleration.ready": "Bereit. Start drücken und losfahren.",
-        "acceleration.armed": "Scharf. Zeit startet bei erkannter Beschleunigung.",
-        "acceleration.running": "Messung läuft...",
-        "acceleration.done": "Messung abgeschlossen.",
-        "acceleration.g": "G: {value}",
-        "acceleration.g.empty": "G: --",
-        "acceleration.start": "Start",
-        "acceleration.abort": "Abbruch",
-        "acceleration.reset": "Reset",
-        "acceleration.best": "Bestzeit",
-        "acceleration.obd": "OBD",
-        "acceleration.gps": "GPS",
-        "acceleration.note": "Startzeit wird erst gesetzt, wenn G-Kraft oder Geschwindigkeitsanstieg erkannt wird. GPS-Zeiten erscheinen nur, wenn gps_speed im Payload vorhanden ist.",
-        "settings.title": "Einstellungen",
-        "settings.display": "Anzeige",
-        "settings.units": "Einheiten",
-        "settings.speed": "Geschwindigkeit",
-        "settings.metric": "Metrisch (km/h)",
-        "settings.imperial": "Imperial (mph)",
-        "settings.language": "Sprache",
-        "settings.language.en": "English",
-        "settings.language.de": "Deutsch",
-        "settings.mock_mode": "Mock-Modus",
-        "settings.mock_mode.subtitle": "OBD- und GPS-Daten ohne Hardware simulieren",
-        "gauge.rpm": "Drehzahl",
-        "gauge.speed": "Geschwindigkeit",
-        "gauge.coolant": "Kühlmittel",
-        "status.connecting": "Verbinde...",
-        "status.obd": "OBD",
-        "status.gps": "GPS",
-        "status.log_paths": "Datenlog: {data_log} | Verbindungslog: {connection_log}",
-        "status.updated": "{status} | letzte Aktualisierung: {time}",
-        "nav.gauges": "Tachos",
-        "nav.acceleration": "Beschleunigung",
-        "window.title": "DrivePulse",
-        "settings.tooltip": "Einstellungen",
-    },
-}
-
-
-@dataclass
-class GaugeState:
-    value: float = 0.0
-    label: str = "--"
-    unit: str = ""
-    min_value: float = 0.0
-    max_value: float = 100.0
 
 
 def _python_package_status(package_name: str, module_name: str) -> str:
@@ -187,168 +101,6 @@ def _print_required_python_packages() -> None:
     print(f"  - OBD_FAST: {'an' if OBD_FAST else 'aus'}")
     if OBD_PORT is None:
         print("  - Bluetooth-Hinweis: ELM327 koppeln und z. B. mit OBD_PORT=/dev/rfcomm0 starten.")
-
-
-def _normalize_language(language: str | None) -> str:
-    if not language:
-        return SOURCE_LANGUAGE
-    normalized = language.split(".", 1)[0].split("_", 1)[0].split("-", 1)[0].lower()
-    return normalized if normalized in SUPPORTED_LANGUAGES else SOURCE_LANGUAGE
-
-
-def _detect_language() -> str:
-    return _normalize_language(os.environ.get("DRIVEPULSE_LANG") or os.environ.get("LANG"))
-
-
-def _translate(language: str, key: str, **values: object) -> str:
-    text = TRANSLATIONS.get(_normalize_language(language), {}).get(key)
-    if text is None:
-        text = TRANSLATIONS[SOURCE_LANGUAGE].get(key, key)
-    return text.format(**values) if values else text
-
-
-def _make_label_responsive(label: Gtk.Label, max_width_chars: int = 34, xalign: float = 0.0) -> Gtk.Label:
-    label.set_wrap(True)
-    label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-    label.set_max_width_chars(max_width_chars)
-    label.set_xalign(xalign)
-    label.set_hexpand(True)
-    return label
-
-
-class Gauge(Gtk.DrawingArea):
-    """Ein einfacher runder Tacho im Stil eines digitalen Cockpits."""
-
-    __gtype_name__ = "Gauge"
-
-    def __init__(
-        self,
-        title: str,
-        unit: str,
-        min_value: float,
-        max_value: float,
-        accent_rgb: tuple[float, float, float],
-    ) -> None:
-        super().__init__()
-        self.title = title
-        self.accent_rgb = accent_rgb
-        self.state = GaugeState(
-            value=0,
-            label="--",
-            unit=unit,
-            min_value=min_value,
-            max_value=max_value,
-        )
-        self.active = False
-        self.set_content_width(1)
-        self.set_content_height(1)
-        self.set_size_request(1, 1)
-        self.set_draw_func(self._draw)
-
-    def set_value(self, value: float | None, label: str | None = None) -> None:
-        if value is None or math.isnan(value):
-            self.state.label = "--"
-            self.state.value = self.state.min_value
-            self.active = False
-        else:
-            self.state.value = max(self.state.min_value, min(self.state.max_value, value))
-            self.state.label = label if label is not None else f"{value:.0f}"
-            self.active = True
-        self.queue_draw()
-
-    def _draw(self, area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
-        size = min(width, height)
-        cx = width / 2
-        cy = height / 2
-        radius = size * 0.39
-        line_width = max(7, size * 0.035)
-
-        start_angle = math.radians(135)
-        end_angle = math.radians(405)
-        span = end_angle - start_angle
-        normalized = (self.state.value - self.state.min_value) / (self.state.max_value - self.state.min_value)
-        normalized = max(0.0, min(1.0, normalized))
-        value_angle = start_angle + span * normalized
-        active_alpha = 1.0 if self.active else 0.34
-        accent = self.accent_rgb if self.active else (0.45, 0.48, 0.50)
-
-        # Hintergrund
-        cr.set_source_rgb(0.02, 0.025, 0.03)
-        cr.arc(cx, cy, radius + line_width * 1.15, 0, math.tau)
-        cr.fill()
-
-        # Äußerer Ring
-        cr.set_line_width(2.0)
-        cr.set_source_rgba(0.86, 0.91, 0.96, 0.85 * active_alpha)
-        cr.arc(cx, cy, radius + line_width * 1.4, start_angle, end_angle)
-        cr.stroke()
-
-        # Skala dunkel
-        cr.set_line_width(line_width)
-        cr.set_line_cap(1)
-        cr.set_source_rgba(0.35, 0.42, 0.48, 0.28 if self.active else 0.16)
-        cr.arc(cx, cy, radius, start_angle, end_angle)
-        cr.stroke()
-
-        # Wertbogen
-        cr.set_source_rgba(accent[0], accent[1], accent[2], 0.92 * active_alpha)
-        cr.arc(cx, cy, radius, start_angle, value_angle)
-        cr.stroke()
-
-        # Marker/Ticks
-        cr.set_line_width(2.0)
-        for index in range(0, 11):
-            angle = start_angle + span * (index / 10)
-            outer = radius + line_width * 0.8
-            inner = radius + line_width * (0.18 if index % 5 else -0.4)
-            cr.set_source_rgba(0.95, 0.97, 1.0, (0.75 if index % 5 else 0.95) * active_alpha)
-            cr.move_to(cx + math.cos(angle) * inner, cy + math.sin(angle) * inner)
-            cr.line_to(cx + math.cos(angle) * outer, cy + math.sin(angle) * outer)
-            cr.stroke()
-
-        # Nadelspitze oben als optischer Bezugspunkt
-        cr.set_source_rgba(1, 1, 1, 0.95 * active_alpha)
-        top = -math.pi / 2
-        cr.move_to(cx + math.cos(top) * (radius + line_width * 1.5), cy + math.sin(top) * (radius + line_width * 1.5))
-        cr.line_to(cx + math.cos(top - 0.06) * (radius + line_width * 0.25), cy + math.sin(top - 0.06) * (radius + line_width * 0.25))
-        cr.line_to(cx + math.cos(top + 0.06) * (radius + line_width * 0.25), cy + math.sin(top + 0.06) * (radius + line_width * 0.25))
-        cr.close_path()
-        cr.fill()
-
-        # Text
-        self._draw_center_text(cr, cx, cy, size, active_alpha)
-
-    def _draw_text_centered(
-        self,
-        cr: Any,
-        text: str,
-        x: float,
-        y: float,
-        size: float,
-        alpha: float = 1.0,
-        bold: bool = False,
-        max_width: float | None = None,
-    ) -> None:
-        cr.select_font_face("Cantarell", 0, 1 if bold else 0)
-        cr.set_font_size(size)
-        ext = cr.text_extents(text)
-        if max_width is not None and ext.width > max_width:
-            size = max(9, size * (max_width / max(1, ext.width)))
-            cr.set_font_size(size)
-            ext = cr.text_extents(text)
-        cr.set_source_rgba(0.94, 0.96, 1.0, alpha)
-        cr.move_to(x - ext.width / 2 - ext.x_bearing, y - ext.height / 2 - ext.y_bearing)
-        cr.show_text(text)
-
-    def _draw_center_text(self, cr: Any, cx: float, cy: float, size: int, active_alpha: float) -> None:
-        value_size = max(28, size * 0.19)
-        unit_size = max(14, size * 0.075)
-        title_size = max(13, size * 0.062)
-
-        text_width = size * 0.72
-        self._draw_text_centered(cr, self.state.label, cx, cy - size * 0.06, value_size, active_alpha, True, text_width)
-        self._draw_text_centered(cr, self.state.unit, cx, cy + size * 0.09, unit_size, 0.78 * active_alpha, True, text_width)
-        self._draw_text_centered(cr, self.title, cx, cy + size * 0.26, title_size, 0.62 * active_alpha, False, text_width)
 
 
 class ObdReader(GObject.Object):
@@ -474,7 +226,6 @@ class ObdReader(GObject.Object):
                 if OBD_BAUDRATE is not None:
                     connect_kwargs["baudrate"] = OBD_BAUDRATE
                 self._connection_log("connect_attempt", port=port, **connect_kwargs)
-                # fast=False ist oft stabiler bei günstigen ELM327-Adaptern.
                 self.connection = obd.OBD(port, **connect_kwargs)
                 connected = bool(self.connection and self.connection.is_connected())
                 self._connection_log(
@@ -592,7 +343,6 @@ class ObdReader(GObject.Object):
             return None
         value = response.value
         try:
-            # Pint-Quantity aus python-OBD.
             magnitude = value.magnitude
             unit = str(value.units)
             return {"value": float(magnitude), "unit": unit}
@@ -630,7 +380,6 @@ class ObdReader(GObject.Object):
             with LOG_FILE.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
         except Exception:
-            # Dashboard soll auch bei Logging-Problemen weiterlaufen.
             pass
 
 
@@ -699,337 +448,6 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _on_mock_changed(self, *_args: Any) -> None:
         if self.on_mock_mode_changed is not None:
             self.on_mock_mode_changed(self.mock_switch.get_active())
-
-
-def _apply_warning_css(button: Gtk.Button) -> None:
-    provider = Gtk.CssProvider()
-    provider.load_from_data(
-        b"button.warning-reset{background:rgba(229,165,10,0.85);color:#1c1c1c;}"
-        b"button.warning-reset:hover{background:rgba(200,144,8,0.9);}"
-    )
-    button.add_css_class("warning-reset")
-    button.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-
-
-class AccelerationPage(Gtk.Box):
-    __gtype_name__ = "AccelerationPage"
-
-    SPEED_TARGETS_KMH = (30, 50, 70, 100, 150, 200)
-    RANGE_TARGETS_KMH: tuple[tuple[int, int], ...] = ((100, 200),)
-    G_FORCE_START_THRESHOLD = 0.02
-
-    def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.language = _normalize_language(language)
-        self.set_margin_top(12)
-        self.set_margin_bottom(12)
-        self.set_margin_start(12)
-        self.set_margin_end(12)
-
-        self.armed = False
-        self.running = False
-        self.start_monotonic: float | None = None
-        self.last_obd_speed: float | None = None
-        self.last_speed_time: float | None = None
-        self.computed_acceleration_g: float | None = None
-        self.results: dict[int, dict[str, float | None]] = {
-            target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
-        }
-        self.range_results: dict[tuple[int, int], dict[str, float | None]] = {
-            r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH
-        }
-
-        self.title_label = Gtk.Label()
-        self.title_label.add_css_class("title-1")
-        self.title_label.set_halign(Gtk.Align.START)
-
-        self.g_label = Gtk.Label()
-        self.g_label.add_css_class("title-2")
-        self.g_label.set_halign(Gtk.Align.END)
-        self.g_label.set_hexpand(True)
-
-        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        header_row.append(self.title_label)
-        header_row.append(self.g_label)
-
-        self.subtitle_label = _make_label_responsive(Gtk.Label(label=""), 54)
-        self.subtitle_label.add_css_class("dim-label")
-        self.subtitle_label.set_halign(Gtk.Align.START)
-
-        self.status_label = _make_label_responsive(Gtk.Label(label=""), 42)
-        self.status_label.add_css_class("dim-label")
-        self.status_label.set_halign(Gtk.Align.START)
-
-        intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        intro.set_margin_bottom(10)
-        intro.append(header_row)
-        intro.append(self.subtitle_label)
-        intro.append(self.status_label)
-
-        self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        self.result_labels: dict[Any, Gtk.Label] = {}
-        self.source_rows: dict[Any, Gtk.Box] = {}
-        self._build_result_rows()
-
-        self.note_label = _make_label_responsive(Gtk.Label(label=""), 54)
-        self.note_label.add_css_class("dim-label")
-        self.note_label.set_halign(Gtk.Align.START)
-        self.note_label.set_margin_top(8)
-
-        self.start_button = Gtk.Button()
-        self.start_button.add_css_class("suggested-action")
-        self.start_button.add_css_class("pill")
-        self.start_button.set_hexpand(True)
-        self.start_button.connect("clicked", self.start_measurement)
-
-        self.abort_button = Gtk.Button()
-        self.abort_button.add_css_class("destructive-action")
-        self.abort_button.add_css_class("pill")
-        self.abort_button.set_hexpand(True)
-        self.abort_button.set_visible(False)
-        self.abort_button.connect("clicked", self.abort_measurement)
-
-        self.reset_button = Gtk.Button()
-        self.reset_button.add_css_class("pill")
-        self.reset_button.set_hexpand(True)
-        self.reset_button.connect("clicked", self.reset_measurement)
-        _apply_warning_css(self.reset_button)
-
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        controls.set_margin_top(16)
-        controls.set_hexpand(True)
-        controls.append(self.start_button)
-        controls.append(self.abort_button)
-        controls.append(self.reset_button)
-
-        self.append(intro)
-        self.append(self.results_box)
-        self.append(self.note_label)
-        self.append(controls)
-
-        self._refresh_texts()
-
-    def _build_result_rows(self) -> None:
-        for target in self.SPEED_TARGETS_KMH:
-            self.results_box.append(self._make_result_row(f"0–{target} km/h", target))
-        for lo, hi in self.RANGE_TARGETS_KMH:
-            self.results_box.append(self._make_result_row(f"{lo}–{hi} km/h", (lo, hi)))
-
-    def _make_result_row(self, label_text: str, key: Any) -> Gtk.Box:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        row.add_css_class("card")
-        row.set_margin_top(2)
-        row.set_margin_bottom(2)
-
-        name_lbl = Gtk.Label(label=label_text)
-        name_lbl.add_css_class("heading")
-        name_lbl.set_halign(Gtk.Align.START)
-        name_lbl.set_hexpand(True)
-
-        obd_caption = Gtk.Label()
-        obd_caption.add_css_class("dim-label")
-        obd_val = Gtk.Label(label="--")
-        obd_val.set_width_chars(8)
-        obd_val.set_xalign(1.0)
-        obd_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        obd_box.append(obd_caption)
-        obd_box.append(obd_val)
-        obd_box.set_visible(False)
-
-        gps_caption = Gtk.Label()
-        gps_caption.add_css_class("dim-label")
-        gps_val = Gtk.Label(label="--")
-        gps_val.set_width_chars(8)
-        gps_val.set_xalign(1.0)
-        gps_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        gps_box.append(gps_caption)
-        gps_box.append(gps_val)
-        gps_box.set_visible(False)
-
-        best_caption = Gtk.Label()
-        best_caption.add_css_class("dim-label")
-        best_val = Gtk.Label(label="--")
-        best_val.add_css_class("title-4")
-        best_val.set_width_chars(8)
-        best_val.set_xalign(1.0)
-
-        row.append(name_lbl)
-        row.append(obd_box)
-        row.append(gps_box)
-        row.append(best_caption)
-        row.append(best_val)
-
-        self.result_labels[(key, "obd")] = obd_val
-        self.result_labels[(key, "gps")] = gps_val
-        self.result_labels[(key, "best")] = best_val
-        self.source_rows[(key, "obd")] = obd_box
-        self.source_rows[(key, "gps")] = gps_box
-        self._obd_captions = getattr(self, "_obd_captions", {})
-        self._gps_captions = getattr(self, "_gps_captions", {})
-        self._best_captions = getattr(self, "_best_captions", {})
-        self._obd_captions[key] = obd_caption
-        self._gps_captions[key] = gps_caption
-        self._best_captions[key] = best_caption
-        return row
-
-    def _all_keys(self) -> list[Any]:
-        return list(self.SPEED_TARGETS_KMH) + list(self.RANGE_TARGETS_KMH)
-
-    def _refresh_texts(self) -> None:
-        self.title_label.set_text(_translate(self.language, "acceleration.title"))
-        self.subtitle_label.set_text(_translate(self.language, "acceleration.subtitle"))
-        self.start_button.set_label(_translate(self.language, "acceleration.start"))
-        self.abort_button.set_label(_translate(self.language, "acceleration.abort"))
-        self.reset_button.set_label(_translate(self.language, "acceleration.reset"))
-        self.note_label.set_text(_translate(self.language, "acceleration.note"))
-        if not self.armed and not self.running:
-            self.status_label.set_text(_translate(self.language, "acceleration.ready"))
-        obd_text = _translate(self.language, "acceleration.obd")
-        gps_text = _translate(self.language, "acceleration.gps")
-        best_text = _translate(self.language, "acceleration.best")
-        for key in self._all_keys():
-            self._obd_captions[key].set_text(obd_text)
-            self._gps_captions[key].set_text(gps_text)
-            self._best_captions[key].set_text(best_text)
-        self._update_best_labels()
-
-    def set_language(self, language: str) -> None:
-        self.language = _normalize_language(language)
-        self._refresh_texts()
-
-    def _set_g_text(self, active_g: float | None) -> None:
-        if active_g is None:
-            self.g_label.set_text(_translate(self.language, "acceleration.g.empty"))
-        else:
-            self.g_label.set_text(_translate(self.language, "acceleration.g", value=f"{active_g:.3f}"))
-
-    def _update_best_labels(self) -> None:
-        for target in self.SPEED_TARGETS_KMH:
-            values = self.results[target]
-            measured = [v for v in values.values() if v is not None]
-            best = min(measured) if measured else None
-            self.result_labels[(target, "best")].set_text("--" if best is None else f"{best:.2f} s")
-        for rkey in self.RANGE_TARGETS_KMH:
-            values = self.range_results[rkey]
-            measured = [v for v in values.values() if v is not None]
-            best = min(measured) if measured else None
-            self.result_labels[(rkey, "best")].set_text("--" if best is None else f"{best:.2f} s")
-
-    def _set_source_visibility(self, obd_available: bool, gps_available: bool) -> None:
-        for key in self._all_keys():
-            if isinstance(key, tuple):
-                obd_has = self.range_results[key]["obd"] is not None
-                gps_has = self.range_results[key]["gps"] is not None
-            else:
-                obd_has = self.results[key]["obd"] is not None
-                gps_has = self.results[key]["gps"] is not None
-            self.source_rows[(key, "obd")].set_visible(obd_available or obd_has)
-            self.source_rows[(key, "gps")].set_visible(gps_available or gps_has)
-
-    def _reset_labels(self) -> None:
-        for key in self._all_keys():
-            for source in ("obd", "gps", "best"):
-                self.result_labels[(key, source)].set_text("--")
-
-    def _show_start(self) -> None:
-        self.start_button.set_visible(True)
-        self.abort_button.set_visible(False)
-
-    def _show_abort(self) -> None:
-        self.start_button.set_visible(False)
-        self.abort_button.set_visible(True)
-
-    def start_measurement(self, *_args: Any) -> None:
-        self.armed = True
-        self.running = False
-        self.start_monotonic = None
-        self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
-        self.range_results = {r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH}
-        self._reset_labels()
-        self._show_abort()
-        self.status_label.set_text(_translate(self.language, "acceleration.armed"))
-
-    def abort_measurement(self, *_args: Any) -> None:
-        self.armed = False
-        self.running = False
-        self._show_start()
-        self.status_label.set_text(_translate(self.language, "acceleration.done"))
-
-    def reset_measurement(self, *_args: Any) -> None:
-        self.armed = False
-        self.running = False
-        self.start_monotonic = None
-        self.last_obd_speed = None
-        self.last_speed_time = None
-        self.computed_acceleration_g = None
-        self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
-        self.range_results = {r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH}
-        self._reset_labels()
-        self._show_start()
-        self._set_g_text(None)
-        self.status_label.set_text(_translate(self.language, "acceleration.ready"))
-
-    def update_payload(self, payload: dict[str, Any], read_number: Callable[[dict[str, Any], str], float | None]) -> None:
-        now = time.monotonic()
-        obd_speed = read_number(payload, "speed")
-        gps_speed = read_number(payload, "gps_speed")
-        measured_g = read_number(payload, "acceleration_g")
-        self._set_source_visibility(obd_speed is not None, gps_speed is not None)
-
-        if obd_speed is not None and self.last_obd_speed is not None and self.last_speed_time is not None:
-            dt = max(0.001, now - self.last_speed_time)
-            acceleration_ms2 = ((obd_speed - self.last_obd_speed) / 3.6) / dt
-            self.computed_acceleration_g = acceleration_ms2 / 9.80665
-
-        if obd_speed is not None:
-            self.last_obd_speed = obd_speed
-            self.last_speed_time = now
-
-        active_g = measured_g if measured_g is not None else self.computed_acceleration_g
-        self._set_g_text(active_g)
-
-        if self.armed and not self.running:
-            speed_rising = self.computed_acceleration_g is not None and self.computed_acceleration_g > self.G_FORCE_START_THRESHOLD
-            g_rising = active_g is not None and active_g > self.G_FORCE_START_THRESHOLD
-            if speed_rising or g_rising:
-                self.running = True
-                self.start_monotonic = now
-                self.status_label.set_text(_translate(self.language, "acceleration.running"))
-
-        if not self.running or self.start_monotonic is None:
-            return
-
-        elapsed = now - self.start_monotonic
-        for target in self.SPEED_TARGETS_KMH:
-            row = self.results[target]
-            if row["obd"] is None and obd_speed is not None and obd_speed >= target:
-                row["obd"] = elapsed
-                self.result_labels[(target, "obd")].set_text(f"{elapsed:.2f} s")
-            if row["gps"] is None and gps_speed is not None and gps_speed >= target:
-                row["gps"] = elapsed
-                self.result_labels[(target, "gps")].set_text(f"{elapsed:.2f} s")
-
-        for lo, hi in self.RANGE_TARGETS_KMH:
-            rrow = self.range_results[(lo, hi)]
-            lo_obd = self.results.get(lo, {}).get("obd")
-            hi_obd = self.results.get(hi, {}).get("obd")
-            if rrow["obd"] is None and lo_obd is not None and hi_obd is not None:
-                rrow["obd"] = hi_obd - lo_obd
-                self.result_labels[((lo, hi), "obd")].set_text(f"{rrow['obd']:.2f} s")
-            lo_gps = self.results.get(lo, {}).get("gps")
-            hi_gps = self.results.get(hi, {}).get("gps")
-            if rrow["gps"] is None and lo_gps is not None and hi_gps is not None:
-                rrow["gps"] = hi_gps - lo_gps
-                self.result_labels[((lo, hi), "gps")].set_text(f"{rrow['gps']:.2f} s")
-
-        self._update_best_labels()
-
-        all_done = all(v["obd"] is not None or v["gps"] is not None for v in self.results.values())
-        if all_done:
-            self.running = False
-            self.armed = False
-            self._show_start()
-            self.status_label.set_text(_translate(self.language, "acceleration.done"))
 
 
 class DashboardWindow(Adw.ApplicationWindow):
@@ -1299,7 +717,6 @@ class DashboardWindow(Adw.ApplicationWindow):
         return False
 
     def _set_landscape_layout(self, width: int, height: int) -> None:
-        # Querformat: alle Tachos nebeneinander.
         self.gauge_box.set_orientation(Gtk.Orientation.HORIZONTAL)
         self.gauge_box.set_spacing(16)
         self.gauge_box.set_halign(Gtk.Align.FILL)
@@ -1320,7 +737,6 @@ class DashboardWindow(Adw.ApplicationWindow):
             gauge.set_content_height(gauge_size)
 
     def _set_portrait_layout(self, width: int, height: int) -> None:
-        # Hochformat: alle Tachos untereinander.
         self.gauge_box.set_orientation(Gtk.Orientation.VERTICAL)
         self.gauge_box.set_spacing(8)
         self.gauge_box.set_halign(Gtk.Align.CENTER)

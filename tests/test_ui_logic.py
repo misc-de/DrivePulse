@@ -20,7 +20,7 @@ def test_make_label_responsive_sets_wrap_properties(drivepulse_module):
 
     assert result is label
     assert label.props["wrap"] is True
-    assert label.props["wrap_mode"] is drivepulse_module.Pango.WrapMode.WORD_CHAR
+    assert label.props["wrap_mode"].name == "word-char"
     assert label.props["max_width_chars"] == 12
     assert label.props["xalign"] == 0.5
     assert label.props["hexpand"] is True
