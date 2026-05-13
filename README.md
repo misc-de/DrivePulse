@@ -45,20 +45,13 @@ python3 drivepulse.py
 
 | Variable | Default | Description |
 |---|---|---|
-| `OBD_PORT` | auto | Serial port of the adapter, e.g. `/dev/rfcomm0` |
+| `OBD_PORT` | auto | Serial port of the adapter — detected automatically, override only if needed |
 | `OBD_BAUDRATE` | auto | Baud rate, e.g. `38400` |
 | `OBD_TIMEOUT` | `2.0` | Timeout in seconds |
 | `OBD_FAST` | `0` | Fast mode (`1` to enable) |
 | `OBD_POLL_INTERVAL` | `0.5` | Poll interval in seconds |
 | `OBD_LOG_DIR` | `~/.local/state/drivepulse` | Directory for logs and settings |
 | `DRIVEPULSE_LANG` | system language | Override language (`en` or `de`) |
-
-### Bluetooth ELM327
-
-```bash
-# Pair the adapter, then bind it as a serial port:
-OBD_PORT=/dev/rfcomm0 python3 drivepulse.py
-```
 
 ---
 
