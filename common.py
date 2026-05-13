@@ -33,7 +33,6 @@ SUPPORTED_LANGUAGES = ("en", "de")
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         "acceleration.title": "Acceleration",
-        "acceleration.subtitle": "Measure 0-30, 0-50, 0-70, 0-100, 0-150 and 0-200 km/h runs from OBD and GPS data.",
         "acceleration.ready": "Ready. Press Start and accelerate.",
         "acceleration.armed": "Armed. Timing starts when acceleration is detected.",
         "acceleration.running": "Measurement running...",
@@ -46,7 +45,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "acceleration.best": "Best",
         "acceleration.obd": "OBD",
         "acceleration.gps": "GPS",
-        "acceleration.note": "Timing starts when g-force or a rising speed signal is detected. GPS times appear when gps_speed is available.",
         "settings.title": "Settings",
         "settings.display": "Display",
         "settings.units": "Units",
@@ -73,7 +71,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "de": {
         "acceleration.title": "Beschleunigung",
-        "acceleration.subtitle": "Misst 0-30, 0-50, 0-70, 0-100, 0-150 und 0-200 km/h mit OBD- und GPS-Daten.",
         "acceleration.ready": "Bereit. Start drücken und losfahren.",
         "acceleration.armed": "Scharf. Zeit startet bei erkannter Beschleunigung.",
         "acceleration.running": "Messung läuft...",
@@ -86,7 +83,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "acceleration.best": "Bestzeit",
         "acceleration.obd": "OBD",
         "acceleration.gps": "GPS",
-        "acceleration.note": "Startzeit wird erst gesetzt, wenn G-Kraft oder Geschwindigkeitsanstieg erkannt wird. GPS-Zeiten erscheinen nur, wenn gps_speed im Payload vorhanden ist.",
         "settings.title": "Einstellungen",
         "settings.display": "Anzeige",
         "settings.units": "Einheiten",

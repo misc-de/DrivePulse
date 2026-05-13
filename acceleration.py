@@ -36,7 +36,7 @@ class AccelerationPage(Gtk.Box):
 
     SPEED_TARGETS_KMH = (30, 50, 70, 100, 150, 200)
     RANGE_TARGETS_KMH: tuple[tuple[int, int], ...] = ((100, 200),)
-    G_FORCE_START_THRESHOLD = 0.02
+    G_FORCE_START_THRESHOLD = 0.1
 
     def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -72,10 +72,6 @@ class AccelerationPage(Gtk.Box):
         header_row.append(self.title_label)
         header_row.append(self.g_label)
 
-        self.subtitle_label = _make_label_responsive(Gtk.Label(label=""), 54)
-        self.subtitle_label.add_css_class("dim-label")
-        self.subtitle_label.set_halign(Gtk.Align.START)
-
         self.status_label = _make_label_responsive(Gtk.Label(label=""), 42)
         self.status_label.add_css_class("dim-label")
         self.status_label.set_halign(Gtk.Align.START)
@@ -83,7 +79,6 @@ class AccelerationPage(Gtk.Box):
         intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         intro.set_margin_bottom(10)
         intro.append(header_row)
-        intro.append(self.subtitle_label)
         intro.append(self.status_label)
 
         self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -93,11 +88,6 @@ class AccelerationPage(Gtk.Box):
         self._gps_captions: dict[Any, Gtk.Label] = {}
         self._best_captions: dict[Any, Gtk.Label] = {}
         self._build_result_rows()
-
-        self.note_label = _make_label_responsive(Gtk.Label(label=""), 54)
-        self.note_label.add_css_class("dim-label")
-        self.note_label.set_halign(Gtk.Align.START)
-        self.note_label.set_margin_top(8)
 
         self.start_button = Gtk.Button()
         self.start_button.add_css_class("suggested-action")
@@ -127,7 +117,6 @@ class AccelerationPage(Gtk.Box):
 
         self.append(intro)
         self.append(self.results_box)
-        self.append(self.note_label)
         self.append(controls)
 
         self._refresh_texts()
@@ -205,11 +194,9 @@ class AccelerationPage(Gtk.Box):
 
     def _refresh_texts(self) -> None:
         self.title_label.set_text(_translate(self.language, "acceleration.title"))
-        self.subtitle_label.set_text(_translate(self.language, "acceleration.subtitle"))
         self.start_button.set_label(_translate(self.language, "acceleration.start"))
         self.abort_button.set_label(_translate(self.language, "acceleration.abort"))
         self.reset_button.set_label(_translate(self.language, "acceleration.reset"))
-        self.note_label.set_text(_translate(self.language, "acceleration.note"))
         if not self.armed and not self.running:
             self.status_label.set_text(_translate(self.language, "acceleration.ready"))
         obd_text = _translate(self.language, "acceleration.obd")
