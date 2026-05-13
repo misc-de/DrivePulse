@@ -44,7 +44,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Adw, Gdk, GLib, GObject, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
 try:
     import obd  # type: ignore
@@ -385,33 +385,120 @@ class ObdReader(GObject.Object):
 
 
 class GpsReader:
-    """Reads speed from a local GPSD instance (TCP port 2947) in a background thread."""
+    """Reads GPS speed from GeoClue2 (D-Bus) with GPSD as fallback."""
+
+    # GeoClue2 D-Bus constants (same as Sensor-Suite)
+    _GEOCLUE_BUS = "org.freedesktop.GeoClue2"
+    _GEOCLUE_MANAGER_PATH = "/org/freedesktop/GeoClue2/Manager"
+    _GEOCLUE_MANAGER_IFACE = "org.freedesktop.GeoClue2.Manager"
+    _GEOCLUE_CLIENT_IFACE = "org.freedesktop.GeoClue2.Client"
+    _GEOCLUE_LOCATION_IFACE = "org.freedesktop.GeoClue2.Location"
+    _DBUS_PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
 
     GPSD_HOST = "localhost"
     GPSD_PORT = 2947
-    RETRY_INTERVAL = 10.0
+    GPSD_RETRY_INTERVAL = 10.0
 
     def __init__(self, on_update: Callable[[dict[str, Any]], None]) -> None:
         self.on_update = on_update
         self.stop_event = threading.Event()
-        self.thread: threading.Thread | None = None
+        self._gpsd_thread: threading.Thread | None = None
+        self._geoclue_bus: Any = None
+        self._geoclue_client: Any = None
+        self._geoclue_client_path: str | None = None
 
     def start(self) -> None:
-        self.thread = threading.Thread(target=self._run, name="gps-reader", daemon=True)
-        self.thread.start()
+        GLib.idle_add(self._start_geoclue)
+        self._gpsd_thread = threading.Thread(target=self._run_gpsd, name="gps-gpsd", daemon=True)
+        self._gpsd_thread.start()
 
     def stop(self) -> None:
         self.stop_event.set()
-
-    def _run(self) -> None:
-        while not self.stop_event.is_set():
+        if self._geoclue_client is not None:
             try:
-                self._connect_and_read()
+                self._geoclue_client.call_sync("Stop", None, Gio.DBusCallFlags.NONE, 1000, None)
             except Exception:
                 pass
-            self.stop_event.wait(self.RETRY_INTERVAL)
 
-    def _connect_and_read(self) -> None:
+    # ------------------------------------------------------------------
+    # GeoClue2
+    # ------------------------------------------------------------------
+
+    def _start_geoclue(self) -> bool:
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+            manager = Gio.DBusProxy.new_sync(
+                bus, Gio.DBusProxyFlags.NONE, None,
+                self._GEOCLUE_BUS, self._GEOCLUE_MANAGER_PATH, self._GEOCLUE_MANAGER_IFACE, None,
+            )
+            res = manager.call_sync("GetClient", None, Gio.DBusCallFlags.NONE, 3000, None)
+            client_path = res.get_child_value(0).get_string()
+            client = Gio.DBusProxy.new_sync(
+                bus, Gio.DBusProxyFlags.NONE, None,
+                self._GEOCLUE_BUS, client_path, self._GEOCLUE_CLIENT_IFACE, None,
+            )
+            self._geoclue_bus = bus
+            self._geoclue_client = client
+            self._geoclue_client_path = client_path
+            for name, value in (
+                ("DesktopId", GLib.Variant("s", APP_ID)),
+                ("RequestedAccuracyLevel", GLib.Variant("u", 8)),
+                ("DistanceThreshold", GLib.Variant("u", 0)),
+                ("TimeThreshold", GLib.Variant("u", 1)),
+            ):
+                try:
+                    bus.call_sync(
+                        self._GEOCLUE_BUS, client_path, self._DBUS_PROPERTIES_IFACE, "Set",
+                        GLib.Variant("(ssv)", (self._GEOCLUE_CLIENT_IFACE, name, value)),
+                        None, Gio.DBusCallFlags.NONE, 3000, None,
+                    )
+                except Exception:
+                    pass
+            client.connect("g-signal", self._on_geoclue_signal)
+            client.call_sync("Start", None, Gio.DBusCallFlags.NONE, 3000, None)
+        except Exception:
+            pass
+        return False
+
+    def _on_geoclue_signal(self, _proxy: Any, _sender: str, signal_name: str, params: Any) -> None:
+        if signal_name != "LocationUpdated":
+            return
+        location_path = params.get_child_value(1).get_string()
+        try:
+            location = Gio.DBusProxy.new_sync(
+                self._geoclue_bus, Gio.DBusProxyFlags.NONE, None,
+                self._GEOCLUE_BUS, location_path, self._GEOCLUE_LOCATION_IFACE, None,
+            )
+            speed = self._geoclue_double(location, "Speed")
+            if speed is not None and speed >= 0:
+                self.on_update({
+                    "source": "gps",
+                    "gps_speed": {"value": speed * 3.6, "unit": "km/h"},
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+        except Exception:
+            pass
+
+    def _geoclue_double(self, proxy: Any, name: str) -> float | None:
+        value = proxy.get_cached_property(name)
+        if value is None:
+            return None
+        result = value.get_double()
+        return result if math.isfinite(result) else None
+
+    # ------------------------------------------------------------------
+    # GPSD
+    # ------------------------------------------------------------------
+
+    def _run_gpsd(self) -> None:
+        while not self.stop_event.is_set():
+            try:
+                self._connect_and_read_gpsd()
+            except Exception:
+                pass
+            self.stop_event.wait(self.GPSD_RETRY_INTERVAL)
+
+    def _connect_and_read_gpsd(self) -> None:
         import socket
         with socket.create_connection((self.GPSD_HOST, self.GPSD_PORT), timeout=5) as sock:
             sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
@@ -423,18 +510,16 @@ class GpsReader:
                 buf += chunk
                 while "\n" in buf:
                     line, buf = buf.split("\n", 1)
-                    self._handle_line(line.strip())
+                    self._handle_gpsd_line(line.strip())
 
-    def _handle_line(self, line: str) -> None:
+    def _handle_gpsd_line(self, line: str) -> None:
         if not line:
             return
         try:
             data = json.loads(line)
         except json.JSONDecodeError:
             return
-        if data.get("class") != "TPV":
-            return
-        if data.get("mode", 0) < 2:
+        if data.get("class") != "TPV" or data.get("mode", 0) < 2:
             return
         speed_ms = data.get("speed")
         if speed_ms is None:
