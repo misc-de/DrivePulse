@@ -384,6 +384,68 @@ class ObdReader(GObject.Object):
             pass
 
 
+class GpsReader:
+    """Reads speed from a local GPSD instance (TCP port 2947) in a background thread."""
+
+    GPSD_HOST = "localhost"
+    GPSD_PORT = 2947
+    RETRY_INTERVAL = 10.0
+
+    def __init__(self, on_update: Callable[[dict[str, Any]], None]) -> None:
+        self.on_update = on_update
+        self.stop_event = threading.Event()
+        self.thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self.thread = threading.Thread(target=self._run, name="gps-reader", daemon=True)
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.stop_event.set()
+
+    def _run(self) -> None:
+        while not self.stop_event.is_set():
+            try:
+                self._connect_and_read()
+            except Exception:
+                pass
+            self.stop_event.wait(self.RETRY_INTERVAL)
+
+    def _connect_and_read(self) -> None:
+        import socket
+        with socket.create_connection((self.GPSD_HOST, self.GPSD_PORT), timeout=5) as sock:
+            sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
+            buf = ""
+            while not self.stop_event.is_set():
+                chunk = sock.recv(4096).decode("utf-8", errors="replace")
+                if not chunk:
+                    break
+                buf += chunk
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    self._handle_line(line.strip())
+
+    def _handle_line(self, line: str) -> None:
+        if not line:
+            return
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            return
+        if data.get("class") != "TPV":
+            return
+        if data.get("mode", 0) < 2:
+            return
+        speed_ms = data.get("speed")
+        if speed_ms is None:
+            return
+        GLib.idle_add(self.on_update, {
+            "source": "gps",
+            "gps_speed": {"value": float(speed_ms) * 3.6, "unit": "km/h"},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+
 class SettingsDialog(Adw.PreferencesDialog):
     __gtype_name__ = "SettingsDialog"
 
@@ -575,8 +637,11 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.add_tick_callback(self._layout_tick)
         GLib.idle_add(self._on_size_changed)
 
+        self._obd_active = False
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader.start()
+        self.gps_reader = GpsReader(self._update_from_payload)
+        self.gps_reader.start()
 
     def _build_link_indicator(self, icon_name: str, label_text: str) -> dict[str, Any]:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -609,6 +674,7 @@ class DashboardWindow(Adw.ApplicationWindow):
 
     def close(self) -> bool:
         self.reader.stop()
+        self.gps_reader.stop()
         return super().close()
 
     def _load_settings(self) -> dict[str, Any]:
@@ -795,16 +861,27 @@ class DashboardWindow(Adw.ApplicationWindow):
         return any(self._plain_number(payload, key) is not None for key in ("rpm", "speed", "coolant_temp", "throttle_pos", "engine_load"))
 
     def _update_from_payload(self, payload: dict[str, Any]) -> bool:
-        self.last_payload = payload
         source = payload.get("source", "")
-        active = source in ("obd", "mock", "gps")
+
+        if source == "gps":
+            gps_speed_kmh = self._plain_number(payload, "gps_speed")
+            self._set_link_indicator(self.gps_indicator, gps_speed_kmh is not None, False)
+            self.acceleration_page.update_payload(payload, self._plain_number)
+            if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
+                display = self._display_speed(gps_speed_kmh)
+                self.speed_gauge.set_value(display, f"{display:.0f}" if display is not None else None)
+            return False
+
+        self.last_payload = payload
+        active = source in ("obd", "mock")
         rpm = self._plain_number(payload, "rpm") if active else None
         obd_speed_kmh = self._plain_number(payload, "speed") if active else None
         gps_speed_kmh = self._plain_number(payload, "gps_speed") if active else None
         speed_source_kmh = obd_speed_kmh if obd_speed_kmh is not None else gps_speed_kmh
         speed = self._display_speed(speed_source_kmh)
         temp = self._plain_number(payload, "coolant_temp") if active else None
-        obd_connected = source in ("obd", "mock") and self._has_obd_data(payload)
+        obd_connected = active and self._has_obd_data(payload)
+        self._obd_active = obd_connected
         obd_connecting = bool(payload.get("obd_connecting"))
         gps_connected = gps_speed_kmh is not None and active
 
@@ -816,7 +893,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
         self.acceleration_page.update_payload(payload, self._plain_number)
 
-        status = payload.get("connection_status") or payload.get("source", "?")
+        status = payload.get("connection_status") or source or "?"
         language = _normalize_language(getattr(self, "language", _detect_language()))
         self.status_label.set_text(_translate(language, "status.updated", status=status, time=datetime.now().strftime("%H:%M:%S")))
         return False
