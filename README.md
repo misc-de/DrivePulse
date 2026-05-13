@@ -1,5 +1,7 @@
 # DrivePulse
 
+<img src="icon.png" alt="DrivePulse" width="128"/>
+
 > **⚠ Under active development — not ready for production use.**
 > Features, configuration and data formats may change at any time without notice.
 
@@ -13,10 +15,7 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 - Automatic landscape / portrait layout switching
 - Acceleration measurement (0–30 / 0–50 / 0–70 / 0–100 / 0–150 / 0–200 km/h and 100–200 km/h) from OBD and GPS data
 - GPS integration via GPSD (indicator turns green on active fix)
-- Mock mode: simulates OBD and GPS data without hardware
 - Settings: units (km/h / mph), language (English / German), mock mode toggle
-- All OBD values logged as JSONL to `~/.local/state/drivepulse/`
-- Supported PIDs reported by the vehicle are written to the connection log on every successful connect
 
 ---
 
