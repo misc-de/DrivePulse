@@ -31,12 +31,16 @@ def test_acceleration_start_reset_and_target_capture(monkeypatch, drivepulse_mod
     assert page.results[50]["gps"] == 1.25
     assert page.result_labels[(30, "obd")].get_text() == "1.25 s"
     assert page.result_labels[(30, "best")].get_text() == "1.25 s"
+    assert page.abort_button.get_visible() is True
+    assert page.start_button.get_visible() is False
 
     page.reset_measurement()
     assert page.armed is False
     assert page.running is False
     assert page.g_label.get_text() == "G: --"
     assert page.result_labels[(30, "obd")].get_text() == "--"
+    assert page.start_button.get_visible() is True
+    assert page.abort_button.get_visible() is False
 
 
 def test_acceleration_finishes_when_all_targets_have_a_source(monkeypatch, drivepulse_module):
@@ -57,15 +61,22 @@ def test_acceleration_finishes_when_all_targets_have_a_source(monkeypatch, drive
 def test_settings_dialog_calls_callbacks(drivepulse_module):
     unit_calls = []
     language_calls = []
-    dialog = drivepulse_module.SettingsDialog(None, "metric", "en", unit_calls.append, language_calls.append)
+    mock_calls = []
+    dialog = drivepulse_module.SettingsDialog(
+        None, "metric", "en", unit_calls.append, language_calls.append,
+        current_mock_mode=False, on_mock_mode_changed=mock_calls.append,
+    )
 
     dialog.unit_row.set_selected(1)
     dialog._on_unit_selected()
     dialog.language_row.set_selected(1)
     dialog._on_language_selected()
+    dialog.mock_switch.set_active(True)
+    dialog._on_mock_changed()
 
     assert unit_calls == ["imperial"]
     assert language_calls == ["de"]
+    assert mock_calls == [True]
 
 
 def test_load_and_save_units(drivepulse_module, tmp_log_paths):
@@ -74,9 +85,14 @@ def test_load_and_save_units(drivepulse_module, tmp_log_paths):
     window.language = "de"
 
     window._save_units()
-    assert drivepulse_module.SETTINGS_FILE.read_text(encoding="utf-8").strip() == '{\n  "units": "imperial",\n  "language": "de"\n}'
+    saved = drivepulse_module.SETTINGS_FILE.read_text(encoding="utf-8").strip()
+    assert '"units": "imperial"' in saved
+    assert '"language": "de"' in saved
     assert window._load_units() == "imperial"
-    assert window._load_settings() == {"units": "imperial", "language": "de"}
+    loaded = window._load_settings()
+    assert loaded["units"] == "imperial"
+    assert loaded["language"] == "de"
+    assert "mock_mode" in loaded
 
     drivepulse_module.SETTINGS_FILE.write_text('{"units": "invalid"}', encoding="utf-8")
     assert window._load_units() == "metric"

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_ID="de.cais.DrivePulse"
+ICON_DEST="$HOME/.local/share/icons/hicolor/128x128/apps/$APP_ID.png"
+DESKTOP_DEST="$HOME/.local/share/applications/$APP_ID.desktop"
+
+echo "Installing DrivePulse…"
+
+mkdir -p "$(dirname "$ICON_DEST")"
+cp "$SCRIPT_DIR/icon.png" "$ICON_DEST"
+echo "  Icon         → $ICON_DEST"
+
+mkdir -p "$(dirname "$DESKTOP_DEST")"
+cat > "$DESKTOP_DEST" << EOF
+[Desktop Entry]
+Version=1.1
+Type=Application
+Name=DrivePulse
+Comment=OBD-II Dashboard
+Comment[de]=OBD-II Armaturenbrett
+Icon=$APP_ID
+Exec=python3 $SCRIPT_DIR/drivepulse.py
+Terminal=false
+Categories=Utility;
+Keywords=OBD;Auto;Fahrzeug;Dashboard;GPS;
+StartupWMClass=drivepulse
+EOF
+echo "  Desktop-Datei → $DESKTOP_DEST"
+
+if command -v gtk-update-icon-cache &>/dev/null; then
+    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null && \
+        echo "  Icon-Cache aktualisiert"
+fi
+if command -v update-desktop-database &>/dev/null; then
+    update-desktop-database "$(dirname "$DESKTOP_DEST")" 2>/dev/null && \
+        echo "  Desktop-Datenbank aktualisiert"
+fi
+
+echo ""
+echo "Fertig. DrivePulse ist jetzt im Anwendungsmenü verfügbar."

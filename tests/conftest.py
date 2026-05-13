@@ -93,6 +93,9 @@ class _Widget:
     def add_tick_callback(self, callback):
         self.props["tick_callback"] = callback
 
+    def get_style_context(self) -> _StyleContext:
+        return _StyleContext()
+
     def queue_draw(self) -> None:
         self.props["queued_draw"] = True
 
@@ -121,6 +124,28 @@ class _Label(_Widget):
 
 class _Button(_Widget):
     pass
+
+
+class _Switch(_Widget):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._active = False
+
+    def set_active(self, active: bool) -> None:
+        self._active = active
+
+    def get_active(self) -> bool:
+        return self._active
+
+
+class _StyleContext:
+    def add_provider(self, provider: object, priority: int) -> None:
+        pass
+
+
+class _CssProvider:
+    def load_from_data(self, data: bytes) -> None:
+        pass
 
 
 class _Image(_Widget):
@@ -173,6 +198,17 @@ class _ComboRow(_Widget):
         return self.selected
 
 
+class _ActionRow(_Widget):
+    def __init__(self, title: str = "", subtitle: str = "", **kwargs) -> None:
+        super().__init__(title=title, subtitle=subtitle, **kwargs)
+
+    def add_suffix(self, widget: object) -> None:
+        self.children.append(widget)
+
+    def set_activatable_widget(self, widget: object) -> None:
+        self.props["activatable_widget"] = widget
+
+
 class _DrawingArea(_Widget):
     pass
 
@@ -218,6 +254,7 @@ def drivepulse_module(monkeypatch):
         ApplicationWindow=_ApplicationWindow,
         Box=_Box,
         Button=_Button,
+        CssProvider=_CssProvider,
         ComboRow=_ComboRow,
         DrawingArea=_DrawingArea,
         FlowBox=_FlowBox,
@@ -231,9 +268,13 @@ def drivepulse_module(monkeypatch):
         SelectionMode=_SelectionMode,
         Spinner=_Spinner,
         StringList=_StringList,
+        StyleContext=types.SimpleNamespace(add_provider_for_display=lambda *a: None),
+        Switch=_Switch,
         Window=_Widget,
+        STYLE_PROVIDER_PRIORITY_APPLICATION=600,
     )
     adw = types.SimpleNamespace(
+        ActionRow=_ActionRow,
         Application=_Application,
         ApplicationWindow=_ApplicationWindow,
         ComboRow=_ComboRow,
@@ -249,6 +290,7 @@ def drivepulse_module(monkeypatch):
     gobject = types.SimpleNamespace(Object=object)
     gio = types.SimpleNamespace()
     pango = types.SimpleNamespace(WrapMode=_WrapMode)
+    gdk = types.SimpleNamespace(Display=types.SimpleNamespace(get_default=lambda: None))
 
     repository = types.ModuleType("gi.repository")
     repository.Gtk = gtk
@@ -257,6 +299,7 @@ def drivepulse_module(monkeypatch):
     repository.GObject = gobject
     repository.Gio = gio
     repository.Pango = pango
+    repository.Gdk = gdk
 
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
