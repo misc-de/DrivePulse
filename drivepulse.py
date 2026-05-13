@@ -1280,16 +1280,17 @@ class DashboardWindow(Adw.ApplicationWindow):
 
     def _update_from_payload(self, payload: dict[str, Any]) -> bool:
         self.last_payload = payload
-        rpm = self._plain_number(payload, "rpm")
-        obd_speed_kmh = self._plain_number(payload, "speed")
-        gps_speed_kmh = self._plain_number(payload, "gps_speed")
+        source = payload.get("source", "")
+        active = source in ("obd", "mock")
+        rpm = self._plain_number(payload, "rpm") if active else None
+        obd_speed_kmh = self._plain_number(payload, "speed") if active else None
+        gps_speed_kmh = self._plain_number(payload, "gps_speed") if active else None
         speed_source_kmh = obd_speed_kmh if obd_speed_kmh is not None else gps_speed_kmh
         speed = self._display_speed(speed_source_kmh)
-        temp = self._plain_number(payload, "coolant_temp")
-        source = payload.get("source", "")
-        obd_connected = source in ("obd", "mock") and self._has_obd_data(payload)
+        temp = self._plain_number(payload, "coolant_temp") if active else None
+        obd_connected = active and self._has_obd_data(payload)
         obd_connecting = bool(payload.get("obd_connecting"))
-        gps_connected = gps_speed_kmh is not None and source in ("obd", "mock")
+        gps_connected = gps_speed_kmh is not None and active
 
         self._set_link_indicator(self.obd_indicator, obd_connected, obd_connecting)
         self._set_link_indicator(self.gps_indicator, gps_connected, False)
