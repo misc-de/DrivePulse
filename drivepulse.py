@@ -68,6 +68,80 @@ REQUIRED_PYTHON_PACKAGES = (
     ("pyserial", "serial", "serielle Bluetooth/USB-Port-Anbindung"),
     ("obd", "obd", "OBD-II Dongle-Anbindung"),
 )
+SOURCE_LANGUAGE = "en"
+SUPPORTED_LANGUAGES = ("en", "de")
+TRANSLATIONS: dict[str, dict[str, str]] = {
+    "en": {
+        "acceleration.title": "Acceleration",
+        "acceleration.subtitle": "Measure 0-30, 0-50, 0-70, 0-100, 0-150 and 0-200 km/h runs from OBD and GPS data.",
+        "acceleration.ready": "Ready. Press Start and accelerate.",
+        "acceleration.armed": "Armed. Timing starts when acceleration is detected.",
+        "acceleration.running": "Measurement running...",
+        "acceleration.done": "Measurement complete.",
+        "acceleration.g": "G: {value}",
+        "acceleration.g.empty": "G: --",
+        "acceleration.start": "Start",
+        "acceleration.reset": "Reset",
+        "acceleration.best": "Best",
+        "acceleration.obd": "OBD",
+        "acceleration.gps": "GPS",
+        "acceleration.note": "Timing starts when g-force or a rising speed signal is detected. GPS times appear when gps_speed is available.",
+        "settings.title": "Settings",
+        "settings.display": "Display",
+        "settings.units": "Units",
+        "settings.speed": "Speed",
+        "settings.metric": "Metric (km/h)",
+        "settings.imperial": "Imperial (mph)",
+        "settings.language": "Language",
+        "settings.language.en": "English",
+        "settings.language.de": "Deutsch",
+        "gauge.rpm": "RPM",
+        "gauge.speed": "Speed",
+        "gauge.coolant": "Coolant",
+        "status.connecting": "Connecting...",
+        "status.log_paths": "Data log: {data_log} | Connection log: {connection_log}",
+        "status.updated": "{status} | last update: {time}",
+        "nav.gauges": "Gauges",
+        "nav.acceleration": "Acceleration",
+        "window.title": "DrivePulse",
+        "settings.tooltip": "Settings",
+    },
+    "de": {
+        "acceleration.title": "Beschleunigung",
+        "acceleration.subtitle": "Misst 0-30, 0-50, 0-70, 0-100, 0-150 und 0-200 km/h mit OBD- und GPS-Daten.",
+        "acceleration.ready": "Bereit. Start drücken und losfahren.",
+        "acceleration.armed": "Scharf. Zeit startet bei erkannter Beschleunigung.",
+        "acceleration.running": "Messung läuft...",
+        "acceleration.done": "Messung abgeschlossen.",
+        "acceleration.g": "G: {value}",
+        "acceleration.g.empty": "G: --",
+        "acceleration.start": "Start",
+        "acceleration.reset": "Reset",
+        "acceleration.best": "Bestzeit",
+        "acceleration.obd": "OBD",
+        "acceleration.gps": "GPS",
+        "acceleration.note": "Startzeit wird erst gesetzt, wenn G-Kraft oder Geschwindigkeitsanstieg erkannt wird. GPS-Zeiten erscheinen nur, wenn gps_speed im Payload vorhanden ist.",
+        "settings.title": "Einstellungen",
+        "settings.display": "Anzeige",
+        "settings.units": "Einheiten",
+        "settings.speed": "Geschwindigkeit",
+        "settings.metric": "Metrisch (km/h)",
+        "settings.imperial": "Imperial (mph)",
+        "settings.language": "Sprache",
+        "settings.language.en": "English",
+        "settings.language.de": "Deutsch",
+        "gauge.rpm": "Drehzahl",
+        "gauge.speed": "Geschwindigkeit",
+        "gauge.coolant": "Kühlmittel",
+        "status.connecting": "Verbinde...",
+        "status.log_paths": "Datenlog: {data_log} | Verbindungslog: {connection_log}",
+        "status.updated": "{status} | letzte Aktualisierung: {time}",
+        "nav.gauges": "Tachos",
+        "nav.acceleration": "Beschleunigung",
+        "window.title": "DrivePulse",
+        "settings.tooltip": "Einstellungen",
+    },
+}
 
 
 @dataclass
@@ -102,6 +176,24 @@ def _print_required_python_packages() -> None:
     print(f"  - OBD_FAST: {'an' if OBD_FAST else 'aus'}")
     if OBD_PORT is None:
         print("  - Bluetooth-Hinweis: ELM327 koppeln und z. B. mit OBD_PORT=/dev/rfcomm0 starten.")
+
+
+def _normalize_language(language: str | None) -> str:
+    if not language:
+        return SOURCE_LANGUAGE
+    normalized = language.split(".", 1)[0].split("_", 1)[0].split("-", 1)[0].lower()
+    return normalized if normalized in SUPPORTED_LANGUAGES else SOURCE_LANGUAGE
+
+
+def _detect_language() -> str:
+    return _normalize_language(os.environ.get("DRIVEPULSE_LANG") or os.environ.get("LANG"))
+
+
+def _translate(language: str, key: str, **values: object) -> str:
+    text = TRANSLATIONS.get(_normalize_language(language), {}).get(key)
+    if text is None:
+        text = TRANSLATIONS[SOURCE_LANGUAGE].get(key, key)
+    return text.format(**values) if values else text
 
 
 def _make_label_responsive(label: Gtk.Label, max_width_chars: int = 34, xalign: float = 0.0) -> Gtk.Label:
@@ -484,6 +576,7 @@ class ObdReader(GObject.Object):
 
     def _write_log(self, payload: dict[str, Any]) -> None:
         try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
             with LOG_FILE.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
         except Exception:
@@ -494,28 +587,49 @@ class ObdReader(GObject.Object):
 class SettingsDialog(Adw.PreferencesDialog):
     __gtype_name__ = "SettingsDialog"
 
-    def __init__(self, parent: Gtk.Window, current_units: str, on_units_changed: Callable[[str], None]) -> None:
+    def __init__(
+        self,
+        parent: Gtk.Window,
+        current_units: str,
+        current_language: str,
+        on_units_changed: Callable[[str], None],
+        on_language_changed: Callable[[str], None],
+    ) -> None:
         super().__init__()
-        self.set_title("Einstellungen")
+        self.language = _normalize_language(current_language)
         self.on_units_changed = on_units_changed
+        self.on_language_changed = on_language_changed
+        self.set_title(_translate(self.language, "settings.title"))
 
-        page = Adw.PreferencesPage(title="Anzeige")
-        group = Adw.PreferencesGroup(title="Einheiten")
+        page = Adw.PreferencesPage(title=_translate(self.language, "settings.display"))
+        group = Adw.PreferencesGroup(title=_translate(self.language, "settings.units"))
 
-        self.unit_row = Adw.ComboRow(title="Geschwindigkeit")
+        self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
         model = Gtk.StringList()
-        model.append("Metrisch (km/h)")
-        model.append("Imperial (mph)")
+        model.append(_translate(self.language, "settings.metric"))
+        model.append(_translate(self.language, "settings.imperial"))
         self.unit_row.set_model(model)
         self.unit_row.set_selected(0 if current_units == "metric" else 1)
         self.unit_row.connect("notify::selected", self._on_unit_selected)
 
+        self.language_row = Adw.ComboRow(title=_translate(self.language, "settings.language"))
+        language_model = Gtk.StringList()
+        language_model.append(_translate(self.language, "settings.language.en"))
+        language_model.append(_translate(self.language, "settings.language.de"))
+        self.language_row.set_model(language_model)
+        self.language_row.set_selected(SUPPORTED_LANGUAGES.index(self.language))
+        self.language_row.connect("notify::selected", self._on_language_selected)
+
         group.add(self.unit_row)
+        group.add(self.language_row)
         page.add(group)
         self.add(page)
 
     def _on_unit_selected(self, *_args: Any) -> None:
         self.on_units_changed("metric" if self.unit_row.get_selected() == 0 else "imperial")
+
+    def _on_language_selected(self, *_args: Any) -> None:
+        self.on_language_changed(SUPPORTED_LANGUAGES[self.language_row.get_selected()])
 
 
 class AccelerationPage(Gtk.Box):
