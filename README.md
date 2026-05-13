@@ -29,14 +29,9 @@ sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 python3-pip
 python3 -m pip install --user obd
 ```
 
-### GPS (optional)
+### GPS
 
-```bash
-sudo apt install gpsd
-sudo gpsd /dev/ttyUSB1 -F /var/run/gpsd.sock
-```
-
-GPSD must be reachable at `localhost:2947`. DrivePulse connects automatically and shows the GPS indicator in green as soon as a valid fix is present (mode ≥ 2).
+On smartphones GPSD is provided by the system and already running — no setup required. DrivePulse connects automatically to `localhost:2947` and shows the GPS indicator in green as soon as a valid fix is present (mode ≥ 2).
 
 ---
 
