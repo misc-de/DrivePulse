@@ -638,12 +638,13 @@ class AccelerationPage(Gtk.Box):
     SPEED_TARGETS_KMH = (30, 50, 70, 100, 150, 200)
     G_FORCE_START_THRESHOLD = 0.02
 
-    def __init__(self) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self.set_margin_top(18)
-        self.set_margin_bottom(18)
-        self.set_margin_start(18)
-        self.set_margin_end(18)
+    def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        self.language = _normalize_language(language)
+        self.set_margin_top(20)
+        self.set_margin_bottom(20)
+        self.set_margin_start(20)
+        self.set_margin_end(20)
 
         self.armed = False
         self.running = False
@@ -655,70 +656,138 @@ class AccelerationPage(Gtk.Box):
             target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
         }
 
-        title = _make_label_responsive(Gtk.Label(label="DrivePulse Acceleration"), 28)
-        title.add_css_class("title-1")
-        title.set_halign(Gtk.Align.START)
+        self.title_label = _make_label_responsive(Gtk.Label(label=""), 28)
+        self.title_label.add_css_class("title-1")
+        self.title_label.set_halign(Gtk.Align.START)
 
-        self.status_label = _make_label_responsive(Gtk.Label(label="Bereit. Start drücken und losfahren."))
+        self.subtitle_label = _make_label_responsive(Gtk.Label(label=""), 54)
+        self.subtitle_label.add_css_class("dim-label")
+        self.subtitle_label.set_halign(Gtk.Align.START)
+
+        self.status_label = _make_label_responsive(Gtk.Label(label=""), 42)
         self.status_label.add_css_class("dim-label")
         self.status_label.set_halign(Gtk.Align.START)
 
-        self.g_label = _make_label_responsive(Gtk.Label(label="G: --"), 18)
-        self.g_label.add_css_class("heading")
-        self.g_label.set_halign(Gtk.Align.START)
+        self.g_label = _make_label_responsive(Gtk.Label(label=""), 18, 1.0)
+        self.g_label.add_css_class("title-2")
+        self.g_label.set_halign(Gtk.Align.END)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        header.set_hexpand(True)
+        header.append(self.title_label)
+        header.append(self.g_label)
+
+        intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        intro.append(header)
+        intro.append(self.subtitle_label)
+        intro.append(self.status_label)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.start_button = Gtk.Button(label="Start")
+        controls.set_halign(Gtk.Align.START)
+        self.start_button = Gtk.Button(label="")
         self.start_button.add_css_class("suggested-action")
         self.start_button.connect("clicked", self.start_measurement)
-        self.reset_button = Gtk.Button(label="Reset")
+        self.reset_button = Gtk.Button(label="")
         self.reset_button.connect("clicked", self.reset_measurement)
         controls.append(self.start_button)
         controls.append(self.reset_button)
 
-        self.grid = Gtk.Grid(column_spacing=16, row_spacing=8)
-        self.grid.set_halign(Gtk.Align.FILL)
-        self.grid.set_hexpand(True)
-        self._build_grid()
+        self.results_flow = Gtk.FlowBox()
+        self.results_flow.set_halign(Gtk.Align.FILL)
+        self.results_flow.set_hexpand(True)
+        self.results_flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.results_flow.set_max_children_per_line(3)
+        self.results_flow.set_min_children_per_line(1)
+        self.results_flow.set_column_spacing(12)
+        self.results_flow.set_row_spacing(12)
+        self._build_result_tiles()
 
-        note = _make_label_responsive(Gtk.Label(label="Startzeit wird erst gesetzt, wenn G-Kraft oder Geschwindigkeitsanstieg erkannt wird. GPS-Zeiten erscheinen nur, wenn gps_speed im Payload vorhanden ist."))
-        note.add_css_class("dim-label")
-        note.set_halign(Gtk.Align.START)
+        self.note_label = _make_label_responsive(Gtk.Label(label=""), 54)
+        self.note_label.add_css_class("dim-label")
+        self.note_label.set_halign(Gtk.Align.START)
 
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        card.add_css_class("card")
-        card.set_margin_top(4)
-        card.set_margin_bottom(4)
-        card.set_margin_start(4)
-        card.set_margin_end(4)
-        card.append(self.status_label)
-        card.append(self.g_label)
-        card.append(controls)
-        card.append(self.grid)
-        card.append(note)
+        self.append(intro)
+        self.append(controls)
+        self.append(self.results_flow)
+        self.append(self.note_label)
 
-        self.append(title)
-        self.append(card)
+        self._refresh_texts()
 
-    def _build_grid(self) -> None:
-        headers = ("Ziel", "Tacho", "GPS")
-        for col, text in enumerate(headers):
-            label = _make_label_responsive(Gtk.Label(label=text), 12)
-            label.add_css_class("heading")
-            label.set_halign(Gtk.Align.START)
-            self.grid.attach(label, col, 0, 1, 1)
-
+    def _build_result_tiles(self) -> None:
         self.result_labels: dict[tuple[int, str], Gtk.Label] = {}
-        for row, target in enumerate(self.SPEED_TARGETS_KMH, start=1):
-            target_label = _make_label_responsive(Gtk.Label(label=f"0-{target} km/h"), 12)
-            target_label.set_halign(Gtk.Align.START)
-            self.grid.attach(target_label, 0, row, 1, 1)
+        self.best_labels: dict[int, Gtk.Label] = {}
+        self.source_labels: dict[tuple[int, str], Gtk.Label] = {}
+        for target in self.SPEED_TARGETS_KMH:
+            tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            tile.add_css_class("card")
+            tile.set_margin_top(2)
+            tile.set_margin_bottom(2)
+            tile.set_margin_start(2)
+            tile.set_margin_end(2)
 
-            for col, source in enumerate(("obd", "gps"), start=1):
-                label = _make_label_responsive(Gtk.Label(label="--"), 12)
-                label.set_halign(Gtk.Align.START)
-                self.result_labels[(target, source)] = label
-                self.grid.attach(label, col, row, 1, 1)
+            target_label = _make_label_responsive(Gtk.Label(label=f"0-{target} km/h"), 16)
+            target_label.add_css_class("heading")
+            target_label.set_halign(Gtk.Align.START)
+
+            best_caption = _make_label_responsive(Gtk.Label(label=""), 12)
+            best_caption.add_css_class("dim-label")
+            best_caption.set_halign(Gtk.Align.START)
+            self.best_labels[target] = best_caption
+
+            best_label = _make_label_responsive(Gtk.Label(label="--"), 12)
+            best_label.add_css_class("title-2")
+            best_label.set_halign(Gtk.Align.START)
+            self.result_labels[(target, "best")] = best_label
+
+            tile.append(target_label)
+            tile.append(best_caption)
+            tile.append(best_label)
+
+            for source in ("obd", "gps"):
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                source_label = _make_label_responsive(Gtk.Label(label=""), 8)
+                source_label.add_css_class("dim-label")
+                source_label.set_halign(Gtk.Align.START)
+                value_label = _make_label_responsive(Gtk.Label(label="--"), 10, 1.0)
+                value_label.set_halign(Gtk.Align.END)
+                row.append(source_label)
+                row.append(value_label)
+                tile.append(row)
+                self.source_labels[(target, source)] = source_label
+                self.result_labels[(target, source)] = value_label
+
+            self.results_flow.insert(tile, -1)
+
+    def _refresh_texts(self) -> None:
+        self.title_label.set_text(_translate(self.language, "acceleration.title"))
+        self.subtitle_label.set_text(_translate(self.language, "acceleration.subtitle"))
+        self.start_button.set_label(_translate(self.language, "acceleration.start"))
+        self.reset_button.set_label(_translate(self.language, "acceleration.reset"))
+        self.note_label.set_text(_translate(self.language, "acceleration.note"))
+        if not self.armed and not self.running:
+            self.status_label.set_text(_translate(self.language, "acceleration.ready"))
+        for target in self.SPEED_TARGETS_KMH:
+            self.best_labels[target].set_text(_translate(self.language, "acceleration.best"))
+            for source in ("obd", "gps"):
+                key = "acceleration.obd" if source == "obd" else "acceleration.gps"
+                self.source_labels[(target, source)].set_text(_translate(self.language, key))
+        self._update_best_labels()
+
+    def set_language(self, language: str) -> None:
+        self.language = _normalize_language(language)
+        self._refresh_texts()
+
+    def _set_g_text(self, active_g: float | None) -> None:
+        if active_g is None:
+            self.g_label.set_text(_translate(self.language, "acceleration.g.empty"))
+        else:
+            self.g_label.set_text(_translate(self.language, "acceleration.g", value=f"{active_g:.3f}"))
+
+    def _update_best_labels(self) -> None:
+        for target, values in self.results.items():
+            measured = [value for value in values.values() if value is not None]
+            best = min(measured) if measured else None
+            self.result_labels[(target, "best")].set_text("--" if best is None else f"{best:.2f} s")
 
     def start_measurement(self, *_args: Any) -> None:
         self.armed = True
@@ -727,7 +796,7 @@ class AccelerationPage(Gtk.Box):
         self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
         for label in self.result_labels.values():
             label.set_text("--")
-        self.status_label.set_text("Scharf. Zeit startet bei erkannter Beschleunigung.")
+        self.status_label.set_text(_translate(self.language, "acceleration.armed"))
 
     def reset_measurement(self, *_args: Any) -> None:
         self.armed = False
@@ -739,8 +808,8 @@ class AccelerationPage(Gtk.Box):
         self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
         for label in self.result_labels.values():
             label.set_text("--")
-        self.g_label.set_text("G: --")
-        self.status_label.set_text("Bereit. Start drücken und losfahren.")
+        self._set_g_text(None)
+        self.status_label.set_text(_translate(self.language, "acceleration.ready"))
 
     def update_payload(self, payload: dict[str, Any], read_number: Callable[[dict[str, Any], str], float | None]) -> None:
         now = time.monotonic()
@@ -758,7 +827,7 @@ class AccelerationPage(Gtk.Box):
             self.last_speed_time = now
 
         active_g = measured_g if measured_g is not None else self.computed_acceleration_g
-        self.g_label.set_text("G: --" if active_g is None else f"G: {active_g:.3f}")
+        self._set_g_text(active_g)
 
         if self.armed and not self.running:
             speed_rising = self.computed_acceleration_g is not None and self.computed_acceleration_g > self.G_FORCE_START_THRESHOLD
@@ -766,7 +835,7 @@ class AccelerationPage(Gtk.Box):
             if speed_rising or g_rising:
                 self.running = True
                 self.start_monotonic = now
-                self.status_label.set_text("Messung läuft …")
+                self.status_label.set_text(_translate(self.language, "acceleration.running"))
 
         if not self.running or self.start_monotonic is None:
             return
@@ -780,12 +849,13 @@ class AccelerationPage(Gtk.Box):
             if row["gps"] is None and gps_speed is not None and gps_speed >= target:
                 row["gps"] = elapsed
                 self.result_labels[(target, "gps")].set_text(f"{elapsed:.2f} s")
+        self._update_best_labels()
 
         all_done = all(values["obd"] is not None or values["gps"] is not None for values in self.results.values())
         if all_done:
             self.running = False
             self.armed = False
-            self.status_label.set_text("Messung abgeschlossen.")
+            self.status_label.set_text(_translate(self.language, "acceleration.done"))
 
 
 class DashboardWindow(Adw.ApplicationWindow):
@@ -795,20 +865,26 @@ class DashboardWindow(Adw.ApplicationWindow):
     PAGE_ACCELERATION = "acceleration"
 
     def __init__(self, app: Adw.Application) -> None:
-        super().__init__(application=app, title="DrivePulse")
+        super().__init__(application=app, title=_translate(_detect_language(), "window.title"))
         self.set_default_size(980, 520)
-        self.units = self._load_units()
+        self.settings = self._load_settings()
+        self.units = self.settings["units"]
+        self.language = self.settings["language"]
         self.last_payload: dict[str, Any] | None = None
 
-        self.rpm_gauge = Gauge("Drehzahl", "rpm", 0, 7000, (0.34, 0.62, 0.86))
+        self.rpm_gauge = Gauge(_translate(self.language, "gauge.rpm"), "rpm", 0, 7000, (0.34, 0.62, 0.86))
         speed_unit = "km/h" if self.units == "metric" else "mph"
         speed_max = 240 if self.units == "metric" else 150
-        self.speed_gauge = Gauge("Geschwindigkeit", speed_unit, 0, speed_max, (0.50, 0.72, 0.92))
-        self.temp_gauge = Gauge("Kühlmittel", "°C", 40, 130, (0.72, 0.32, 0.48))
+        self.speed_gauge = Gauge(_translate(self.language, "gauge.speed"), speed_unit, 0, speed_max, (0.50, 0.72, 0.92))
+        self.temp_gauge = Gauge(_translate(self.language, "gauge.coolant"), "°C", 40, 130, (0.72, 0.32, 0.48))
 
-        self.status_label = _make_label_responsive(Gtk.Label(label="Verbinde …"), 36, 0.5)
+        self.status_label = _make_label_responsive(Gtk.Label(label=_translate(self.language, "status.connecting")), 36, 0.5)
         self.status_label.add_css_class("dim-label")
-        self.log_label = _make_label_responsive(Gtk.Label(label=f"Datenlog: {LOG_FILE} | Verbindungslog: {CONNECTION_LOG_FILE}"), 42, 0.5)
+        self.log_label = _make_label_responsive(
+            Gtk.Label(label=_translate(self.language, "status.log_paths", data_log=LOG_FILE, connection_log=CONNECTION_LOG_FILE)),
+            42,
+            0.5,
+        )
         self.log_label.add_css_class("dim-label")
 
         self.gauge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
@@ -845,7 +921,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         dashboard_scroller.set_propagate_natural_height(False)
         dashboard_scroller.set_child(self.dashboard_page)
 
-        self.acceleration_page = AccelerationPage()
+        self.acceleration_page = AccelerationPage(self.language)
         acceleration_scroller = Gtk.ScrolledWindow()
         acceleration_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         acceleration_scroller.set_propagate_natural_width(False)
@@ -859,8 +935,18 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.view_stack.set_vhomogeneous(False)
         self.view_stack.set_enable_transitions(True)
         self.view_stack.set_transition_duration(240)
-        self.view_stack.add_titled_with_icon(dashboard_scroller, self.PAGE_DASHBOARD, "Tachos", "dashboard-symbolic")
-        self.view_stack.add_titled_with_icon(acceleration_scroller, self.PAGE_ACCELERATION, "Acceleration", "view-statistics-symbolic")
+        self.dashboard_stack_page = self.view_stack.add_titled_with_icon(
+            dashboard_scroller,
+            self.PAGE_DASHBOARD,
+            _translate(self.language, "nav.gauges"),
+            "dashboard-symbolic",
+        )
+        self.acceleration_stack_page = self.view_stack.add_titled_with_icon(
+            acceleration_scroller,
+            self.PAGE_ACCELERATION,
+            _translate(self.language, "nav.acceleration"),
+            "view-statistics-symbolic",
+        )
 
         swipe = Gtk.GestureSwipe()
         swipe.connect("swipe", self._on_swipe)
@@ -872,10 +958,12 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        header.set_title_widget(Gtk.Label(label="DrivePulse"))
+        self.title_label = Gtk.Label(label=_translate(self.language, "window.title"))
+        header.set_title_widget(self.title_label)
 
         settings_button = Gtk.Button(icon_name="emblem-system-symbolic")
-        settings_button.set_tooltip_text("Einstellungen")
+        self.settings_button = settings_button
+        settings_button.set_tooltip_text(_translate(self.language, "settings.tooltip"))
         settings_button.connect("clicked", self._open_settings)
         header.pack_end(settings_button)
 
@@ -896,23 +984,42 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.reader.stop()
         return super().close()
 
-    def _load_units(self) -> str:
+    def _load_settings(self) -> dict[str, str]:
         try:
             data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
             units = data.get("units")
-            return units if units in {"metric", "imperial"} else "metric"
+            language = data.get("language")
+            return {
+                "units": units if units in {"metric", "imperial"} else "metric",
+                "language": _normalize_language(language or _detect_language()),
+            }
         except Exception:
-            return "metric"
+            return {"units": "metric", "language": _detect_language()}
 
-    def _save_units(self) -> None:
+    def _load_units(self) -> str:
+        return self._load_settings()["units"]
+
+    def _save_settings(self) -> None:
         try:
             LOG_DIR.mkdir(parents=True, exist_ok=True)
-            SETTINGS_FILE.write_text(json.dumps({"units": self.units}, indent=2), encoding="utf-8")
+            SETTINGS_FILE.write_text(
+                json.dumps(
+                    {
+                        "units": getattr(self, "units", "metric"),
+                        "language": _normalize_language(getattr(self, "language", _detect_language())),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
         except Exception:
             pass
 
+    def _save_units(self) -> None:
+        self._save_settings()
+
     def _open_settings(self, *_args: Any) -> None:
-        dialog = SettingsDialog(self, self.units, self._set_units)
+        dialog = SettingsDialog(self, self.units, self.language, self._set_units, self._set_language)
         dialog.present(self)
 
     def _set_units(self, units: str) -> None:
@@ -932,6 +1039,28 @@ class DashboardWindow(Adw.ApplicationWindow):
             self._update_from_payload(self.last_payload)
         else:
             self.speed_gauge.queue_draw()
+
+    def _set_language(self, language: str) -> None:
+        language = _normalize_language(language)
+        if language == self.language:
+            return
+        self.language = language
+        self._save_settings()
+        self.rpm_gauge.title = _translate(self.language, "gauge.rpm")
+        self.speed_gauge.title = _translate(self.language, "gauge.speed")
+        self.temp_gauge.title = _translate(self.language, "gauge.coolant")
+        self.title_label.set_text(_translate(self.language, "window.title"))
+        self.settings_button.set_tooltip_text(_translate(self.language, "settings.tooltip"))
+        self.dashboard_stack_page.set_title(_translate(self.language, "nav.gauges"))
+        self.acceleration_stack_page.set_title(_translate(self.language, "nav.acceleration"))
+        self.log_label.set_text(_translate(self.language, "status.log_paths", data_log=LOG_FILE, connection_log=CONNECTION_LOG_FILE))
+        self.acceleration_page.set_language(self.language)
+        if self.last_payload is not None:
+            self._update_from_payload(self.last_payload)
+        else:
+            self.status_label.set_text(_translate(self.language, "status.connecting"))
+        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
+            gauge.queue_draw()
 
     def _layout_tick(self, *_args: Any) -> bool:
         self._on_size_changed()
@@ -1038,7 +1167,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.acceleration_page.update_payload(payload, self._plain_number)
 
         status = payload.get("connection_status") or payload.get("source", "?")
-        self.status_label.set_text(f"{status} | letzte Aktualisierung: {datetime.now().strftime('%H:%M:%S')}")
+        language = _normalize_language(getattr(self, "language", _detect_language()))
+        self.status_label.set_text(_translate(language, "status.updated", status=status, time=datetime.now().strftime("%H:%M:%S")))
         return False
 
 
