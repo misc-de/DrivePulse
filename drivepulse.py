@@ -99,6 +99,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gauge.speed": "Speed",
         "gauge.coolant": "Coolant",
         "status.connecting": "Connecting...",
+        "status.obd": "OBD",
+        "status.gps": "GPS",
         "status.log_paths": "Data log: {data_log} | Connection log: {connection_log}",
         "status.updated": "{status} | last update: {time}",
         "nav.gauges": "Gauges",
@@ -134,6 +136,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gauge.speed": "Geschwindigkeit",
         "gauge.coolant": "Kühlmittel",
         "status.connecting": "Verbinde...",
+        "status.obd": "OBD",
+        "status.gps": "GPS",
         "status.log_paths": "Datenlog: {data_log} | Verbindungslog: {connection_log}",
         "status.updated": "{status} | letzte Aktualisierung: {time}",
         "nav.gauges": "Tachos",
@@ -228,6 +232,7 @@ class Gauge(Gtk.DrawingArea):
             min_value=min_value,
             max_value=max_value,
         )
+        self.active = False
         self.set_content_width(1)
         self.set_content_height(1)
         self.set_size_request(1, 1)
@@ -237,9 +242,11 @@ class Gauge(Gtk.DrawingArea):
         if value is None or math.isnan(value):
             self.state.label = "--"
             self.state.value = self.state.min_value
+            self.active = False
         else:
             self.state.value = max(self.state.min_value, min(self.state.max_value, value))
             self.state.label = label if label is not None else f"{value:.0f}"
+            self.active = True
         self.queue_draw()
 
     def _draw(self, area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
@@ -255,6 +262,8 @@ class Gauge(Gtk.DrawingArea):
         normalized = (self.state.value - self.state.min_value) / (self.state.max_value - self.state.min_value)
         normalized = max(0.0, min(1.0, normalized))
         value_angle = start_angle + span * normalized
+        active_alpha = 1.0 if self.active else 0.34
+        accent = self.accent_rgb if self.active else (0.45, 0.48, 0.50)
 
         # Hintergrund
         cr.set_source_rgb(0.02, 0.025, 0.03)
@@ -263,19 +272,19 @@ class Gauge(Gtk.DrawingArea):
 
         # Äußerer Ring
         cr.set_line_width(2.0)
-        cr.set_source_rgba(0.86, 0.91, 0.96, 0.85)
+        cr.set_source_rgba(0.86, 0.91, 0.96, 0.85 * active_alpha)
         cr.arc(cx, cy, radius + line_width * 1.4, start_angle, end_angle)
         cr.stroke()
 
         # Skala dunkel
         cr.set_line_width(line_width)
         cr.set_line_cap(1)
-        cr.set_source_rgba(0.35, 0.42, 0.48, 0.45)
+        cr.set_source_rgba(0.35, 0.42, 0.48, 0.28 if self.active else 0.16)
         cr.arc(cx, cy, radius, start_angle, end_angle)
         cr.stroke()
 
         # Wertbogen
-        cr.set_source_rgba(self.accent_rgb[0], self.accent_rgb[1], self.accent_rgb[2], 0.92)
+        cr.set_source_rgba(accent[0], accent[1], accent[2], 0.92 * active_alpha)
         cr.arc(cx, cy, radius, start_angle, value_angle)
         cr.stroke()
 
@@ -285,13 +294,13 @@ class Gauge(Gtk.DrawingArea):
             angle = start_angle + span * (index / 10)
             outer = radius + line_width * 0.8
             inner = radius + line_width * (0.18 if index % 5 else -0.4)
-            cr.set_source_rgba(0.95, 0.97, 1.0, 0.75 if index % 5 else 0.95)
+            cr.set_source_rgba(0.95, 0.97, 1.0, (0.75 if index % 5 else 0.95) * active_alpha)
             cr.move_to(cx + math.cos(angle) * inner, cy + math.sin(angle) * inner)
             cr.line_to(cx + math.cos(angle) * outer, cy + math.sin(angle) * outer)
             cr.stroke()
 
         # Nadelspitze oben als optischer Bezugspunkt
-        cr.set_source_rgba(1, 1, 1, 0.95)
+        cr.set_source_rgba(1, 1, 1, 0.95 * active_alpha)
         top = -math.pi / 2
         cr.move_to(cx + math.cos(top) * (radius + line_width * 1.5), cy + math.sin(top) * (radius + line_width * 1.5))
         cr.line_to(cx + math.cos(top - 0.06) * (radius + line_width * 0.25), cy + math.sin(top - 0.06) * (radius + line_width * 0.25))
@@ -300,7 +309,7 @@ class Gauge(Gtk.DrawingArea):
         cr.fill()
 
         # Text
-        self._draw_center_text(cr, cx, cy, size)
+        self._draw_center_text(cr, cx, cy, size, active_alpha)
 
     def _draw_text_centered(
         self,
@@ -324,15 +333,15 @@ class Gauge(Gtk.DrawingArea):
         cr.move_to(x - ext.width / 2 - ext.x_bearing, y - ext.height / 2 - ext.y_bearing)
         cr.show_text(text)
 
-    def _draw_center_text(self, cr: Any, cx: float, cy: float, size: int) -> None:
+    def _draw_center_text(self, cr: Any, cx: float, cy: float, size: int, active_alpha: float) -> None:
         value_size = max(28, size * 0.19)
         unit_size = max(14, size * 0.075)
         title_size = max(13, size * 0.062)
 
         text_width = size * 0.72
-        self._draw_text_centered(cr, self.state.label, cx, cy - size * 0.06, value_size, 1.0, True, text_width)
-        self._draw_text_centered(cr, self.state.unit, cx, cy + size * 0.09, unit_size, 0.78, True, text_width)
-        self._draw_text_centered(cr, self.title, cx, cy + size * 0.26, title_size, 0.62, False, text_width)
+        self._draw_text_centered(cr, self.state.label, cx, cy - size * 0.06, value_size, active_alpha, True, text_width)
+        self._draw_text_centered(cr, self.state.unit, cx, cy + size * 0.09, unit_size, 0.78 * active_alpha, True, text_width)
+        self._draw_text_centered(cr, self.title, cx, cy + size * 0.26, title_size, 0.62 * active_alpha, False, text_width)
 
 
 class ObdReader(GObject.Object):
@@ -404,6 +413,16 @@ class ObdReader(GObject.Object):
 
     def _connect(self) -> None:
         self._connection_log("connect_begin")
+        GLib.idle_add(
+            self.on_update,
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "status",
+                "obd_connecting": True,
+                "connection_status": "Connecting to OBD...",
+                "obd_port": self.connected_port,
+            },
+        )
 
         if obd is None:
             self.mock = True
@@ -460,6 +479,7 @@ class ObdReader(GObject.Object):
             payload = self._read_mock() if self.mock else self._read_obd()
             payload["timestamp"] = datetime.now(timezone.utc).isoformat()
             payload["source"] = "mock" if self.mock else "obd"
+            payload["obd_connecting"] = False
             payload["connection_status"] = self._connection_status()
             payload["obd_port"] = self.connected_port
             if self.mock_reason:
@@ -717,6 +737,7 @@ class AccelerationPage(Gtk.Box):
         self.result_labels: dict[tuple[int, str], Gtk.Label] = {}
         self.best_labels: dict[int, Gtk.Label] = {}
         self.source_labels: dict[tuple[int, str], Gtk.Label] = {}
+        self.source_rows: dict[tuple[int, str], Gtk.Box] = {}
         for target in self.SPEED_TARGETS_KMH:
             tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             tile.add_css_class("card")
@@ -753,7 +774,9 @@ class AccelerationPage(Gtk.Box):
                 row.append(source_label)
                 row.append(value_label)
                 tile.append(row)
+                row.set_visible(False)
                 self.source_labels[(target, source)] = source_label
+                self.source_rows[(target, source)] = row
                 self.result_labels[(target, source)] = value_label
 
             self.results_flow.insert(tile, -1)
@@ -789,6 +812,12 @@ class AccelerationPage(Gtk.Box):
             best = min(measured) if measured else None
             self.result_labels[(target, "best")].set_text("--" if best is None else f"{best:.2f} s")
 
+    def _set_source_visibility(self, obd_available: bool, gps_available: bool) -> None:
+        for target in self.SPEED_TARGETS_KMH:
+            for source, available in (("obd", obd_available), ("gps", gps_available)):
+                has_result = self.results[target][source] is not None
+                self.source_rows[(target, source)].set_visible(available or has_result)
+
     def start_measurement(self, *_args: Any) -> None:
         self.armed = True
         self.running = False
@@ -816,6 +845,7 @@ class AccelerationPage(Gtk.Box):
         obd_speed = read_number(payload, "speed")
         gps_speed = read_number(payload, "gps_speed")
         measured_g = read_number(payload, "acceleration_g")
+        self._set_source_visibility(obd_speed is not None, gps_speed is not None)
 
         if obd_speed is not None and self.last_obd_speed is not None and self.last_speed_time is not None:
             dt = max(0.001, now - self.last_speed_time)
@@ -961,11 +991,15 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.title_label = Gtk.Label(label=_translate(self.language, "window.title"))
         header.set_title_widget(self.title_label)
 
+        self.obd_indicator = self._build_link_indicator("network-wired-symbolic", _translate(self.language, "status.obd"))
+        self.gps_indicator = self._build_link_indicator("find-location-symbolic", _translate(self.language, "status.gps"))
         settings_button = Gtk.Button(icon_name="emblem-system-symbolic")
         self.settings_button = settings_button
         settings_button.set_tooltip_text(_translate(self.language, "settings.tooltip"))
         settings_button.connect("clicked", self._open_settings)
         header.pack_end(settings_button)
+        header.pack_end(self.gps_indicator["box"])
+        header.pack_end(self.obd_indicator["box"])
 
         toolbar_view.add_top_bar(header)
         toolbar_view.add_bottom_bar(switcher_bar)
@@ -979,6 +1013,35 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self.reader = ObdReader(self._update_from_payload)
         self.reader.start()
+
+    def _build_link_indicator(self, icon_name: str, label_text: str) -> dict[str, Any]:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        box.add_css_class("dim-label")
+        image = Gtk.Image(icon_name=icon_name)
+        spinner = Gtk.Spinner()
+        spinner.set_visible(False)
+        label = Gtk.Label(label=label_text)
+        box.append(spinner)
+        box.append(image)
+        box.append(label)
+        return {"box": box, "image": image, "spinner": spinner, "label": label}
+
+    def _set_link_indicator(self, indicator: dict[str, Any], connected: bool, connecting: bool = False) -> None:
+        box = indicator["box"]
+        spinner = indicator["spinner"]
+        image = indicator["image"]
+        box.remove_css_class("dim-label")
+        box.remove_css_class("success")
+        if connected:
+            box.add_css_class("success")
+        else:
+            box.add_css_class("dim-label")
+        spinner.set_visible(connecting)
+        image.set_visible(not connecting)
+        if connecting:
+            spinner.start()
+        else:
+            spinner.stop()
 
     def close(self) -> bool:
         self.reader.stop()
@@ -1051,6 +1114,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.temp_gauge.title = _translate(self.language, "gauge.coolant")
         self.title_label.set_text(_translate(self.language, "window.title"))
         self.settings_button.set_tooltip_text(_translate(self.language, "settings.tooltip"))
+        self.obd_indicator["label"].set_text(_translate(self.language, "status.obd"))
+        self.gps_indicator["label"].set_text(_translate(self.language, "status.gps"))
         self.dashboard_stack_page.set_title(_translate(self.language, "nav.gauges"))
         self.acceleration_stack_page.set_title(_translate(self.language, "nav.acceleration"))
         self.log_label.set_text(_translate(self.language, "status.log_paths", data_log=LOG_FILE, connection_log=CONNECTION_LOG_FILE))
@@ -1155,11 +1220,23 @@ class DashboardWindow(Adw.ApplicationWindow):
             return None
         return speed_kmh if self.units == "metric" else speed_kmh * 0.621371
 
+    def _has_obd_data(self, payload: dict[str, Any]) -> bool:
+        return any(self._plain_number(payload, key) is not None for key in ("rpm", "speed", "coolant_temp", "throttle_pos", "engine_load"))
+
     def _update_from_payload(self, payload: dict[str, Any]) -> bool:
         self.last_payload = payload
         rpm = self._plain_number(payload, "rpm")
-        speed = self._display_speed(self._plain_number(payload, "speed"))
+        obd_speed_kmh = self._plain_number(payload, "speed")
+        gps_speed_kmh = self._plain_number(payload, "gps_speed")
+        speed_source_kmh = obd_speed_kmh if obd_speed_kmh is not None else gps_speed_kmh
+        speed = self._display_speed(speed_source_kmh)
         temp = self._plain_number(payload, "coolant_temp")
+        obd_connected = payload.get("source") == "obd" and self._has_obd_data(payload)
+        obd_connecting = bool(payload.get("obd_connecting"))
+        gps_connected = gps_speed_kmh is not None
+
+        self._set_link_indicator(self.obd_indicator, obd_connected, obd_connecting)
+        self._set_link_indicator(self.gps_indicator, gps_connected, False)
 
         self.rpm_gauge.set_value(rpm, None if rpm is None else f"{rpm:.0f}")
         self.speed_gauge.set_value(speed, None if speed is None else f"{speed:.0f}")
