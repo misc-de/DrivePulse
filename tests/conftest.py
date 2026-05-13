@@ -304,12 +304,14 @@ def drivepulse_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
     monkeypatch.setitem(sys.modules, "obd", None)
-    sys.modules.pop("drivepulse", None)
+    for _mod in ("drivepulse", "common", "gauge", "acceleration"):
+        sys.modules.pop(_mod, None)
 
     import drivepulse
 
     yield drivepulse
-    sys.modules.pop("drivepulse", None)
+    for _mod in ("drivepulse", "common", "gauge", "acceleration"):
+        sys.modules.pop(_mod, None)
 
 
 @pytest.fixture
