@@ -30,7 +30,14 @@ python3 -m pip install --user obd
 
 ### GPS
 
-On smartphones GPSD is provided by the system and already running — no setup required. DrivePulse connects automatically to `localhost:2947` and shows the GPS indicator in green as soon as a valid fix is present (mode ≥ 2).
+DrivePulse supports two GPS sources simultaneously:
+
+| Source | How it works |
+|---|---|
+| **GeoClue2** | D-Bus system service — the standard on Linux phones (Phosh / Mobian). No setup required, the system provides it. |
+| **GPSD** | TCP socket on `localhost:2947` — common on desktop Linux with an external GPS receiver. |
+
+Both sources are tried automatically on startup. Whichever delivers a fix first lights the GPS indicator green. If neither is available the indicator stays grey.
 
 ---
 
