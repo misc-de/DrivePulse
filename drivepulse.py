@@ -41,7 +41,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, GObject, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 try:
     import obd  # type: ignore
@@ -87,6 +87,15 @@ def _print_required_python_packages() -> None:
     for package_name, module_name, description in REQUIRED_PYTHON_PACKAGES:
         status = _python_package_status(package_name, module_name)
         print(f"  - {package_name}: {status} - {description}")
+
+
+def _make_label_responsive(label: Gtk.Label, max_width_chars: int = 34, xalign: float = 0.0) -> Gtk.Label:
+    label.set_wrap(True)
+    label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+    label.set_max_width_chars(max_width_chars)
+    label.set_xalign(xalign)
+    label.set_hexpand(True)
+    return label
 
 
 class Gauge(Gtk.DrawingArea):
@@ -185,10 +194,24 @@ class Gauge(Gtk.DrawingArea):
         # Text
         self._draw_center_text(cr, cx, cy, size)
 
-    def _draw_text_centered(self, cr: Any, text: str, x: float, y: float, size: float, alpha: float = 1.0, bold: bool = False) -> None:
+    def _draw_text_centered(
+        self,
+        cr: Any,
+        text: str,
+        x: float,
+        y: float,
+        size: float,
+        alpha: float = 1.0,
+        bold: bool = False,
+        max_width: float | None = None,
+    ) -> None:
         cr.select_font_face("Cantarell", 0, 1 if bold else 0)
         cr.set_font_size(size)
         ext = cr.text_extents(text)
+        if max_width is not None and ext.width > max_width:
+            size = max(9, size * (max_width / max(1, ext.width)))
+            cr.set_font_size(size)
+            ext = cr.text_extents(text)
         cr.set_source_rgba(0.94, 0.96, 1.0, alpha)
         cr.move_to(x - ext.width / 2 - ext.x_bearing, y - ext.height / 2 - ext.y_bearing)
         cr.show_text(text)
@@ -198,9 +221,10 @@ class Gauge(Gtk.DrawingArea):
         unit_size = max(14, size * 0.075)
         title_size = max(13, size * 0.062)
 
-        self._draw_text_centered(cr, self.state.label, cx, cy - size * 0.06, value_size, 1.0, True)
-        self._draw_text_centered(cr, self.state.unit, cx, cy + size * 0.09, unit_size, 0.78, True)
-        self._draw_text_centered(cr, self.title, cx, cy + size * 0.26, title_size, 0.62, False)
+        text_width = size * 0.72
+        self._draw_text_centered(cr, self.state.label, cx, cy - size * 0.06, value_size, 1.0, True, text_width)
+        self._draw_text_centered(cr, self.state.unit, cx, cy + size * 0.09, unit_size, 0.78, True, text_width)
+        self._draw_text_centered(cr, self.title, cx, cy + size * 0.26, title_size, 0.62, False, text_width)
 
 
 class ObdReader(GObject.Object):
@@ -434,16 +458,15 @@ class AccelerationPage(Gtk.Box):
             target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
         }
 
-        title = Gtk.Label(label="DrivePulse Acceleration")
+        title = _make_label_responsive(Gtk.Label(label="DrivePulse Acceleration"), 28)
         title.add_css_class("title-1")
         title.set_halign(Gtk.Align.START)
 
-        self.status_label = Gtk.Label(label="Bereit. Start drücken und losfahren.")
+        self.status_label = _make_label_responsive(Gtk.Label(label="Bereit. Start drücken und losfahren."))
         self.status_label.add_css_class("dim-label")
         self.status_label.set_halign(Gtk.Align.START)
-        self.status_label.set_wrap(True)
 
-        self.g_label = Gtk.Label(label="G: --")
+        self.g_label = _make_label_responsive(Gtk.Label(label="G: --"), 18)
         self.g_label.add_css_class("heading")
         self.g_label.set_halign(Gtk.Align.START)
 
@@ -461,9 +484,8 @@ class AccelerationPage(Gtk.Box):
         self.grid.set_hexpand(True)
         self._build_grid()
 
-        note = Gtk.Label(label="Startzeit wird erst gesetzt, wenn G-Kraft oder Geschwindigkeitsanstieg erkannt wird. GPS-Zeiten erscheinen nur, wenn gps_speed im Payload vorhanden ist.")
+        note = _make_label_responsive(Gtk.Label(label="Startzeit wird erst gesetzt, wenn G-Kraft oder Geschwindigkeitsanstieg erkannt wird. GPS-Zeiten erscheinen nur, wenn gps_speed im Payload vorhanden ist."))
         note.add_css_class("dim-label")
-        note.set_wrap(True)
         note.set_halign(Gtk.Align.START)
 
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -484,19 +506,19 @@ class AccelerationPage(Gtk.Box):
     def _build_grid(self) -> None:
         headers = ("Ziel", "Tacho", "GPS")
         for col, text in enumerate(headers):
-            label = Gtk.Label(label=text)
+            label = _make_label_responsive(Gtk.Label(label=text), 12)
             label.add_css_class("heading")
             label.set_halign(Gtk.Align.START)
             self.grid.attach(label, col, 0, 1, 1)
 
         self.result_labels: dict[tuple[int, str], Gtk.Label] = {}
         for row, target in enumerate(self.SPEED_TARGETS_KMH, start=1):
-            target_label = Gtk.Label(label=f"0-{target} km/h")
+            target_label = _make_label_responsive(Gtk.Label(label=f"0-{target} km/h"), 12)
             target_label.set_halign(Gtk.Align.START)
             self.grid.attach(target_label, 0, row, 1, 1)
 
             for col, source in enumerate(("obd", "gps"), start=1):
-                label = Gtk.Label(label="--")
+                label = _make_label_responsive(Gtk.Label(label="--"), 12)
                 label.set_halign(Gtk.Align.START)
                 self.result_labels[(target, source)] = label
                 self.grid.attach(label, col, row, 1, 1)
@@ -587,11 +609,10 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.speed_gauge = Gauge("Geschwindigkeit", speed_unit, 0, speed_max, (0.50, 0.72, 0.92))
         self.temp_gauge = Gauge("Kühlmittel", "°C", 40, 130, (0.72, 0.32, 0.48))
 
-        self.status_label = Gtk.Label(label="Verbinde …")
+        self.status_label = _make_label_responsive(Gtk.Label(label="Verbinde …"), 36, 0.5)
         self.status_label.add_css_class("dim-label")
-        self.log_label = Gtk.Label(label=f"Datenlog: {LOG_FILE} | Verbindungslog: {CONNECTION_LOG_FILE}")
+        self.log_label = _make_label_responsive(Gtk.Label(label=f"Datenlog: {LOG_FILE} | Verbindungslog: {CONNECTION_LOG_FILE}"), 42, 0.5)
         self.log_label.add_css_class("dim-label")
-        self.log_label.set_wrap(True)
 
         self.gauge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         self.gauge_box.set_halign(Gtk.Align.FILL)
@@ -710,12 +731,15 @@ class DashboardWindow(Adw.ApplicationWindow):
         if width <= 0 or height <= 0:
             return False
 
-        self._set_gauge_layout(width, height)
+        if width >= height:
+            self._set_landscape_layout(width, height)
+        else:
+            self._set_portrait_layout(width, height)
 
         return False
 
-    def _set_gauge_layout(self, width: int, height: int) -> None:
-        # Hoch- und Querformat: alle Tachos bleiben nebeneinander.
+    def _set_landscape_layout(self, width: int, height: int) -> None:
+        # Querformat: alle Tachos nebeneinander.
         self.gauge_box.set_orientation(Gtk.Orientation.HORIZONTAL)
         self.gauge_box.set_spacing(16)
         self.gauge_box.set_halign(Gtk.Align.FILL)
@@ -728,6 +752,26 @@ class DashboardWindow(Adw.ApplicationWindow):
         for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
             gauge.set_hexpand(True)
             gauge.set_vexpand(True)
+            gauge.set_halign(Gtk.Align.CENTER)
+            gauge.set_valign(Gtk.Align.CENTER)
+            gauge.set_size_request(gauge_size, gauge_size)
+            gauge.set_content_width(gauge_size)
+            gauge.set_content_height(gauge_size)
+
+    def _set_portrait_layout(self, width: int, height: int) -> None:
+        # Hochformat: alle Tachos untereinander.
+        self.gauge_box.set_orientation(Gtk.Orientation.VERTICAL)
+        self.gauge_box.set_spacing(8)
+        self.gauge_box.set_halign(Gtk.Align.CENTER)
+        self.gauge_box.set_valign(Gtk.Align.CENTER)
+
+        available_width = max(120, width - 36)
+        available_height = max(120, height - 120)
+        gauge_size = max(72, min(available_width, available_height // 3 - 8))
+
+        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
+            gauge.set_hexpand(False)
+            gauge.set_vexpand(False)
             gauge.set_halign(Gtk.Align.CENTER)
             gauge.set_valign(Gtk.Align.CENTER)
             gauge.set_size_request(gauge_size, gauge_size)
