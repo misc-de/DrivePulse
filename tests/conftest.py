@@ -20,12 +20,17 @@ class _Orientation:
 class _Align:
     FILL = _EnumValue("fill")
     CENTER = _EnumValue("center")
+    END = _EnumValue("end")
     START = _EnumValue("start")
 
 
 class _PolicyType:
     NEVER = _EnumValue("never")
     AUTOMATIC = _EnumValue("automatic")
+
+
+class _SelectionMode:
+    NONE = _EnumValue("none")
 
 
 class _WrapMode:
@@ -65,6 +70,9 @@ class _Widget:
     def append(self, child: object) -> None:
         self.children.append(child)
 
+    def insert(self, child: object, position: int) -> None:
+        self.children.append(child) if position < 0 else self.children.insert(position, child)
+
     def add(self, child: object) -> None:
         self.children.append(child)
 
@@ -95,6 +103,9 @@ class _Widget:
     def set_text(self, text: str) -> None:
         self.text = text
 
+    def set_label(self, text: str) -> None:
+        self.text = text
+
     def get_text(self) -> str:
         return getattr(self, "text", "")
 
@@ -122,6 +133,10 @@ class _Grid(_Widget):
         super().__init__(**kwargs)
         self.props["column_spacing"] = column_spacing
         self.props["row_spacing"] = row_spacing
+
+
+class _FlowBox(_Widget):
+    pass
 
 
 class _StringList(_Widget):
@@ -188,12 +203,14 @@ def drivepulse_module(monkeypatch):
         Button=_Button,
         ComboRow=_ComboRow,
         DrawingArea=_DrawingArea,
+        FlowBox=_FlowBox,
         GestureSwipe=_GestureSwipe,
         Grid=_Grid,
         Label=_Label,
         Orientation=_Orientation,
         PolicyType=_PolicyType,
         ScrolledWindow=_Widget,
+        SelectionMode=_SelectionMode,
         StringList=_StringList,
         Window=_Widget,
     )
