@@ -95,6 +95,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.language": "Language",
         "settings.language.en": "English",
         "settings.language.de": "Deutsch",
+        "settings.mock_mode": "Mock Mode",
+        "settings.mock_mode.subtitle": "Simulate OBD and GPS data without hardware",
         "gauge.rpm": "RPM",
         "gauge.speed": "Speed",
         "gauge.coolant": "Coolant",
@@ -132,6 +134,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.language": "Sprache",
         "settings.language.en": "English",
         "settings.language.de": "Deutsch",
+        "settings.mock_mode": "Mock-Modus",
+        "settings.mock_mode.subtitle": "OBD- und GPS-Daten ohne Hardware simulieren",
         "gauge.rpm": "Drehzahl",
         "gauge.speed": "Geschwindigkeit",
         "gauge.coolant": "Kühlmittel",
@@ -349,17 +353,23 @@ class ObdReader(GObject.Object):
 
     __gtype_name__ = "ObdReader"
 
-    def __init__(self, on_update: Callable[[dict[str, Any]], None]) -> None:
+    def __init__(self, on_update: Callable[[dict[str, Any]], None], force_mock: bool = False) -> None:
         super().__init__()
         self.on_update = on_update
+        self.force_mock = force_mock
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
         self.connection = None
         self.connected_port: str | None = None
         self.failed_read_count = 0
         self.next_mock_reconnect_attempt = 0.0
-        self.mock_reason = "python-obd fehlt" if obd is None else ""
-        self.mock = obd is None
+        if obd is None:
+            self.mock_reason = "python-obd fehlt"
+        elif force_mock:
+            self.mock_reason = "Manuell aktiviert"
+        else:
+            self.mock_reason = ""
+        self.mock = obd is None or force_mock
 
     def _connection_log(self, event: str, **fields: Any) -> None:
         """Schreibt jeden Verbindungsversuch sofort in ein separates Debug-Log."""
@@ -411,7 +421,24 @@ class ObdReader(GObject.Object):
             self.connection = None
             self.connected_port = None
 
+    def set_force_mock(self, force_mock: bool) -> None:
+        self.force_mock = force_mock
+        if force_mock:
+            self.mock = True
+            self.mock_reason = "Manuell aktiviert"
+        else:
+            self.next_mock_reconnect_attempt = 0.0
+            if obd is None:
+                self.mock_reason = "python-obd fehlt"
+            else:
+                self.mock_reason = ""
+
     def _connect(self) -> None:
+        if self.force_mock:
+            self.mock = True
+            self.mock_reason = "Manuell aktiviert"
+            self._connection_log("connect_skipped", reason="force_mock")
+            return
         self._connection_log("connect_begin")
         GLib.idle_add(
             self.on_update,
@@ -478,7 +505,7 @@ class ObdReader(GObject.Object):
             self._maybe_reconnect_from_mock()
             payload = self._read_mock() if self.mock else self._read_obd()
             payload["timestamp"] = datetime.now(timezone.utc).isoformat()
-            payload["source"] = "mock" if self.mock else "obd"
+            payload["source"] = ("mock" if self.force_mock else "mock_fallback") if self.mock else "obd"
             payload["obd_connecting"] = False
             payload["connection_status"] = self._connection_status()
             payload["obd_port"] = self.connected_port
@@ -490,7 +517,7 @@ class ObdReader(GObject.Object):
             time.sleep(POLL_INTERVAL_SECONDS)
 
     def _maybe_reconnect_from_mock(self) -> None:
-        if not self.mock or obd is None:
+        if self.force_mock or not self.mock or obd is None:
             return
 
         now = time.monotonic()
@@ -612,13 +639,16 @@ class SettingsDialog(Adw.PreferencesDialog):
         parent: Gtk.Window,
         current_units: str,
         current_language: str,
+        current_mock_mode: bool,
         on_units_changed: Callable[[str], None],
         on_language_changed: Callable[[str], None],
+        on_mock_mode_changed: Callable[[bool], None],
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
         self.on_units_changed = on_units_changed
         self.on_language_changed = on_language_changed
+        self.on_mock_mode_changed = on_mock_mode_changed
         self.set_title(_translate(self.language, "settings.title"))
 
         page = Adw.PreferencesPage(title=_translate(self.language, "settings.display"))
@@ -640,8 +670,20 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.language_row.set_selected(SUPPORTED_LANGUAGES.index(self.language))
         self.language_row.connect("notify::selected", self._on_language_selected)
 
+        self.mock_switch = Gtk.Switch()
+        self.mock_switch.set_active(current_mock_mode)
+        self.mock_switch.set_valign(Gtk.Align.CENTER)
+        self.mock_switch.connect("notify::active", self._on_mock_changed)
+        self.mock_row = Adw.ActionRow(
+            title=_translate(self.language, "settings.mock_mode"),
+            subtitle=_translate(self.language, "settings.mock_mode.subtitle"),
+        )
+        self.mock_row.add_suffix(self.mock_switch)
+        self.mock_row.set_activatable_widget(self.mock_switch)
+
         group.add(self.unit_row)
         group.add(self.language_row)
+        group.add(self.mock_row)
         page.add(group)
         self.add(page)
 
@@ -650,6 +692,9 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _on_language_selected(self, *_args: Any) -> None:
         self.on_language_changed(SUPPORTED_LANGUAGES[self.language_row.get_selected()])
+
+    def _on_mock_changed(self, *_args: Any) -> None:
+        self.on_mock_mode_changed(self.mock_switch.get_active())
 
 
 class AccelerationPage(Gtk.Box):
@@ -900,6 +945,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.settings = self._load_settings()
         self.units = self.settings["units"]
         self.language = self.settings["language"]
+        self.mock_mode = self.settings["mock_mode"]
         self.last_payload: dict[str, Any] | None = None
 
         self.rpm_gauge = Gauge(_translate(self.language, "gauge.rpm"), "rpm", 0, 7000, (0.34, 0.62, 0.86))
@@ -997,9 +1043,9 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.settings_button = settings_button
         settings_button.set_tooltip_text(_translate(self.language, "settings.tooltip"))
         settings_button.connect("clicked", self._open_settings)
+        header.pack_start(self.obd_indicator["box"])
+        header.pack_start(self.gps_indicator["box"])
         header.pack_end(settings_button)
-        header.pack_end(self.gps_indicator["box"])
-        header.pack_end(self.obd_indicator["box"])
 
         toolbar_view.add_top_bar(header)
         toolbar_view.add_bottom_bar(switcher_bar)
@@ -1011,7 +1057,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.add_tick_callback(self._layout_tick)
         GLib.idle_add(self._on_size_changed)
 
-        self.reader = ObdReader(self._update_from_payload)
+        self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader.start()
 
     def _build_link_indicator(self, icon_name: str, label_text: str) -> dict[str, Any]:
@@ -1047,7 +1093,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.reader.stop()
         return super().close()
 
-    def _load_settings(self) -> dict[str, str]:
+    def _load_settings(self) -> dict[str, Any]:
         try:
             data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
             units = data.get("units")
@@ -1055,9 +1101,10 @@ class DashboardWindow(Adw.ApplicationWindow):
             return {
                 "units": units if units in {"metric", "imperial"} else "metric",
                 "language": _normalize_language(language or _detect_language()),
+                "mock_mode": bool(data.get("mock_mode", False)),
             }
         except Exception:
-            return {"units": "metric", "language": _detect_language()}
+            return {"units": "metric", "language": _detect_language(), "mock_mode": False}
 
     def _load_units(self) -> str:
         return self._load_settings()["units"]
@@ -1070,6 +1117,7 @@ class DashboardWindow(Adw.ApplicationWindow):
                     {
                         "units": getattr(self, "units", "metric"),
                         "language": _normalize_language(getattr(self, "language", _detect_language())),
+                        "mock_mode": getattr(self, "mock_mode", False),
                     },
                     indent=2,
                 ),
@@ -1082,7 +1130,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self._save_settings()
 
     def _open_settings(self, *_args: Any) -> None:
-        dialog = SettingsDialog(self, self.units, self.language, self._set_units, self._set_language)
+        dialog = SettingsDialog(self, self.units, self.language, self.mock_mode, self._set_units, self._set_language, self._set_mock_mode)
         dialog.present(self)
 
     def _set_units(self, units: str) -> None:
@@ -1102,6 +1150,13 @@ class DashboardWindow(Adw.ApplicationWindow):
             self._update_from_payload(self.last_payload)
         else:
             self.speed_gauge.queue_draw()
+
+    def _set_mock_mode(self, mock_mode: bool) -> None:
+        if mock_mode == self.mock_mode:
+            return
+        self.mock_mode = mock_mode
+        self._save_settings()
+        self.reader.set_force_mock(mock_mode)
 
     def _set_language(self, language: str) -> None:
         language = _normalize_language(language)
@@ -1231,9 +1286,10 @@ class DashboardWindow(Adw.ApplicationWindow):
         speed_source_kmh = obd_speed_kmh if obd_speed_kmh is not None else gps_speed_kmh
         speed = self._display_speed(speed_source_kmh)
         temp = self._plain_number(payload, "coolant_temp")
-        obd_connected = payload.get("source") == "obd" and self._has_obd_data(payload)
+        source = payload.get("source", "")
+        obd_connected = source in ("obd", "mock") and self._has_obd_data(payload)
         obd_connecting = bool(payload.get("obd_connecting"))
-        gps_connected = gps_speed_kmh is not None
+        gps_connected = gps_speed_kmh is not None and source in ("obd", "mock")
 
         self._set_link_indicator(self.obd_indicator, obd_connected, obd_connecting)
         self._set_link_indicator(self.gps_indicator, gps_connected, False)
