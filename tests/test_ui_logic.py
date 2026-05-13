@@ -94,12 +94,15 @@ def test_update_from_payload_updates_gauges_and_status(drivepulse_module):
     window.temp_gauge = drivepulse_module.Gauge("Temp", "C", 40, 130, (1, 1, 1))
     window.acceleration_page = type("AccelerationSpy", (), {"update_payload": lambda self, payload, reader: None})()
     window.status_label = drivepulse_module.Gtk.Label(label="")
+    window.obd_indicator = window._build_link_indicator("network-wired-symbolic", "OBD")
+    window.gps_indicator = window._build_link_indicator("find-location-symbolic", "GPS")
 
     window._update_from_payload(
         {
             "rpm": {"value": 1234},
             "speed": {"value": 88},
             "coolant_temp": {"value": 91},
+            "source": "obd",
             "connection_status": "OBD verbunden: /dev/rfcomm0",
         }
     )
@@ -108,3 +111,46 @@ def test_update_from_payload_updates_gauges_and_status(drivepulse_module):
     assert window.speed_gauge.state.label == "88"
     assert window.temp_gauge.state.label == "91"
     assert "OBD verbunden: /dev/rfcomm0" in window.status_label.get_text()
+    assert window.rpm_gauge.active is True
+    assert "success" in window.obd_indicator["box"].props["css_classes"]
+
+
+def test_update_from_payload_uses_gps_speed_when_obd_is_missing(drivepulse_module):
+    window = drivepulse_module.DashboardWindow.__new__(drivepulse_module.DashboardWindow)
+    window.units = "metric"
+    window.language = "en"
+    window.rpm_gauge = drivepulse_module.Gauge("RPM", "rpm", 0, 7000, (1, 1, 1))
+    window.speed_gauge = drivepulse_module.Gauge("Speed", "km/h", 0, 240, (1, 1, 1))
+    window.temp_gauge = drivepulse_module.Gauge("Temp", "C", 40, 130, (1, 1, 1))
+    window.acceleration_page = type("AccelerationSpy", (), {"update_payload": lambda self, payload, reader: None})()
+    window.status_label = drivepulse_module.Gtk.Label(label="")
+    window.obd_indicator = window._build_link_indicator("network-wired-symbolic", "OBD")
+    window.gps_indicator = window._build_link_indicator("find-location-symbolic", "GPS")
+
+    window._update_from_payload({"gps_speed": {"value": 42}, "source": "gps"})
+
+    assert window.rpm_gauge.active is False
+    assert window.temp_gauge.active is False
+    assert window.speed_gauge.active is True
+    assert window.speed_gauge.state.label == "42"
+    assert "dim-label" in window.obd_indicator["box"].props["css_classes"]
+    assert "success" in window.gps_indicator["box"].props["css_classes"]
+
+
+def test_obd_indicator_spins_while_connecting(drivepulse_module):
+    window = drivepulse_module.DashboardWindow.__new__(drivepulse_module.DashboardWindow)
+    window.units = "metric"
+    window.language = "en"
+    window.rpm_gauge = drivepulse_module.Gauge("RPM", "rpm", 0, 7000, (1, 1, 1))
+    window.speed_gauge = drivepulse_module.Gauge("Speed", "km/h", 0, 240, (1, 1, 1))
+    window.temp_gauge = drivepulse_module.Gauge("Temp", "C", 40, 130, (1, 1, 1))
+    window.acceleration_page = type("AccelerationSpy", (), {"update_payload": lambda self, payload, reader: None})()
+    window.status_label = drivepulse_module.Gtk.Label(label="")
+    window.obd_indicator = window._build_link_indicator("network-wired-symbolic", "OBD")
+    window.gps_indicator = window._build_link_indicator("find-location-symbolic", "GPS")
+
+    window._update_from_payload({"source": "status", "obd_connecting": True, "connection_status": "Connecting to OBD..."})
+
+    assert window.obd_indicator["spinner"].props["visible"] is True
+    assert window.obd_indicator["spinner"].props["spinning"] is True
+    assert window.obd_indicator["image"].props["visible"] is False

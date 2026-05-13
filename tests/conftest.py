@@ -67,6 +67,11 @@ class _Widget:
     def add_css_class(self, css_class: str) -> None:
         self.props.setdefault("css_classes", []).append(css_class)
 
+    def remove_css_class(self, css_class: str) -> None:
+        css_classes = self.props.setdefault("css_classes", [])
+        if css_class in css_classes:
+            css_classes.remove(css_class)
+
     def append(self, child: object) -> None:
         self.children.append(child)
 
@@ -116,6 +121,18 @@ class _Label(_Widget):
 
 class _Button(_Widget):
     pass
+
+
+class _Image(_Widget):
+    pass
+
+
+class _Spinner(_Widget):
+    def start(self) -> None:
+        self.props["spinning"] = True
+
+    def stop(self) -> None:
+        self.props["spinning"] = False
 
 
 class _Box(_Widget):
@@ -206,11 +223,13 @@ def drivepulse_module(monkeypatch):
         FlowBox=_FlowBox,
         GestureSwipe=_GestureSwipe,
         Grid=_Grid,
+        Image=_Image,
         Label=_Label,
         Orientation=_Orientation,
         PolicyType=_PolicyType,
         ScrolledWindow=_Widget,
         SelectionMode=_SelectionMode,
+        Spinner=_Spinner,
         StringList=_StringList,
         Window=_Widget,
     )
