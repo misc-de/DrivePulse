@@ -9,6 +9,12 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 
 ---
 
+## Screenshots
+<img width="270" alt="Screenshot from 2026-05-14 20:44:44" src="https://github.com/user-attachments/assets/9e1c5c0a-825d-4eba-904d-fc0c28693049" />
+<img width="270" alt="Screenshot from 2026-05-14 20:43:08" src="https://github.com/user-attachments/assets/e9435da4-cbc9-4a1d-85e8-aa5989fda3fd" />
+
+---
+
 ## Features
 
 - Circular gauges for RPM, speed and coolant temperature
@@ -73,16 +79,6 @@ bash uninstall.sh   # to remove
 | `common.py` | Shared constants, translations, utility functions |
 | `install.sh` / `uninstall.sh` | Desktop integration |
 | `tests/` | Pytest test suite |
-
----
-
-## Logs
-
-| File | Contents |
-|---|---|
-| `obd-log.jsonl` | All OBD / GPS readings (JSONL, one line per poll) |
-| `connection-log.jsonl` | Connection events including supported PIDs reported by the vehicle |
-| `settings.json` | Saved settings (units, language, mock mode) |
 
 ---
 
