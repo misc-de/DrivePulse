@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime
 from typing import Any, Callable
@@ -13,6 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango  # noqa: E402
 
 from common import PROFILES_DIR, SOURCE_LANGUAGE, _normalize_language, _translate
+from db import DriveDB
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +102,8 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         (_SPECIAL_PENDING,    "Ausstehende Fehler"),
         ("0141", "Monitor-Status diese Fahrt"),
     )),
+    # Sonderfall: keine PID-Liste, Inhalt = Fahrten dieses Autos aus der DB
+    ("trips", "Fahrten", "document-open-recent-symbolic", ()),
 )
 
 
@@ -208,29 +212,288 @@ def _format_scan_date(raw: Any) -> str:
         return str(raw)
 
 
-def _load_profiles() -> list[dict[str, Any]]:
-    if not PROFILES_DIR.exists():
-        return []
+def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> Gtk.Widget:
+    """Stat-Karte + GPS-Track + Speed-Verlauf für eine einzelne Fahrt."""
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+    outer.set_margin_top(14)
+    outer.set_margin_bottom(14)
+    outer.set_margin_start(14)
+    outer.set_margin_end(14)
+
+    # --- Stats ---
+    stats = Gtk.ListBox()
+    stats.set_selection_mode(Gtk.SelectionMode.NONE)
+    stats.add_css_class("boxed-list")
+    stats.set_valign(Gtk.Align.START)
+
+    def _add_stat(title: str, value: str) -> None:
+        row = Adw.ActionRow()
+        row.set_title(GLib.markup_escape_text(title))
+        lbl = Gtk.Label(label=value, xalign=1.0)
+        lbl.add_css_class("monospace")
+        lbl.set_halign(Gtk.Align.END)
+        row.add_suffix(lbl)
+        stats.append(row)
+
+    started = _safe_ts(trip["started_at"])
+    ended = _safe_ts(trip["ended_at"])
+    _add_stat("Start", started.strftime("%d.%m.%Y %H:%M:%S") if started else "—")
+    _add_stat("Ende", ended.strftime("%d.%m.%Y %H:%M:%S") if ended else "—")
+    dur_s = trip["duration_s"] or 0.0
+    if dur_s:
+        hrs = int(dur_s // 3600)
+        mins = int((dur_s % 3600) // 60)
+        secs = int(dur_s % 60)
+        dur_text = f"{hrs}:{mins:02d}:{secs:02d}" if hrs else f"{mins}:{secs:02d} min"
+    else:
+        dur_text = "—"
+    _add_stat("Dauer", dur_text)
+    _add_stat("Strecke", f"{trip['distance_km']:.2f} km" if trip["distance_km"] else "—")
+    _add_stat("Höchstgeschwindigkeit", f"{trip['max_speed_kmh']:.0f} km/h" if trip["max_speed_kmh"] else "—")
+    _add_stat("Durchschnitt", f"{trip['avg_speed_kmh']:.0f} km/h" if trip["avg_speed_kmh"] else "—")
+    _add_stat("Samples", str(trip["samples_count"] or 0))
+
+    outer.append(stats)
+
+    # --- GPS-Track ---
+    gps_points = [(s["lat"], s["lon"], s["speed_kmh"]) for s in samples
+                  if s["lat"] is not None and s["lon"] is not None]
+    if gps_points:
+        gps_title = Gtk.Label(label="Strecke", xalign=0.0)
+        gps_title.add_css_class("heading")
+        outer.append(gps_title)
+        gps_area = Gtk.DrawingArea()
+        gps_area.set_content_height(240)
+        gps_area.set_hexpand(True)
+        gps_area.add_css_class("card")
+        gps_area.set_draw_func(lambda area, cr, w, h, pts=gps_points: _draw_gps_track(cr, w, h, pts))
+        outer.append(gps_area)
+
+    # --- Geschwindigkeitsverlauf ---
+    speed_series = [(s["ts"], s["speed_kmh"]) for s in samples if s["speed_kmh"] is not None]
+    if speed_series:
+        sp_title = Gtk.Label(label="Geschwindigkeit (km/h)", xalign=0.0)
+        sp_title.add_css_class("heading")
+        outer.append(sp_title)
+        sp_area = Gtk.DrawingArea()
+        sp_area.set_content_height(180)
+        sp_area.set_hexpand(True)
+        sp_area.add_css_class("card")
+        sp_area.set_draw_func(lambda area, cr, w, h, s=speed_series: _draw_speed_series(cr, w, h, s))
+        outer.append(sp_area)
+
+    if not gps_points and not speed_series:
+        empty = Gtk.Label(label="Keine Messwerte für diese Fahrt.", xalign=0.0)
+        empty.add_css_class("dim-label")
+        outer.append(empty)
+
+    scroll = Gtk.ScrolledWindow()
+    scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroll.set_vexpand(True)
+    scroll.set_hexpand(True)
+    scroll.set_child(outer)
+    return scroll
+
+
+def _safe_ts(raw: Any) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _draw_gps_track(cr: Any, width: int, height: int, points: list[tuple[float, float, float | None]]) -> None:
+    """Zeichnet die GPS-Spur in den DrawingArea-Bereich. Speed kodiert per Farbe."""
+    if not points:
+        return
+    pad = 12
+    iw, ih = max(1, width - 2 * pad), max(1, height - 2 * pad)
+    lats = [p[0] for p in points]
+    lons = [p[1] for p in points]
+    lat_min, lat_max = min(lats), max(lats)
+    lon_min, lon_max = min(lons), max(lons)
+    lat_span = max(1e-6, lat_max - lat_min)
+    lon_span = max(1e-6, lon_max - lon_min)
+    # Längengrade an Breitengrad-Cosinus skalieren, damit es nicht verzerrt
+    import math as _m
+    cos_lat = _m.cos(_m.radians((lat_min + lat_max) / 2))
+    aspect = (lon_span * cos_lat) / lat_span
+    if aspect > iw / ih:
+        draw_w = iw
+        draw_h = iw / aspect
+    else:
+        draw_h = ih
+        draw_w = ih * aspect
+    off_x = pad + (iw - draw_w) / 2
+    off_y = pad + (ih - draw_h) / 2
+
+    def project(lat: float, lon: float) -> tuple[float, float]:
+        x = off_x + ((lon - lon_min) / lon_span) * draw_w
+        # y invertiert: hoch = Norden
+        y = off_y + draw_h - ((lat - lat_min) / lat_span) * draw_h
+        return x, y
+
+    # Pfad farbcodiert nach Geschwindigkeit
+    speeds = [s for _, _, s in points if s is not None]
+    vmax = max(speeds) if speeds else 0.0
+    last_pt = project(points[0][0], points[0][1])
+    cr.set_line_width(2.5)
+    cr.set_line_cap(1)  # ROUND
+    cr.set_line_join(1)
+    for i in range(1, len(points)):
+        lat, lon, spd = points[i]
+        x, y = project(lat, lon)
+        # Farbe: blau (langsam) → grün → rot (schnell)
+        if spd is None or vmax <= 0:
+            cr.set_source_rgb(0.4, 0.6, 0.9)
+        else:
+            t = min(1.0, spd / max(1.0, vmax))
+            r = 0.2 + 0.7 * t
+            g = 0.5 + 0.4 * (1 - abs(0.5 - t) * 2)
+            b = 0.9 - 0.8 * t
+            cr.set_source_rgb(r, g, b)
+        cr.move_to(*last_pt)
+        cr.line_to(x, y)
+        cr.stroke()
+        last_pt = (x, y)
+
+    # Start- und End-Marker
+    sx, sy = project(points[0][0], points[0][1])
+    ex, ey = project(points[-1][0], points[-1][1])
+    cr.set_source_rgb(0.20, 0.65, 0.30)
+    cr.arc(sx, sy, 5, 0, 6.2832)
+    cr.fill()
+    cr.set_source_rgb(0.85, 0.30, 0.30)
+    cr.arc(ex, ey, 5, 0, 6.2832)
+    cr.fill()
+
+
+def _draw_speed_series(cr: Any, width: int, height: int, series: list[tuple[float, float]]) -> None:
+    if len(series) < 2:
+        return
+    pad_l, pad_r, pad_t, pad_b = 36, 12, 10, 22
+    iw = max(1, width - pad_l - pad_r)
+    ih = max(1, height - pad_t - pad_b)
+    ts0 = series[0][0]
+    ts1 = series[-1][0]
+    t_span = max(1e-6, ts1 - ts0)
+    v_max = max(s[1] for s in series)
+    v_max_disp = max(20.0, math.ceil(v_max / 20.0) * 20.0)
+
+    # Achsen
+    cr.set_source_rgba(1, 1, 1, 0.20)
+    cr.set_line_width(1.0)
+    for frac in (0.0, 0.25, 0.5, 0.75, 1.0):
+        y = pad_t + ih - frac * ih
+        cr.move_to(pad_l, y)
+        cr.line_to(pad_l + iw, y)
+        cr.stroke()
+    cr.set_source_rgba(1, 1, 1, 0.55)
+    cr.select_font_face("Sans")
+    cr.set_font_size(10)
+    for frac in (0.0, 0.5, 1.0):
+        label = f"{int(v_max_disp * frac)}"
+        y = pad_t + ih - frac * ih + 4
+        cr.move_to(4, y)
+        cr.show_text(label)
+
+    # Polyline + leicht gefüllte Fläche
+    cr.set_line_width(2.0)
+    cr.set_source_rgba(0.34, 0.62, 0.86, 0.25)
+    cr.move_to(pad_l, pad_t + ih)
+    for ts, v in series:
+        x = pad_l + ((ts - ts0) / t_span) * iw
+        y = pad_t + ih - (min(v, v_max_disp) / v_max_disp) * ih
+        cr.line_to(x, y)
+    cr.line_to(pad_l + iw, pad_t + ih)
+    cr.close_path()
+    cr.fill()
+
+    cr.set_source_rgb(0.34, 0.62, 0.86)
+    first = True
+    for ts, v in series:
+        x = pad_l + ((ts - ts0) / t_span) * iw
+        y = pad_t + ih - (min(v, v_max_disp) / v_max_disp) * ih
+        if first:
+            cr.move_to(x, y)
+            first = False
+        else:
+            cr.line_to(x, y)
+    cr.stroke()
+
+
+def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
+    """Liefert alle bekannten Autos: aus JSON-Profilen + aus der DB, per VIN gemerged."""
     entries: list[dict[str, Any]] = []
-    for path in sorted(PROFILES_DIR.glob("*.json")):
+    seen_vins: set[str] = set()
+
+    if PROFILES_DIR.exists():
+        for path in sorted(PROFILES_DIR.glob("*.json")):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            vin = _extract_inner_string(data.get("vin"))
+            brand = _wmi_to_brand(vin)
+            try:
+                dt = datetime.fromisoformat(str(data.get("scanned_at", "")).replace("Z", "+00:00"))
+                scan_label = dt.strftime("%d.%m.%Y")
+            except Exception:
+                scan_label = ""
+            entries.append({
+                "path": path,
+                "data": data,
+                "vin": vin,
+                "brand": brand,
+                "scan_label": scan_label,
+                "car_id": None,
+                "trip_count": 0,
+                "total_km": 0.0,
+            })
+            if vin:
+                seen_vins.add(vin)
+
+    if db is not None:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            db_cars = db.list_cars()
         except Exception:
-            continue
-        vin = _extract_inner_string(data.get("vin"))
-        brand = _wmi_to_brand(vin)
-        try:
-            dt = datetime.fromisoformat(str(data.get("scanned_at", "")).replace("Z", "+00:00"))
-            scan_label = dt.strftime("%d.%m.%Y")
-        except Exception:
-            scan_label = ""
-        entries.append({
-            "path": path,
-            "data": data,
-            "vin": vin,
-            "brand": brand,
-            "scan_label": scan_label,
-        })
+            db_cars = []
+        # JSON-Einträge mit DB-Daten anreichern
+        for entry in entries:
+            if not entry["vin"]:
+                continue
+            for row in db_cars:
+                if (row["vin"] or "") == entry["vin"]:
+                    entry["car_id"] = int(row["id"])
+                    entry["trip_count"] = int(row["trip_count"] or 0)
+                    entry["total_km"] = float(row["total_km"] or 0.0)
+                    break
+        # DB-Autos ohne passendes JSON-Profil zusätzlich aufnehmen
+        for row in db_cars:
+            vin = row["vin"] or ""
+            if vin and vin in seen_vins:
+                continue
+            entries.append({
+                "path": None,
+                "data": {
+                    "vehicle_info": {
+                        "VIN": vin or None,
+                        "CALIBRATION_ID": row["cal_id"],
+                        "CVN": row["cvn"],
+                    },
+                    "protocol": row["protocol"],
+                    "scanned_at": row["first_seen"],
+                    "live_data": {},
+                },
+                "vin": vin,
+                "brand": row["brand"] or _wmi_to_brand(vin),
+                "scan_label": "",
+                "car_id": int(row["id"]),
+                "trip_count": int(row["trip_count"] or 0),
+                "total_km": float(row["total_km"] or 0.0),
+            })
     return entries
 
 
@@ -246,16 +509,20 @@ class CarsPage(Gtk.Box):
 
     LIVE_ID = "__live__"
 
-    def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
+    def __init__(self, language: str = SOURCE_LANGUAGE, db: DriveDB | None = None) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.language = _normalize_language(language)
+        self.db = db
         self._latest_live: dict[str, Any] = {}
         self._live_identity: dict[str, str] = {}
         self._obd_connected = False
         self._profiles: list[dict[str, Any]] = []
         self._selected_source: str = self.LIVE_ID
+        self._selected_car_id: int | None = None
         self._selected_category: str = CATEGORIES[0][0]
         self._detail_pushed = False
+        self._trip_detail_pushed = False
+        self._trip_detail_page: Adw.NavigationPage | None = None
         self._live_row: Adw.ActionRow | None = None
         self._narrow = False
         self._cat_rows: list[Gtk.ListBoxRow] = []
@@ -512,7 +779,7 @@ class CarsPage(Gtk.Box):
             self._render_detail()
 
     def refresh_profiles(self) -> None:
-        self._profiles = _load_profiles()
+        self._profiles = _load_profiles(self.db)
         self._rebuild_list()
 
     def update_live(self, payload: dict[str, Any]) -> None:
@@ -599,16 +866,18 @@ class CarsPage(Gtk.Box):
 
     def _open_detail(self, source: str) -> None:
         self._selected_source = source
+        self._selected_car_id = None
         if source == self.LIVE_ID:
             title = _translate(self.language, "cars.live.title")
         else:
-            entry = next((e for e in self._profiles if str(e["path"]) == source), None)
+            entry = next((e for e in self._profiles if str(e.get("path")) == source), None)
             if entry:
                 vin = entry.get("vin", "")
                 brand = entry.get("brand") or ""
                 title = brand if brand else _translate(self.language, "cars.unknown")
                 if vin:
                     title = f"{title} · …{vin[-5:]}"
+                self._selected_car_id = entry.get("car_id")
             else:
                 title = _translate(self.language, "cars.unknown")
         self._detail_page.set_title(title)
@@ -621,6 +890,12 @@ class CarsPage(Gtk.Box):
     def _on_popped(self, _view: Adw.NavigationView, page: Adw.NavigationPage) -> None:
         if page is self._detail_page:
             self._detail_pushed = False
+        if page is self._trip_detail_page:
+            self._trip_detail_pushed = False
+            self._trip_detail_page = None
+            # Trip-Liste auf der Detail-Seite neu rendern (z. B. nach Notiz-Änderung)
+            if self._detail_pushed and self._selected_category == "trips":
+                self._render_detail()
 
     def _on_category_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
@@ -702,7 +977,7 @@ class CarsPage(Gtk.Box):
             self.value_list.remove(child)
 
         cat_meta = next((c for c in CATEGORIES if c[0] == self._selected_category), CATEGORIES[0])
-        _cat_key, cat_name, _icon_name, items = cat_meta
+        cat_key, cat_name, _icon_name, items = cat_meta
         self.content_title.set_text(cat_name)
 
         data, source_label = self._current_data()
@@ -710,7 +985,11 @@ class CarsPage(Gtk.Box):
             _translate(self.language, "cars.source.label", source=source_label)
         )
 
-        stacked = self._selected_category == "vehicle"
+        if cat_key == "trips":
+            self._render_trips_into_value_list()
+            return
+
+        stacked = cat_key == "vehicle"
 
         for pid_key, label in items:
             raw = data.get(pid_key)
@@ -735,6 +1014,104 @@ class CarsPage(Gtk.Box):
             value_label.add_css_class("dim-label")
         row.add_suffix(value_label)
         return row
+
+    # ---------------------------------------------------- Fahrten-Rendering
+
+    def _render_trips_into_value_list(self) -> None:
+        if self.db is None or self._selected_car_id is None:
+            self.value_list.append(self._info_row(_translate(self.language, "cars.trips.empty")))
+            return
+        try:
+            trips = self.db.list_trips_for_car(self._selected_car_id)
+        except Exception:
+            trips = []
+        if not trips:
+            self.value_list.append(self._info_row(_translate(self.language, "cars.trips.empty")))
+            return
+        for trip in trips:
+            self.value_list.append(self._make_trip_row(trip))
+
+    def _info_row(self, text: str) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+        lbl = Gtk.Label(label=text, xalign=0.0)
+        lbl.add_css_class("dim-label")
+        lbl.set_wrap(True)
+        lbl.set_margin_top(10)
+        lbl.set_margin_bottom(10)
+        lbl.set_margin_start(14)
+        lbl.set_margin_end(14)
+        row.set_child(lbl)
+        return row
+
+    def _make_trip_row(self, trip: Any) -> Adw.ActionRow:
+        row = Adw.ActionRow()
+        trip_id = int(trip["id"])
+        started = self._parse_ts(trip["started_at"])
+        title = started.strftime("%d.%m.%Y · %H:%M") if started else f"Fahrt #{trip_id}"
+        row.set_title(GLib.markup_escape_text(title))
+
+        parts: list[str] = []
+        dur = trip["duration_s"]
+        if dur:
+            mins = int(dur // 60)
+            secs = int(dur % 60)
+            parts.append(f"{mins} min {secs:02d} s" if mins else f"{secs} s")
+        km = trip["distance_km"]
+        if km is not None:
+            parts.append(f"{km:.1f} km")
+        vmax = trip["max_speed_kmh"]
+        if vmax is not None:
+            parts.append(f"max {vmax:.0f} km/h")
+        n = trip["samples_count"] or 0
+        parts.append(f"{n} Samples")
+        if trip["ended_at"] is None:
+            parts.append("⏺ laufend")
+        row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
+
+        row.set_activatable(True)
+        icon = Gtk.Image.new_from_icon_name("mark-location-symbolic")
+        row.add_prefix(icon)
+        chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
+        row.add_suffix(chev)
+        row.connect("activated", lambda _r, tid=trip_id: self._open_trip_detail(tid))
+        return row
+
+    def _parse_ts(self, raw: Any) -> datetime | None:
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    # ---------------------------------------------------- Fahrt-Detail-Page
+
+    def _open_trip_detail(self, trip_id: int) -> None:
+        if self.db is None:
+            return
+        try:
+            samples = list(self.db.samples_for_trip(trip_id))
+            trips = self.db.list_trips_for_car(self._selected_car_id) if self._selected_car_id else []
+            trip = next((t for t in trips if int(t["id"]) == trip_id), None)
+        except Exception:
+            samples, trip = [], None
+        if trip is None:
+            return
+
+        page_content = _build_trip_detail_widget(self.language, trip, samples)
+        title = self._trip_detail_title(trip)
+        page = Adw.NavigationPage(child=page_content, title=title)
+        page.set_tag(f"trip-{trip_id}")
+        self._trip_detail_page = page
+        self._trip_detail_pushed = True
+        self.nav_view.push(page)
+
+    def _trip_detail_title(self, trip: Any) -> str:
+        started = self._parse_ts(trip["started_at"])
+        if started is None:
+            return f"Fahrt #{int(trip['id'])}"
+        return started.strftime("%d.%m.%Y %H:%M")
 
     def _make_stacked_row(self, label: str, value_text: str, is_unknown: bool) -> Gtk.ListBoxRow:
         """Titel oben, Wert rechtsbündig darunter — passend für lange Werte wie VIN."""
