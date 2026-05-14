@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 import gi
 
@@ -259,6 +259,10 @@ class CarsPage(Gtk.Box):
         self._live_row: Adw.ActionRow | None = None
         self._narrow = False
         self._cat_rows: list[Gtk.ListBoxRow] = []
+        # Wird vom DashboardWindow gesetzt: Callback, wenn der Anwender auf der
+        # Wurzel (Auto-Liste) nach rechts wischt, um zum vorherigen Tab zurückzukehren.
+        self.on_back_swipe: Callable[[], None] | None = None
+        self._drag_claimed = False
 
         self.nav_view = Adw.NavigationView()
         self.nav_view.set_hexpand(True)
@@ -269,6 +273,41 @@ class CarsPage(Gtk.Box):
         self._build_list_page()
         self._build_detail_page()
         self.refresh_profiles()
+
+        # Horizontaler Drag in CAPTURE-Phase: greift Wisch-Gesten ab, bevor
+        # Adw.NavigationView sie zu fassen bekommt. So funktioniert „nach rechts
+        # zurück zum vorherigen Tab" auch auf der Auto-Liste, wo Adw selbst
+        # nichts poppen würde.
+        drag = Gtk.GestureDrag()
+        drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        drag.connect("drag-begin", self._on_drag_begin)
+        drag.connect("drag-update", self._on_drag_update)
+        drag.connect("drag-end", self._on_drag_end)
+        self.add_controller(drag)
+
+    # ---------------------------------------------------- Wisch-Gesten
+
+    def _on_drag_begin(self, _gesture: Gtk.GestureDrag, _x: float, _y: float) -> None:
+        self._drag_claimed = False
+
+    def _on_drag_update(self, gesture: Gtk.GestureDrag, offset_x: float, offset_y: float) -> None:
+        if self._drag_claimed:
+            return
+        # Wenn Detail offen ist: Adw.NavigationView soll selbst zurückpoppen.
+        if self._detail_pushed:
+            return
+        # Eindeutig horizontale Geste (mind. 20 px, klar dominanter X-Anteil)
+        if abs(offset_x) > 20 and abs(offset_x) > abs(offset_y) * 1.5:
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+            self._drag_claimed = True
+
+    def _on_drag_end(self, _gesture: Gtk.GestureDrag, offset_x: float, offset_y: float) -> None:
+        if not self._drag_claimed:
+            return
+        self._drag_claimed = False
+        # Nur Wisch nach rechts (offset_x > 0) löst „zurück zum vorherigen Tab" aus.
+        if offset_x > 60 and self.on_back_swipe is not None:
+            self.on_back_swipe()
 
     # ---------------------------------------------------- List-Aufbau
 
