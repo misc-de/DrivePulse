@@ -1,16 +1,191 @@
-"""Gauge widget and state for DrivePulse."""
+"""Gauge widget, built-in themes and user-theme plugin loader for DrivePulse."""
 from __future__ import annotations
 
+import importlib.util
 import math
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
+# Built-in theme identifiers (order = order in settings dropdown)
 GAUGE_THEMES = ("cockpit", "neon", "minimal")
+
+# CSS applied to the acceleration page for each built-in theme.
+# Targets the .dp-accel-theme-<id> class added to AccelerationPage.
+_BUILTIN_ACCEL_CSS: dict[str, str] = {
+    "cockpit": """
+.dp-accel-theme-cockpit .card {
+  background-color: rgba(8, 14, 22, 0.8);
+  border-radius: 6px;
+}
+""",
+    "neon": """
+.dp-accel-theme-neon .card {
+  background-color: rgba(0, 2, 15, 0.9);
+  border-radius: 4px;
+}
+.dp-accel-theme-neon .heading { color: #7ec8ff; }
+.dp-accel-theme-neon .title-1 { color: #a4d8ff; }
+.dp-accel-theme-neon .title-2 { color: #5ba8ff; }
+.dp-accel-theme-neon .dim-label { color: rgba(100, 180, 255, 0.65); }
+""",
+    "minimal": """
+.dp-accel-theme-minimal .card {
+  background-color: transparent;
+  border-radius: 0;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+""",
+}
+
+# Registry for user-supplied themes: stem -> (display_label, draw_fn | None, accel_css)
+_user_themes: dict[str, tuple[str, Callable | None, str]] = {}
+
+# ---------------------------------------------------------------------------
+# Template written to THEMES_DIR on first run so the user has a starter file
+# ---------------------------------------------------------------------------
+
+_EXAMPLE_THEME = '''\
+# DrivePulse – Theme Vorlage
+# Dateiname (ohne Unterstrich) = Theme-ID.
+# Dateien mit Unterstrich am Anfang werden ignoriert.
+#
+# PFLICHT : LABEL             – Text der in den Einstellungen erscheint
+# OPTIONAL: draw()            – Gauge-Zeichenfunktion  (Fallback: cockpit)
+# OPTIONAL: acceleration_css  – CSS-String für Beschleunigungsseite (Fallback: Standard)
+#
+# Beide sind unabhängig – man kann nur eines oder beides definieren.
+#
+# ── draw() ──────────────────────────────────────────────────────────────────
+# Parameter:
+#   cr           – Cairo-Kontext
+#   width/height – Widget-Größe in Pixeln
+#   gauge        – Gauge-Objekt:
+#     gauge.title               – Bezeichnung (z.B. "RPM")
+#     gauge.accent_rgb          – (r, g, b) Akzentfarbe, Floats 0–1
+#     gauge.active              – bool, False wenn kein Signal
+#     gauge.state.value         – aktueller Wert (float)
+#     gauge.state.label         – Anzeigetext (z.B. "3200")
+#     gauge.state.unit          – Einheit (z.B. "rpm")
+#     gauge.state.min_value / max_value
+#     gauge.arc_params(w, h)    → cx, cy, size, radius, lw,
+#                                  start, end, span, normalized (0–1)
+#     gauge.draw_text(cr, text, x, y, size,
+#                     alpha=1.0, bold=False, max_width=None)
+#
+# ── acceleration_css ─────────────────────────────────────────────────────────
+# GTK-CSS-String. Die Beschleunigungsseite bekommt die Klasse
+#   .dp-accel-theme-<dateiname>
+# Damit lassen sich z.B. Karten, Farben und Schriften anpassen:
+#   .dp-accel-theme-meinname .card  { background-color: rgba(0,0,0,0.8); }
+#   .dp-accel-theme-meinname .heading { color: #ff4444; }
+
+LABEL = "Mein Theme"
+
+import math
+
+
+def draw(cr, width, height, gauge):
+    cx, cy, size, radius, lw, start, end, span, norm = gauge.arc_params(width, height)
+    value_angle = start + span * norm
+    alpha = 1.0 if gauge.active else 0.3
+    r, g, b = gauge.accent_rgb if gauge.active else (0.45, 0.48, 0.50)
+
+    # Hintergrund
+    cr.set_source_rgb(0.05, 0.05, 0.08)
+    cr.paint()
+
+    # Track
+    cr.set_line_width(lw)
+    cr.set_line_cap(1)
+    cr.set_source_rgba(0.3, 0.3, 0.35, 0.3)
+    cr.arc(cx, cy, radius, start, end)
+    cr.stroke()
+
+    # Wertbogen
+    cr.set_source_rgba(r, g, b, 0.9 * alpha)
+    cr.arc(cx, cy, radius, start, value_angle)
+    cr.stroke()
+
+    # Text
+    gauge.draw_text(cr, gauge.state.label, cx, cy - size * 0.06,
+                    max(28, size * 0.19), alpha, True, size * 0.72)
+    gauge.draw_text(cr, gauge.state.unit, cx, cy + size * 0.09,
+                    max(14, size * 0.075), 0.75 * alpha, True, size * 0.72)
+    gauge.draw_text(cr, gauge.title, cx, cy + size * 0.26,
+                    max(13, size * 0.062), 0.6 * alpha, False, size * 0.72)
+
+
+# Optionaler CSS-String für die Beschleunigungsseite:
+acceleration_css = """
+.dp-accel-theme-mein-theme .card {
+  background-color: rgba(10, 10, 20, 0.8);
+  border-radius: 6px;
+}
+.dp-accel-theme-mein-theme .heading { color: #88aaff; }
+"""
+'''
+
+
+def _init_themes_dir(themes_dir: Path) -> None:
+    """Create themes directory and write the starter template if missing."""
+    themes_dir.mkdir(parents=True, exist_ok=True)
+    sample = themes_dir / "_beispiel.py"
+    if not sample.exists():
+        try:
+            sample.write_text(_EXAMPLE_THEME, encoding="utf-8")
+        except Exception:
+            pass
+
+
+def load_user_themes(themes_dir: Path) -> None:
+    """Scan themes_dir for *.py files (no leading underscore) and register them."""
+    _init_themes_dir(themes_dir)
+    _user_themes.clear()
+    for path in sorted(themes_dir.glob("*.py")):
+        if path.name.startswith("_"):
+            continue
+        stem = path.stem
+        try:
+            spec = importlib.util.spec_from_file_location(f"_dp_theme_{stem}", path)
+            if spec is None or spec.loader is None:
+                continue
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            label = str(getattr(mod, "LABEL", stem))
+            draw_fn = getattr(mod, "draw", None)
+            accel_css = str(getattr(mod, "acceleration_css", ""))
+            # Accept theme if it defines at least one of the two
+            if callable(draw_fn) or accel_css:
+                _user_themes[stem] = (label, draw_fn if callable(draw_fn) else None, accel_css)
+        except Exception:
+            pass  # silently skip broken theme files
+
+
+def all_theme_options(translate_fn: Callable[[str], str]) -> list[tuple[str, str]]:
+    """Return [(theme_id, display_label)] for built-ins + user themes."""
+    builtin = [(t, translate_fn(f"settings.gauge_theme.{t}")) for t in GAUGE_THEMES]
+    user = [(f"user:{stem}", label) for stem, (label, _, _css) in _user_themes.items()]
+    return builtin + user
+
+
+def get_acceleration_css(theme_id: str) -> str:
+    """Return the acceleration-page CSS for the given theme (empty string = use default)."""
+    if theme_id.startswith("user:"):
+        stem = theme_id[5:]
+        return _user_themes[stem][2] if stem in _user_themes else ""
+    return _BUILTIN_ACCEL_CSS.get(theme_id, "")
+
+
+# ---------------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -22,9 +197,12 @@ class GaugeState:
     max_value: float = 100.0
 
 
-class Gauge(Gtk.DrawingArea):
-    """Ein einfacher runder Tacho im Stil eines digitalen Cockpits."""
+# ---------------------------------------------------------------------------
+# Widget
+# ---------------------------------------------------------------------------
 
+
+class Gauge(Gtk.DrawingArea):
     __gtype_name__ = "Gauge"
 
     def __init__(
@@ -69,11 +247,30 @@ class Gauge(Gtk.DrawingArea):
         self.queue_draw()
 
     # ------------------------------------------------------------------
-    # Shared helpers
+    # Public helpers exposed to user themes
     # ------------------------------------------------------------------
 
-    def _arc_params(self, width: int, height: int) -> tuple[float, float, float, float, float, float, float, float, float]:
-        """Returns cx, cy, size, radius, line_width, start, end, span, normalized."""
+    def arc_params(self, width: int, height: int) -> tuple:
+        return self._arc_params(width, height)
+
+    def draw_text(
+        self,
+        cr: Any,
+        text: str,
+        x: float,
+        y: float,
+        size: float,
+        alpha: float = 1.0,
+        bold: bool = False,
+        max_width: float | None = None,
+    ) -> None:
+        self._draw_text_centered(cr, text, x, y, size, alpha, bold, max_width)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _arc_params(self, width: int, height: int) -> tuple:
         size = min(width, height)
         cx = width / 2
         cy = height / 2
@@ -113,6 +310,17 @@ class Gauge(Gtk.DrawingArea):
     # ------------------------------------------------------------------
 
     def _draw(self, area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
+        if self.theme.startswith("user:"):
+            stem = self.theme[5:]
+            if stem in _user_themes:
+                draw_fn = _user_themes[stem][1]
+                if draw_fn is not None:
+                    try:
+                        draw_fn(cr, width, height, self)
+                        return
+                    except Exception:
+                        pass  # fall through to default on error
+                # draw_fn is None = only CSS theme, use cockpit for gauge
         if self.theme == "neon":
             self._draw_neon(cr, width, height)
         elif self.theme == "minimal":
@@ -167,9 +375,6 @@ class Gauge(Gtk.DrawingArea):
         cr.close_path()
         cr.fill()
 
-        self._draw_cockpit_center(cr, cx, cy, size, active_alpha)
-
-    def _draw_cockpit_center(self, cr: Any, cx: float, cy: float, size: int, active_alpha: float) -> None:
         value_size = max(28, size * 0.19)
         unit_size = max(14, size * 0.075)
         title_size = max(13, size * 0.062)
@@ -189,31 +394,26 @@ class Gauge(Gtk.DrawingArea):
         accent = self.accent_rgb if self.active else (0.35, 0.38, 0.42)
         r, g, b = accent
 
-        # Deep black background
         cr.set_source_rgb(0.0, 0.0, 0.03)
         cr.paint()
 
-        # Subtle outer ring
         cr.set_line_width(1.0)
         cr.set_source_rgba(r, g, b, 0.18 * active_alpha)
         cr.arc(cx, cy, radius + line_width * 1.6, start_angle, end_angle)
         cr.stroke()
 
-        # Track
         cr.set_line_width(line_width * 0.55)
         cr.set_line_cap(1)
         cr.set_source_rgba(0.18, 0.20, 0.24, 0.7)
         cr.arc(cx, cy, radius, start_angle, end_angle)
         cr.stroke()
 
-        # Glow layers: outer halo → core
         for lw_mult, a_mult in ((5.0, 0.03), (3.2, 0.08), (1.8, 0.20), (0.65, 1.0)):
             cr.set_line_width(line_width * lw_mult)
             cr.set_source_rgba(r, g, b, a_mult * active_alpha)
             cr.arc(cx, cy, radius, start_angle, value_angle)
             cr.stroke()
 
-        # Bright dot at current value position
         dot_x = cx + math.cos(value_angle) * radius
         dot_y = cy + math.sin(value_angle) * radius
         for dot_r, dot_a in ((line_width * 1.4, 0.12), (line_width * 0.7, 0.4), (line_width * 0.3, 1.0)):
@@ -221,23 +421,17 @@ class Gauge(Gtk.DrawingArea):
             cr.arc(dot_x, dot_y, dot_r, 0, math.tau)
             cr.fill()
 
-        # Center text — value large, unit in accent, title dim
-        self._draw_neon_center(cr, cx, cy, size, active_alpha, accent)
-
-    def _draw_neon_center(self, cr: Any, cx: float, cy: float, size: int, active_alpha: float, accent: tuple) -> None:
         value_size = max(30, size * 0.20)
         unit_size = max(13, size * 0.072)
         title_size = max(12, size * 0.058)
         text_width = size * 0.72
 
-        # Value in white
         self._draw_text_centered(cr, self.state.label, cx, cy - size * 0.05, value_size, active_alpha, True, text_width)
 
-        # Unit in accent color
         cr.select_font_face("Cantarell", 0, 1)
         cr.set_font_size(unit_size)
         ext = cr.text_extents(self.state.unit)
-        cr.set_source_rgba(accent[0], accent[1], accent[2], 0.9 * active_alpha)
+        cr.set_source_rgba(r, g, b, 0.9 * active_alpha)
         cr.move_to(cx - ext.width / 2 - ext.x_bearing, (cy + size * 0.10) - ext.height / 2 - ext.y_bearing)
         cr.show_text(self.state.unit)
 
@@ -263,19 +457,16 @@ class Gauge(Gtk.DrawingArea):
         active_alpha = 1.0 if self.active else 0.28
         accent = self.accent_rgb if self.active else (0.5, 0.52, 0.55)
 
-        # Track arc
         cr.set_line_width(line_width)
         cr.set_line_cap(1)
         cr.set_source_rgba(0.45, 0.48, 0.52, 0.22)
         cr.arc(cx, cy, radius, start_angle, end_angle)
         cr.stroke()
 
-        # Value arc
         cr.set_source_rgba(accent[0], accent[1], accent[2], 0.88 * active_alpha)
         cr.arc(cx, cy, radius, start_angle, value_angle)
         cr.stroke()
 
-        # 5 major tick marks only
         cr.set_line_width(1.5)
         for i in range(5):
             angle = start_angle + span * (i / 4)
@@ -286,21 +477,17 @@ class Gauge(Gtk.DrawingArea):
             cr.line_to(cx + math.cos(angle) * outer, cy + math.sin(angle) * outer)
             cr.stroke()
 
-        # End-cap dot at value position
         dot_x = cx + math.cos(value_angle) * radius
         dot_y = cy + math.sin(value_angle) * radius
         cr.set_source_rgba(accent[0], accent[1], accent[2], active_alpha)
         cr.arc(dot_x, dot_y, line_width * 0.55, 0, math.tau)
         cr.fill()
 
-        # Title (small, above center)
         title_size = max(12, size * 0.057)
         self._draw_text_centered(cr, self.title, cx, cy - size * 0.20, title_size, 0.52 * active_alpha, False, size * 0.75)
 
-        # Value (large, center)
         value_size = max(30, size * 0.21)
         self._draw_text_centered(cr, self.state.label, cx, cy + size * 0.03, value_size, active_alpha, True, size * 0.75)
 
-        # Unit (small, below value)
         unit_size = max(12, size * 0.063)
         self._draw_text_centered(cr, self.state.unit, cx, cy + size * 0.18, unit_size, 0.65 * active_alpha, False, size * 0.75)
