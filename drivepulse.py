@@ -1267,6 +1267,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.status_label = _make_label_responsive(Gtk.Label(label=_translate(self.language, "status.connecting")), 36, 0.5)
         self.status_label.add_css_class("dim-label")
         self.gauge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        self.gauge_box.add_css_class("dp-gauge-bg")
         self.gauge_box.set_halign(Gtk.Align.FILL)
         self.gauge_box.set_valign(Gtk.Align.FILL)
         self.gauge_box.set_hexpand(True)
@@ -1432,6 +1433,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self._nav_visible = not self._nav_visible
         self.header.set_visible(self._nav_visible)
         self.switcher_bar.set_visible(self._nav_visible)
+        self.footer.set_visible(self._nav_visible)
 
     def _on_orientation_changed(self, orientation: str, angle: int, is_landscape: bool) -> None:
         """Called by OrientationReader when the physical device orientation changes."""
