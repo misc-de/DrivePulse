@@ -53,6 +53,9 @@ class AccelerationPage(Gtk.Box):
         self.last_obd_speed: float | None = None
         self.last_speed_time: float | None = None
         self.computed_acceleration_g: float | None = None
+        self.max_obd_speed: float | None = None
+        self.max_gps_speed: float | None = None
+        self.max_g: float | None = None
         self.results: dict[int, dict[str, float | None]] = {
             target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
         }
@@ -77,9 +80,15 @@ class AccelerationPage(Gtk.Box):
         self.status_label.add_css_class("dim-label")
         self.status_label.set_halign(Gtk.Align.START)
 
+        self.maxes_label = Gtk.Label()
+        self.maxes_label.add_css_class("dim-label")
+        self.maxes_label.set_halign(Gtk.Align.END)
+        self.maxes_label.set_hexpand(True)
+
         intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         intro.set_margin_bottom(10)
         intro.append(header_row)
+        intro.append(self.maxes_label)
         intro.append(self.status_label)
 
         self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -210,6 +219,7 @@ class AccelerationPage(Gtk.Box):
             self._gps_captions[key].set_text(gps_text)
             self._best_captions[key].set_text(best_text)
         self._update_best_labels()
+        self._update_maxes_label()
 
     def set_language(self, language: str) -> None:
         self.language = _normalize_language(language)
@@ -227,6 +237,19 @@ class AccelerationPage(Gtk.Box):
             self.g_label.set_text(_translate(self.language, "acceleration.g.empty"))
         else:
             self.g_label.set_text(_translate(self.language, "acceleration.g", value=f"{active_g:.3f}"))
+
+    def _update_maxes_label(self) -> None:
+        vmax = self.max_obd_speed if self.max_obd_speed is not None else self.max_gps_speed
+        parts: list[str] = []
+        if vmax is not None:
+            parts.append(_translate(self.language, "acceleration.vmax", value=f"{vmax:.0f} km/h"))
+        else:
+            parts.append(_translate(self.language, "acceleration.vmax.empty"))
+        if self.max_g is not None:
+            parts.append(_translate(self.language, "acceleration.gmax", value=f"{self.max_g:.2f}"))
+        else:
+            parts.append(_translate(self.language, "acceleration.gmax.empty"))
+        self.maxes_label.set_text("  ·  ".join(parts))
 
     # ------------------------------------------------------------------
     # State updates
@@ -278,7 +301,11 @@ class AccelerationPage(Gtk.Box):
         self.start_monotonic = None
         self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
         self.range_results = {r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH}
+        self.max_obd_speed = None
+        self.max_gps_speed = None
+        self.max_g = None
         self._reset_labels()
+        self._update_maxes_label()
         self._show_abort()
         self.status_label.set_text(_translate(self.language, "acceleration.armed"))
 
@@ -295,9 +322,13 @@ class AccelerationPage(Gtk.Box):
         self.last_obd_speed = None
         self.last_speed_time = None
         self.computed_acceleration_g = None
+        self.max_obd_speed = None
+        self.max_gps_speed = None
+        self.max_g = None
         self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
         self.range_results = {r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH}
         self._reset_labels()
+        self._update_maxes_label()
         self._show_start()
         self._set_g_text(None)
         self.status_label.set_text(_translate(self.language, "acceleration.ready"))
@@ -324,6 +355,15 @@ class AccelerationPage(Gtk.Box):
 
         active_g = measured_g if measured_g is not None else self.computed_acceleration_g
         self._set_g_text(active_g)
+
+        # Maxima fortschreiben (über die ganze Anzeigedauer, bis Reset/Start)
+        if obd_speed is not None and (self.max_obd_speed is None or obd_speed > self.max_obd_speed):
+            self.max_obd_speed = obd_speed
+        if gps_speed is not None and (self.max_gps_speed is None or gps_speed > self.max_gps_speed):
+            self.max_gps_speed = gps_speed
+        if active_g is not None and (self.max_g is None or active_g > self.max_g):
+            self.max_g = active_g
+        self._update_maxes_label()
 
         if self.armed and not self.running:
             speed_rising = self.computed_acceleration_g is not None and self.computed_acceleration_g > self.G_FORCE_START_THRESHOLD
