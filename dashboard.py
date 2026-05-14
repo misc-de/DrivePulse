@@ -11,13 +11,15 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
+from common import SOURCE_LANGUAGE, _normalize_language, _translate
+
 # These theme IDs trigger DashboardCanvas instead of the 3-gauge row
 DASHBOARD_THEMES = ("digital", "racing", "analog")
 
 
-def _cardinal(deg: float) -> str:
-    dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-    return dirs[int((deg + 22.5) / 45) % 8]
+def _cardinal(deg: float, language: str = SOURCE_LANGUAGE) -> str:
+    keys = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    return _translate(language, f"dashboard.cardinal.{keys[int((deg + 22.5) / 45) % 8]}")
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +54,8 @@ class DashData:
     fuel_label: str = "--"
     fuel_active: bool = False
 
+    language: str = SOURCE_LANGUAGE
+
 
 # ---------------------------------------------------------------------------
 # Canvas widget
@@ -61,7 +65,7 @@ class DashData:
 class DashboardCanvas(Gtk.DrawingArea):
     __gtype_name__ = "DashboardCanvas"
 
-    def __init__(self, theme: str = "racing", units: str = "metric") -> None:
+    def __init__(self, theme: str = "racing", units: str = "metric", language: str = SOURCE_LANGUAGE) -> None:
         super().__init__()
         self.theme = theme
         self._rotation = 0  # degrees: 0, 90, 180, 270
@@ -69,6 +73,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             speed_unit="mph" if units == "imperial" else "km/h",
             speed_max=150.0 if units == "imperial" else 240.0,
         )
+        self.data.language = _normalize_language(language)
         self.set_content_width(1)
         self.set_content_height(1)
         self.set_size_request(1, 1)
@@ -86,6 +91,13 @@ class DashboardCanvas(Gtk.DrawingArea):
     def set_units(self, units: str) -> None:
         self.data.speed_unit = "mph" if units == "imperial" else "km/h"
         self.data.speed_max = 150.0 if units == "imperial" else 240.0
+        self.queue_draw()
+
+    def set_language(self, language: str) -> None:
+        self.data.language = _normalize_language(language)
+        if self.data.heading_active:
+            card = _cardinal(self.data.heading_deg, self.data.language)
+            self.data.heading_str = f"{self.data.heading_deg:.0f}° {card}"
         self.queue_draw()
 
     def update_rpm(self, value: float | None, label: str | None = None) -> None:
@@ -122,7 +134,7 @@ class DashboardCanvas(Gtk.DrawingArea):
         self.data.heading_active = deg is not None
         if deg is not None:
             self.data.heading_deg = deg
-            card = _cardinal(deg)
+            card = _cardinal(deg, self.data.language)
             self.data.heading_str = heading_str or f"{deg:.0f}° {card}"
         else:
             self.data.heading_str = ""
@@ -261,20 +273,21 @@ def _draw_digital(cr: Any, width: int, height: int, d: DashData) -> None:
 
 
 def _digital_metric_rows(d: DashData) -> list[tuple]:
+    lang = d.language
     rows: list[tuple] = [
-        ("RPM", d.rpm_label,
+        (_translate(lang, "dashboard.rpm"), d.rpm_label,
          _norm(d.rpm, 0, d.rpm_max),
          (0.95, 0.50, 0.08),
          d.rpm_active),
-        ("Coolant", f"{d.coolant_label} °C",
+        (_translate(lang, "dashboard.coolant"), f"{d.coolant_label} °C",
          _norm(d.coolant, d.coolant_min, d.coolant_max),
          (0.18, 0.56, 1.00),
          d.coolant_active),
     ]
     if d.heading_active:
-        rows.append(("Heading", d.heading_str, None, (0.35, 0.90, 0.45), True))
+        rows.append((_translate(lang, "dashboard.heading"), d.heading_str, None, (0.35, 0.90, 0.45), True))
     if d.fuel_active:
-        rows.append(("Fuel", d.fuel_label,
+        rows.append((_translate(lang, "dashboard.fuel"), d.fuel_label,
                      _norm(d.fuel_pct, 0, 100),
                      (0.25, 0.85, 0.35),
                      True))
@@ -539,8 +552,8 @@ def _draw_rings_landscape(
 
     _ring_circle(cr, cx_left, cy, r_side, lw_side,
                  _norm(d.rpm, 0, d.rpm_max), sec_accent,
-                 d.rpm_label, "rpm", r_side * 0.68, r_side * 0.30,
-                 d.rpm_active, title="RPM", title_size=r_side * 0.22)
+                 d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), r_side * 0.68, r_side * 0.30,
+                 d.rpm_active, title=_translate(d.language, "dashboard.rpm"), title_size=r_side * 0.22)
 
     _ring_circle(cr, cx_main, cy, r_main, lw_main,
                  _norm(d.speed, 0, d.speed_max), accent,
@@ -554,7 +567,7 @@ def _draw_rings_landscape(
         _ring_circle(cr, cx_right, cy, r_side, lw_side,
                      _norm(d.coolant, d.coolant_min, d.coolant_max), sec_accent,
                      d.coolant_label, "°C", r_side * 0.68, r_side * 0.30,
-                     d.coolant_active, title="Coolant", title_size=r_side * 0.22)
+                     d.coolant_active, title=_translate(d.language, "dashboard.coolant"), title_size=r_side * 0.22)
 
     # Bottom info strip
     info_y = cy + r_main + lw_main + height * 0.065
@@ -589,8 +602,8 @@ def _draw_rings_portrait(
 
     _ring_circle(cr, cx_left, cy_side, r_side, lw_side,
                  _norm(d.rpm, 0, d.rpm_max), sec_accent,
-                 d.rpm_label, "rpm", r_side * 0.68, r_side * 0.30,
-                 d.rpm_active, title="RPM", title_size=r_side * 0.22)
+                 d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), r_side * 0.68, r_side * 0.30,
+                 d.rpm_active, title=_translate(d.language, "dashboard.rpm"), title_size=r_side * 0.22)
 
     if d.heading_active:
         _compass_circle(cr, cx_right, cy_side, r_side, lw_side,
@@ -599,7 +612,7 @@ def _draw_rings_portrait(
         _ring_circle(cr, cx_right, cy_side, r_side, lw_side,
                      _norm(d.coolant, d.coolant_min, d.coolant_max), sec_accent,
                      d.coolant_label, "°C", r_side * 0.68, r_side * 0.30,
-                     d.coolant_active, title="Coolant", title_size=r_side * 0.22)
+                     d.coolant_active, title=_translate(d.language, "dashboard.coolant"), title_size=r_side * 0.22)
 
     # Info strip below side circles
     info_y = cy_side + r_side + lw_side + height * 0.04
@@ -611,11 +624,11 @@ def _draw_rings_info(cr: Any, width: int, height: int, d: DashData, info_y: floa
     """Shared bottom info strip for both ring layouts."""
     items: list[tuple[str, str, bool]] = []
     if d.heading_active:
-        items.append(("Coolant", f"{d.coolant_label} °C", d.coolant_active))
+        items.append((_translate(d.language, "dashboard.coolant"), f"{d.coolant_label} °C", d.coolant_active))
     if d.fuel_active:
-        items.append(("Fuel", d.fuel_label, True))
+        items.append((_translate(d.language, "dashboard.fuel"), d.fuel_label, True))
     if not d.heading_active:
-        items.append(("Heading", d.heading_str or "--", d.heading_active))
+        items.append((_translate(d.language, "dashboard.heading"), d.heading_str or "--", d.heading_active))
     col_w = width / max(len(items), 1)
     for i, (name, val, act) in enumerate(items):
         ia = 1.0 if act else 0.25
@@ -740,15 +753,20 @@ def _analog_gauge(
     cr.arc(cx, cy, r * 0.072, 0, math.tau)
     cr.stroke()
 
-    # Value text
+    # Label (title) above value, both grouped in the lower center
+    title_sz = max(9.0, r * 0.13)
     val_sz = max(16.0, r * 0.28)
-    _txt(cr, val_label, cx, cy + r * 0.30, val_sz, (*text_col, a), bold=True, max_w=r * 1.4)
     unit_sz = max(10.0, r * 0.14)
-    _txt(cr, val_unit, cx, cy + r * 0.30 + val_sz * 0.72, unit_sz, (*dim_col, 0.80 * a), max_w=r * 1.2)
-
-    # Title at bottom of gauge
-    title_sz = max(9.0, r * 0.12)
-    _txt(cr, title, cx, cy + r * 0.88, title_sz, (*dim_col, 0.65 * a), max_w=r * 1.6)
+    if title:
+        _txt(cr, title, cx, cy + r * 0.22, title_sz, (*dim_col, 0.65 * a), max_w=r * 1.6)
+        _txt(cr, val_label, cx, cy + r * 0.22 + title_sz * 0.9 + val_sz * 0.55, val_sz,
+             (*text_col, a), bold=True, max_w=r * 1.4)
+        _txt(cr, val_unit, cx, cy + r * 0.22 + title_sz * 0.9 + val_sz * 1.22, unit_sz,
+             (*dim_col, 0.80 * a), max_w=r * 1.2)
+    else:
+        _txt(cr, val_label, cx, cy + r * 0.30, val_sz, (*text_col, a), bold=True, max_w=r * 1.4)
+        _txt(cr, val_unit, cx, cy + r * 0.30 + val_sz * 0.72, unit_sz,
+             (*dim_col, 0.80 * a), max_w=r * 1.2)
 
 
 def _compass_analog(
@@ -833,9 +851,9 @@ def _analog_info_bar(cr: Any, width: int, height: int, d: DashData, bar_y: float
     """Bottom info strip for analog — no clock, only Coolant/Fuel when displaced by compass."""
     items: list[tuple[str, bool]] = []
     if d.heading_active:
-        items.append((f"Coolant  {d.coolant_label} °C", d.coolant_active))
+        items.append((f"{_translate(d.language, 'dashboard.coolant')}  {d.coolant_label} °C", d.coolant_active))
     if d.fuel_active:
-        items.append((f"Fuel  {d.fuel_label}", True))
+        items.append((f"{_translate(d.language, 'dashboard.fuel')}  {d.fuel_label}", True))
     if not items or bar_y >= height * 0.96:
         return
 
@@ -874,7 +892,7 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: DashData) -> Non
 
     _analog_gauge(cr, cx_right, cy_main, r_right,
                   d.rpm, 0, d.rpm_max,
-                  d.rpm_label, "rpm", "RPM",
+                  d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), _translate(d.language, "dashboard.rpm"),
                   d.rpm_active, 1000.0, 500.0)
 
     if d.heading_active:
@@ -883,7 +901,7 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: DashData) -> Non
     else:
         _analog_gauge(cr, cx_left, cy_main, r_left,
                       d.coolant, d.coolant_min, d.coolant_max,
-                      d.coolant_label, "°C", "Coolant",
+                      d.coolant_label, "°C", _translate(d.language, "dashboard.coolant"),
                       d.coolant_active, 20.0, 10.0)
 
     _analog_info_bar(cr, width, height, d, cy_main + r_center + height * 0.045)
@@ -910,7 +928,7 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: DashData) -> None
 
     _analog_gauge(cr, cx_left, cy_side, r_side,
                   d.rpm, 0, d.rpm_max,
-                  d.rpm_label, "rpm", "RPM",
+                  d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), _translate(d.language, "dashboard.rpm"),
                   d.rpm_active, 1000.0, 500.0)
 
     if d.heading_active:
@@ -919,7 +937,7 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: DashData) -> None
     else:
         _analog_gauge(cr, cx_right, cy_side, r_side,
                       d.coolant, d.coolant_min, d.coolant_max,
-                      d.coolant_label, "°C", "Coolant",
+                      d.coolant_label, "°C", _translate(d.language, "dashboard.coolant"),
                       d.coolant_active, 20.0, 10.0)
 
     _analog_info_bar(cr, width, height, d, cy_side + r_side + height * 0.04)
