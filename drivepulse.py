@@ -1386,6 +1386,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         toolbar_view.set_content(self.view_stack)
 
         self._nav_visible = True
+        self._last_swipe_time = 0.0
         tap = Gtk.GestureClick()
         tap.connect("released", self._on_content_tap)
         self.view_stack.add_controller(tap)
@@ -1438,6 +1439,8 @@ class DashboardWindow(Adw.ApplicationWindow):
             spinner.stop()
 
     def _on_content_tap(self, _gesture: Gtk.GestureClick, _n: int, _x: float, _y: float) -> None:
+        if time.monotonic() - self._last_swipe_time < 0.35:
+            return
         self._nav_visible = not self._nav_visible
         self.header.set_visible(self._nav_visible)
         self.switcher_bar.set_visible(self._nav_visible)
@@ -1697,6 +1700,7 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         # Vertical swipe on the gauge/dashboard page → cycle through themes
         if ay > 220 and ay > ax and self.view_stack.get_visible_child_name() == self.PAGE_DASHBOARD:
+            self._last_swipe_time = time.monotonic()
             self._cycle_theme(up=velocity_y < 0)
             return
 
