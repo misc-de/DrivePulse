@@ -256,44 +256,13 @@ _GRAD_STOPS = [
 def _draw_digital(cr: Any, width: int, height: int, d: DashData) -> None:
     cr.set_source_rgb(0.0, 0.0, 0.02)
     cr.paint()
+    if width >= height:
+        _draw_digital_landscape(cr, width, height, d)
+    else:
+        _draw_digital_portrait(cr, width, height, d)
 
-    panel_w = width * 0.40
-    sp_a = 1.0 if d.speed_active else 0.28
 
-    # — Speed number ——————————————————————————————
-    sp_size = min(height * 0.50, panel_w * 0.72)
-    _txt(cr, d.speed_label, panel_w * 0.50, height * 0.36, sp_size,
-         (1, 1, 1, sp_a), bold=True, max_w=panel_w * 0.90)
-    _txt(cr, d.speed_unit, panel_w * 0.50, height * 0.36 + sp_size * 0.60,
-         height * 0.082, (0.65, 0.72, 0.80, sp_a * 0.85))
-
-    # — Rainbow speed bar ————————————————————————
-    bx = panel_w * 0.07
-    bw = panel_w * 0.86
-    by = height * 0.72
-    bh = height * 0.048
-    cr.set_source_rgba(0.14, 0.16, 0.20, 0.55)
-    cr.rectangle(bx, by, bw, bh)
-    cr.fill()
-    fw = bw * _norm(d.speed, 0, d.speed_max)
-    if fw > 1:
-        pat = cairo.LinearGradient(bx, 0, bx + bw, 0)
-        for pos, col in _GRAD_STOPS:
-            pat.add_color_stop_rgb(pos, *col)
-        cr.set_source(pat)
-        cr.rectangle(bx, by, fw, bh)
-        cr.fill()
-
-    # — Divider ——————————————————————————————————
-    cr.set_source_rgba(0.28, 0.32, 0.38, 0.35)
-    cr.set_line_width(1.0)
-    cr.move_to(panel_w, height * 0.07)
-    cr.line_to(panel_w, height * 0.93)
-    cr.stroke()
-
-    # — Right panel: metric rows —————————————————
-    rx = panel_w + height * 0.06
-    rw = width - rx - height * 0.06
+def _digital_metric_rows(d: DashData) -> list[tuple]:
     rows: list[tuple] = [
         ("RPM", d.rpm_label,
          _norm(d.rpm, 0, d.rpm_max),
@@ -311,15 +280,21 @@ def _draw_digital(cr: Any, width: int, height: int, d: DashData) -> None:
                      _norm(d.fuel_pct, 0, 100),
                      (0.25, 0.85, 0.35),
                      True))
+    return rows
 
-    row_h = height / max(len(rows), 1)
+
+def _draw_digital_metric_rows(
+    cr: Any, rows: list[tuple],
+    rx: float, rw: float, y_start: float, area_h: float, label_size: float,
+) -> None:
+    row_h = area_h / max(len(rows), 1)
     for i, (name, val_str, norm_v, color, active) in enumerate(rows):
         a = 1.0 if active else 0.26
-        cy_row = i * row_h
+        cy_row = y_start + i * row_h
 
-        _txt(cr, name, rx + 2, cy_row + row_h * 0.28, height * 0.058,
+        _txt(cr, name, rx + 2, cy_row + row_h * 0.28, label_size,
              (0.50, 0.56, 0.62, 0.72 * a), align="left")
-        _txt(cr, val_str, rx + rw, cy_row + row_h * 0.28, height * 0.065,
+        _txt(cr, val_str, rx + rw, cy_row + row_h * 0.28, label_size * 1.10,
              (0.93, 0.95, 1.00, a), bold=True, align="right", max_w=rw * 0.55)
 
         if norm_v is not None:
@@ -328,18 +303,104 @@ def _draw_digital(cr: Any, width: int, height: int, d: DashData) -> None:
             cr.set_source_rgba(0.13, 0.15, 0.19, 0.55)
             cr.rectangle(rx, bar_y, rw, bar_h)
             cr.fill()
-            fw2 = rw * norm_v
-            if fw2 > 1:
+            fw = rw * norm_v
+            if fw > 1:
                 cr.set_source_rgba(*color, 0.90 * a)
-                cr.rectangle(rx, bar_y, fw2, bar_h)
+                cr.rectangle(rx, bar_y, fw, bar_h)
                 cr.fill()
 
-        # Row separator
         cr.set_source_rgba(0.22, 0.25, 0.30, 0.30)
         cr.set_line_width(0.5)
-        cr.move_to(rx, (i + 1) * row_h)
-        cr.line_to(rx + rw, (i + 1) * row_h)
+        cr.move_to(rx, cy_row + row_h)
+        cr.line_to(rx + rw, cy_row + row_h)
         cr.stroke()
+
+
+def _draw_digital_landscape(cr: Any, width: int, height: int, d: DashData) -> None:
+    panel_w = width * 0.40
+    sp_a = 1.0 if d.speed_active else 0.28
+
+    sp_size = min(height * 0.50, panel_w * 0.72)
+    _txt(cr, d.speed_label, panel_w * 0.50, height * 0.36, sp_size,
+         (1, 1, 1, sp_a), bold=True, max_w=panel_w * 0.90)
+    _txt(cr, d.speed_unit, panel_w * 0.50, height * 0.36 + sp_size * 0.60,
+         height * 0.082, (0.65, 0.72, 0.80, sp_a * 0.85))
+
+    bx = panel_w * 0.07
+    bw = panel_w * 0.86
+    by = height * 0.72
+    bh = height * 0.048
+    cr.set_source_rgba(0.14, 0.16, 0.20, 0.55)
+    cr.rectangle(bx, by, bw, bh)
+    cr.fill()
+    fw = bw * _norm(d.speed, 0, d.speed_max)
+    if fw > 1:
+        pat = cairo.LinearGradient(bx, 0, bx + bw, 0)
+        for pos, col in _GRAD_STOPS:
+            pat.add_color_stop_rgb(pos, *col)
+        cr.set_source(pat)
+        cr.rectangle(bx, by, fw, bh)
+        cr.fill()
+
+    cr.set_source_rgba(0.28, 0.32, 0.38, 0.35)
+    cr.set_line_width(1.0)
+    cr.move_to(panel_w, height * 0.07)
+    cr.line_to(panel_w, height * 0.93)
+    cr.stroke()
+
+    rx = panel_w + height * 0.06
+    rw = width - rx - height * 0.06
+    rows = _digital_metric_rows(d)
+    _draw_digital_metric_rows(cr, rows, rx, rw, 0.0, height, height * 0.058)
+
+
+def _draw_digital_portrait(cr: Any, width: int, height: int, d: DashData) -> None:
+    sp_a = 1.0 if d.speed_active else 0.28
+    pad = width * 0.06
+
+    # Speed section: top ~38% of height
+    sp_panel_h = height * 0.38
+    sp_size = min(sp_panel_h * 0.55, width * 0.60)
+    sp_cy = sp_panel_h * 0.42
+    _txt(cr, d.speed_label, width * 0.50, sp_cy, sp_size,
+         (1, 1, 1, sp_a), bold=True, max_w=width * 0.88)
+    _txt(cr, d.speed_unit, width * 0.50, sp_cy + sp_size * 0.60,
+         sp_panel_h * 0.10, (0.65, 0.72, 0.80, sp_a * 0.85))
+
+    # Rainbow speed bar
+    bx = pad
+    bw = width - 2 * pad
+    by = sp_panel_h * 0.84
+    bh = sp_panel_h * 0.072
+    cr.set_source_rgba(0.14, 0.16, 0.20, 0.55)
+    cr.rectangle(bx, by, bw, bh)
+    cr.fill()
+    fw = bw * _norm(d.speed, 0, d.speed_max)
+    if fw > 1:
+        pat = cairo.LinearGradient(bx, 0, bx + bw, 0)
+        for pos, col in _GRAD_STOPS:
+            pat.add_color_stop_rgb(pos, *col)
+        cr.set_source(pat)
+        cr.rectangle(bx, by, fw, bh)
+        cr.fill()
+
+    # Horizontal divider
+    div_y = sp_panel_h
+    cr.set_source_rgba(0.28, 0.32, 0.38, 0.35)
+    cr.set_line_width(1.0)
+    cr.move_to(pad, div_y)
+    cr.line_to(width - pad, div_y)
+    cr.stroke()
+
+    # Metric rows fill the remaining height
+    rows = _digital_metric_rows(d)
+    label_size = min(height * 0.046, width * 0.052)
+    _draw_digital_metric_rows(
+        cr, rows,
+        pad, width - 2 * pad,
+        div_y, height - div_y,
+        label_size,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -451,85 +512,123 @@ def _compass_circle(
 
 
 def _draw_rings(cr: Any, width: int, height: int, d: DashData, accent: tuple = (0.05, 0.68, 1.0)) -> None:
-    # Background
     bg = (0.01, 0.02, 0.05) if accent[0] < 0.2 else (0.04, 0.03, 0.01)
     cr.set_source_rgb(*bg)
     cr.paint()
 
     sec_accent = (0.95, 0.42, 0.08) if accent[0] < 0.2 else accent
 
-    # Layout
-    cy_main = height * 0.47
+    if width >= height:
+        _draw_rings_landscape(cr, width, height, d, accent, sec_accent)
+    else:
+        _draw_rings_portrait(cr, width, height, d, accent, sec_accent)
+
+
+def _draw_rings_landscape(
+    cr: Any, width: int, height: int, d: DashData,
+    accent: tuple, sec_accent: tuple,
+) -> None:
+    """Three circles side by side: RPM — Speed(large) — Coolant/Compass."""
     r_main = min(height * 0.37, width * 0.22)
+    lw_main = r_main * 0.28
+    r_side = r_main * 0.56
+    lw_side = r_side * 0.26
+
+    cy = height * 0.47
+    cx_main = width * 0.47
+    cx_left  = cx_main - r_main - r_side * 1.30
+    cx_right = cx_main + r_main + r_side * 1.30
+
+    _ring_circle(cr, cx_left, cy, r_side, lw_side,
+                 _norm(d.rpm, 0, d.rpm_max), sec_accent,
+                 d.rpm_label, "rpm", r_side * 0.68, r_side * 0.30,
+                 d.rpm_active, title="RPM", title_size=r_side * 0.22)
+
+    _ring_circle(cr, cx_main, cy, r_main, lw_main,
+                 _norm(d.speed, 0, d.speed_max), accent,
+                 d.speed_label, d.speed_unit, r_main * 0.68, r_main * 0.28,
+                 d.speed_active)
+
+    if d.heading_active:
+        _compass_circle(cr, cx_right, cy, r_side, lw_side,
+                        d.heading_deg, d.heading_str, sec_accent, True)
+    else:
+        _ring_circle(cr, cx_right, cy, r_side, lw_side,
+                     _norm(d.coolant, d.coolant_min, d.coolant_max), sec_accent,
+                     d.coolant_label, "°C", r_side * 0.68, r_side * 0.30,
+                     d.coolant_active, title="Coolant", title_size=r_side * 0.22)
+
+    # Bottom info strip
+    info_y = cy + r_main + lw_main + height * 0.065
+    if info_y < height * 0.92:
+        _draw_rings_info(cr, width, height, d, info_y)
+
+
+def _draw_rings_portrait(
+    cr: Any, width: int, height: int, d: DashData,
+    accent: tuple, sec_accent: tuple,
+) -> None:
+    """Speed circle top-center (large), RPM + Coolant/Compass below side by side."""
+    # Speed circle fills upper ~45 % of height
+    r_main = min(width * 0.38, height * 0.22)
     lw_main = r_main * 0.28
 
     r_side = r_main * 0.56
     lw_side = r_side * 0.26
 
-    cx_main = width * 0.47
-    cx_left = cx_main - r_main - r_side * 1.30
-    cx_right = cx_main + r_main + r_side * 1.30
+    cx_mid = width * 0.50
+    # Speed: vertically centered in the top half
+    cy_main = r_main + lw_main + height * 0.04
+    # Side circles: below speed, side by side
+    cy_side = cy_main + r_main + lw_main + r_side + lw_side + height * 0.04
+    cx_left  = width * 0.28
+    cx_right = width * 0.72
 
-    # — Left circle: RPM ————————————————————————
-    _ring_circle(
-        cr, cx_left, cy_main, r_side, lw_side,
-        _norm(d.rpm, 0, d.rpm_max),
-        sec_accent,
-        d.rpm_label, "rpm",
-        r_side * 0.68, r_side * 0.30,
-        d.rpm_active,
-        title="RPM", title_size=r_side * 0.22,
-    )
+    _ring_circle(cr, cx_mid, cy_main, r_main, lw_main,
+                 _norm(d.speed, 0, d.speed_max), accent,
+                 d.speed_label, d.speed_unit, r_main * 0.68, r_main * 0.28,
+                 d.speed_active)
 
-    # — Center circle: Speed ————————————————————
-    _ring_circle(
-        cr, cx_main, cy_main, r_main, lw_main,
-        _norm(d.speed, 0, d.speed_max),
-        accent,
-        d.speed_label, d.speed_unit,
-        r_main * 0.68, r_main * 0.28,
-        d.speed_active,
-        title="", title_size=0,
-    )
+    _ring_circle(cr, cx_left, cy_side, r_side, lw_side,
+                 _norm(d.rpm, 0, d.rpm_max), sec_accent,
+                 d.rpm_label, "rpm", r_side * 0.68, r_side * 0.30,
+                 d.rpm_active, title="RPM", title_size=r_side * 0.22)
 
-    # — Right circle: Coolant / heading ————————————
     if d.heading_active:
-        _compass_circle(
-            cr, cx_right, cy_main, r_side, lw_side,
-            d.heading_deg, d.heading_str, sec_accent, True,
-        )
+        _compass_circle(cr, cx_right, cy_side, r_side, lw_side,
+                        d.heading_deg, d.heading_str, sec_accent, True)
     else:
-        _ring_circle(
-            cr, cx_right, cy_main, r_side, lw_side,
-            _norm(d.coolant, d.coolant_min, d.coolant_max),
-            sec_accent,
-            d.coolant_label, "°C",
-            r_side * 0.68, r_side * 0.30,
-            d.coolant_active,
-            title="Coolant", title_size=r_side * 0.22,
-        )
+        _ring_circle(cr, cx_right, cy_side, r_side, lw_side,
+                     _norm(d.coolant, d.coolant_min, d.coolant_max), sec_accent,
+                     d.coolant_label, "°C", r_side * 0.68, r_side * 0.30,
+                     d.coolant_active, title="Coolant", title_size=r_side * 0.22)
 
-    # — Bottom info strip ————————————————————————
-    info_y = cy_main + r_main + lw_main + height * 0.065
-    if info_y < height * 0.92:
-        items: list[tuple[str, str, bool]] = []
-        if d.heading_active:
-            items.append(("Coolant", f"{d.coolant_label} °C", d.coolant_active))
-        if d.fuel_active:
-            items.append(("Fuel", d.fuel_label, True))
-        if not d.heading_active:
-            items.append(("Heading", d.heading_str or "--", d.heading_active))
-        items.append(("", _current_time(), True))
+    # Info strip below side circles
+    info_y = cy_side + r_side + lw_side + height * 0.04
+    if info_y < height * 0.94:
+        _draw_rings_info(cr, width, height, d, info_y)
 
-        col_w = width / max(len(items), 1)
-        for i, (name, val, act) in enumerate(items):
-            ia = 1.0 if act else 0.25
-            ix = (i + 0.5) * col_w
-            if name:
-                _txt(cr, name, ix, info_y, height * 0.050,
-                     (0.45, 0.50, 0.56, 0.65 * ia))
-            _txt(cr, val, ix, info_y + height * 0.065, height * 0.062,
-                 (0.88, 0.91, 0.95, ia), bold=bool(val and val != "--"))
+
+def _draw_rings_info(cr: Any, width: int, height: int, d: DashData, info_y: float) -> None:
+    """Shared bottom info strip for both ring layouts."""
+    items: list[tuple[str, str, bool]] = []
+    if d.heading_active:
+        items.append(("Coolant", f"{d.coolant_label} °C", d.coolant_active))
+    if d.fuel_active:
+        items.append(("Fuel", d.fuel_label, True))
+    if not d.heading_active:
+        items.append(("Heading", d.heading_str or "--", d.heading_active))
+    items.append(("", _current_time(), True))
+
+    col_w = width / max(len(items), 1)
+    for i, (name, val, act) in enumerate(items):
+        ia = 1.0 if act else 0.25
+        ix = (i + 0.5) * col_w
+        if name:
+            _txt(cr, name, ix, info_y, height * 0.050,
+                 (0.45, 0.50, 0.56, 0.65 * ia))
+        _txt(cr, val, ix, info_y + height * 0.065, height * 0.062,
+             (0.88, 0.91, 0.95, ia), bold=bool(val and val != "--"))
 
 
 def _current_time() -> str:
