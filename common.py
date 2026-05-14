@@ -17,6 +17,7 @@ APP_ID = "de.cais.DrivePulse"
 LOG_DIR = Path(os.environ.get("OBD_LOG_DIR", Path.home() / ".local" / "state" / "drivepulse"))
 LOG_FILE = LOG_DIR / "obd-log.jsonl"
 CONNECTION_LOG_FILE = LOG_DIR / "connection-log.jsonl"
+PROFILES_DIR = LOG_DIR / "profiles"
 POLL_INTERVAL_SECONDS = float(os.environ.get("OBD_POLL_INTERVAL", "0.5"))
 OBD_PORT = os.environ.get("OBD_PORT")
 OBD_BAUDRATE = int(os.environ["OBD_BAUDRATE"]) if os.environ.get("OBD_BAUDRATE") else None
@@ -65,6 +66,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.obd_dongle": "Dongle",
         "settings.obd_dongle.auto": "Auto-detect",
         "settings.obd_dongle.none_found": "No dongle found",
+
         "gauge.rpm": "RPM",
         "gauge.speed": "Speed",
         "gauge.coolant": "Coolant",
@@ -107,6 +109,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.obd_dongle": "Dongle",
         "settings.obd_dongle.auto": "Automatisch erkennen",
         "settings.obd_dongle.none_found": "Kein Dongle erkannt",
+
         "gauge.rpm": "Drehzahl",
         "gauge.speed": "Geschwindigkeit",
         "gauge.coolant": "Kühlmittel",
