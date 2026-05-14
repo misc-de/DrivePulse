@@ -77,7 +77,6 @@ _BUILTIN_THEME_CSS: dict[str, str] = {
 }""",
     # Dashboard themes — background matches the first cr.paint() in each draw function
     "digital": _dark_bg_css("digital", "#000005"),
-    "sport":   _dark_bg_css("sport",   "#03050d"),
     "racing":  _dark_bg_css("racing",  "#0a0803"),
     "analog":  _dark_bg_css("analog",  "#0d0d0f"),
 }
@@ -206,7 +205,7 @@ def load_user_themes(themes_dir: Path) -> None:
             pass  # silently skip broken theme files
 
 
-_DASHBOARD_THEME_IDS = ("digital", "sport", "racing", "analog")
+_DASHBOARD_THEME_IDS = ("digital", "racing", "analog")
 
 
 def all_theme_options(translate_fn: Callable[[str], str]) -> list[tuple[str, str]]:

@@ -12,7 +12,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
 # These theme IDs trigger DashboardCanvas instead of the 3-gauge row
-DASHBOARD_THEMES = ("digital", "sport", "racing", "analog")
+DASHBOARD_THEMES = ("digital", "racing", "analog")
 
 
 def _cardinal(deg: float) -> str:
@@ -61,7 +61,7 @@ class DashData:
 class DashboardCanvas(Gtk.DrawingArea):
     __gtype_name__ = "DashboardCanvas"
 
-    def __init__(self, theme: str = "sport", units: str = "metric") -> None:
+    def __init__(self, theme: str = "racing", units: str = "metric") -> None:
         super().__init__()
         self.theme = theme
         self._rotation = 0  # degrees: 0, 90, 180, 270
@@ -145,8 +145,6 @@ class DashboardCanvas(Gtk.DrawingArea):
             _draw_rings(cr, w, h, self.data, accent=(0.95, 0.42, 0.08))
         elif self.theme == "analog":
             _draw_analog(cr, w, h, self.data)
-        else:  # sport
-            _draw_rings(cr, w, h, self.data, accent=(0.05, 0.68, 1.0))
 
 
 # ---------------------------------------------------------------------------
@@ -618,8 +616,6 @@ def _draw_rings_info(cr: Any, width: int, height: int, d: DashData, info_y: floa
         items.append(("Fuel", d.fuel_label, True))
     if not d.heading_active:
         items.append(("Heading", d.heading_str or "--", d.heading_active))
-    items.append(("", _current_time(), True))
-
     col_w = width / max(len(items), 1)
     for i, (name, val, act) in enumerate(items):
         ia = 1.0 if act else 0.25
@@ -825,11 +821,40 @@ def _compass_analog(
 
 
 def _draw_analog(cr: Any, width: int, height: int, d: DashData) -> None:
-    # Dark window background
     cr.set_source_rgb(0.05, 0.05, 0.06)
     cr.paint()
+    if width >= height:
+        _draw_analog_landscape(cr, width, height, d)
+    else:
+        _draw_analog_portrait(cr, width, height, d)
 
-    # Layout: left small (compass/coolant) | center large (speed) | right medium (RPM)
+
+def _analog_info_bar(cr: Any, width: int, height: int, d: DashData, bar_y: float) -> None:
+    """Bottom info strip for analog — no clock, only Coolant/Fuel when displaced by compass."""
+    items: list[tuple[str, bool]] = []
+    if d.heading_active:
+        items.append((f"Coolant  {d.coolant_label} °C", d.coolant_active))
+    if d.fuel_active:
+        items.append((f"Fuel  {d.fuel_label}", True))
+    if not items or bar_y >= height * 0.96:
+        return
+
+    bright = (0.80, 0.82, 0.86)
+    col_w = width / len(items)
+    txt_sz = max(10.0, height * 0.052)
+
+    cr.set_source_rgba(0.22, 0.24, 0.28, 0.45)
+    cr.set_line_width(0.5)
+    cr.move_to(width * 0.08, bar_y)
+    cr.line_to(width * 0.92, bar_y)
+    cr.stroke()
+
+    for i, (txt, act) in enumerate(items):
+        ia = 1.0 if act else 0.28
+        _txt(cr, txt, (i + 0.5) * col_w, bar_y + txt_sz * 1.1, txt_sz, (*bright, ia))
+
+
+def _draw_analog_landscape(cr: Any, width: int, height: int, d: DashData) -> None:
     r_center = min(height * 0.37, width * 0.22)
     r_right = r_center * 0.58
     r_left = r_center * 0.46
@@ -839,59 +864,62 @@ def _draw_analog(cr: Any, width: int, height: int, d: DashData) -> None:
     cx_right = cx_center + r_center + r_right * 1.35
     cx_left = cx_center - r_center - r_left * 1.45
 
-    # Speed major/minor steps
     speed_step_maj = 30.0 if d.speed_unit == "km/h" else 20.0
     speed_step_min = 10.0 if d.speed_unit == "km/h" else 10.0
 
-    # — Center: Speed ——————————————————————————————
     _analog_gauge(cr, cx_center, cy_main, r_center,
                   d.speed, 0, d.speed_max,
                   d.speed_label, d.speed_unit, "",
-                  d.speed_active,
-                  speed_step_maj, speed_step_min, dark=True)
+                  d.speed_active, speed_step_maj, speed_step_min)
 
-    # — Right: RPM —————————————————————————————————
     _analog_gauge(cr, cx_right, cy_main, r_right,
                   d.rpm, 0, d.rpm_max,
                   d.rpm_label, "rpm", "RPM",
-                  d.rpm_active,
-                  1000.0, 500.0, dark=True)
+                  d.rpm_active, 1000.0, 500.0)
 
-    # — Left: Compass or Coolant ——————————————————
     if d.heading_active:
         _compass_analog(cr, cx_left, cy_main, r_left,
-                        d.heading_deg, d.heading_str, True, dark=True)
+                        d.heading_deg, d.heading_str, True)
     else:
         _analog_gauge(cr, cx_left, cy_main, r_left,
                       d.coolant, d.coolant_min, d.coolant_max,
                       d.coolant_label, "°C", "Coolant",
-                      d.coolant_active,
-                      20.0, 10.0, dark=True)
+                      d.coolant_active, 20.0, 10.0)
 
-    # — Bottom info bar ————————————————————————————
-    bar_y = cy_main + r_center + height * 0.045
-    if bar_y < height * 0.94:
-        items: list[tuple[str, bool]] = [(_current_time(), True)]
-        if d.heading_active:
-            items.insert(0, (f"Coolant  {d.coolant_label} °C", d.coolant_active))
-        if d.fuel_active:
-            items.insert(0, (f"Fuel  {d.fuel_label}", True))
+    _analog_info_bar(cr, width, height, d, cy_main + r_center + height * 0.045)
 
-        dim = (0.42, 0.44, 0.48)
-        bright = (0.80, 0.82, 0.86)
-        col_w = width / max(len(items), 1)
-        txt_sz = max(10.0, height * 0.052)
-        sep_col = (0.22, 0.24, 0.28, 0.45)
 
-        # Separator line
-        cr.set_source_rgba(*sep_col)
-        cr.set_line_width(0.5)
-        cr.move_to(width * 0.08, bar_y)
-        cr.line_to(width * 0.92, bar_y)
-        cr.stroke()
+def _draw_analog_portrait(cr: Any, width: int, height: int, d: DashData) -> None:
+    """Speed top-center (large), RPM + Coolant/Compass below side by side."""
+    r_center = min(width * 0.38, height * 0.22)
+    r_side = r_center * 0.56
 
-        for i, (txt, act) in enumerate(items):
-            ia = 1.0 if act else 0.28
-            ix = (i + 0.5) * col_w
-            _txt(cr, txt, ix, bar_y + txt_sz * 1.1, txt_sz,
-                 (*bright, ia))
+    cx_mid = width * 0.50
+    cy_main = r_center + height * 0.04
+    cy_side = cy_main + r_center + r_side + height * 0.06
+    cx_left = width * 0.28
+    cx_right = width * 0.72
+
+    speed_step_maj = 30.0 if d.speed_unit == "km/h" else 20.0
+    speed_step_min = 10.0 if d.speed_unit == "km/h" else 10.0
+
+    _analog_gauge(cr, cx_mid, cy_main, r_center,
+                  d.speed, 0, d.speed_max,
+                  d.speed_label, d.speed_unit, "",
+                  d.speed_active, speed_step_maj, speed_step_min)
+
+    _analog_gauge(cr, cx_left, cy_side, r_side,
+                  d.rpm, 0, d.rpm_max,
+                  d.rpm_label, "rpm", "RPM",
+                  d.rpm_active, 1000.0, 500.0)
+
+    if d.heading_active:
+        _compass_analog(cr, cx_right, cy_side, r_side,
+                        d.heading_deg, d.heading_str, True)
+    else:
+        _analog_gauge(cr, cx_right, cy_side, r_side,
+                      d.coolant, d.coolant_min, d.coolant_max,
+                      d.coolant_label, "°C", "Coolant",
+                      d.coolant_active, 20.0, 10.0)
+
+    _analog_info_bar(cr, width, height, d, cy_side + r_side + height * 0.04)
