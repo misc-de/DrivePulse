@@ -1300,7 +1300,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.dashboard_page.set_margin_end(12)
         self.dashboard_page.add_css_class("dp-gauge-bg")
 
-        self.dashboard_canvas = DashboardCanvas(self.gauge_theme, self.units)
+        self.dashboard_canvas = DashboardCanvas(self.gauge_theme, self.units, self.language)
         self.dashboard_canvas.set_hexpand(True)
         self.dashboard_canvas.set_vexpand(True)
         self.dashboard_canvas.set_halign(Gtk.Align.FILL)
@@ -1605,6 +1605,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.dashboard_stack_page.set_title(_translate(self.language, "nav.gauges"))
         self.acceleration_stack_page.set_title(_translate(self.language, "nav.acceleration"))
         self.acceleration_page.set_language(self.language)
+        self.dashboard_canvas.set_language(self.language)
         if self.last_payload is not None:
             self._update_from_payload(self.last_payload)
         else:
