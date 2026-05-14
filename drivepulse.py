@@ -81,6 +81,7 @@ from common import (
 from gauge import Gauge, GAUGE_THEMES, all_theme_options, load_user_themes, get_theme_css
 from dashboard import DashboardCanvas, DASHBOARD_THEMES
 from acceleration import AccelerationPage
+from cars import CarsPage
 
 REQUIRED_PYTHON_PACKAGES = (
     ("PyGObject", "gi", "GTK/libadwaita Python-Bindings"),
@@ -1423,6 +1424,7 @@ class DashboardWindow(Adw.ApplicationWindow):
 
     PAGE_DASHBOARD = "dashboard"
     PAGE_ACCELERATION = "acceleration"
+    PAGE_CARS = "cars"
 
     # Seconds to keep GPS shown as "available" after the last valid fix
     GPS_UNAVAIL_HOLDOVER = 1.0
@@ -1520,6 +1522,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         acceleration_scroller.set_vexpand(True)
         acceleration_scroller.set_child(self.acceleration_page)
 
+        self.cars_page = CarsPage(self.language)
+
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
         self.view_stack.set_hexpand(True)
@@ -1538,6 +1542,12 @@ class DashboardWindow(Adw.ApplicationWindow):
             self.PAGE_ACCELERATION,
             _translate(self.language, "nav.acceleration"),
             "view-statistics-symbolic",
+        )
+        self.cars_stack_page = self.view_stack.add_titled_with_icon(
+            self.cars_page,
+            self.PAGE_CARS,
+            _translate(self.language, "nav.cars"),
+            "applications-system-symbolic",
         )
 
         swipe = Gtk.GestureSwipe()
@@ -1799,8 +1809,10 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.gps_indicator["label"].set_text(_translate(self.language, "status.gps"))
         self.dashboard_stack_page.set_title(_translate(self.language, "nav.gauges"))
         self.acceleration_stack_page.set_title(_translate(self.language, "nav.acceleration"))
+        self.cars_stack_page.set_title(_translate(self.language, "nav.cars"))
         self.acceleration_page.set_language(self.language)
         self.dashboard_canvas.set_language(self.language)
+        self.cars_page.set_language(self.language)
         if self.last_payload is not None:
             self._update_from_payload(self.last_payload)
         else:
@@ -1904,7 +1916,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         if ax < 220 or ax <= ay:
             return
         current = self.view_stack.get_visible_child_name()
-        pages = [self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
+        pages = [self.PAGE_DASHBOARD, self.PAGE_ACCELERATION, self.PAGE_CARS]
         try:
             index = pages.index(current)
         except ValueError:
@@ -1945,6 +1957,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         if status == "complete":
             self.scan_bar.set_fraction(1.0)
             self.scan_bar.set_text("Fahrzeugscan abgeschlossen")
+            self.cars_page.refresh_profiles()
             GLib.timeout_add(3000, self._hide_scan_bar)
             return
 
@@ -1997,6 +2010,7 @@ class DashboardWindow(Adw.ApplicationWindow):
             gps_heading = self._plain_number(payload, "gps_heading")
             self._set_link_indicator(self.gps_indicator, self._gps_connected_with_holdover(gps_speed_kmh), False)
             self.acceleration_page.update_payload(payload, self._plain_number)
+            self.cars_page.update_live(payload)
             if gps_heading is not None:
                 self.dashboard_canvas.update_heading(gps_heading)
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
@@ -2025,6 +2039,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.speed_gauge.set_value(speed, None if speed is None else f"{speed:.0f}")
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
         self.acceleration_page.update_payload(payload, self._plain_number)
+        self.cars_page.update_live(payload)
 
         canvas_speed = self._display_speed(speed_source_kmh)
         fuel = self._plain_number(payload, "fuel_level") if active else None
