@@ -44,71 +44,71 @@ _SPECIAL_PENDING = "__PENDING_DTC__"
 _SPECIAL_ADAPTER_V = "__ATRV__"
 
 CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
-    ("vehicle", "Fahrzeug", "dialog-information-symbolic", (
-        (_SPECIAL_VIN,        "Fahrgestellnummer (VIN)"),
-        (_SPECIAL_CAL,        "Steuergerät-Software (Cal-ID)"),
-        (_SPECIAL_CVN,        "Software-Prüfnummer (CVN)"),
-        (_SPECIAL_PROTO,      "Diagnose-Protokoll"),
-        ("011C",              "OBD-Norm"),
-        (_SPECIAL_SCAN_DATE,  "Letzter Scan"),
+    ("vehicle", "cars.category.vehicle", "dialog-information-symbolic", (
+        (_SPECIAL_VIN,        "cars.pid.VIN"),
+        (_SPECIAL_CAL,        "cars.pid.CAL"),
+        (_SPECIAL_CVN,        "cars.pid.CVN"),
+        (_SPECIAL_PROTO,      "cars.pid.PROTO"),
+        ("011C",              "cars.pid.011C"),
+        (_SPECIAL_SCAN_DATE,  "cars.pid.SCAN_DATE"),
     )),
-    ("engine", "Motor", "applications-engineering-symbolic", (
-        ("010C", "Drehzahl"),
-        ("0104", "Motorlast (berechnet)"),
-        ("0143", "Motorlast (absolut)"),
-        ("010E", "Zündzeitpunkt"),
-        ("011F", "Motorlaufzeit seit Start"),
-        ("0142", "Bordnetzspannung"),
-        (_SPECIAL_ADAPTER_V, "Adapter-Spannung"),
+    ("engine", "cars.category.engine", "applications-engineering-symbolic", (
+        ("010C", "cars.pid.010C"),
+        ("0104", "cars.pid.0104"),
+        ("0143", "cars.pid.0143"),
+        ("010E", "cars.pid.010E"),
+        ("011F", "cars.pid.011F"),
+        ("0142", "cars.pid.0142"),
+        (_SPECIAL_ADAPTER_V, "cars.pid.ATRV"),
     )),
-    ("drive", "Geschwindigkeit & Strecke", "media-seek-forward-symbolic", (
-        ("010D", "Geschwindigkeit"),
-        ("0131", "Strecke seit Fehlerlöschung"),
-        ("0121", "Strecke mit Motorkontrollleuchte"),
-        ("0130", "Warmlaufzyklen seit Fehlerlöschung"),
+    ("drive", "cars.category.drive", "media-seek-forward-symbolic", (
+        ("010D", "cars.pid.010D"),
+        ("0131", "cars.pid.0131"),
+        ("0121", "cars.pid.0121"),
+        ("0130", "cars.pid.0130"),
     )),
-    ("temperatures", "Temperaturen", "weather-clear-symbolic", (
-        ("0105", "Kühlmittel"),
-        ("010F", "Ansaugluft"),
-        ("0146", "Außenluft"),
-        ("013C", "Katalysator (Bank 1, Sensor 1)"),
+    ("temperatures", "cars.category.temperatures", "weather-clear-symbolic", (
+        ("0105", "cars.pid.0105"),
+        ("010F", "cars.pid.010F"),
+        ("0146", "cars.pid.0146"),
+        ("013C", "cars.pid.013C"),
     )),
-    ("throttle", "Gas & Drosselklappe", "emblem-system-symbolic", (
-        ("0111", "Drosselklappe"),
-        ("0145", "Drosselklappe (relativ)"),
-        ("0147", "Drosselklappe Sensor B"),
-        ("0149", "Gaspedal Sensor D"),
-        ("014A", "Gaspedal Sensor E"),
-        ("014C", "Drosselklappen-Sollwert"),
+    ("throttle", "cars.category.throttle", "emblem-system-symbolic", (
+        ("0111", "cars.pid.0111"),
+        ("0145", "cars.pid.0145"),
+        ("0147", "cars.pid.0147"),
+        ("0149", "cars.pid.0149"),
+        ("014A", "cars.pid.014A"),
+        ("014C", "cars.pid.014C"),
     )),
-    ("mixture", "Gemisch & Lambda", "applications-science-symbolic", (
-        ("0103", "Kraftstoffsystem-Status"),
-        ("0106", "Kurzzeit-Korrektur (Bank 1)"),
-        ("0107", "Langzeit-Korrektur (Bank 1)"),
-        ("0156", "Langzeit-Korrektur Sekundärsonde (Bank 1)"),
-        ("0134", "Lambda Bank 1, Sensor 1"),
-        ("0144", "Lambda-Sollwert"),
-        ("0115", "Lambdasonde Bank 1, Sensor 2"),
+    ("mixture", "cars.category.mixture", "applications-science-symbolic", (
+        ("0103", "cars.pid.0103"),
+        ("0106", "cars.pid.0106"),
+        ("0107", "cars.pid.0107"),
+        ("0156", "cars.pid.0156"),
+        ("0134", "cars.pid.0134"),
+        ("0144", "cars.pid.0144"),
+        ("0115", "cars.pid.0115"),
     )),
-    ("fuel", "Kraftstoff & Luft", "weather-windy-symbolic", (
-        ("0110", "Luftmasse (MAF)"),
-        ("012F", "Tankfüllstand"),
-        ("0123", "Kraftstoff-Raildruck"),
-        ("012E", "Tankentlüftung"),
-        ("0133", "Luftdruck"),
+    ("fuel", "cars.category.fuel", "weather-windy-symbolic", (
+        ("0110", "cars.pid.0110"),
+        ("012F", "cars.pid.012F"),
+        ("0123", "cars.pid.0123"),
+        ("012E", "cars.pid.012E"),
+        ("0133", "cars.pid.0133"),
     )),
-    ("diagnostics", "Diagnose", "dialog-warning-symbolic", (
-        (_SPECIAL_DTC,        "Gespeicherte Fehler"),
-        (_SPECIAL_PENDING,    "Ausstehende Fehler"),
-        ("0141", "Monitor-Status diese Fahrt"),
+    ("diagnostics", "cars.category.diagnostics", "dialog-warning-symbolic", (
+        (_SPECIAL_DTC,        "cars.pid.DTC"),
+        (_SPECIAL_PENDING,    "cars.pid.PENDING_DTC"),
+        ("0141", "cars.pid.0141"),
     )),
     # Sonderfall: keine PID-Liste, Inhalt = Fahrten dieses Autos aus der DB
-    ("trips", "Fahrten", "document-open-recent-symbolic", ()),
+    ("trips", "cars.category.trips", "document-open-recent-symbolic", ()),
 )
 
 
 _UNIT_DISPLAY: dict[str, str] = {
-    "revolutions_per_minute": "U/min",
+    "revolutions_per_minute": "rpm",
     "kilometer_per_hour":     "km/h",
     "kilometer":              "km",
     "degree_Celsius":         "°C",
@@ -121,12 +121,23 @@ _UNIT_DISPLAY: dict[str, str] = {
     "gps":                    "g/s",
     "ratio":                  "",
     "count":                  "",
-    "rpm":                    "U/min",
+    "rpm":                    "rpm",
     "km/h":                   "km/h",
     "degC":                   "°C",
     "deg":                    "°",
     "g":                      "g",
 }
+
+_UNIT_DISPLAY_DE: dict[str, str] = {
+    "revolutions_per_minute": "U/min",
+    "rpm":                    "U/min",
+}
+
+
+def _unit_display(unit: str, language: str = "en") -> str:
+    if language == "de":
+        return _UNIT_DISPLAY_DE.get(unit) or _UNIT_DISPLAY.get(unit, unit)
+    return _UNIT_DISPLAY.get(unit, unit)
 
 _WMI_BRANDS: dict[str, str] = {
     "WAU": "Audi", "TRU": "Audi", "WUA": "Audi",
@@ -177,13 +188,13 @@ def _format_status_string(value: str) -> str:
     return value
 
 
-def _format_value_unit(payload: Any) -> str:
+def _format_value_unit(payload: Any, language: str = "en") -> str:
     if payload is None:
         return "—"
     if isinstance(payload, dict) and "value" in payload:
         value = payload.get("value")
         unit = payload.get("unit") or ""
-        unit_disp = _UNIT_DISPLAY.get(unit, unit)
+        unit_disp = _unit_display(unit, language)
         if value is None:
             return "—"
         try:
@@ -237,8 +248,8 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
 
     started = _safe_ts(trip["started_at"])
     ended = _safe_ts(trip["ended_at"])
-    _add_stat("Start", started.strftime("%d.%m.%Y %H:%M:%S") if started else "—")
-    _add_stat("Ende", ended.strftime("%d.%m.%Y %H:%M:%S") if ended else "—")
+    _add_stat(_translate(language, "cars.trip.start"), started.strftime("%d.%m.%Y %H:%M:%S") if started else "—")
+    _add_stat(_translate(language, "cars.trip.end"), ended.strftime("%d.%m.%Y %H:%M:%S") if ended else "—")
     dur_s = trip["duration_s"] or 0.0
     if dur_s:
         hrs = int(dur_s // 3600)
@@ -247,11 +258,11 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         dur_text = f"{hrs}:{mins:02d}:{secs:02d}" if hrs else f"{mins}:{secs:02d} min"
     else:
         dur_text = "—"
-    _add_stat("Dauer", dur_text)
-    _add_stat("Strecke", f"{trip['distance_km']:.2f} km" if trip["distance_km"] else "—")
-    _add_stat("Höchstgeschwindigkeit", f"{trip['max_speed_kmh']:.0f} km/h" if trip["max_speed_kmh"] else "—")
-    _add_stat("Durchschnitt", f"{trip['avg_speed_kmh']:.0f} km/h" if trip["avg_speed_kmh"] else "—")
-    _add_stat("Samples", str(trip["samples_count"] or 0))
+    _add_stat(_translate(language, "cars.trip.duration"), dur_text)
+    _add_stat(_translate(language, "cars.trip.distance"), f"{trip['distance_km']:.2f} km" if trip["distance_km"] else "—")
+    _add_stat(_translate(language, "cars.trip.max_speed"), f"{trip['max_speed_kmh']:.0f} km/h" if trip["max_speed_kmh"] else "—")
+    _add_stat(_translate(language, "cars.trip.avg_speed"), f"{trip['avg_speed_kmh']:.0f} km/h" if trip["avg_speed_kmh"] else "—")
+    _add_stat(_translate(language, "cars.trip.samples"), str(trip["samples_count"] or 0))
 
     outer.append(stats)
 
@@ -259,7 +270,7 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
     gps_points = [(s["lat"], s["lon"], s["speed_kmh"]) for s in samples
                   if s["lat"] is not None and s["lon"] is not None]
     if gps_points:
-        gps_title = Gtk.Label(label="Strecke", xalign=0.0)
+        gps_title = Gtk.Label(label=_translate(language, "cars.trip.route"), xalign=0.0)
         gps_title.add_css_class("heading")
         outer.append(gps_title)
         gps_area = Gtk.DrawingArea()
@@ -272,7 +283,7 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
     # --- Geschwindigkeitsverlauf ---
     speed_series = [(s["ts"], s["speed_kmh"]) for s in samples if s["speed_kmh"] is not None]
     if speed_series:
-        sp_title = Gtk.Label(label="Geschwindigkeit (km/h)", xalign=0.0)
+        sp_title = Gtk.Label(label=_translate(language, "cars.trip.speed_chart"), xalign=0.0)
         sp_title.add_css_class("heading")
         outer.append(sp_title)
         sp_area = Gtk.DrawingArea()
@@ -283,7 +294,7 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         outer.append(sp_area)
 
     if not gps_points and not speed_series:
-        empty = Gtk.Label(label="Keine Messwerte für diese Fahrt.", xalign=0.0)
+        empty = Gtk.Label(label=_translate(language, "cars.trip.no_data"), xalign=0.0)
         empty.add_css_class("dim-label")
         outer.append(empty)
 
@@ -660,10 +671,10 @@ class CarsPage(Gtk.Box):
         self.category_list.set_selection_mode(Gtk.SelectionMode.BROWSE)
         self.category_list.add_css_class("navigation-sidebar")
         self.category_list.connect("row-selected", self._on_category_selected)
-        for cat_key, cat_name, icon_name, _items in CATEGORIES:
+        for cat_key, cat_name_key, icon_name, _items in CATEGORIES:
             row = Gtk.ListBoxRow()
             row.cat_key = cat_key  # type: ignore[attr-defined]
-            row.cat_name = cat_name  # type: ignore[attr-defined]
+            row.cat_label_key = cat_name_key  # type: ignore[attr-defined]
 
             hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             hbox.set_margin_top(8)
@@ -675,14 +686,14 @@ class CarsPage(Gtk.Box):
             icon.set_pixel_size(18)
             hbox.append(icon)
 
-            lbl = Gtk.Label(label=cat_name, xalign=0.0)
+            lbl = Gtk.Label(label=_translate(self.language, cat_name_key), xalign=0.0)
             lbl.set_hexpand(True)
             hbox.append(lbl)
 
             row.cat_label_widget = lbl  # type: ignore[attr-defined]
             row.cat_icon_widget = icon  # type: ignore[attr-defined]
             row.cat_hbox = hbox  # type: ignore[attr-defined]
-            row.set_tooltip_text(cat_name)
+            row.set_tooltip_text(_translate(self.language, cat_name_key))
 
             row.set_child(hbox)
             self.category_list.append(row)
@@ -775,6 +786,13 @@ class CarsPage(Gtk.Box):
         self._detail_back_btn.set_tooltip_text(_translate(self.language, "cars.back"))
         self._refresh_list_texts()
         self._rebuild_list()
+        for row in self._cat_rows:
+            key = getattr(row, "cat_label_key", None)
+            lbl = getattr(row, "cat_label_widget", None)
+            if key and lbl:
+                translated = _translate(self.language, key)
+                lbl.set_text(translated)
+                row.set_tooltip_text(translated)
         if self._detail_pushed:
             self._render_detail()
 
@@ -977,8 +995,8 @@ class CarsPage(Gtk.Box):
             self.value_list.remove(child)
 
         cat_meta = next((c for c in CATEGORIES if c[0] == self._selected_category), CATEGORIES[0])
-        cat_key, cat_name, _icon_name, items = cat_meta
-        self.content_title.set_text(cat_name)
+        cat_key, cat_name_key, _icon_name, items = cat_meta
+        self.content_title.set_text(_translate(self.language, cat_name_key))
 
         data, source_label = self._current_data()
         self.content_subtitle.set_text(
@@ -991,9 +1009,10 @@ class CarsPage(Gtk.Box):
 
         stacked = cat_key == "vehicle"
 
-        for pid_key, label in items:
+        for pid_key, label_key in items:
             raw = data.get(pid_key)
             value_text, is_unknown = self._format_entry(pid_key, raw)
+            label = _translate(self.language, label_key)
 
             if stacked:
                 self.value_list.append(self._make_stacked_row(label, value_text, is_unknown))
@@ -1048,7 +1067,7 @@ class CarsPage(Gtk.Box):
         row = Adw.ActionRow()
         trip_id = int(trip["id"])
         started = self._parse_ts(trip["started_at"])
-        title = started.strftime("%d.%m.%Y · %H:%M") if started else f"Fahrt #{trip_id}"
+        title = started.strftime("%d.%m.%Y · %H:%M") if started else _translate(self.language, "cars.trip.title", id=trip_id)
         row.set_title(GLib.markup_escape_text(title))
 
         parts: list[str] = []
@@ -1064,9 +1083,9 @@ class CarsPage(Gtk.Box):
         if vmax is not None:
             parts.append(f"max {vmax:.0f} km/h")
         n = trip["samples_count"] or 0
-        parts.append(f"{n} Samples")
+        parts.append(f"{n} {_translate(self.language, 'cars.trip.samples')}")
         if trip["ended_at"] is None:
-            parts.append("⏺ laufend")
+            parts.append(f"⏺ {_translate(self.language, 'cars.trip.ongoing')}")
         row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
 
         row.set_activatable(True)
@@ -1110,7 +1129,7 @@ class CarsPage(Gtk.Box):
     def _trip_detail_title(self, trip: Any) -> str:
         started = self._parse_ts(trip["started_at"])
         if started is None:
-            return f"Fahrt #{int(trip['id'])}"
+            return _translate(self.language, "cars.trip.title", id=int(trip["id"]))
         return started.strftime("%d.%m.%Y %H:%M")
 
     def _make_stacked_row(self, label: str, value_text: str, is_unknown: bool) -> Gtk.ListBoxRow:
