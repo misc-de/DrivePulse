@@ -3,7 +3,6 @@ import math
 from typing import Any
 
 THEME_TYPE = "gauge"
-ORDER = 2
 LABEL = {"en": "Neon", "de": "Neon"}
 CSS = """
 window.dp-theme-neon,

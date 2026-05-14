@@ -3,7 +3,6 @@ import math
 from typing import Any
 
 THEME_TYPE = "gauge"
-ORDER = 3
 LABEL = {"en": "Minimal", "de": "Minimal"}
 CSS = """
 .dp-accel-theme-minimal .card {
@@ -21,7 +20,7 @@ def draw(cr: Any, width: int, height: int, gauge: Any) -> None:
     radius = size * 0.41
     line_width = max(4, size * 0.021)
 
-    # Minimal uses the system/window background — clear to transparent
+    # Clear to transparent so the system/window background shows through
     cr.set_source_rgba(0, 0, 0, 0)
     cr.paint()
 
