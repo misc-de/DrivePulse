@@ -30,8 +30,11 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import pty
 import random
 import signal
+import socket
 import threading
 import time
 from datetime import datetime, timezone
@@ -57,8 +60,10 @@ from common import (
     LOG_DIR,
     LOG_FILE,
     OBD_BAUDRATE,
+    OBD_BT_ADDR,
     OBD_FAST,
     OBD_PORT,
+    OBD_SOCKET_URL,
     OBD_TIMEOUT_SECONDS,
     POLL_INTERVAL_SECONDS,
     SETTINGS_FILE,
@@ -101,12 +106,137 @@ def _print_required_python_packages() -> None:
     print(f"  - OBD_FAST: {'an' if OBD_FAST else 'aus'}")
     if OBD_PORT is None:
         print("  - Bluetooth-Hinweis: ELM327 koppeln und z. B. mit OBD_PORT=/dev/rfcomm0 starten.")
+        print("  - Direktes BT: OBD_BT_ADDR=AA:BB:CC:DD:EE:FF (oder AA:BB:CC:DD:EE:FF:Kanal)")
+        print("  - socat-Brücke: OBD_SOCKET_URL=socket://localhost:35000")
+
+
+def _candidate_bt_addresses() -> list[tuple[str, int]]:
+    """Parse OBD_BT_ADDR into (mac_address, rfcomm_channel) pairs."""
+    if not OBD_BT_ADDR or OBD_PORT:
+        return []
+    result = []
+    for entry in OBD_BT_ADDR.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":")
+        if len(parts) == 7 and parts[6].isdigit():
+            result.append((":".join(parts[:6]).upper(), int(parts[6])))
+        else:
+            result.append((entry.upper(), 1))
+    return result
+
+
+def _parse_bt_port(port: str) -> tuple[str, int]:
+    """Parse 'bt:AA:BB:CC:DD:EE:FF' or 'bt:AA:BB:CC:DD:EE:FF:channel' into (addr, channel)."""
+    raw = port[3:]  # strip 'bt:'
+    parts = raw.split(":")
+    if len(parts) == 7 and parts[6].isdigit():
+        return ":".join(parts[:6]).upper(), int(parts[6])
+    return raw.upper(), 1
+
+
+def _scan_obd_devices() -> list[tuple[str, str]]:
+    """Return (display_label, port_value) pairs of currently detectable OBD devices."""
+    devices: list[tuple[str, str]] = []
+    for pattern in ("/dev/rfcomm*", "/dev/ttyUSB*", "/dev/ttyACM*"):
+        for path in sorted(Path("/").glob(pattern.lstrip("/"))):
+            devices.append((str(path), str(path)))
+    for addr, channel in _candidate_bt_addresses():
+        val = f"bt:{addr}" if channel == 1 else f"bt:{addr}:{channel}"
+        devices.append((f"Bluetooth: {addr}", val))
+    if OBD_SOCKET_URL:
+        devices.append((OBD_SOCKET_URL, OBD_SOCKET_URL))
+    return devices
+
+
+class BluetoothPtyBridge:
+    """Bridges a Bluetooth RFCOMM socket to a PTY so pyserial/python-obd can use it."""
+
+    _CONNECT_TIMEOUT = 10.0
+
+    def __init__(self, addr: str, channel: int = 1) -> None:
+        self.addr = addr
+        self.channel = channel
+        self._stop = threading.Event()
+        self._sock: socket.socket | None = None
+        self._master_fd = -1
+        self._slave_fd = -1
+        self.pty_path = ""
+        self._open()
+
+    def _open(self) -> None:
+        sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+        try:
+            sock.settimeout(self._CONNECT_TIMEOUT)
+            sock.connect((self.addr, self.channel))
+            sock.settimeout(None)
+        except Exception:
+            sock.close()
+            raise
+        self._sock = sock
+        master_fd, slave_fd = pty.openpty()
+        self._master_fd = master_fd
+        self._slave_fd = slave_fd
+        self.pty_path = os.ttyname(slave_fd)
+        threading.Thread(target=self._relay_fd_to_sock, args=(master_fd, sock), daemon=True).start()
+        threading.Thread(target=self._relay_sock_to_fd, args=(sock, master_fd), daemon=True).start()
+
+    def _relay_fd_to_sock(self, fd: int, sock: socket.socket) -> None:
+        try:
+            while not self._stop.is_set():
+                try:
+                    data = os.read(fd, 4096)
+                    if not data:
+                        break
+                    sock.sendall(data)
+                except OSError:
+                    break
+        finally:
+            self._stop.set()
+
+    def _relay_sock_to_fd(self, sock: socket.socket, fd: int) -> None:
+        try:
+            while not self._stop.is_set():
+                try:
+                    data = sock.recv(4096)
+                    if not data:
+                        break
+                    os.write(fd, data)
+                except OSError:
+                    break
+        finally:
+            self._stop.set()
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._sock is not None:
+            try:
+                self._sock.close()
+            except OSError:
+                pass
+            self._sock = None
+        for fd in (self._master_fd, self._slave_fd):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        self._master_fd = -1
+        self._slave_fd = -1
+
+    @property
+    def is_alive(self) -> bool:
+        return not self._stop.is_set()
 
 
 class ObdReader(GObject.Object):
     """Liest OBD-II-Werte in einem Hintergrund-Thread."""
 
     __gtype_name__ = "ObdReader"
+
+    # Minimum OBD() timeout for direct BT connections (ELM327 init can be slow over BT)
+    _BT_OBD_TIMEOUT = 15.0
 
     def __init__(self, on_update: Callable[[dict[str, Any]], None], force_mock: bool = False) -> None:
         super().__init__()
@@ -118,6 +248,9 @@ class ObdReader(GObject.Object):
         self.connected_port: str | None = None
         self.failed_read_count = 0
         self.next_mock_reconnect_attempt = 0.0
+        self._bt_bridge: BluetoothPtyBridge | None = None
+        self._configured_port: str | None = None
+        self._force_reconnect = False
         if obd is None:
             self.mock_reason = "python-obd fehlt"
         elif force_mock:
@@ -164,7 +297,44 @@ class ObdReader(GObject.Object):
         candidates: list[str | None] = []
         for pattern in ("/dev/rfcomm*", "/dev/ttyUSB*", "/dev/ttyACM*", "/dev/serial/by-id/*"):
             candidates.extend(str(path) for path in sorted(Path("/").glob(pattern.lstrip("/"))))
+        if OBD_SOCKET_URL:
+            candidates.append(OBD_SOCKET_URL)
         return candidates + [None]
+
+    def _try_bt_direct(self, addr: str, channel: int) -> bool:
+        """Try direct Bluetooth RFCOMM socket without rfcomm bind. Returns True on success."""
+        self._connection_log("bt_direct_attempt", bt_addr=addr, channel=channel)
+        bridge: BluetoothPtyBridge | None = None
+        try:
+            bridge = BluetoothPtyBridge(addr, channel)
+            connect_kwargs: dict[str, Any] = {
+                "fast": OBD_FAST,
+                "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT),
+            }
+            if OBD_BAUDRATE is not None:
+                connect_kwargs["baudrate"] = OBD_BAUDRATE
+            self._connection_log("connect_attempt", port=bridge.pty_path, bt_addr=addr, **connect_kwargs)
+            self.connection = obd.OBD(bridge.pty_path, **connect_kwargs)
+            connected = bool(self.connection and self.connection.is_connected())
+            self._connection_log("connect_result", port=bridge.pty_path, bt_addr=addr, connected=connected)
+            if connected:
+                self._bt_bridge = bridge
+                self.mock = False
+                self.mock_reason = ""
+                self.connected_port = f"bt:{addr}"
+                self.failed_read_count = 0
+                supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
+                self._connection_log("connect_success", port=self.connected_port, supported_commands=supported)
+                return True
+            self._close_connection()
+            bridge.close()
+            return False
+        except Exception as exc:
+            self._connection_log("bt_direct_exception", bt_addr=addr, channel=channel, error=repr(exc), error_type=type(exc).__name__)
+            self._close_connection()
+            if bridge is not None:
+                bridge.close()
+            return False
 
     def _close_connection(self) -> None:
         try:
@@ -175,6 +345,9 @@ class ObdReader(GObject.Object):
         finally:
             self.connection = None
             self.connected_port = None
+        if self._bt_bridge is not None:
+            self._bt_bridge.close()
+            self._bt_bridge = None
 
     def set_force_mock(self, force_mock: bool) -> None:
         self.force_mock = force_mock
@@ -187,6 +360,10 @@ class ObdReader(GObject.Object):
                 self.mock_reason = "python-obd fehlt"
             else:
                 self.mock_reason = ""
+
+    def set_configured_port(self, port: str | None) -> None:
+        self._configured_port = port
+        self._force_reconnect = True
 
     def _connect(self) -> None:
         if self.force_mock:
@@ -213,6 +390,43 @@ class ObdReader(GObject.Object):
             return
 
         self._close_connection()
+
+        # Settings-configured port takes priority over auto-scan
+        if self._configured_port:
+            if not self.stop_event.is_set():
+                if self._configured_port.startswith("bt:"):
+                    addr, ch = _parse_bt_port(self._configured_port)
+                    success = self._try_bt_direct(addr, ch)
+                else:
+                    success = False
+                    try:
+                        connect_kwargs: dict[str, Any] = {"fast": OBD_FAST, "timeout": OBD_TIMEOUT_SECONDS}
+                        if OBD_BAUDRATE is not None:
+                            connect_kwargs["baudrate"] = OBD_BAUDRATE
+                        self._connection_log("connect_attempt", port=self._configured_port, **connect_kwargs)
+                        self.connection = obd.OBD(self._configured_port, **connect_kwargs)
+                        connected = bool(self.connection and self.connection.is_connected())
+                        self._connection_log("connect_result", port=self._configured_port, connected=connected)
+                        if connected:
+                            self.mock = False
+                            self.mock_reason = ""
+                            self.connected_port = self._configured_port
+                            self.failed_read_count = 0
+                            supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
+                            self._connection_log("connect_success", port=self._configured_port, supported_commands=supported)
+                            success = True
+                        else:
+                            self._close_connection()
+                    except Exception as exc:
+                        self._close_connection()
+                        self._connection_log("connect_exception", port=self._configured_port, error=repr(exc), error_type=type(exc).__name__)
+                if not success:
+                    self.mock = True
+                    self.mock_reason = f"Dongle nicht erreichbar: {self._configured_port}"
+                    self._connection_log("connect_failed", reason=self.mock_reason, port=self._configured_port, fallback="mock")
+            return
+
+        # No configured port: auto-scan all candidates
         for port in self._candidate_ports():
             if self.stop_event.is_set():
                 self._connection_log("connect_aborted", reason="stop_event")
@@ -248,6 +462,13 @@ class ObdReader(GObject.Object):
                 self._close_connection()
                 self._connection_log("connect_exception", port=port, error=repr(exc), error_type=type(exc).__name__)
 
+        for addr, channel in _candidate_bt_addresses():
+            if self.stop_event.is_set():
+                self._connection_log("connect_aborted", reason="stop_event")
+                return
+            if self._try_bt_direct(addr, channel):
+                return
+
         self.mock = True
         self.mock_reason = "kein nutzbarer Dongle gefunden"
         self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
@@ -257,6 +478,11 @@ class ObdReader(GObject.Object):
         self._connect()
 
         while not self.stop_event.is_set():
+            if self._force_reconnect:
+                self._force_reconnect = False
+                self.mock = False
+                self.mock_reason = ""
+                self._connect()
             self._maybe_reconnect_from_mock()
             payload = self._read_mock() if self.mock else self._read_obd()
             payload["timestamp"] = datetime.now(timezone.utc).isoformat()
@@ -295,7 +521,8 @@ class ObdReader(GObject.Object):
         command_count = int(payload.get("_command_count", 0))
         read_error_count = int(payload.get("_read_error_count", 0))
         disconnected = bool(self.connection and not self.connection.is_connected())
-        failed_read = disconnected or (command_count > 0 and read_error_count >= command_count)
+        bt_dead = self._bt_bridge is not None and not self._bt_bridge.is_alive
+        failed_read = disconnected or bt_dead or (command_count > 0 and read_error_count >= command_count)
         self.failed_read_count = self.failed_read_count + 1 if failed_read else 0
         if self.failed_read_count < 3:
             return
@@ -543,12 +770,15 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_language_changed: Callable[[str], None],
         current_mock_mode: bool = False,
         on_mock_mode_changed: Callable[[bool], None] | None = None,
+        current_obd_port: str | None = None,
+        on_obd_port_changed: Callable[[str | None], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
         self.on_units_changed = on_units_changed
         self.on_language_changed = on_language_changed
         self.on_mock_mode_changed = on_mock_mode_changed
+        self.on_obd_port_changed = on_obd_port_changed
         self.set_title(_translate(self.language, "settings.title"))
 
         page = Adw.PreferencesPage(title=_translate(self.language, "settings.display"))
@@ -585,6 +815,27 @@ class SettingsDialog(Adw.PreferencesDialog):
         group.add(self.language_row)
         group.add(self.mock_row)
         page.add(group)
+
+        # OBD hardware group
+        obd_devices = _scan_obd_devices()
+        self._obd_port_values: list[str | None] = [None] + [val for _, val in obd_devices]
+        obd_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.obd"))
+        dongle_model = Gtk.StringList()
+        dongle_model.append(_translate(self.language, "settings.obd_dongle.auto"))
+        for label, _ in obd_devices:
+            dongle_model.append(label)
+        self.dongle_row = Adw.ComboRow(title=_translate(self.language, "settings.obd_dongle"))
+        self.dongle_row.set_model(dongle_model)
+        if not obd_devices:
+            self.dongle_row.set_subtitle(_translate(self.language, "settings.obd_dongle.none_found"))
+        selected_idx = 0
+        if current_obd_port in self._obd_port_values:
+            selected_idx = self._obd_port_values.index(current_obd_port)
+        self.dongle_row.set_selected(selected_idx)
+        self.dongle_row.connect("notify::selected", self._on_dongle_selected)
+        obd_group.add(self.dongle_row)
+        page.add(obd_group)
+
         self.add(page)
 
     def _on_unit_selected(self, *_args: Any) -> None:
@@ -597,12 +848,21 @@ class SettingsDialog(Adw.PreferencesDialog):
         if self.on_mock_mode_changed is not None:
             self.on_mock_mode_changed(self.mock_switch.get_active())
 
+    def _on_dongle_selected(self, *_args: Any) -> None:
+        if self.on_obd_port_changed is not None:
+            idx = self.dongle_row.get_selected()
+            port = self._obd_port_values[idx] if idx < len(self._obd_port_values) else None
+            self.on_obd_port_changed(port)
+
 
 class DashboardWindow(Adw.ApplicationWindow):
     __gtype_name__ = "DashboardWindow"
 
     PAGE_DASHBOARD = "dashboard"
     PAGE_ACCELERATION = "acceleration"
+
+    # Seconds to keep GPS shown as "available" after the last valid fix
+    GPS_UNAVAIL_HOLDOVER = 1.0
 
     def __init__(self, app: Adw.Application) -> None:
         super().__init__(application=app, title=_translate(_detect_language(), "window.title"))
@@ -611,7 +871,9 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.units = self.settings["units"]
         self.language = self.settings["language"]
         self.mock_mode = self.settings["mock_mode"]
+        self.obd_port: str | None = self.settings.get("obd_port")
         self.last_payload: dict[str, Any] | None = None
+        self._gps_last_seen: float = 0.0
 
         self.rpm_gauge = Gauge(_translate(self.language, "gauge.rpm"), "rpm", 0, 7000, (0.34, 0.62, 0.86))
         speed_unit = "km/h" if self.units == "metric" else "mph"
@@ -724,6 +986,7 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self._obd_active = False
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
+        self.reader._configured_port = self.obd_port
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
@@ -771,9 +1034,10 @@ class DashboardWindow(Adw.ApplicationWindow):
                 "units": units if units in {"metric", "imperial"} else "metric",
                 "language": _normalize_language(language or _detect_language()),
                 "mock_mode": bool(data.get("mock_mode", False)),
+                "obd_port": data.get("obd_port") or None,
             }
         except Exception:
-            return {"units": "metric", "language": _detect_language(), "mock_mode": False}
+            return {"units": "metric", "language": _detect_language(), "mock_mode": False, "obd_port": None}
 
     def _load_units(self) -> str:
         return self._load_settings()["units"]
@@ -787,6 +1051,7 @@ class DashboardWindow(Adw.ApplicationWindow):
                         "units": getattr(self, "units", "metric"),
                         "language": _normalize_language(getattr(self, "language", _detect_language())),
                         "mock_mode": getattr(self, "mock_mode", False),
+                        "obd_port": getattr(self, "obd_port", None),
                     },
                     indent=2,
                 ),
@@ -799,8 +1064,21 @@ class DashboardWindow(Adw.ApplicationWindow):
         self._save_settings()
 
     def _open_settings(self, *_args: Any) -> None:
-        dialog = SettingsDialog(self, self.units, self.language, self._set_units, self._set_language, self.mock_mode, self._set_mock_mode)
+        dialog = SettingsDialog(
+            self, self.units, self.language,
+            self._set_units, self._set_language,
+            self.mock_mode, self._set_mock_mode,
+            current_obd_port=self.obd_port,
+            on_obd_port_changed=self._set_obd_port,
+        )
         dialog.present(self)
+
+    def _set_obd_port(self, port: str | None) -> None:
+        if port == self.obd_port:
+            return
+        self.obd_port = port
+        self._save_settings()
+        self.reader.set_configured_port(port)
 
     def _set_units(self, units: str) -> None:
         if units == self.units:
@@ -945,12 +1223,19 @@ class DashboardWindow(Adw.ApplicationWindow):
     def _has_obd_data(self, payload: dict[str, Any]) -> bool:
         return any(self._plain_number(payload, key) is not None for key in ("rpm", "speed", "coolant_temp", "throttle_pos", "engine_load"))
 
+    def _gps_connected_with_holdover(self, gps_speed_kmh: float | None) -> bool:
+        now = time.monotonic()
+        if gps_speed_kmh is not None:
+            self._gps_last_seen = now
+            return True
+        return (now - self._gps_last_seen) < self.GPS_UNAVAIL_HOLDOVER
+
     def _update_from_payload(self, payload: dict[str, Any]) -> bool:
         source = payload.get("source", "")
 
         if source == "gps":
             gps_speed_kmh = self._plain_number(payload, "gps_speed")
-            self._set_link_indicator(self.gps_indicator, gps_speed_kmh is not None, False)
+            self._set_link_indicator(self.gps_indicator, self._gps_connected_with_holdover(gps_speed_kmh), False)
             self.acceleration_page.update_payload(payload, self._plain_number)
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
                 display = self._display_speed(gps_speed_kmh)
@@ -968,7 +1253,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         obd_connected = active and self._has_obd_data(payload)
         self._obd_active = obd_connected
         obd_connecting = bool(payload.get("obd_connecting"))
-        gps_connected = gps_speed_kmh is not None and active
+        gps_connected = self._gps_connected_with_holdover(gps_speed_kmh if active else None)
 
         self._set_link_indicator(self.obd_indicator, obd_connected, obd_connecting)
         self._set_link_indicator(self.gps_indicator, gps_connected, False)
