@@ -710,21 +710,59 @@ class CarsPage(Gtk.Box):
             _translate(self.language, "cars.source.label", source=source_label)
         )
 
+        stacked = self._selected_category == "vehicle"
+
         for pid_key, label in items:
             raw = data.get(pid_key)
             value_text, is_unknown = self._format_entry(pid_key, raw)
 
-            row = Adw.ActionRow()
-            row.set_title(GLib.markup_escape_text(label))
-            row.set_subtitle(GLib.markup_escape_text(pid_key) if not pid_key.startswith("__") else "")
+            if stacked:
+                self.value_list.append(self._make_stacked_row(label, value_text, is_unknown))
+            else:
+                self.value_list.append(self._make_inline_row(pid_key, label, value_text, is_unknown))
 
-            value_label = Gtk.Label(label=value_text, xalign=1.0)
-            value_label.add_css_class("monospace")
-            value_label.set_wrap(True)
-            value_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            value_label.set_max_width_chars(28)
-            if is_unknown:
-                value_label.add_css_class("dim-label")
-            row.add_suffix(value_label)
+    def _make_inline_row(self, pid_key: str, label: str, value_text: str, is_unknown: bool) -> Adw.ActionRow:
+        row = Adw.ActionRow()
+        row.set_title(GLib.markup_escape_text(label))
+        row.set_subtitle(GLib.markup_escape_text(pid_key) if not pid_key.startswith("__") else "")
 
-            self.value_list.append(row)
+        value_label = Gtk.Label(label=value_text, xalign=1.0)
+        value_label.add_css_class("monospace")
+        value_label.set_wrap(True)
+        value_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        value_label.set_max_width_chars(28)
+        if is_unknown:
+            value_label.add_css_class("dim-label")
+        row.add_suffix(value_label)
+        return row
+
+    def _make_stacked_row(self, label: str, value_text: str, is_unknown: bool) -> Gtk.ListBoxRow:
+        """Titel oben, Wert rechtsbündig darunter — passend für lange Werte wie VIN."""
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(14)
+        box.set_margin_end(14)
+
+        title_lbl = Gtk.Label(label=label, xalign=0.0)
+        title_lbl.add_css_class("heading")
+        title_lbl.set_halign(Gtk.Align.START)
+        title_lbl.set_hexpand(True)
+        box.append(title_lbl)
+
+        value_lbl = Gtk.Label(label=value_text, xalign=1.0)
+        value_lbl.add_css_class("monospace")
+        value_lbl.set_halign(Gtk.Align.END)
+        value_lbl.set_hexpand(True)
+        value_lbl.set_wrap(True)
+        value_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        value_lbl.set_selectable(True)
+        if is_unknown:
+            value_lbl.add_css_class("dim-label")
+        box.append(value_lbl)
+
+        row.set_child(box)
+        return row
