@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -11,6 +11,27 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
+
+
+def _gauge_apply_rotation(cr: Any, width: int, height: int, angle: int) -> tuple[int, int]:
+    """Rotate the Cairo context for a gauge DrawingArea.
+
+    Gauges are square so 90°/270° just swaps the coordinate origin;
+    the circular drawing itself is unaffected but text stays readable.
+    Returns effective (w, h) — always (width, height) since gauges are square.
+    """
+    if angle == 90:
+        cr.translate(0, height)
+        cr.rotate(-math.pi / 2)
+    elif angle == 180:
+        cr.translate(width, height)
+        cr.rotate(math.pi)
+    elif angle == 270:
+        cr.translate(width, 0)
+        cr.rotate(math.pi / 2)
+    # Gauges are always drawn square, effective size is unchanged
+    return width, height
+
 
 # Built-in theme identifiers (order = order in settings dropdown)
 GAUGE_THEMES = ("cockpit", "neon", "minimal")
@@ -231,6 +252,7 @@ class Gauge(Gtk.DrawingArea):
         self.title = title
         self.accent_rgb = accent_rgb
         self.theme = theme
+        self._rotation = 0  # degrees: 0, 90, 180, 270
         self.state = GaugeState(
             value=0,
             label="--",
@@ -257,6 +279,11 @@ class Gauge(Gtk.DrawingArea):
 
     def set_theme(self, theme: str) -> None:
         self.theme = theme
+        self.queue_draw()
+
+    def set_rotation(self, angle: int) -> None:
+        """Physical device rotation in degrees (0/90/180/270)."""
+        self._rotation = angle % 360
         self.queue_draw()
 
     # ------------------------------------------------------------------
@@ -323,23 +350,24 @@ class Gauge(Gtk.DrawingArea):
     # ------------------------------------------------------------------
 
     def _draw(self, area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
+        w, h = _gauge_apply_rotation(cr, width, height, self._rotation)
         if self.theme.startswith("user:"):
             stem = self.theme[5:]
             if stem in _user_themes:
                 draw_fn = _user_themes[stem][1]
                 if draw_fn is not None:
                     try:
-                        draw_fn(cr, width, height, self)
+                        draw_fn(cr, w, h, self)
                         return
                     except Exception:
                         pass  # fall through to default on error
                 # draw_fn is None = only CSS theme, use cockpit for gauge
         if self.theme == "neon":
-            self._draw_neon(cr, width, height)
+            self._draw_neon(cr, w, h)
         elif self.theme == "minimal":
-            self._draw_minimal(cr, width, height)
+            self._draw_minimal(cr, w, h)
         else:
-            self._draw_cockpit(cr, width, height)
+            self._draw_cockpit(cr, w, h)
 
     # ------------------------------------------------------------------
     # Theme: cockpit (default)

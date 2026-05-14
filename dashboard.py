@@ -64,6 +64,7 @@ class DashboardCanvas(Gtk.DrawingArea):
     def __init__(self, theme: str = "sport", units: str = "metric") -> None:
         super().__init__()
         self.theme = theme
+        self._rotation = 0  # degrees: 0, 90, 180, 270
         self.data = DashData(
             speed_unit="mph" if units == "imperial" else "km/h",
             speed_max=150.0 if units == "imperial" else 240.0,
@@ -75,6 +76,11 @@ class DashboardCanvas(Gtk.DrawingArea):
 
     def set_theme(self, theme: str) -> None:
         self.theme = theme
+        self.queue_draw()
+
+    def set_rotation(self, angle: int) -> None:
+        """Physical device rotation in degrees (0/90/180/270). Cairo drawing adapts."""
+        self._rotation = angle % 360
         self.queue_draw()
 
     def set_units(self, units: str) -> None:
@@ -132,14 +138,45 @@ class DashboardCanvas(Gtk.DrawingArea):
         self.queue_draw()
 
     def _draw(self, _area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
+        w, h = _apply_rotation(cr, width, height, self._rotation)
         if self.theme == "digital":
-            _draw_digital(cr, width, height, self.data)
+            _draw_digital(cr, w, h, self.data)
         elif self.theme == "racing":
-            _draw_rings(cr, width, height, self.data, accent=(0.95, 0.42, 0.08))
+            _draw_rings(cr, w, h, self.data, accent=(0.95, 0.42, 0.08))
         elif self.theme == "analog":
-            _draw_analog(cr, width, height, self.data)
+            _draw_analog(cr, w, h, self.data)
         else:  # sport
-            _draw_rings(cr, width, height, self.data, accent=(0.05, 0.68, 1.0))
+            _draw_rings(cr, w, h, self.data, accent=(0.05, 0.68, 1.0))
+
+
+# ---------------------------------------------------------------------------
+# Rotation helper
+# ---------------------------------------------------------------------------
+
+
+def _apply_rotation(cr: Any, width: int, height: int, angle: int) -> tuple[int, int]:
+    """Translate+rotate Cairo context so content appears upright for the given device angle.
+
+    Returns the effective (draw_width, draw_height) after the transform.
+    The caller should use these dimensions instead of the original width/height.
+
+    angle=90  : device rotated right (right-up)  → content needs 90° CCW
+    angle=180 : device upside-down               → content needs 180°
+    angle=270 : device rotated left  (left-up)   → content needs 90° CW
+    """
+    if angle == 90:
+        cr.translate(0, height)
+        cr.rotate(-math.pi / 2)
+        return height, width
+    if angle == 180:
+        cr.translate(width, height)
+        cr.rotate(math.pi)
+        return width, height
+    if angle == 270:
+        cr.translate(width, 0)
+        cr.rotate(math.pi / 2)
+        return height, width
+    return width, height
 
 
 # ---------------------------------------------------------------------------

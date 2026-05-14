@@ -1170,6 +1170,73 @@ class SettingsDialog(Adw.PreferencesDialog):
             self.on_gauge_theme_changed(theme)
 
 
+class OrientationReader:
+    """Reads physical device orientation via iio-sensor-proxy (net.hadess.SensorProxy).
+
+    Calls on_changed(orientation_str, angle_degrees, is_landscape) on the GTK main thread
+    whenever the orientation changes.  Gracefully does nothing if the service is unavailable.
+    """
+
+    _BUS = "net.hadess.SensorProxy"
+    _PATH = "/net/hadess/SensorProxy"
+    _IFACE = "net.hadess.SensorProxy"
+
+    # orientation string → (rotation degrees, is_landscape)
+    _MAP: dict[str, tuple[int, bool]] = {
+        "normal":    (0,   False),
+        "right-up":  (90,  True),
+        "bottom-up": (180, False),
+        "left-up":   (270, True),
+    }
+
+    def __init__(self, on_changed: Callable[[str, int, bool], None]) -> None:
+        self.on_changed = on_changed
+        self._proxy: Any = None
+        self._current = "normal"
+        GLib.idle_add(self._start)
+
+    def _start(self) -> bool:
+        try:
+            proxy = Gio.DBusProxy.new_for_bus_sync(
+                Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None,
+                self._BUS, self._PATH, self._IFACE, None,
+            )
+            has = proxy.get_cached_property("HasAccelerometer")
+            if not has or not has.get_boolean():
+                return False
+            proxy.call_sync("ClaimAccelerometer", None, Gio.DBusCallFlags.NONE, 2000, None)
+            proxy.connect("g-properties-changed", self._on_props_changed)
+            self._proxy = proxy
+            v = proxy.get_cached_property("AccelerometerOrientation")
+            if v:
+                self._emit(v.get_string())
+        except Exception:
+            pass
+        return False
+
+    def _on_props_changed(self, _proxy: Any, changed: Any, _invalidated: Any) -> None:
+        v = changed.lookup_value("AccelerometerOrientation", None)
+        if v is not None:
+            self._emit(v.get_string())
+
+    def _emit(self, orientation: str) -> None:
+        if orientation == self._current:
+            return
+        self._current = orientation
+        angle, landscape = self._MAP.get(orientation, (0, False))
+        GLib.idle_add(self.on_changed, orientation, angle, landscape)
+
+    def stop(self) -> None:
+        if self._proxy is not None:
+            try:
+                self._proxy.call_sync(
+                    "ReleaseAccelerometer", None, Gio.DBusCallFlags.NONE, 1000, None,
+                )
+            except Exception:
+                pass
+            self._proxy = None
+
+
 class DashboardWindow(Adw.ApplicationWindow):
     __gtype_name__ = "DashboardWindow"
 
@@ -1324,11 +1391,13 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.connect("realize", self._on_realize_install_css)
 
         self._obd_active = False
+        self._device_rotation = 0  # degrees from iio-sensor-proxy; 0 = upright
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader._configured_port = self.obd_port
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
+        self.orientation_reader = OrientationReader(self._on_orientation_changed)
 
     def _build_link_indicator(self, icon_name: str, label_text: str) -> dict[str, Any]:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -1364,6 +1433,17 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.header.set_visible(self._nav_visible)
         self.switcher_bar.set_visible(self._nav_visible)
 
+    def _on_orientation_changed(self, orientation: str, angle: int, is_landscape: bool) -> None:
+        """Called by OrientationReader when the physical device orientation changes."""
+        self._device_rotation = angle
+        # Rotate gauge drawings
+        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
+            gauge.set_rotation(angle)
+        # Rotate full-screen dashboard canvas
+        self.dashboard_canvas.set_rotation(angle)
+        # Re-evaluate portrait/landscape layout immediately
+        self._on_size_changed()
+
     def _on_realize_install_css(self, *_args: Any) -> None:
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), self._theme_css_provider,
@@ -1383,6 +1463,7 @@ class DashboardWindow(Adw.ApplicationWindow):
     def close(self) -> bool:
         self.reader.stop()
         self.gps_reader.stop()
+        self.orientation_reader.stop()
         return super().close()
 
     def _load_settings(self) -> dict[str, Any]:
@@ -1520,7 +1601,14 @@ class DashboardWindow(Adw.ApplicationWindow):
             return False
 
         if self.gauge_box.get_visible():
-            if width >= height:
+            # Physical orientation takes precedence over window-aspect detection.
+            # max()/min() ensures correct sizing even when the window hasn't been
+            # resized yet by the compositor (system rotation locked).
+            if self._device_rotation in (90, 270):
+                self._set_landscape_layout(max(width, height), min(width, height))
+            elif self._device_rotation in (0, 180):
+                self._set_portrait_layout(min(width, height), max(width, height))
+            elif width >= height:
                 self._set_landscape_layout(width, height)
             else:
                 self._set_portrait_layout(width, height)
