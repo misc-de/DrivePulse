@@ -73,7 +73,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status.connecting": "Connecting...",
         "status.obd": "OBD",
         "status.gps": "GPS",
-        "status.log_paths": "Data log: {data_log} | Connection log: {connection_log}",
+
         "status.updated": "{status} | last update: {time}",
         "nav.gauges": "Gauges",
         "nav.acceleration": "Acceleration",
@@ -116,7 +116,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status.connecting": "Verbinde...",
         "status.obd": "OBD",
         "status.gps": "GPS",
-        "status.log_paths": "Datenlog: {data_log} | Verbindungslog: {connection_log}",
+
         "status.updated": "{status} | letzte Aktualisierung: {time}",
         "nav.gauges": "Tachos",
         "nav.acceleration": "Beschleunigung",
