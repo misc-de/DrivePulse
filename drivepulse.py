@@ -1309,6 +1309,14 @@ class DashboardWindow(Adw.ApplicationWindow):
         _is_dash = self.gauge_theme in DASHBOARD_THEMES
         self.gauge_box.set_visible(not _is_dash)
         self.dashboard_canvas.set_visible(_is_dash)
+        if _is_dash:
+            for setter in (
+                self.dashboard_page.set_margin_top,
+                self.dashboard_page.set_margin_bottom,
+                self.dashboard_page.set_margin_start,
+                self.dashboard_page.set_margin_end,
+            ):
+                setter(0)
 
         self.dashboard_page.append(self.gauge_box)
         self.dashboard_page.append(self.dashboard_canvas)
@@ -1554,6 +1562,15 @@ class DashboardWindow(Adw.ApplicationWindow):
         is_dashboard = theme in DASHBOARD_THEMES
         self.gauge_box.set_visible(not is_dashboard)
         self.dashboard_canvas.set_visible(is_dashboard)
+        # Dashboard themes fill the screen edge-to-edge; gauge themes need breathing room
+        margin = 0 if is_dashboard else 12
+        for setter in (
+            self.dashboard_page.set_margin_top,
+            self.dashboard_page.set_margin_bottom,
+            self.dashboard_page.set_margin_start,
+            self.dashboard_page.set_margin_end,
+        ):
+            setter(margin)
         if is_dashboard:
             self.dashboard_canvas.set_theme(theme)
         else:
@@ -1658,20 +1675,38 @@ class DashboardWindow(Adw.ApplicationWindow):
             gauge.set_content_height(gauge_size)
 
     def _on_swipe(self, _gesture: Gtk.GestureSwipe, velocity_x: float, velocity_y: float) -> None:
-        if abs(velocity_x) < 220 or abs(velocity_x) <= abs(velocity_y):
+        ax, ay = abs(velocity_x), abs(velocity_y)
+
+        # Vertical swipe on the gauge/dashboard page → cycle through themes
+        if ay > 220 and ay > ax and self.view_stack.get_visible_child_name() == self.PAGE_DASHBOARD:
+            self._cycle_theme(up=velocity_y < 0)
             return
 
+        # Horizontal swipe → switch page
+        if ax < 220 or ax <= ay:
+            return
         current = self.view_stack.get_visible_child_name()
         pages = [self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
         try:
             index = pages.index(current)
         except ValueError:
             index = 0
-
         if velocity_x < 0 and index < len(pages) - 1:
             self.view_stack.set_visible_child_name(pages[index + 1])
         elif velocity_x > 0 and index > 0:
             self.view_stack.set_visible_child_name(pages[index - 1])
+
+    def _cycle_theme(self, up: bool) -> None:
+        """Cycle to the next/previous theme via vertical swipe."""
+        options = [tid for tid, _ in all_theme_options(lambda k: k)]
+        if not options:
+            return
+        try:
+            idx = options.index(self.gauge_theme)
+        except ValueError:
+            idx = 0
+        idx = (idx + (1 if up else -1)) % len(options)
+        self._set_gauge_theme(options[idx])
 
     def _handle_scan_update(self, payload: dict[str, Any]) -> None:
         status = payload.get("scan_status", "")
