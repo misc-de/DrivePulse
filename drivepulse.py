@@ -28,6 +28,7 @@ Bluetooth-ELM327:
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import json
 import math
@@ -60,6 +61,7 @@ except Exception:
 from common import (
     APP_ID,
     CONNECTION_LOG_FILE,
+    DB_FILE,
     LOG_DIR,
     LOG_FILE,
     OBD_BAUDRATE,
@@ -82,6 +84,7 @@ from gauge import Gauge, GAUGE_THEMES, all_theme_options, load_user_themes, get_
 from dashboard import DashboardCanvas, DASHBOARD_THEMES
 from acceleration import AccelerationPage
 from cars import CarsPage
+from db import DriveDB, TripRecorder
 
 REQUIRED_PYTHON_PACKAGES = (
     ("PyGObject", "gi", "GTK/libadwaita Python-Bindings"),
@@ -312,13 +315,30 @@ class ObdScanner:
             fp = hashlib.md5(",".join(supported_names).encode()).hexdigest()[:8]
             identity = f"port_{Path(self.port).name}_{fp}"
 
+        profile_path = PROFILES_DIR / f"{identity}.json"
+
+        # Identität für die Trip-DB immer mitteilen, auch wenn der Scan ansonsten geskippt wird.
+        self._emit_identity(vin, profile_path)
+
         if identity in self._session_cache:
             self._emit("skipped", 1.0)
             return
 
-        profile_path = PROFILES_DIR / f"{identity}.json"
         if profile_path.exists():
             self._session_cache.add(identity)
+            # Schnellscan: Cal-ID/CVN aus dem vorhandenen Profil nachreichen
+            try:
+                import json as _json
+                cached = _json.loads(profile_path.read_text(encoding="utf-8"))
+                self._emit_identity(
+                    vin,
+                    profile_path,
+                    cal_id=(cached.get("vehicle_info") or {}).get("CALIBRATION_ID"),
+                    cvn=(cached.get("vehicle_info") or {}).get("CVN"),
+                    protocol=cached.get("protocol"),
+                )
+            except Exception:
+                pass
             self._emit("skipped", 1.0)
             return
 
@@ -395,7 +415,27 @@ class ObdScanner:
             self._emit("error", 1.0, str(exc))
             return
 
+        # Volle Identität (inkl. Cal-ID/CVN) nach dem Scan an die App schicken.
+        self._emit_identity(
+            vin,
+            profile_path,
+            cal_id=vehicle_info.get("CALIBRATION_ID"),
+            cvn=vehicle_info.get("CVN"),
+            protocol=profile.get("protocol"),
+        )
         self._emit("complete", 1.0, str(profile_path))
+
+    def _emit_identity(self, vin: str | None, profile_path: Path,
+                       cal_id: Any = None, cvn: Any = None, protocol: Any = None) -> None:
+        GLib.idle_add(self.on_update, {
+            "source": "obd_scan_identity",
+            "vin": vin,
+            "cal_id": cal_id,
+            "cvn": cvn,
+            "protocol": protocol,
+            "profile_path": str(profile_path),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
 
     def _query_vin(self) -> str | None:
         try:
@@ -993,6 +1033,14 @@ class GpsReader:
                 heading = self._geoclue_double(location, "Heading")
                 if heading is not None and 0 <= heading < 360:
                     gps_payload["gps_heading"] = {"value": heading, "unit": "deg"}
+                lat = self._geoclue_double(location, "Latitude")
+                lon = self._geoclue_double(location, "Longitude")
+                if lat is not None and lon is not None:
+                    gps_payload["gps_lat"] = {"value": lat, "unit": "degree"}
+                    gps_payload["gps_lon"] = {"value": lon, "unit": "degree"}
+                altitude = self._geoclue_double(location, "Altitude")
+                if altitude is not None:
+                    gps_payload["gps_altitude"] = {"value": altitude, "unit": "meter"}
                 self.on_update(gps_payload)
         except Exception:
             pass
@@ -1050,6 +1098,14 @@ class GpsReader:
         track = data.get("track")
         if track is not None:
             gps_payload["gps_heading"] = {"value": float(track), "unit": "deg"}
+        lat = data.get("lat")
+        lon = data.get("lon")
+        if lat is not None and lon is not None:
+            gps_payload["gps_lat"] = {"value": float(lat), "unit": "degree"}
+            gps_payload["gps_lon"] = {"value": float(lon), "unit": "degree"}
+        altitude = data.get("alt")
+        if altitude is not None:
+            gps_payload["gps_altitude"] = {"value": float(altitude), "unit": "meter"}
         GLib.idle_add(self.on_update, gps_payload)
 
 
@@ -1446,6 +1502,12 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
 
+        # Persistente Fahrten-Datenbank (cars/trips/samples) — vor allen Pages,
+        # weil CarsPage sie injiziert bekommt.
+        self.db = DriveDB(DB_FILE)
+        self.trip_recorder = TripRecorder(self.db)
+        atexit.register(self._shutdown_db)
+
         self.rpm_gauge = Gauge(_translate(self.language, "gauge.rpm"), "rpm", 0, 7000, (0.34, 0.62, 0.86), self.gauge_theme)
         speed_unit = "km/h" if self.units == "metric" else "mph"
         speed_max = 240 if self.units == "metric" else 150
@@ -1526,7 +1588,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         acceleration_scroller.set_vexpand(True)
         acceleration_scroller.set_child(self.acceleration_page)
 
-        self.cars_page = CarsPage(self.language)
+        self.cars_page = CarsPage(self.language, db=self.db)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
 
         self.view_stack = Adw.ViewStack()
@@ -1603,12 +1665,16 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self._obd_active = False
         self._device_rotation = 0
+
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader._configured_port = self.obd_port
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
         self.orientation_reader = OrientationReader(self._on_orientation_changed, enabled=self.auto_rotate)
+
+        # Idle-Erkennung + WAL-Checkpoint alle 30 s
+        GLib.timeout_add_seconds(30, self._db_periodic_tick)
 
     def _build_link_indicator(self, icon_name: str, label_text: str) -> dict[str, Any]:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -2038,9 +2104,20 @@ class DashboardWindow(Adw.ApplicationWindow):
             self._handle_scan_update(payload)
             return False
 
+        if source == "obd_scan_identity":
+            self._handle_scan_identity(payload)
+            return False
+
         if source == "gps":
             gps_speed_kmh = self._plain_number(payload, "gps_speed")
             gps_heading = self._plain_number(payload, "gps_heading")
+            self.trip_recorder.update_gps(
+                lat=self._plain_number(payload, "gps_lat"),
+                lon=self._plain_number(payload, "gps_lon"),
+                altitude_m=self._plain_number(payload, "gps_altitude"),
+                heading_deg=gps_heading,
+                gps_speed_kmh=gps_speed_kmh,
+            )
             self._set_link_indicator(self.gps_indicator, self._gps_connected_with_holdover(gps_speed_kmh), False)
             self.acceleration_page.update_payload(payload, self._plain_number)
             self.cars_page.update_live(payload)
@@ -2087,7 +2164,88 @@ class DashboardWindow(Adw.ApplicationWindow):
         status = payload.get("connection_status") or source or "?"
         language = _normalize_language(getattr(self, "language", _detect_language()))
         self.status_label.set_text(_translate(language, "status.updated", status=status, time=datetime.now().strftime("%H:%M:%S")))
+
+        # Telemetrie persistieren — nur bei echter OBD-Verbindung (mock zählt nicht).
+        if source == "obd" and self._has_obd_data(payload):
+            self._record_obd_sample(payload)
         return False
+
+    def _record_obd_sample(self, payload: dict[str, Any]) -> None:
+        ts = time.time()
+        accel = self._plain_number(payload, "acceleration_g")
+        obd_speed = self._plain_number(payload, "speed")
+        gps_speed = self._plain_number(payload, "gps_speed")
+        speed = obd_speed if obd_speed is not None else gps_speed
+        fields = {
+            "speed_kmh":     speed,
+            "obd_speed_kmh": obd_speed,
+            "gps_speed_kmh": gps_speed,
+            "rpm":           self._plain_number(payload, "rpm"),
+            "coolant_c":     self._plain_number(payload, "coolant_temp"),
+            "throttle_pct":  self._plain_number(payload, "throttle_pos"),
+            "engine_load":   self._plain_number(payload, "engine_load"),
+            "fuel_pct":      self._plain_number(payload, "fuel_level"),
+            "intake_c":      self._plain_number(payload, "intake_temp"),
+            "maf_gps":       self._plain_number(payload, "maf"),
+            "voltage_v":     self._plain_number(payload, "control_module_voltage"),
+            "accel_g":       accel,
+        }
+        try:
+            self.trip_recorder.record_obd(ts, **fields)
+        except Exception:
+            pass
+
+    def _handle_scan_identity(self, payload: dict[str, Any]) -> None:
+        """Vom Scanner gemeldete Fahrzeug-Identität in die Trip-DB und in cars_page übernehmen."""
+        from cars import _extract_inner_string, _wmi_to_brand
+
+        vin = _extract_inner_string(payload.get("vin")) or None
+        cal_id = _extract_inner_string(payload.get("cal_id")) or None
+        cvn = _extract_inner_string(payload.get("cvn")) or None
+        protocol = payload.get("protocol") if isinstance(payload.get("protocol"), str) else None
+        profile_path = payload.get("profile_path")
+        brand = _wmi_to_brand(vin or "") or None
+        try:
+            self.trip_recorder.set_car(
+                vin=vin, brand=brand, cal_id=cal_id, cvn=cvn,
+                protocol=protocol, profile_path=profile_path,
+            )
+        except Exception:
+            pass
+        # Live-Header der Auto-Seite aktualisieren
+        identity = {}
+        if vin:
+            identity["VIN"] = vin
+        if cal_id:
+            identity["CALIBRATION_ID"] = cal_id
+        if cvn:
+            identity["CVN"] = cvn
+        if protocol:
+            identity["protocol"] = protocol
+        if identity:
+            self.cars_page.set_live_identity(identity)
+
+    def _db_periodic_tick(self) -> bool:
+        # WAL-Checkpoint + Idle-Erkennung
+        try:
+            self.db.checkpoint()
+        except Exception:
+            pass
+        try:
+            self.trip_recorder.maybe_end_idle_trip(time.time())
+        except Exception:
+            pass
+        return True
+
+    def _shutdown_db(self) -> None:
+        try:
+            self.trip_recorder.end_trip()
+        except Exception:
+            pass
+        try:
+            self.db.close()
+        except Exception:
+            pass
 
 
 def _register_local_icon() -> None:
