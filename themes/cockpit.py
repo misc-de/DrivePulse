@@ -3,7 +3,6 @@ import math
 from typing import Any
 
 THEME_TYPE = "gauge"
-ORDER = 1
 LABEL = {"en": "Cockpit", "de": "Cockpit"}
 CSS = """
 window.dp-theme-cockpit,

@@ -47,8 +47,7 @@ def load_builtin_themes() -> None:
     _builtin_dashboard_mods.clear()
     if not BUILTIN_THEMES_DIR.exists():
         return
-    entries: list[tuple[int, str, str, Any]] = []
-    for path in sorted(BUILTIN_THEMES_DIR.glob("*.py")):
+    for path in sorted(BUILTIN_THEMES_DIR.glob("*.py"), key=lambda p: p.stem.lower()):
         if path.name.startswith("_"):
             continue
         stem = path.stem
@@ -59,16 +58,12 @@ def load_builtin_themes() -> None:
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)  # type: ignore[union-attr]
             theme_type = getattr(mod, "THEME_TYPE", "gauge")
-            order = int(getattr(mod, "ORDER", 999))
-            entries.append((order, stem, theme_type, mod))
+            if theme_type == "dashboard":
+                _builtin_dashboard_mods[stem] = mod
+            else:
+                _builtin_gauge_mods[stem] = mod
         except Exception:
             pass
-    entries.sort(key=lambda e: e[0])
-    for _, stem, theme_type, mod in entries:
-        if theme_type == "dashboard":
-            _builtin_dashboard_mods[stem] = mod
-        else:
-            _builtin_gauge_mods[stem] = mod
 
 
 load_builtin_themes()
@@ -85,41 +80,23 @@ _user_themes: dict[str, tuple[str, Callable | None, str]] = {}
 # ---------------------------------------------------------------------------
 
 _EXAMPLE_THEME = '''\
-# DrivePulse – Theme Vorlage
-# Dateiname (ohne Unterstrich) = Theme-ID.
-# Dateien mit Unterstrich am Anfang werden ignoriert.
+# DrivePulse – Custom Theme
+# ──────────────────────────
+# Filename (no leading underscore) = theme ID, e.g. "my_theme.py"
+# Files with a leading underscore (_) are ignored when loading.
 #
-# PFLICHT : LABEL             – Text der in den Einstellungen erscheint
-# OPTIONAL: draw()            – Gauge-Zeichenfunktion  (Fallback: cockpit)
-# OPTIONAL: acceleration_css  – CSS-String für Beschleunigungsseite (Fallback: Standard)
+# Full documentation and minimal template:
+#   <app-directory>/themes/_vorlage.py
+#   <app-directory>/theme_defaults.py
 #
-# Beide sind unabhängig – man kann nur eines oder beides definieren.
-#
-# ── draw() ──────────────────────────────────────────────────────────────────
-# Parameter:
-#   cr           – Cairo-Kontext
-#   width/height – Widget-Größe in Pixeln
-#   gauge        – Gauge-Objekt:
-#     gauge.title               – Bezeichnung (z.B. "RPM")
-#     gauge.accent_rgb          – (r, g, b) Akzentfarbe, Floats 0–1
-#     gauge.active              – bool, False wenn kein Signal
-#     gauge.state.value         – aktueller Wert (float)
-#     gauge.state.label         – Anzeigetext (z.B. "3200")
-#     gauge.state.unit          – Einheit (z.B. "rpm")
-#     gauge.state.min_value / max_value
-#     gauge.arc_params(w, h)    → cx, cy, size, radius, lw,
-#                                  start, end, span, normalized (0–1)
-#     gauge.draw_text(cr, text, x, y, size,
-#                     alpha=1.0, bold=False, max_width=None)
-#
-# ── acceleration_css ─────────────────────────────────────────────────────────
-# GTK-CSS-String. Die Beschleunigungsseite bekommt die Klasse
-#   .dp-accel-theme-<dateiname>
-# Damit lassen sich z.B. Karten, Farben und Schriften anpassen:
-#   .dp-accel-theme-meinname .card  { background-color: rgba(0,0,0,0.8); }
-#   .dp-accel-theme-meinname .heading { color: #ff4444; }
+# Required fields: THEME_TYPE, LABEL, draw()
+# Optional:        CSS  (empty string = use app default)
 
-LABEL = "Mein Theme"
+THEME_TYPE = "gauge"
+LABEL      = {"en": "My Theme", "de": "Mein Theme"}
+CSS        = ""
+
+from theme_defaults import ARC_START, ARC_SPAN, active_alpha
 
 import math
 
@@ -127,49 +104,39 @@ import math
 def draw(cr, width, height, gauge):
     cx, cy, size, radius, lw, start, end, span, norm = gauge.arc_params(width, height)
     value_angle = start + span * norm
-    alpha = 1.0 if gauge.active else 0.3
+    a = active_alpha(gauge.active)
     r, g, b = gauge.accent_rgb if gauge.active else (0.45, 0.48, 0.50)
 
-    # Hintergrund
+    # Background
     cr.set_source_rgb(0.05, 0.05, 0.08)
     cr.paint()
 
-    # Track
+    # Arc track
     cr.set_line_width(lw)
     cr.set_line_cap(1)
-    cr.set_source_rgba(0.3, 0.3, 0.35, 0.3)
+    cr.set_source_rgba(0.30, 0.30, 0.35, 0.30)
     cr.arc(cx, cy, radius, start, end)
     cr.stroke()
 
-    # Wertbogen
-    cr.set_source_rgba(r, g, b, 0.9 * alpha)
+    # Value arc
+    cr.set_source_rgba(r, g, b, 0.90 * a)
     cr.arc(cx, cy, radius, start, value_angle)
     cr.stroke()
 
     # Text
     gauge.draw_text(cr, gauge.state.label, cx, cy - size * 0.06,
-                    max(28, size * 0.19), alpha, True, size * 0.72)
-    gauge.draw_text(cr, gauge.state.unit, cx, cy + size * 0.09,
-                    max(14, size * 0.075), 0.75 * alpha, True, size * 0.72)
-    gauge.draw_text(cr, gauge.title, cx, cy + size * 0.26,
-                    max(13, size * 0.062), 0.6 * alpha, False, size * 0.72)
-
-
-# Optionaler CSS-String für die Beschleunigungsseite:
-acceleration_css = """
-.dp-accel-theme-mein-theme .card {
-  background-color: rgba(10, 10, 20, 0.8);
-  border-radius: 6px;
-}
-.dp-accel-theme-mein-theme .heading { color: #88aaff; }
-"""
+                    max(28, size * 0.19), a, True, size * 0.72)
+    gauge.draw_text(cr, gauge.state.unit,  cx, cy + size * 0.09,
+                    max(14, size * 0.075), 0.75 * a, True,  size * 0.72)
+    gauge.draw_text(cr, gauge.title,       cx, cy + size * 0.26,
+                    max(13, size * 0.062), 0.60 * a, False, size * 0.72)
 '''
 
 
 def _init_themes_dir(themes_dir: Path) -> None:
     """Create themes directory and write the starter template if missing."""
     themes_dir.mkdir(parents=True, exist_ok=True)
-    sample = themes_dir / "_beispiel.py"
+    sample = themes_dir / "_example.py"
     if not sample.exists():
         try:
             sample.write_text(_EXAMPLE_THEME, encoding="utf-8")

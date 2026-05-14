@@ -5,7 +5,6 @@ from typing import Any
 import cairo
 
 THEME_TYPE = "dashboard"
-ORDER = 4
 LABEL = {"en": "Digital", "de": "Digital"}
 CSS = """
 window.dp-theme-digital,
