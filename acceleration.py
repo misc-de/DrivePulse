@@ -7,7 +7,7 @@ from typing import Any, Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gtk, Pango  # noqa: E402
 
 from common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language, _translate
 
@@ -142,11 +142,13 @@ class AccelerationPage(Gtk.Box):
         name_lbl.add_css_class("heading")
         name_lbl.set_halign(Gtk.Align.START)
         name_lbl.set_hexpand(True)
+        name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        name_lbl.set_max_width_chars(12)
 
         obd_caption = Gtk.Label()
         obd_caption.add_css_class("dim-label")
         obd_val = Gtk.Label(label="--")
-        obd_val.set_width_chars(8)
+        obd_val.set_width_chars(6)
         obd_val.set_xalign(1.0)
         obd_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         obd_box.append(obd_caption)
@@ -156,7 +158,7 @@ class AccelerationPage(Gtk.Box):
         gps_caption = Gtk.Label()
         gps_caption.add_css_class("dim-label")
         gps_val = Gtk.Label(label="--")
-        gps_val.set_width_chars(8)
+        gps_val.set_width_chars(6)
         gps_val.set_xalign(1.0)
         gps_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         gps_box.append(gps_caption)
@@ -167,7 +169,7 @@ class AccelerationPage(Gtk.Box):
         best_caption.add_css_class("dim-label")
         best_val = Gtk.Label(label="--")
         best_val.add_css_class("title-4")
-        best_val.set_width_chars(8)
+        best_val.set_width_chars(7)
         best_val.set_xalign(1.0)
 
         row.append(name_lbl)
