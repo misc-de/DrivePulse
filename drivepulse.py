@@ -1164,13 +1164,6 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self.status_label = _make_label_responsive(Gtk.Label(label=_translate(self.language, "status.connecting")), 36, 0.5)
         self.status_label.add_css_class("dim-label")
-        self.log_label = _make_label_responsive(
-            Gtk.Label(label=_translate(self.language, "status.log_paths", data_log=LOG_FILE, connection_log=CONNECTION_LOG_FILE)),
-            42,
-            0.5,
-        )
-        self.log_label.add_css_class("dim-label")
-
         self.gauge_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         self.gauge_box.set_halign(Gtk.Align.FILL)
         self.gauge_box.set_valign(Gtk.Align.FILL)
@@ -1194,7 +1187,6 @@ class DashboardWindow(Adw.ApplicationWindow):
         footer.set_hexpand(True)
         footer.append(self.scan_bar)
         footer.append(self.status_label)
-        footer.append(self.log_label)
 
         self.footer = footer
 
@@ -1408,7 +1400,6 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.gps_indicator["label"].set_text(_translate(self.language, "status.gps"))
         self.dashboard_stack_page.set_title(_translate(self.language, "nav.gauges"))
         self.acceleration_stack_page.set_title(_translate(self.language, "nav.acceleration"))
-        self.log_label.set_text(_translate(self.language, "status.log_paths", data_log=LOG_FILE, connection_log=CONNECTION_LOG_FILE))
         self.acceleration_page.set_language(self.language)
         if self.last_payload is not None:
             self._update_from_payload(self.last_payload)
