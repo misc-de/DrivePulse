@@ -28,6 +28,7 @@ Bluetooth-ELM327:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -35,6 +36,7 @@ import pty
 import random
 import signal
 import socket
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -66,6 +68,7 @@ from common import (
     OBD_SOCKET_URL,
     OBD_TIMEOUT_SECONDS,
     POLL_INTERVAL_SECONDS,
+    PROFILES_DIR,
     SETTINGS_FILE,
     SUPPORTED_LANGUAGES,
     _detect_language,
@@ -136,15 +139,47 @@ def _parse_bt_port(port: str) -> tuple[str, int]:
     return raw.upper(), 1
 
 
+def _scan_bt_paired_devices() -> list[tuple[str, str]]:
+    """Return (label, bt:ADDR) for all paired Bluetooth devices via bluetoothctl."""
+    try:
+        # Try modern syntax first, fall back to legacy
+        for args in (["bluetoothctl", "devices", "Paired"], ["bluetoothctl", "paired-devices"]):
+            result = subprocess.run(args, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                break
+        devices: list[tuple[str, str]] = []
+        for line in result.stdout.strip().splitlines():
+            parts = line.split(" ", 2)
+            if len(parts) >= 2 and parts[0] == "Device":
+                addr = parts[1].upper()
+                name = parts[2].strip() if len(parts) >= 3 else addr
+                devices.append((f"BT: {name} ({addr})", f"bt:{addr}"))
+        return devices
+    except Exception:
+        return []
+
+
 def _scan_obd_devices() -> list[tuple[str, str]]:
     """Return (display_label, port_value) pairs of currently detectable OBD devices."""
     devices: list[tuple[str, str]] = []
+
+    # Wired / already-bound serial devices
     for pattern in ("/dev/rfcomm*", "/dev/ttyUSB*", "/dev/ttyACM*"):
         for path in sorted(Path("/").glob(pattern.lstrip("/"))):
             devices.append((str(path), str(path)))
+
+    # Paired Bluetooth devices (direct RFCOMM socket, no rfcomm bind needed)
+    seen_bt: set[str] = set()
+    for label, val in _scan_bt_paired_devices():
+        devices.append((label, val))
+        seen_bt.add(val)
+
+    # Manually configured BT addresses from env (if not already listed)
     for addr, channel in _candidate_bt_addresses():
         val = f"bt:{addr}" if channel == 1 else f"bt:{addr}:{channel}"
-        devices.append((f"Bluetooth: {addr}", val))
+        if val not in seen_bt:
+            devices.append((f"BT: {addr}", val))
+
     if OBD_SOCKET_URL:
         devices.append((OBD_SOCKET_URL, OBD_SOCKET_URL))
     return devices
@@ -230,6 +265,172 @@ class BluetoothPtyBridge:
         return not self._stop.is_set()
 
 
+class ObdScanner:
+    """One-shot full-scan of a newly connected OBD adapter/vehicle.
+
+    Runs in the ObdReader background thread. Reports progress via GLib.idle_add.
+    Saves a JSON profile to PROFILES_DIR keyed by VIN (or port+command fingerprint).
+    Skips silently if the profile already exists or was already scanned this session.
+    """
+
+    def __init__(
+        self,
+        connection: Any,
+        port: str | None,
+        on_update: Callable[[dict[str, Any]], None],
+        session_cache: set[str],
+    ) -> None:
+        self.connection = connection
+        self.port = port or "unknown"
+        self.on_update = on_update
+        self._session_cache = session_cache
+
+    def _emit(self, status: str, progress: float, current: str = "") -> None:
+        GLib.idle_add(self.on_update, {
+            "source": "obd_scan",
+            "scan_status": status,
+            "scan_progress": progress,
+            "scan_current": current,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def run(self) -> None:
+        if obd is None or self.connection is None:
+            return
+
+        self._emit("scanning", 0.0, "VIN")
+
+        vin = self._query_vin()
+        if vin:
+            identity = f"vin_{vin}"
+        else:
+            supported_names = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
+            fp = hashlib.md5(",".join(supported_names).encode()).hexdigest()[:8]
+            identity = f"port_{Path(self.port).name}_{fp}"
+
+        if identity in self._session_cache:
+            self._emit("skipped", 1.0)
+            return
+
+        profile_path = PROFILES_DIR / f"{identity}.json"
+        if profile_path.exists():
+            self._session_cache.add(identity)
+            self._emit("skipped", 1.0)
+            return
+
+        # Collect mode 01 supported commands (live data PIDs)
+        mode1_cmds = sorted(
+            [cmd for cmd in getattr(self.connection, "supported_commands", set()) if getattr(cmd, "mode", 0) == 1],
+            key=lambda c: getattr(c, "pid", 0),
+        )
+        total_steps = max(1, len(mode1_cmds) + 4)
+        done = 0
+
+        # Mode 01: snapshot of all supported live-data PIDs
+        live_data: dict[str, Any] = {}
+        for cmd in mode1_cmds:
+            done += 1
+            self._emit("scanning", done / total_steps, str(cmd))
+            try:
+                r = self.connection.query(cmd)
+                if not r.is_null():
+                    live_data[str(cmd)] = self._to_plain(r)
+            except Exception as exc:
+                live_data[str(cmd)] = {"error": str(exc)}
+
+        # Mode 03: stored DTCs
+        done += 1
+        self._emit("scanning", done / total_steps, "DTC (gespeichert)")
+        dtcs = self._query_dtc_list(getattr(obd.commands, "GET_DTC", None))
+
+        # Mode 07: pending DTCs
+        done += 1
+        self._emit("scanning", done / total_steps, "DTC (ausstehend)")
+        pending_dtcs = self._query_dtc_list(getattr(obd.commands, "PENDING_DTC", None))
+
+        # Mode 09: vehicle info (VIN already done, add extras)
+        done += 1
+        self._emit("scanning", done / total_steps, "Fahrzeuginfo")
+        vehicle_info: dict[str, Any] = {}
+        if vin:
+            vehicle_info["VIN"] = vin
+        for name in ("CALIBRATION_ID", "CVN", "ECU_NAME"):
+            cmd = getattr(obd.commands, name, None)
+            if cmd is None:
+                continue
+            try:
+                r = self.connection.query(cmd)
+                if not r.is_null():
+                    vehicle_info[name] = str(r.value)
+            except Exception:
+                pass
+
+        # Save profile
+        done += 1
+        self._emit("saving", done / total_steps, "Profil speichern")
+        profile = {
+            "scanned_at": datetime.now(timezone.utc).isoformat(),
+            "identity": identity,
+            "vin": vin,
+            "port": self.port,
+            "protocol": self._get_protocol(),
+            "supported_pids": sorted(str(c) for c in getattr(self.connection, "supported_commands", set())),
+            "live_data": live_data,
+            "dtcs": dtcs,
+            "pending_dtcs": pending_dtcs,
+            "vehicle_info": vehicle_info,
+        }
+        try:
+            PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+            profile_path.write_text(
+                json.dumps(profile, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            self._session_cache.add(identity)
+        except Exception as exc:
+            self._emit("error", 1.0, str(exc))
+            return
+
+        self._emit("complete", 1.0, str(profile_path))
+
+    def _query_vin(self) -> str | None:
+        try:
+            cmd = getattr(obd.commands, "VIN", None)
+            if cmd is None:
+                return None
+            r = self.connection.query(cmd)
+            if not r.is_null():
+                val = str(r.value).strip()
+                return val if val else None
+        except Exception:
+            pass
+        return None
+
+    def _query_dtc_list(self, cmd: Any) -> list[str]:
+        if cmd is None:
+            return []
+        try:
+            r = self.connection.query(cmd)
+            if not r.is_null() and r.value:
+                return [str(d) for d in r.value]
+        except Exception:
+            pass
+        return []
+
+    def _get_protocol(self) -> str:
+        try:
+            return str(self.connection.protocol_name())
+        except Exception:
+            return "unknown"
+
+    def _to_plain(self, response: Any) -> Any:
+        value = response.value
+        try:
+            return {"value": float(value.magnitude), "unit": str(value.units)}
+        except Exception:
+            return str(value)
+
+
 class ObdReader(GObject.Object):
     """Liest OBD-II-Werte in einem Hintergrund-Thread."""
 
@@ -251,6 +452,7 @@ class ObdReader(GObject.Object):
         self._bt_bridge: BluetoothPtyBridge | None = None
         self._configured_port: str | None = None
         self._force_reconnect = False
+        self._scanned_identities: set[str] = set()
         if obd is None:
             self.mock_reason = "python-obd fehlt"
         elif force_mock:
@@ -365,6 +567,48 @@ class ObdReader(GObject.Object):
         self._configured_port = port
         self._force_reconnect = True
 
+    def _rfcomm_bind(self, addr: str, channel: int) -> str | None:
+        """Bind a Bluetooth address to an rfcomm device node. Returns device path or None."""
+        # Find a free rfcomm slot (0-9)
+        slot = 0
+        for i in range(10):
+            if not Path(f"/dev/rfcomm{i}").exists():
+                slot = i
+                break
+        dev = f"/dev/rfcomm{slot}"
+        release_cmd = ["rfcomm", "release", str(slot)]
+        bind_cmd = ["rfcomm", "bind", str(slot), addr, str(channel)]
+        self._connection_log("rfcomm_bind_attempt", addr=addr, channel=channel, dev=dev)
+        # Release any stale binding first (ignore errors)
+        for prefix in ([], ["pkexec"]):
+            try:
+                subprocess.run(prefix + release_cmd, capture_output=True, timeout=5)
+            except Exception:
+                pass
+            break
+        # Try bind without sudo, then with pkexec (GUI password dialog)
+        for cmd in (bind_cmd, ["pkexec"] + bind_cmd):
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                if result.returncode == 0:
+                    self._connection_log("rfcomm_bind_ok", addr=addr, dev=dev, cmd=cmd[0])
+                    return dev
+                self._connection_log(
+                    "rfcomm_bind_failed",
+                    addr=addr, dev=dev, cmd=cmd[0],
+                    returncode=result.returncode,
+                    stderr=result.stderr.strip()[-200:],
+                )
+            except FileNotFoundError:
+                self._connection_log("rfcomm_bind_not_found", addr=addr)
+                return None
+            except subprocess.TimeoutExpired:
+                self._connection_log("rfcomm_bind_timeout", addr=addr)
+                return None
+            except Exception as exc:
+                self._connection_log("rfcomm_bind_error", addr=addr, error=str(exc))
+        return None
+
     def _connect(self) -> None:
         if self.force_mock:
             self.mock = True
@@ -396,7 +640,34 @@ class ObdReader(GObject.Object):
             if not self.stop_event.is_set():
                 if self._configured_port.startswith("bt:"):
                     addr, ch = _parse_bt_port(self._configured_port)
-                    success = self._try_bt_direct(addr, ch)
+                    # Try rfcomm bind first (creates /dev/rfcommN, most reliable)
+                    dev = self._rfcomm_bind(addr, ch)
+                    if dev:
+                        success = False
+                        try:
+                            connect_kwargs: dict[str, Any] = {"fast": OBD_FAST, "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT)}
+                            if OBD_BAUDRATE is not None:
+                                connect_kwargs["baudrate"] = OBD_BAUDRATE
+                            self._connection_log("connect_attempt", port=dev, bt_addr=addr, **connect_kwargs)
+                            self.connection = obd.OBD(dev, **connect_kwargs)
+                            connected = bool(self.connection and self.connection.is_connected())
+                            self._connection_log("connect_result", port=dev, bt_addr=addr, connected=connected)
+                            if connected:
+                                self.mock = False
+                                self.mock_reason = ""
+                                self.connected_port = dev
+                                self.failed_read_count = 0
+                                supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
+                                self._connection_log("connect_success", port=dev, supported_commands=supported)
+                                success = True
+                            else:
+                                self._close_connection()
+                        except Exception as exc:
+                            self._close_connection()
+                            self._connection_log("connect_exception", port=dev, error=repr(exc))
+                    else:
+                        # rfcomm bind unavailable — fall back to direct BT socket
+                        success = self._try_bt_direct(addr, ch)
                 else:
                     success = False
                     try:
@@ -473,9 +744,15 @@ class ObdReader(GObject.Object):
         self.mock_reason = "kein nutzbarer Dongle gefunden"
         self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
 
+    def _run_vehicle_scan(self) -> None:
+        if obd is None or self.connection is None or self.mock:
+            return
+        ObdScanner(self.connection, self.connected_port, self.on_update, self._scanned_identities).run()
+
     def _run(self) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self._connect()
+        self._run_vehicle_scan()
 
         while not self.stop_event.is_set():
             if self._force_reconnect:
@@ -483,6 +760,7 @@ class ObdReader(GObject.Object):
                 self.mock = False
                 self.mock_reason = ""
                 self._connect()
+                self._run_vehicle_scan()
             self._maybe_reconnect_from_mock()
             payload = self._read_mock() if self.mock else self._read_obd()
             payload["timestamp"] = datetime.now(timezone.utc).isoformat()
@@ -508,6 +786,7 @@ class ObdReader(GObject.Object):
         self.next_mock_reconnect_attempt = now + 8.0
         self._connection_log("mock_reconnect_probe")
         self._connect()
+        self._run_vehicle_scan()
 
     def _connection_status(self) -> str:
         if self.mock:
@@ -531,6 +810,7 @@ class ObdReader(GObject.Object):
         self.mock = False
         self.mock_reason = ""
         self._connect()
+        self._run_vehicle_scan()
 
     def _read_obd(self) -> dict[str, Any]:
         assert obd is not None
@@ -834,6 +1114,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.dongle_row.set_selected(selected_idx)
         self.dongle_row.connect("notify::selected", self._on_dongle_selected)
         obd_group.add(self.dongle_row)
+
         page.add(obd_group)
 
         self.add(page)
@@ -903,8 +1184,15 @@ class DashboardWindow(Adw.ApplicationWindow):
             gauge.set_valign(Gtk.Align.FILL)
             self.gauge_box.append(gauge)
 
+        self.scan_bar = Gtk.ProgressBar()
+        self.scan_bar.set_show_text(True)
+        self.scan_bar.set_hexpand(True)
+        self.scan_bar.set_visible(False)
+
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        footer.set_halign(Gtk.Align.CENTER)
+        footer.set_halign(Gtk.Align.FILL)
+        footer.set_hexpand(True)
+        footer.append(self.scan_bar)
         footer.append(self.status_label)
         footer.append(self.log_label)
 
@@ -1202,6 +1490,37 @@ class DashboardWindow(Adw.ApplicationWindow):
         elif velocity_x > 0 and index > 0:
             self.view_stack.set_visible_child_name(pages[index - 1])
 
+    def _handle_scan_update(self, payload: dict[str, Any]) -> None:
+        status = payload.get("scan_status", "")
+        progress = float(payload.get("scan_progress", 0.0))
+        current = str(payload.get("scan_current", ""))
+
+        if status == "skipped":
+            self.scan_bar.set_visible(False)
+            return
+
+        if status in ("scanning", "saving"):
+            self.scan_bar.set_visible(True)
+            self.scan_bar.set_fraction(progress)
+            label = f"Fahrzeugscan: {current} ({progress * 100:.0f}%)" if current else f"Fahrzeugscan... ({progress * 100:.0f}%)"
+            self.scan_bar.set_text(label)
+            return
+
+        if status == "complete":
+            self.scan_bar.set_fraction(1.0)
+            self.scan_bar.set_text("Fahrzeugscan abgeschlossen")
+            GLib.timeout_add(3000, self._hide_scan_bar)
+            return
+
+        if status == "error":
+            self.scan_bar.set_visible(True)
+            self.scan_bar.set_text(f"Scan-Fehler: {current}")
+            GLib.timeout_add(6000, self._hide_scan_bar)
+
+    def _hide_scan_bar(self) -> bool:
+        self.scan_bar.set_visible(False)
+        return False
+
     def _plain_number(self, data: dict[str, Any], key: str) -> float | None:
         item = data.get(key)
         if item is None:
@@ -1232,6 +1551,10 @@ class DashboardWindow(Adw.ApplicationWindow):
 
     def _update_from_payload(self, payload: dict[str, Any]) -> bool:
         source = payload.get("source", "")
+
+        if source == "obd_scan":
+            self._handle_scan_update(payload)
+            return False
 
         if source == "gps":
             gps_speed_kmh = self._plain_number(payload, "gps_speed")
