@@ -1634,25 +1634,29 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         return False
 
+    # Speed gauge is this factor larger than the two side gauges.
+    # side + speed + side  =  side*(2 + _SPEED_SCALE) in the primary axis.
+    _SPEED_SCALE = 1.45
+
     def _set_landscape_layout(self, width: int, height: int) -> None:
         self.gauge_box.set_orientation(Gtk.Orientation.HORIZONTAL)
         self.gauge_box.set_spacing(16)
-        self.gauge_box.set_halign(Gtk.Align.FILL)
+        self.gauge_box.set_halign(Gtk.Align.CENTER)
         self.gauge_box.set_valign(Gtk.Align.CENTER)
 
-        footer_height = max(0, self.footer.get_height())
-        available_width = max(1, width - 24)
-        available_height = max(1, height - 24 - footer_height - 8)
-        gauge_size = max(1, min(available_height, (available_width - 32) // 3))
+        footer_height = max(0, self.footer.get_height()) if self.footer.get_visible() else 0
+        avail_w = max(1, width - 24)
+        avail_h = max(1, height - 24 - footer_height - 8)
 
-        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
-            gauge.set_hexpand(True)
-            gauge.set_vexpand(True)
-            gauge.set_halign(Gtk.Align.CENTER)
-            gauge.set_valign(Gtk.Align.CENTER)
-            gauge.set_size_request(gauge_size, gauge_size)
-            gauge.set_content_width(gauge_size)
-            gauge.set_content_height(gauge_size)
+        # Solve: side*(2 + scale) + 2*spacing = avail_w  AND  speed = side*scale ≤ avail_h
+        side = int(min(
+            (avail_w - 32) / (2 + self._SPEED_SCALE),
+            avail_h / self._SPEED_SCALE,
+        ))
+        side = max(1, side)
+        speed = max(1, min(int(side * self._SPEED_SCALE), avail_h))
+
+        self._apply_gauge_sizes(side, speed)
 
     def _set_portrait_layout(self, width: int, height: int) -> None:
         self.gauge_box.set_orientation(Gtk.Orientation.VERTICAL)
@@ -1660,19 +1664,33 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.gauge_box.set_halign(Gtk.Align.CENTER)
         self.gauge_box.set_valign(Gtk.Align.CENTER)
 
-        footer_height = max(0, self.footer.get_height())
-        available_width = max(1, width - 24)
-        available_height = max(1, height - 24 - footer_height - 8)
-        gauge_size = max(1, min(available_width, (available_height - 16) // 3))
+        footer_height = max(0, self.footer.get_height()) if self.footer.get_visible() else 0
+        avail_w = max(1, width - 24)
+        avail_h = max(1, height - 24 - footer_height - 8)
 
-        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
+        # Solve: side*(2 + scale) + 2*spacing = avail_h  AND  speed = side*scale ≤ avail_w
+        side = int(min(
+            (avail_h - 16) / (2 + self._SPEED_SCALE),
+            avail_w / self._SPEED_SCALE,
+        ))
+        side = max(1, side)
+        speed = max(1, min(int(side * self._SPEED_SCALE), avail_w))
+
+        self._apply_gauge_sizes(side, speed)
+
+    def _apply_gauge_sizes(self, side: int, speed: int) -> None:
+        for gauge, sz in (
+            (self.rpm_gauge,   side),
+            (self.speed_gauge, speed),
+            (self.temp_gauge,  side),
+        ):
             gauge.set_hexpand(False)
             gauge.set_vexpand(False)
             gauge.set_halign(Gtk.Align.CENTER)
             gauge.set_valign(Gtk.Align.CENTER)
-            gauge.set_size_request(gauge_size, gauge_size)
-            gauge.set_content_width(gauge_size)
-            gauge.set_content_height(gauge_size)
+            gauge.set_size_request(sz, sz)
+            gauge.set_content_width(sz)
+            gauge.set_content_height(sz)
 
     def _on_swipe(self, _gesture: Gtk.GestureSwipe, velocity_x: float, velocity_y: float) -> None:
         ax, ay = abs(velocity_x), abs(velocity_y)
