@@ -437,6 +437,10 @@ class CarsPage(Gtk.Box):
 
     # ---------------------------------------------------- öffentliche API
 
+    def is_detail_open(self) -> bool:
+        """True, solange die Detail-Seite im NavigationView gepusht ist."""
+        return self._detail_pushed
+
     def set_narrow(self, narrow: bool) -> None:
         """Auf Smartphone-Breiten: Labels ausblenden, nur Icons zeigen."""
         if narrow == self._narrow:

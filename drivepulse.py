@@ -1539,13 +1539,13 @@ class DashboardWindow(Adw.ApplicationWindow):
             dashboard_scroller,
             self.PAGE_DASHBOARD,
             _translate(self.language, "nav.gauges"),
-            "dashboard-symbolic",
+            "view-grid-symbolic",
         )
         self.acceleration_stack_page = self.view_stack.add_titled_with_icon(
             acceleration_scroller,
             self.PAGE_ACCELERATION,
             _translate(self.language, "nav.acceleration"),
-            "view-statistics-symbolic",
+            "media-skip-forward-symbolic",
         )
         self.cars_stack_page = self.view_stack.add_titled_with_icon(
             self.cars_page,
@@ -1553,6 +1553,8 @@ class DashboardWindow(Adw.ApplicationWindow):
             _translate(self.language, "nav.cars"),
             "applications-system-symbolic",
         )
+
+        self.view_stack.connect("notify::visible-child-name", self._on_visible_page_changed)
 
         swipe = Gtk.GestureSwipe()
         swipe.connect("swipe", self._on_swipe)
@@ -1639,10 +1641,23 @@ class DashboardWindow(Adw.ApplicationWindow):
     def _on_content_tap(self, _gesture: Gtk.GestureClick, _n: int, _x: float, _y: float) -> None:
         if time.monotonic() - self._last_swipe_time < 0.35:
             return
-        self._nav_visible = not self._nav_visible
-        self.header.set_visible(self._nav_visible)
-        self.switcher_bar.set_visible(self._nav_visible)
-        self.footer.set_visible(self._nav_visible)
+        # Auf der Autos-Seite muss die Navigation jederzeit erreichbar bleiben,
+        # damit der Anwender zurück zu Tachos/Beschleunigung kommt.
+        if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
+            self._set_nav_visible(True)
+            return
+        self._set_nav_visible(not self._nav_visible)
+
+    def _set_nav_visible(self, visible: bool) -> None:
+        self._nav_visible = visible
+        self.header.set_visible(visible)
+        self.switcher_bar.set_visible(visible)
+        self.footer.set_visible(visible)
+
+    def _on_visible_page_changed(self, _stack: Adw.ViewStack, _pspec: Any) -> None:
+        # Beim Wechsel auf Autos die Navigation erzwungen einblenden.
+        if self.view_stack.get_visible_child_name() == self.PAGE_CARS and not self._nav_visible:
+            self._set_nav_visible(True)
 
     def _on_orientation_changed(self, orientation: str, angle: int, is_landscape: bool) -> None:
         """Called by OrientationReader when the physical device orientation changes."""
@@ -1923,6 +1938,10 @@ class DashboardWindow(Adw.ApplicationWindow):
         if ax < 220 or ax <= ay:
             return
         current = self.view_stack.get_visible_child_name()
+        # Wenn das Auto-Detail offen ist, übernimmt Adw.NavigationView den
+        # Zurück-Swipe (Detail → Liste). Wir schalten dann nicht zusätzlich den Tab um.
+        if current == self.PAGE_CARS and velocity_x > 0 and self.cars_page.is_detail_open():
+            return
         pages = [self.PAGE_DASHBOARD, self.PAGE_ACCELERATION, self.PAGE_CARS]
         try:
             index = pages.index(current)
