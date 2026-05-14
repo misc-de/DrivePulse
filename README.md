@@ -21,6 +21,8 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 
 ## Features
 
+⚠️ **AI-assisted project**  
+
 - Circular gauges for RPM, speed and coolant temperature
 - Automatic landscape / portrait layout switching
 - Acceleration measurement (0–30 / 0–50 / 0–70 / 0–100 / 0–150 / 0–200 km/h and 100–200 km/h) from OBD and GPS data
