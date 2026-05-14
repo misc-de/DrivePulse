@@ -77,7 +77,8 @@ from common import (
     _normalize_language,
     _translate,
 )
-from gauge import Gauge, GAUGE_THEMES, all_theme_options, load_user_themes, get_acceleration_css
+from gauge import Gauge, GAUGE_THEMES, all_theme_options, load_user_themes, get_theme_css
+from dashboard import DashboardCanvas, DASHBOARD_THEMES
 from acceleration import AccelerationPage
 
 REQUIRED_PYTHON_PACKAGES = (
@@ -871,12 +872,15 @@ class ObdReader(GObject.Object):
         self._mock_previous_speed = speed
         self._mock_previous_time = now
 
+        heading = (now * 8.0) % 360.0
         return {
             "rpm": {"value": rpm, "unit": "rpm"},
             "speed": {"value": speed, "unit": "km/h"},
             "gps_speed": {"value": max(0, speed + random.uniform(-1.5, 1.5)), "unit": "km/h"},
+            "gps_heading": {"value": heading, "unit": "deg"},
             "acceleration_g": {"value": acceleration_g, "unit": "g"},
             "coolant_temp": {"value": temp, "unit": "degC"},
+            "fuel_level": {"value": 68 + 5 * math.sin(now / 60), "unit": "percent"},
             "throttle_pos": {"value": random.uniform(8, 42), "unit": "percent"},
             "engine_load": {"value": random.uniform(12, 68), "unit": "percent"},
             "intake_temp": {"value": 20 + random.uniform(-3, 5), "unit": "degC"},
@@ -979,11 +983,15 @@ class GpsReader:
             )
             speed = self._geoclue_double(location, "Speed")
             if speed is not None and speed >= 0:
-                self.on_update({
+                gps_payload: dict[str, Any] = {
                     "source": "gps",
                     "gps_speed": {"value": speed * 3.6, "unit": "km/h"},
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                heading = self._geoclue_double(location, "Heading")
+                if heading is not None and 0 <= heading < 360:
+                    gps_payload["gps_heading"] = {"value": heading, "unit": "deg"}
+                self.on_update(gps_payload)
         except Exception:
             pass
 
@@ -1032,11 +1040,15 @@ class GpsReader:
         speed_ms = data.get("speed")
         if speed_ms is None:
             return
-        GLib.idle_add(self.on_update, {
+        gps_payload: dict[str, Any] = {
             "source": "gps",
             "gps_speed": {"value": float(speed_ms) * 3.6, "unit": "km/h"},
             "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        }
+        track = data.get("track")
+        if track is not None:
+            gps_payload["gps_heading"] = {"value": float(track), "unit": "deg"}
+        GLib.idle_add(self.on_update, gps_payload)
 
 
 class SettingsDialog(Adw.PreferencesDialog):
@@ -1218,7 +1230,20 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.dashboard_page.set_margin_bottom(12)
         self.dashboard_page.set_margin_start(12)
         self.dashboard_page.set_margin_end(12)
+        self.dashboard_page.add_css_class("dp-gauge-bg")
+
+        self.dashboard_canvas = DashboardCanvas(self.gauge_theme, self.units)
+        self.dashboard_canvas.set_hexpand(True)
+        self.dashboard_canvas.set_vexpand(True)
+        self.dashboard_canvas.set_halign(Gtk.Align.FILL)
+        self.dashboard_canvas.set_valign(Gtk.Align.FILL)
+
+        _is_dash = self.gauge_theme in DASHBOARD_THEMES
+        self.gauge_box.set_visible(not _is_dash)
+        self.dashboard_canvas.set_visible(_is_dash)
+
         self.dashboard_page.append(self.gauge_box)
+        self.dashboard_page.append(self.dashboard_canvas)
         self.dashboard_page.append(footer)
 
         dashboard_scroller = Gtk.ScrolledWindow()
@@ -1228,7 +1253,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         dashboard_scroller.set_child(self.dashboard_page)
 
         self.acceleration_page = AccelerationPage(self.language)
-        self.acceleration_page.set_theme(self.gauge_theme, get_acceleration_css(self.gauge_theme))
+        self.acceleration_page.set_theme(self.gauge_theme)
         acceleration_scroller = Gtk.ScrolledWindow()
         acceleration_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         acceleration_scroller.set_propagate_natural_width(False)
@@ -1295,6 +1320,9 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.add_tick_callback(self._layout_tick)
         GLib.idle_add(self._on_size_changed)
 
+        self._theme_css_provider = Gtk.CssProvider()
+        self.connect("realize", self._on_realize_install_css)
+
         self._obd_active = False
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader._configured_port = self.obd_port
@@ -1335,6 +1363,22 @@ class DashboardWindow(Adw.ApplicationWindow):
         self._nav_visible = not self._nav_visible
         self.header.set_visible(self._nav_visible)
         self.switcher_bar.set_visible(self._nav_visible)
+
+    def _on_realize_install_css(self, *_args: Any) -> None:
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), self._theme_css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+        self._apply_window_theme(self.gauge_theme)
+
+    def _apply_window_theme(self, theme: str) -> None:
+        for cls in list(self.get_css_classes()):
+            if cls.startswith("dp-theme-"):
+                self.remove_css_class(cls)
+        safe = theme.replace(":", "-").replace("_", "-")
+        self.add_css_class(f"dp-theme-{safe}")
+        css = get_theme_css(theme)
+        self._theme_css_provider.load_from_data(css.encode() if css else b"")
 
     def close(self) -> bool:
         self.reader.stop()
@@ -1405,6 +1449,7 @@ class DashboardWindow(Adw.ApplicationWindow):
             return
         self.units = units
         self._save_units()
+        self.dashboard_canvas.set_units(units)
 
         if self.units == "metric":
             self.speed_gauge.state.unit = "km/h"
@@ -1423,9 +1468,16 @@ class DashboardWindow(Adw.ApplicationWindow):
             return
         self.gauge_theme = theme
         self._save_settings()
-        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
-            gauge.set_theme(theme)
-        self.acceleration_page.set_theme(theme, get_acceleration_css(theme))
+        is_dashboard = theme in DASHBOARD_THEMES
+        self.gauge_box.set_visible(not is_dashboard)
+        self.dashboard_canvas.set_visible(is_dashboard)
+        if is_dashboard:
+            self.dashboard_canvas.set_theme(theme)
+        else:
+            for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
+                gauge.set_theme(theme)
+        self.acceleration_page.set_theme(theme)
+        self._apply_window_theme(theme)
 
     def _set_mock_mode(self, mock_mode: bool) -> None:
         if mock_mode == self.mock_mode:
@@ -1467,10 +1519,11 @@ class DashboardWindow(Adw.ApplicationWindow):
         if width <= 0 or height <= 0:
             return False
 
-        if width >= height:
-            self._set_landscape_layout(width, height)
-        else:
-            self._set_portrait_layout(width, height)
+        if self.gauge_box.get_visible():
+            if width >= height:
+                self._set_landscape_layout(width, height)
+            else:
+                self._set_portrait_layout(width, height)
 
         return False
 
@@ -1598,11 +1651,15 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         if source == "gps":
             gps_speed_kmh = self._plain_number(payload, "gps_speed")
+            gps_heading = self._plain_number(payload, "gps_heading")
             self._set_link_indicator(self.gps_indicator, self._gps_connected_with_holdover(gps_speed_kmh), False)
             self.acceleration_page.update_payload(payload, self._plain_number)
+            if gps_heading is not None:
+                self.dashboard_canvas.update_heading(gps_heading)
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
                 display = self._display_speed(gps_speed_kmh)
                 self.speed_gauge.set_value(display, f"{display:.0f}" if display is not None else None)
+                self.dashboard_canvas.update_speed(display, f"{display:.0f}" if display is not None else None)
             return False
 
         self.last_payload = payload
@@ -1625,6 +1682,16 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.speed_gauge.set_value(speed, None if speed is None else f"{speed:.0f}")
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
         self.acceleration_page.update_payload(payload, self._plain_number)
+
+        canvas_speed = self._display_speed(speed_source_kmh)
+        fuel = self._plain_number(payload, "fuel_level") if active else None
+        heading = self._plain_number(payload, "gps_heading") if active else None
+        self.dashboard_canvas.update_rpm(rpm, None if rpm is None else f"{rpm:.0f}")
+        self.dashboard_canvas.update_speed(canvas_speed, None if canvas_speed is None else f"{canvas_speed:.0f}")
+        self.dashboard_canvas.update_coolant(temp, None if temp is None else f"{temp:.0f}")
+        self.dashboard_canvas.update_fuel(fuel, None if fuel is None else f"{fuel:.0f}%")
+        if heading is not None:
+            self.dashboard_canvas.update_heading(heading)
 
         status = payload.get("connection_status") or source or "?"
         language = _normalize_language(getattr(self, "language", _detect_language()))
