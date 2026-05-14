@@ -1144,13 +1144,11 @@ class CarsPage(Gtk.Box):
         box.set_margin_end(14)
 
         title_lbl = Gtk.Label(label=label, xalign=0.0)
-        title_lbl.add_css_class("dim-label")
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_hexpand(True)
         box.append(title_lbl)
 
         value_lbl = Gtk.Label(label=value_text, xalign=1.0)
-        value_lbl.add_css_class("monospace")
         value_lbl.set_halign(Gtk.Align.END)
         value_lbl.set_hexpand(True)
         value_lbl.set_wrap(True)
