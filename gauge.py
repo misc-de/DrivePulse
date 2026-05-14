@@ -15,16 +15,25 @@ from gi.repository import Gtk  # noqa: E402
 # Built-in theme identifiers (order = order in settings dropdown)
 GAUGE_THEMES = ("cockpit", "neon", "minimal")
 
-# CSS applied to the acceleration page for each built-in theme.
-# Targets the .dp-accel-theme-<id> class added to AccelerationPage.
-_BUILTIN_ACCEL_CSS: dict[str, str] = {
+# Full theme CSS per built-in theme.
+# Targets window.dp-theme-<id> for page backgrounds and
+# .dp-accel-theme-<id> for acceleration-page widget styles.
+_BUILTIN_THEME_CSS: dict[str, str] = {
     "cockpit": """
+window.dp-theme-cockpit scrolledwindow > viewport,
+window.dp-theme-cockpit .dp-gauge-bg {
+  background-color: #05080f;
+}
 .dp-accel-theme-cockpit .card {
   background-color: rgba(8, 14, 22, 0.8);
   border-radius: 6px;
 }
 """,
     "neon": """
+window.dp-theme-neon scrolledwindow > viewport,
+window.dp-theme-neon .dp-gauge-bg {
+  background-color: #000008;
+}
 .dp-accel-theme-neon .card {
   background-color: rgba(0, 2, 15, 0.9);
   border-radius: 4px;
@@ -44,7 +53,7 @@ _BUILTIN_ACCEL_CSS: dict[str, str] = {
 """,
 }
 
-# Registry for user-supplied themes: stem -> (display_label, draw_fn | None, accel_css)
+# Registry for user-supplied themes: stem -> (display_label, draw_fn | None, theme_css)
 _user_themes: dict[str, tuple[str, Callable | None, str]] = {}
 
 # ---------------------------------------------------------------------------
@@ -168,19 +177,23 @@ def load_user_themes(themes_dir: Path) -> None:
             pass  # silently skip broken theme files
 
 
+_DASHBOARD_THEME_IDS = ("digital", "sport", "racing", "analog")
+
+
 def all_theme_options(translate_fn: Callable[[str], str]) -> list[tuple[str, str]]:
-    """Return [(theme_id, display_label)] for built-ins + user themes."""
+    """Return [(theme_id, display_label)] for built-ins + dashboard + user themes."""
     builtin = [(t, translate_fn(f"settings.gauge_theme.{t}")) for t in GAUGE_THEMES]
+    dash = [(t, translate_fn(f"settings.gauge_theme.{t}")) for t in _DASHBOARD_THEME_IDS]
     user = [(f"user:{stem}", label) for stem, (label, _, _css) in _user_themes.items()]
-    return builtin + user
+    return builtin + dash + user
 
 
-def get_acceleration_css(theme_id: str) -> str:
-    """Return the acceleration-page CSS for the given theme (empty string = use default)."""
+def get_theme_css(theme_id: str) -> str:
+    """Return full theme CSS (gauge-page background + accel-page styles). Empty = use default."""
     if theme_id.startswith("user:"):
         stem = theme_id[5:]
         return _user_themes[stem][2] if stem in _user_themes else ""
-    return _BUILTIN_ACCEL_CSS.get(theme_id, "")
+    return _BUILTIN_THEME_CSS.get(theme_id, "")
 
 
 # ---------------------------------------------------------------------------
