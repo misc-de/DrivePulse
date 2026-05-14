@@ -1144,7 +1144,7 @@ class CarsPage(Gtk.Box):
         box.set_margin_end(14)
 
         title_lbl = Gtk.Label(label=label, xalign=0.0)
-        title_lbl.add_css_class("heading")
+        title_lbl.add_css_class("dim-label")
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_hexpand(True)
         box.append(title_lbl)
