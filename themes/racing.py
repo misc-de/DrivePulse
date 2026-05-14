@@ -3,7 +3,6 @@ import math
 from typing import Any
 
 THEME_TYPE = "dashboard"
-ORDER = 5
 LABEL = {"en": "Racing", "de": "Racing"}
 CSS = """
 window.dp-theme-racing,
