@@ -1107,7 +1107,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.mock_row.add_suffix(self.mock_switch)
         self.mock_row.set_activatable_widget(self.mock_switch)
 
-        self._theme_options = all_theme_options(lambda k: _translate(self.language, k))
+        self._theme_options = all_theme_options(self.language)
         theme_model = Gtk.StringList()
         for _, label in self._theme_options:
             theme_model.append(label)
@@ -1721,7 +1721,7 @@ class DashboardWindow(Adw.ApplicationWindow):
 
     def _cycle_theme(self, up: bool) -> None:
         """Cycle to the next/previous theme via vertical swipe."""
-        options = [tid for tid, _ in all_theme_options(lambda k: k)]
+        options = [tid for tid, _ in all_theme_options(self.language)]
         if not options:
             return
         try:
