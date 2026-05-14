@@ -76,7 +76,7 @@ from common import (
     _normalize_language,
     _translate,
 )
-from gauge import Gauge
+from gauge import Gauge, GAUGE_THEMES
 from acceleration import AccelerationPage
 
 REQUIRED_PYTHON_PACKAGES = (
@@ -1052,6 +1052,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_mock_mode_changed: Callable[[bool], None] | None = None,
         current_obd_port: str | None = None,
         on_obd_port_changed: Callable[[str | None], None] | None = None,
+        current_gauge_theme: str = "cockpit",
+        on_gauge_theme_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -1059,6 +1061,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.on_language_changed = on_language_changed
         self.on_mock_mode_changed = on_mock_mode_changed
         self.on_obd_port_changed = on_obd_port_changed
+        self.on_gauge_theme_changed = on_gauge_theme_changed
         self.set_title(_translate(self.language, "settings.title"))
 
         page = Adw.PreferencesPage(title=_translate(self.language, "settings.display"))
@@ -1091,8 +1094,18 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.mock_row.add_suffix(self.mock_switch)
         self.mock_row.set_activatable_widget(self.mock_switch)
 
+        theme_model = Gtk.StringList()
+        for t in GAUGE_THEMES:
+            theme_model.append(_translate(self.language, f"settings.gauge_theme.{t}"))
+        self.gauge_theme_row = Adw.ComboRow(title=_translate(self.language, "settings.gauge_theme"))
+        self.gauge_theme_row.set_model(theme_model)
+        selected_theme = current_gauge_theme if current_gauge_theme in GAUGE_THEMES else "cockpit"
+        self.gauge_theme_row.set_selected(GAUGE_THEMES.index(selected_theme))
+        self.gauge_theme_row.connect("notify::selected", self._on_gauge_theme_selected)
+
         group.add(self.unit_row)
         group.add(self.language_row)
+        group.add(self.gauge_theme_row)
         group.add(self.mock_row)
         page.add(group)
 
@@ -1135,6 +1148,12 @@ class SettingsDialog(Adw.PreferencesDialog):
             port = self._obd_port_values[idx] if idx < len(self._obd_port_values) else None
             self.on_obd_port_changed(port)
 
+    def _on_gauge_theme_selected(self, *_args: Any) -> None:
+        if self.on_gauge_theme_changed is not None:
+            idx = self.gauge_theme_row.get_selected()
+            theme = GAUGE_THEMES[idx] if idx < len(GAUGE_THEMES) else "cockpit"
+            self.on_gauge_theme_changed(theme)
+
 
 class DashboardWindow(Adw.ApplicationWindow):
     __gtype_name__ = "DashboardWindow"
@@ -1153,14 +1172,15 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.language = self.settings["language"]
         self.mock_mode = self.settings["mock_mode"]
         self.obd_port: str | None = self.settings.get("obd_port")
+        self.gauge_theme: str = self.settings.get("gauge_theme", "cockpit")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
 
-        self.rpm_gauge = Gauge(_translate(self.language, "gauge.rpm"), "rpm", 0, 7000, (0.34, 0.62, 0.86))
+        self.rpm_gauge = Gauge(_translate(self.language, "gauge.rpm"), "rpm", 0, 7000, (0.34, 0.62, 0.86), self.gauge_theme)
         speed_unit = "km/h" if self.units == "metric" else "mph"
         speed_max = 240 if self.units == "metric" else 150
-        self.speed_gauge = Gauge(_translate(self.language, "gauge.speed"), speed_unit, 0, speed_max, (0.50, 0.72, 0.92))
-        self.temp_gauge = Gauge(_translate(self.language, "gauge.coolant"), "°C", 40, 130, (0.72, 0.32, 0.48))
+        self.speed_gauge = Gauge(_translate(self.language, "gauge.speed"), speed_unit, 0, speed_max, (0.50, 0.72, 0.92), self.gauge_theme)
+        self.temp_gauge = Gauge(_translate(self.language, "gauge.coolant"), "°C", 40, 130, (0.72, 0.32, 0.48), self.gauge_theme)
 
         self.status_label = _make_label_responsive(Gtk.Label(label=_translate(self.language, "status.connecting")), 36, 0.5)
         self.status_label.add_css_class("dim-label")
@@ -1315,9 +1335,10 @@ class DashboardWindow(Adw.ApplicationWindow):
                 "language": _normalize_language(language or _detect_language()),
                 "mock_mode": bool(data.get("mock_mode", False)),
                 "obd_port": data.get("obd_port") or None,
+                "gauge_theme": data.get("gauge_theme", "cockpit") if data.get("gauge_theme") in GAUGE_THEMES else "cockpit",
             }
         except Exception:
-            return {"units": "metric", "language": _detect_language(), "mock_mode": False, "obd_port": None}
+            return {"units": "metric", "language": _detect_language(), "mock_mode": False, "obd_port": None, "gauge_theme": "cockpit"}
 
     def _load_units(self) -> str:
         return self._load_settings()["units"]
@@ -1332,6 +1353,7 @@ class DashboardWindow(Adw.ApplicationWindow):
                         "language": _normalize_language(getattr(self, "language", _detect_language())),
                         "mock_mode": getattr(self, "mock_mode", False),
                         "obd_port": getattr(self, "obd_port", None),
+                        "gauge_theme": getattr(self, "gauge_theme", "cockpit"),
                     },
                     indent=2,
                 ),
@@ -1350,6 +1372,8 @@ class DashboardWindow(Adw.ApplicationWindow):
             self.mock_mode, self._set_mock_mode,
             current_obd_port=self.obd_port,
             on_obd_port_changed=self._set_obd_port,
+            current_gauge_theme=self.gauge_theme,
+            on_gauge_theme_changed=self._set_gauge_theme,
         )
         dialog.present(self)
 
@@ -1377,6 +1401,14 @@ class DashboardWindow(Adw.ApplicationWindow):
             self._update_from_payload(self.last_payload)
         else:
             self.speed_gauge.queue_draw()
+
+    def _set_gauge_theme(self, theme: str) -> None:
+        if theme == self.gauge_theme:
+            return
+        self.gauge_theme = theme
+        self._save_settings()
+        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
+            gauge.set_theme(theme)
 
     def _set_mock_mode(self, mock_mode: bool) -> None:
         if mock_mode == self.mock_mode:
