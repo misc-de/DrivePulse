@@ -42,9 +42,6 @@ class AccelerationPage(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.language = _normalize_language(language)
         self.add_css_class("dp-accel-page")
-        self._accel_css_provider = Gtk.CssProvider()
-        self._accel_css_installed = False
-        self.connect("realize", self._install_css_provider)
         self.set_margin_top(12)
         self.set_margin_bottom(12)
         self.set_margin_start(12)
@@ -216,22 +213,12 @@ class AccelerationPage(Gtk.Box):
         self.language = _normalize_language(language)
         self._refresh_texts()
 
-    def _install_css_provider(self, *_args: object) -> None:
-        if not self._accel_css_installed:
-            Gtk.StyleContext.add_provider_for_display(
-                self.get_display(),
-                self._accel_css_provider,
-                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-            )
-            self._accel_css_installed = True
-
-    def set_theme(self, theme_id: str, css: str) -> None:
+    def set_theme(self, theme_id: str) -> None:
         for cls in list(self.get_css_classes()):
             if cls.startswith("dp-accel-theme-"):
                 self.remove_css_class(cls)
         safe = theme_id.replace(":", "-").replace("_", "-")
         self.add_css_class(f"dp-accel-theme-{safe}")
-        self._accel_css_provider.load_from_data(css.encode() if css else b"")
 
     def _set_g_text(self, active_g: float | None) -> None:
         if active_g is None:
