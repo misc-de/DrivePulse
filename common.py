@@ -18,6 +18,7 @@ LOG_DIR = Path(os.environ.get("OBD_LOG_DIR", Path.home() / ".local" / "state" / 
 LOG_FILE = LOG_DIR / "obd-log.jsonl"
 CONNECTION_LOG_FILE = LOG_DIR / "connection-log.jsonl"
 PROFILES_DIR = LOG_DIR / "profiles"
+THEMES_DIR = LOG_DIR / "themes"
 POLL_INTERVAL_SECONDS = float(os.environ.get("OBD_POLL_INTERVAL", "0.5"))
 OBD_PORT = os.environ.get("OBD_PORT")
 OBD_BAUDRATE = int(os.environ["OBD_BAUDRATE"]) if os.environ.get("OBD_BAUDRATE") else None

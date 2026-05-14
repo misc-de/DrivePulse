@@ -70,13 +70,14 @@ from common import (
     POLL_INTERVAL_SECONDS,
     PROFILES_DIR,
     SETTINGS_FILE,
+    THEMES_DIR,
     SUPPORTED_LANGUAGES,
     _detect_language,
     _make_label_responsive,
     _normalize_language,
     _translate,
 )
-from gauge import Gauge, GAUGE_THEMES
+from gauge import Gauge, GAUGE_THEMES, all_theme_options, load_user_themes, get_acceleration_css
 from acceleration import AccelerationPage
 
 REQUIRED_PYTHON_PACKAGES = (
@@ -1094,13 +1095,15 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.mock_row.add_suffix(self.mock_switch)
         self.mock_row.set_activatable_widget(self.mock_switch)
 
+        self._theme_options = all_theme_options(lambda k: _translate(self.language, k))
         theme_model = Gtk.StringList()
-        for t in GAUGE_THEMES:
-            theme_model.append(_translate(self.language, f"settings.gauge_theme.{t}"))
+        for _, label in self._theme_options:
+            theme_model.append(label)
         self.gauge_theme_row = Adw.ComboRow(title=_translate(self.language, "settings.gauge_theme"))
         self.gauge_theme_row.set_model(theme_model)
-        selected_theme = current_gauge_theme if current_gauge_theme in GAUGE_THEMES else "cockpit"
-        self.gauge_theme_row.set_selected(GAUGE_THEMES.index(selected_theme))
+        theme_ids = [tid for tid, _ in self._theme_options]
+        selected_idx = theme_ids.index(current_gauge_theme) if current_gauge_theme in theme_ids else 0
+        self.gauge_theme_row.set_selected(selected_idx)
         self.gauge_theme_row.connect("notify::selected", self._on_gauge_theme_selected)
 
         group.add(self.unit_row)
@@ -1151,7 +1154,7 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _on_gauge_theme_selected(self, *_args: Any) -> None:
         if self.on_gauge_theme_changed is not None:
             idx = self.gauge_theme_row.get_selected()
-            theme = GAUGE_THEMES[idx] if idx < len(GAUGE_THEMES) else "cockpit"
+            theme = self._theme_options[idx][0] if idx < len(self._theme_options) else "cockpit"
             self.on_gauge_theme_changed(theme)
 
 
@@ -1225,6 +1228,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         dashboard_scroller.set_child(self.dashboard_page)
 
         self.acceleration_page = AccelerationPage(self.language)
+        self.acceleration_page.set_theme(self.gauge_theme, get_acceleration_css(self.gauge_theme))
         acceleration_scroller = Gtk.ScrolledWindow()
         acceleration_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         acceleration_scroller.set_propagate_natural_width(False)
@@ -1274,9 +1278,16 @@ class DashboardWindow(Adw.ApplicationWindow):
         header.pack_start(self.gps_indicator["box"])
         header.pack_end(settings_button)
 
+        self.header = header
+        self.switcher_bar = switcher_bar
         toolbar_view.add_top_bar(header)
         toolbar_view.add_bottom_bar(switcher_bar)
         toolbar_view.set_content(self.view_stack)
+
+        self._nav_visible = True
+        tap = Gtk.GestureClick()
+        tap.connect("released", self._on_content_tap)
+        self.view_stack.add_controller(tap)
 
         self.set_content(toolbar_view)
         self.connect("notify::default-width", self._on_size_changed)
@@ -1320,6 +1331,11 @@ class DashboardWindow(Adw.ApplicationWindow):
         else:
             spinner.stop()
 
+    def _on_content_tap(self, _gesture: Gtk.GestureClick, _n: int, _x: float, _y: float) -> None:
+        self._nav_visible = not self._nav_visible
+        self.header.set_visible(self._nav_visible)
+        self.switcher_bar.set_visible(self._nav_visible)
+
     def close(self) -> bool:
         self.reader.stop()
         self.gps_reader.stop()
@@ -1335,7 +1351,7 @@ class DashboardWindow(Adw.ApplicationWindow):
                 "language": _normalize_language(language or _detect_language()),
                 "mock_mode": bool(data.get("mock_mode", False)),
                 "obd_port": data.get("obd_port") or None,
-                "gauge_theme": data.get("gauge_theme", "cockpit") if data.get("gauge_theme") in GAUGE_THEMES else "cockpit",
+                "gauge_theme": data.get("gauge_theme", "cockpit") or "cockpit",
             }
         except Exception:
             return {"units": "metric", "language": _detect_language(), "mock_mode": False, "obd_port": None, "gauge_theme": "cockpit"}
@@ -1409,6 +1425,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self._save_settings()
         for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
             gauge.set_theme(theme)
+        self.acceleration_page.set_theme(theme, get_acceleration_css(theme))
 
     def _set_mock_mode(self, mock_mode: bool) -> None:
         if mock_mode == self.mock_mode:
@@ -1640,6 +1657,7 @@ class ObdDashboardApp(Adw.Application):
 
     def do_activate(self) -> None:
         _register_local_icon()
+        load_user_themes(THEMES_DIR)
         if self.window is None:
             self.window = DashboardWindow(self)
         self.window.present()
