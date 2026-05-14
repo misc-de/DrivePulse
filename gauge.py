@@ -39,45 +39,47 @@ GAUGE_THEMES = ("cockpit", "neon", "minimal")
 # Full theme CSS per built-in theme.
 # Targets window.dp-theme-<id> for page backgrounds and
 # .dp-accel-theme-<id> for acceleration-page widget styles.
+def _dark_bg_css(tid: str, bg: str, extra: str = "") -> str:
+    """Generate background CSS that covers every layer for a dark theme."""
+    return f"""
+window.dp-theme-{tid},
+window.dp-theme-{tid} toolbarview,
+window.dp-theme-{tid} scrolledwindow,
+window.dp-theme-{tid} scrolledwindow > viewport,
+window.dp-theme-{tid} .dp-gauge-bg,
+window.dp-theme-{tid} .dp-gauge-bg > * {{
+  background-color: {bg};
+}}
+{extra}"""
+
+
 _BUILTIN_THEME_CSS: dict[str, str] = {
-    "cockpit": """
-window.dp-theme-cockpit,
-window.dp-theme-cockpit scrolledwindow,
-window.dp-theme-cockpit scrolledwindow > viewport,
-window.dp-theme-cockpit .dp-gauge-bg,
-window.dp-theme-cockpit .dp-gauge-bg > * {
-  background-color: #05080f;
-}
+    "cockpit": _dark_bg_css("cockpit", "#05080f", """
 .dp-accel-theme-cockpit .card {
   background-color: rgba(8, 14, 22, 0.8);
   border-radius: 6px;
-}
-""",
-    "neon": """
-window.dp-theme-neon,
-window.dp-theme-neon scrolledwindow,
-window.dp-theme-neon scrolledwindow > viewport,
-window.dp-theme-neon .dp-gauge-bg,
-window.dp-theme-neon .dp-gauge-bg > * {
-  background-color: #000008;
-}
+}"""),
+    "neon": _dark_bg_css("neon", "#000008", """
 .dp-accel-theme-neon .card {
   background-color: rgba(0, 2, 15, 0.9);
   border-radius: 4px;
 }
-.dp-accel-theme-neon .heading { color: #7ec8ff; }
-.dp-accel-theme-neon .title-1 { color: #a4d8ff; }
-.dp-accel-theme-neon .title-2 { color: #5ba8ff; }
-.dp-accel-theme-neon .dim-label { color: rgba(100, 180, 255, 0.65); }
-""",
+.dp-accel-theme-neon .heading    { color: #7ec8ff; }
+.dp-accel-theme-neon .title-1    { color: #a4d8ff; }
+.dp-accel-theme-neon .title-2    { color: #5ba8ff; }
+.dp-accel-theme-neon .dim-label  { color: rgba(100,180,255,0.65); }"""),
     "minimal": """
 .dp-accel-theme-minimal .card {
   background-color: transparent;
   border-radius: 0;
   padding-top: 4px;
   padding-bottom: 4px;
-}
-""",
+}""",
+    # Dashboard themes — background matches the first cr.paint() in each draw function
+    "digital": _dark_bg_css("digital", "#000005"),
+    "sport":   _dark_bg_css("sport",   "#03050d"),
+    "racing":  _dark_bg_css("racing",  "#0a0803"),
+    "analog":  _dark_bg_css("analog",  "#0d0d0f"),
 }
 
 # Registry for user-supplied themes: stem -> (display_label, draw_fn | None, theme_css)
