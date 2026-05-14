@@ -30,6 +30,7 @@ OBD_BT_ADDR = os.environ.get("OBD_BT_ADDR")
 # socat/TCP bridge URL passed directly to pyserial, e.g. "socket://localhost:35000"
 OBD_SOCKET_URL = os.environ.get("OBD_SOCKET_URL")
 SETTINGS_FILE = LOG_DIR / "settings.json"
+DB_FILE = LOG_DIR / "drives.sqlite3"
 
 # ---------------------------------------------------------------------------
 # Translations
@@ -110,6 +111,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "cars.categories": "Categories",
         "cars.source.label": "Source: {source}",
         "cars.dtc.none": "No faults",
+        "cars.trips.empty": "No trips recorded for this vehicle yet.",
         "window.title": "DrivePulse",
         "settings.tooltip": "Settings",
     },
@@ -185,6 +187,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "cars.categories": "Kategorien",
         "cars.source.label": "Quelle: {source}",
         "cars.dtc.none": "Keine Fehler",
+        "cars.trips.empty": "Für dieses Fahrzeug sind noch keine Fahrten aufgezeichnet.",
         "window.title": "DrivePulse",
         "settings.tooltip": "Einstellungen",
     },
