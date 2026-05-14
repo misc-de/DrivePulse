@@ -36,6 +36,7 @@ import pty
 import random
 import signal
 import socket
+import struct
 import subprocess
 import threading
 import time
@@ -1067,6 +1068,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_obd_port_changed: Callable[[str | None], None] | None = None,
         current_gauge_theme: str = "cockpit",
         on_gauge_theme_changed: Callable[[str], None] | None = None,
+        current_auto_rotate: bool = True,
+        on_auto_rotate_changed: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -1075,6 +1078,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.on_mock_mode_changed = on_mock_mode_changed
         self.on_obd_port_changed = on_obd_port_changed
         self.on_gauge_theme_changed = on_gauge_theme_changed
+        self.on_auto_rotate_changed = on_auto_rotate_changed
         self.set_title(_translate(self.language, "settings.title"))
 
         page = Adw.PreferencesPage(title=_translate(self.language, "settings.display"))
@@ -1107,6 +1111,17 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.mock_row.add_suffix(self.mock_switch)
         self.mock_row.set_activatable_widget(self.mock_switch)
 
+        self.auto_rotate_switch = Gtk.Switch()
+        self.auto_rotate_switch.set_active(current_auto_rotate)
+        self.auto_rotate_switch.set_valign(Gtk.Align.CENTER)
+        self.auto_rotate_switch.connect("notify::active", self._on_auto_rotate_changed)
+        self.auto_rotate_row = Adw.ActionRow(
+            title=_translate(self.language, "settings.auto_rotate"),
+            subtitle=_translate(self.language, "settings.auto_rotate.subtitle"),
+        )
+        self.auto_rotate_row.add_suffix(self.auto_rotate_switch)
+        self.auto_rotate_row.set_activatable_widget(self.auto_rotate_switch)
+
         self._theme_options = all_theme_options(self.language)
         theme_model = Gtk.StringList()
         for _, label in self._theme_options:
@@ -1121,6 +1136,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         group.add(self.unit_row)
         group.add(self.language_row)
         group.add(self.gauge_theme_row)
+        group.add(self.auto_rotate_row)
         group.add(self.mock_row)
         page.add(group)
 
@@ -1157,6 +1173,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         if self.on_mock_mode_changed is not None:
             self.on_mock_mode_changed(self.mock_switch.get_active())
 
+    def _on_auto_rotate_changed(self, *_args: Any) -> None:
+        if self.on_auto_rotate_changed is not None:
+            self.on_auto_rotate_changed(self.auto_rotate_switch.get_active())
+
     def _on_dongle_selected(self, *_args: Any) -> None:
         if self.on_obd_port_changed is not None:
             idx = self.dongle_row.get_selected()
@@ -1171,17 +1191,15 @@ class SettingsDialog(Adw.PreferencesDialog):
 
 
 class OrientationReader:
-    """Reads physical device orientation via iio-sensor-proxy (net.hadess.SensorProxy).
+    """Reads physical device orientation from the accelerometer.
 
-    Calls on_changed(orientation_str, angle_degrees, is_landscape) on the GTK main thread
-    whenever the orientation changes.  Gracefully does nothing if the service is unavailable.
+    Tries sensorfwd (com.nokia.SensorService, FuriOS/Droidian) first,
+    then falls back to iio-sensor-proxy (net.hadess.SensorProxy).
+    Calls on_changed(orientation_str, angle_degrees, is_landscape) on the
+    GTK main thread whenever the orientation changes.
+    Gracefully does nothing when neither service is available.
     """
 
-    _BUS = "net.hadess.SensorProxy"
-    _PATH = "/net/hadess/SensorProxy"
-    _IFACE = "net.hadess.SensorProxy"
-
-    # orientation string → (rotation degrees, is_landscape)
     _MAP: dict[str, tuple[int, bool]] = {
         "normal":    (0,   False),
         "right-up":  (90,  True),
@@ -1189,52 +1207,215 @@ class OrientationReader:
         "left-up":   (270, True),
     }
 
-    def __init__(self, on_changed: Callable[[str, int, bool], None]) -> None:
+    # Binary protocol constants for sensorfwd socket
+    _HDR   = struct.Struct("<I")        # 4 bytes: packet count
+    _ACCEL = struct.Struct("<Qfffi")    # 20 bytes: ts + x + y + z + reserved (mg)
+
+    # Axis threshold for orientation detection (mg)
+    _THRESHOLD = 600
+
+    def __init__(self, on_changed: Callable[[str, int, bool], None], enabled: bool = True) -> None:
         self.on_changed = on_changed
-        self._proxy: Any = None
+        self._enabled = enabled
         self._current = "normal"
-        GLib.idle_add(self._start)
+        # sensorfwd state
+        self._bus: Any = None
+        self._session_id: int = -1
+        self._sock: Any = None
+        self._watch_id: int = 0
+        self._buf = b""
+        # iio-sensor-proxy state (fallback)
+        self._iio_proxy: Any = None
+        if enabled:
+            GLib.idle_add(self._start)
+
+    # ── start / stop ──────────────────────────────────────────────────────
 
     def _start(self) -> bool:
+        if self._try_sensorfwd():
+            return False
+        self._try_iio_proxy()
+        return False
+
+    def _try_sensorfwd(self) -> bool:
+        """Connect to com.nokia.SensorService. Returns True on success."""
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+            pid = os.getpid()
+            # Load accelerometer plugin
+            bus.call_sync(
+                "com.nokia.SensorService", "/SensorManager",
+                "local.SensorManager", "loadPlugin",
+                GLib.Variant("(s)", ("accelerometersensor",)),
+                None, Gio.DBusCallFlags.NONE, 2000, None,
+            )
+            # Request session
+            res = bus.call_sync(
+                "com.nokia.SensorService", "/SensorManager",
+                "local.SensorManager", "requestSensor",
+                GLib.Variant("(sx)", ("accelerometersensor", pid)),
+                GLib.VariantType.new("(i)"),
+                Gio.DBusCallFlags.NONE, 2000, None,
+            )
+            session_id = res.get_child_value(0).get_int32()
+            # 33 ms interval (~30 Hz)
+            bus.call_sync(
+                "com.nokia.SensorService", "/SensorManager/accelerometersensor",
+                "local.AccelerometerSensor", "setInterval",
+                GLib.Variant("(ii)", (session_id, 33)),
+                None, Gio.DBusCallFlags.NONE, 2000, None,
+            )
+            # Start sensor
+            bus.call_sync(
+                "com.nokia.SensorService", "/SensorManager/accelerometersensor",
+                "local.AccelerometerSensor", "start",
+                GLib.Variant("(i)", (session_id,)),
+                None, Gio.DBusCallFlags.NONE, 2000, None,
+            )
+            # Connect to the data socket
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.connect("/run/sensord.sock")
+            sock.send(struct.pack("<i", session_id))
+            sock.recv(1)  # handshake byte
+            sock.setblocking(False)
+            self._bus = bus
+            self._session_id = session_id
+            self._sock = sock
+            self._watch_id = GLib.io_add_watch(
+                sock.fileno(),
+                GLib.IO_IN | GLib.IO_ERR | GLib.IO_HUP,
+                self._on_socket,
+            )
+            return True
+        except Exception:
+            return False
+
+    def _try_iio_proxy(self) -> None:
+        """Fall back to iio-sensor-proxy."""
         try:
             proxy = Gio.DBusProxy.new_for_bus_sync(
                 Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None,
-                self._BUS, self._PATH, self._IFACE, None,
+                "net.hadess.SensorProxy", "/net/hadess/SensorProxy",
+                "net.hadess.SensorProxy", None,
             )
             has = proxy.get_cached_property("HasAccelerometer")
             if not has or not has.get_boolean():
-                return False
+                return
             proxy.call_sync("ClaimAccelerometer", None, Gio.DBusCallFlags.NONE, 2000, None)
-            proxy.connect("g-properties-changed", self._on_props_changed)
-            self._proxy = proxy
+            proxy.connect("g-properties-changed", self._on_iio_props_changed)
+            self._iio_proxy = proxy
             v = proxy.get_cached_property("AccelerometerOrientation")
             if v:
                 self._emit(v.get_string())
         except Exception:
             pass
-        return False
 
-    def _on_props_changed(self, _proxy: Any, changed: Any, _invalidated: Any) -> None:
+    # ── sensorfwd socket data ─────────────────────────────────────────────
+
+    def _on_socket(self, _fd: int, condition: int) -> bool:
+        if condition & (GLib.IO_ERR | GLib.IO_HUP):
+            return False
+        try:
+            self._buf += self._sock.recv(4096)
+            while len(self._buf) >= self._HDR.size:
+                (count,) = self._HDR.unpack_from(self._buf)
+                need = self._HDR.size + count * self._ACCEL.size
+                if len(self._buf) < need:
+                    break
+                last_xyz = None
+                for i in range(count):
+                    _, x, y, z, _ = self._ACCEL.unpack_from(
+                        self._buf, self._HDR.size + i * self._ACCEL.size
+                    )
+                    last_xyz = (x, y, z)
+                self._buf = self._buf[need:]
+                if last_xyz:
+                    self._on_accel(*last_xyz)
+        except BlockingIOError:
+            pass
+        except Exception:
+            return False
+        return True
+
+    def _on_accel(self, x: float, y: float, z: float) -> None:
+        """Determine orientation from raw accelerometer values (in mg)."""
+        ax, ay = abs(x), abs(y)
+        if ax < self._THRESHOLD and ay < self._THRESHOLD:
+            return  # device lying flat — keep current orientation
+        if ay >= ax:
+            orientation = "normal" if y > 0 else "bottom-up"
+        else:
+            orientation = "left-up" if x > 0 else "right-up"
+        self._emit(orientation)
+
+    # ── iio-sensor-proxy fallback ─────────────────────────────────────────
+
+    def _on_iio_props_changed(self, _proxy: Any, changed: Any, _invalidated: Any) -> None:
         v = changed.lookup_value("AccelerometerOrientation", None)
         if v is not None:
             self._emit(v.get_string())
 
+    # ── shared emit / enable ──────────────────────────────────────────────
+
     def _emit(self, orientation: str) -> None:
-        if orientation == self._current:
+        if not self._enabled or orientation == self._current:
             return
         self._current = orientation
         angle, landscape = self._MAP.get(orientation, (0, False))
         GLib.idle_add(self.on_changed, orientation, angle, landscape)
 
+    def set_enabled(self, enabled: bool) -> None:
+        if enabled == self._enabled:
+            return
+        self._enabled = enabled
+        if enabled:
+            # Start if not already connected
+            if self._sock is None and self._iio_proxy is None:
+                GLib.idle_add(self._start)
+            else:
+                # Re-emit current orientation immediately
+                angle, landscape = self._MAP.get(self._current, (0, False))
+                GLib.idle_add(self.on_changed, self._current, angle, landscape)
+        else:
+            # Reset to upright so the UI goes back to default when disabled
+            GLib.idle_add(self.on_changed, "normal", 0, False)
+
     def stop(self) -> None:
-        if self._proxy is not None:
+        if self._watch_id:
+            GLib.source_remove(self._watch_id)
+            self._watch_id = 0
+        if self._sock is not None:
             try:
-                self._proxy.call_sync(
+                self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
+        if self._bus is not None and self._session_id >= 0:
+            try:
+                self._bus.call_sync(
+                    "com.nokia.SensorService", "/SensorManager/accelerometersensor",
+                    "local.AccelerometerSensor", "stop",
+                    GLib.Variant("(i)", (self._session_id,)),
+                    None, Gio.DBusCallFlags.NONE, 1000, None,
+                )
+                self._bus.call_sync(
+                    "com.nokia.SensorService", "/SensorManager",
+                    "local.SensorManager", "releaseSensor",
+                    GLib.Variant("(sx)", ("accelerometersensor", os.getpid())),
+                    None, Gio.DBusCallFlags.NONE, 1000, None,
+                )
+            except Exception:
+                pass
+            self._bus = None
+            self._session_id = -1
+        if self._iio_proxy is not None:
+            try:
+                self._iio_proxy.call_sync(
                     "ReleaseAccelerometer", None, Gio.DBusCallFlags.NONE, 1000, None,
                 )
             except Exception:
                 pass
-            self._proxy = None
+            self._iio_proxy = None
 
 
 class DashboardWindow(Adw.ApplicationWindow):
@@ -1255,6 +1436,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.mock_mode = self.settings["mock_mode"]
         self.obd_port: str | None = self.settings.get("obd_port")
         self.gauge_theme: str = self.settings.get("gauge_theme", "cockpit")
+        self.auto_rotate: bool = self.settings.get("auto_rotate", True)
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
 
@@ -1334,6 +1516,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         acceleration_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         acceleration_scroller.set_propagate_natural_width(False)
         acceleration_scroller.set_propagate_natural_height(False)
+        acceleration_scroller.set_hexpand(True)
+        acceleration_scroller.set_vexpand(True)
         acceleration_scroller.set_child(self.acceleration_page)
 
         self.view_stack = Adw.ViewStack()
@@ -1401,13 +1585,13 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.connect("realize", self._on_realize_install_css)
 
         self._obd_active = False
-        self._device_rotation = 0  # degrees from iio-sensor-proxy; 0 = upright
+        self._device_rotation = 0
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader._configured_port = self.obd_port
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
-        self.orientation_reader = OrientationReader(self._on_orientation_changed)
+        self.orientation_reader = OrientationReader(self._on_orientation_changed, enabled=self.auto_rotate)
 
     def _build_link_indicator(self, icon_name: str, label_text: str) -> dict[str, Any]:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -1490,9 +1674,10 @@ class DashboardWindow(Adw.ApplicationWindow):
                 "mock_mode": bool(data.get("mock_mode", False)),
                 "obd_port": data.get("obd_port") or None,
                 "gauge_theme": data.get("gauge_theme", "cockpit") or "cockpit",
+                "auto_rotate": bool(data.get("auto_rotate", True)),
             }
         except Exception:
-            return {"units": "metric", "language": _detect_language(), "mock_mode": False, "obd_port": None, "gauge_theme": "cockpit"}
+            return {"units": "metric", "language": _detect_language(), "mock_mode": False, "obd_port": None, "gauge_theme": "cockpit", "auto_rotate": True}
 
     def _load_units(self) -> str:
         return self._load_settings()["units"]
@@ -1508,6 +1693,7 @@ class DashboardWindow(Adw.ApplicationWindow):
                         "mock_mode": getattr(self, "mock_mode", False),
                         "obd_port": getattr(self, "obd_port", None),
                         "gauge_theme": getattr(self, "gauge_theme", "cockpit"),
+                        "auto_rotate": getattr(self, "auto_rotate", True),
                     },
                     indent=2,
                 ),
@@ -1528,6 +1714,8 @@ class DashboardWindow(Adw.ApplicationWindow):
             on_obd_port_changed=self._set_obd_port,
             current_gauge_theme=self.gauge_theme,
             on_gauge_theme_changed=self._set_gauge_theme,
+            current_auto_rotate=self.auto_rotate,
+            on_auto_rotate_changed=self._set_auto_rotate,
         )
         dialog.present(self)
 
@@ -1588,6 +1776,13 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.mock_mode = mock_mode
         self._save_settings()
         self.reader.set_force_mock(mock_mode)
+
+    def _set_auto_rotate(self, enabled: bool) -> None:
+        if enabled == self.auto_rotate:
+            return
+        self.auto_rotate = enabled
+        self._save_settings()
+        self.orientation_reader.set_enabled(enabled)
 
     def _set_language(self, language: str) -> None:
         language = _normalize_language(language)
