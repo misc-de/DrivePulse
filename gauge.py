@@ -41,8 +41,11 @@ GAUGE_THEMES = ("cockpit", "neon", "minimal")
 # .dp-accel-theme-<id> for acceleration-page widget styles.
 _BUILTIN_THEME_CSS: dict[str, str] = {
     "cockpit": """
+window.dp-theme-cockpit,
+window.dp-theme-cockpit scrolledwindow,
 window.dp-theme-cockpit scrolledwindow > viewport,
-window.dp-theme-cockpit .dp-gauge-bg {
+window.dp-theme-cockpit .dp-gauge-bg,
+window.dp-theme-cockpit .dp-gauge-bg > * {
   background-color: #05080f;
 }
 .dp-accel-theme-cockpit .card {
@@ -51,8 +54,11 @@ window.dp-theme-cockpit .dp-gauge-bg {
 }
 """,
     "neon": """
+window.dp-theme-neon,
+window.dp-theme-neon scrolledwindow,
 window.dp-theme-neon scrolledwindow > viewport,
-window.dp-theme-neon .dp-gauge-bg {
+window.dp-theme-neon .dp-gauge-bg,
+window.dp-theme-neon .dp-gauge-bg > * {
   background-color: #000008;
 }
 .dp-accel-theme-neon .card {
@@ -379,7 +385,9 @@ class Gauge(Gtk.DrawingArea):
         active_alpha = 1.0 if self.active else 0.34
         accent = self.accent_rgb if self.active else (0.45, 0.48, 0.50)
 
+        # Fill the entire DrawingArea rectangle so no app-background bleeds through
         cr.set_source_rgb(0.02, 0.025, 0.03)
+        cr.paint()
         cr.arc(cx, cy, radius + line_width * 1.15, 0, math.tau)
         cr.fill()
 
@@ -488,6 +496,10 @@ class Gauge(Gtk.DrawingArea):
         cy = height / 2
         radius = size * 0.41
         line_width = max(4, size * 0.021)
+
+        # Minimal uses the system/window background — clear to transparent
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
 
         start_angle = math.radians(145)
         end_angle = math.radians(395)
