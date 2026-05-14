@@ -66,7 +66,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.obd_dongle": "Dongle",
         "settings.obd_dongle.auto": "Auto-detect",
         "settings.obd_dongle.none_found": "No dongle found",
-
+        "settings.gauge_theme": "Gauge Style",
+        "settings.gauge_theme.cockpit": "Cockpit",
+        "settings.gauge_theme.neon": "Neon",
+        "settings.gauge_theme.minimal": "Minimal",
         "gauge.rpm": "RPM",
         "gauge.speed": "Speed",
         "gauge.coolant": "Coolant",
@@ -109,7 +112,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.obd_dongle": "Dongle",
         "settings.obd_dongle.auto": "Automatisch erkennen",
         "settings.obd_dongle.none_found": "Kein Dongle erkannt",
-
+        "settings.gauge_theme": "Tacho-Design",
+        "settings.gauge_theme.cockpit": "Cockpit",
+        "settings.gauge_theme.neon": "Neon",
+        "settings.gauge_theme.minimal": "Minimal",
         "gauge.rpm": "Drehzahl",
         "gauge.speed": "Geschwindigkeit",
         "gauge.coolant": "Kühlmittel",
