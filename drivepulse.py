@@ -1426,6 +1426,10 @@ class DashboardWindow(Adw.ApplicationWindow):
     PAGE_ACCELERATION = "acceleration"
     PAGE_CARS = "cars"
 
+    # Fensterbreite, unterhalb derer die Autos-Detailansicht ihre Kategorienleiste
+    # auf Icon-only umschaltet (Phosh/Mobian-typische Portrait-Breiten 360–540 px).
+    CARS_NARROW_BREAKPOINT = 500
+
     # Seconds to keep GPS shown as "available" after the last valid fix
     GPS_UNAVAIL_HOLDOVER = 1.0
 
@@ -1829,6 +1833,9 @@ class DashboardWindow(Adw.ApplicationWindow):
         height = self.dashboard_page.get_height() or self.view_stack.get_height() or self.get_height()
         if width <= 0 or height <= 0:
             return False
+
+        if hasattr(self, "cars_page"):
+            self.cars_page.set_narrow(width < self.CARS_NARROW_BREAKPOINT)
 
         if self.gauge_box.get_visible():
             # Physical orientation takes precedence over window-aspect detection.

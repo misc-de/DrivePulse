@@ -41,8 +41,8 @@ _SPECIAL_DTC = "__DTC__"
 _SPECIAL_PENDING = "__PENDING_DTC__"
 _SPECIAL_ADAPTER_V = "__ATRV__"
 
-CATEGORIES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
-    ("vehicle", "Fahrzeug", (
+CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
+    ("vehicle", "Fahrzeug", "dialog-information-symbolic", (
         (_SPECIAL_VIN,        "Fahrgestellnummer (VIN)"),
         (_SPECIAL_CAL,        "Steuergerät-Software (Cal-ID)"),
         (_SPECIAL_CVN,        "Software-Prüfnummer (CVN)"),
@@ -50,7 +50,7 @@ CATEGORIES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
         ("011C",              "OBD-Norm"),
         (_SPECIAL_SCAN_DATE,  "Letzter Scan"),
     )),
-    ("engine", "Motor", (
+    ("engine", "Motor", "applications-engineering-symbolic", (
         ("010C", "Drehzahl"),
         ("0104", "Motorlast (berechnet)"),
         ("0143", "Motorlast (absolut)"),
@@ -59,19 +59,19 @@ CATEGORIES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
         ("0142", "Bordnetzspannung"),
         (_SPECIAL_ADAPTER_V, "Adapter-Spannung"),
     )),
-    ("drive", "Geschwindigkeit & Strecke", (
+    ("drive", "Geschwindigkeit & Strecke", "media-seek-forward-symbolic", (
         ("010D", "Geschwindigkeit"),
         ("0131", "Strecke seit Fehlerlöschung"),
         ("0121", "Strecke mit Motorkontrollleuchte"),
         ("0130", "Warmlaufzyklen seit Fehlerlöschung"),
     )),
-    ("temperatures", "Temperaturen", (
+    ("temperatures", "Temperaturen", "weather-clear-symbolic", (
         ("0105", "Kühlmittel"),
         ("010F", "Ansaugluft"),
         ("0146", "Außenluft"),
         ("013C", "Katalysator (Bank 1, Sensor 1)"),
     )),
-    ("throttle", "Gas & Drosselklappe", (
+    ("throttle", "Gas & Drosselklappe", "emblem-system-symbolic", (
         ("0111", "Drosselklappe"),
         ("0145", "Drosselklappe (relativ)"),
         ("0147", "Drosselklappe Sensor B"),
@@ -79,7 +79,7 @@ CATEGORIES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
         ("014A", "Gaspedal Sensor E"),
         ("014C", "Drosselklappen-Sollwert"),
     )),
-    ("mixture", "Gemisch & Lambda", (
+    ("mixture", "Gemisch & Lambda", "applications-science-symbolic", (
         ("0103", "Kraftstoffsystem-Status"),
         ("0106", "Kurzzeit-Korrektur (Bank 1)"),
         ("0107", "Langzeit-Korrektur (Bank 1)"),
@@ -88,14 +88,14 @@ CATEGORIES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
         ("0144", "Lambda-Sollwert"),
         ("0115", "Lambdasonde Bank 1, Sensor 2"),
     )),
-    ("fuel", "Kraftstoff & Luft", (
+    ("fuel", "Kraftstoff & Luft", "weather-windy-symbolic", (
         ("0110", "Luftmasse (MAF)"),
         ("012F", "Tankfüllstand"),
         ("0123", "Kraftstoff-Raildruck"),
         ("012E", "Tankentlüftung"),
         ("0133", "Luftdruck"),
     )),
-    ("diagnostics", "Diagnose", (
+    ("diagnostics", "Diagnose", "dialog-warning-symbolic", (
         (_SPECIAL_DTC,        "Gespeicherte Fehler"),
         (_SPECIAL_PENDING,    "Ausstehende Fehler"),
         ("0141", "Monitor-Status diese Fahrt"),
@@ -257,6 +257,8 @@ class CarsPage(Gtk.Box):
         self._selected_category: str = CATEGORIES[0][0]
         self._detail_pushed = False
         self._live_row: Adw.ActionRow | None = None
+        self._narrow = False
+        self._cat_rows: list[Gtk.ListBoxRow] = []
 
         self.nav_view = Adw.NavigationView()
         self.nav_view.set_hexpand(True)
@@ -338,39 +340,57 @@ class CarsPage(Gtk.Box):
         body.set_hexpand(True)
         body.set_vexpand(True)
 
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        sidebar.set_margin_top(12)
-        sidebar.set_margin_bottom(12)
-        sidebar.set_margin_start(12)
-        sidebar.set_margin_end(6)
-        sidebar.set_size_request(220, -1)
+        self._sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._sidebar.set_margin_top(12)
+        self._sidebar.set_margin_bottom(12)
+        self._sidebar.set_margin_start(8)
+        self._sidebar.set_margin_end(4)
 
         self._categories_label = Gtk.Label(xalign=0.0)
         self._categories_label.add_css_class("heading")
-        sidebar.append(self._categories_label)
+        self._sidebar.append(self._categories_label)
 
         self.category_list = Gtk.ListBox()
         self.category_list.set_selection_mode(Gtk.SelectionMode.BROWSE)
         self.category_list.add_css_class("navigation-sidebar")
         self.category_list.connect("row-selected", self._on_category_selected)
-        for cat_key, cat_name, _items in CATEGORIES:
+        for cat_key, cat_name, icon_name, _items in CATEGORIES:
             row = Gtk.ListBoxRow()
             row.cat_key = cat_key  # type: ignore[attr-defined]
+            row.cat_name = cat_name  # type: ignore[attr-defined]
+
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            hbox.set_margin_top(8)
+            hbox.set_margin_bottom(8)
+            hbox.set_margin_start(8)
+            hbox.set_margin_end(8)
+
+            icon = Gtk.Image.new_from_icon_name(icon_name)
+            icon.set_pixel_size(18)
+            hbox.append(icon)
+
             lbl = Gtk.Label(label=cat_name, xalign=0.0)
-            lbl.set_margin_top(8)
-            lbl.set_margin_bottom(8)
-            lbl.set_margin_start(10)
-            lbl.set_margin_end(10)
-            row.set_child(lbl)
+            lbl.set_hexpand(True)
+            hbox.append(lbl)
+
+            row.cat_label_widget = lbl  # type: ignore[attr-defined]
+            row.cat_icon_widget = icon  # type: ignore[attr-defined]
+            row.cat_hbox = hbox  # type: ignore[attr-defined]
+            row.set_tooltip_text(cat_name)
+
+            row.set_child(hbox)
             self.category_list.append(row)
+            self._cat_rows.append(row)
 
         cat_scroll = Gtk.ScrolledWindow()
         cat_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         cat_scroll.set_vexpand(True)
         cat_scroll.set_child(self.category_list)
-        sidebar.append(cat_scroll)
-        body.append(sidebar)
+        self._sidebar.append(cat_scroll)
+        body.append(self._sidebar)
         body.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        self._apply_narrow_to_sidebar()
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         content.set_hexpand(True)
@@ -416,6 +436,27 @@ class CarsPage(Gtk.Box):
             self.category_list.select_row(first_row)
 
     # ---------------------------------------------------- öffentliche API
+
+    def set_narrow(self, narrow: bool) -> None:
+        """Auf Smartphone-Breiten: Labels ausblenden, nur Icons zeigen."""
+        if narrow == self._narrow:
+            return
+        self._narrow = narrow
+        self._apply_narrow_to_sidebar()
+
+    def _apply_narrow_to_sidebar(self) -> None:
+        narrow = self._narrow
+        # Sidebar-Breite umstellen
+        self._sidebar.set_size_request(56 if narrow else 220, -1)
+        # Überschrift „Kategorien" ausblenden, wenn schmal
+        self._categories_label.set_visible(not narrow)
+        for row in self._cat_rows:
+            lbl = getattr(row, "cat_label_widget", None)
+            hbox = getattr(row, "cat_hbox", None)
+            if lbl is not None:
+                lbl.set_visible(not narrow)
+            if hbox is not None:
+                hbox.set_halign(Gtk.Align.CENTER if narrow else Gtk.Align.FILL)
 
     def set_language(self, language: str) -> None:
         self.language = _normalize_language(language)
@@ -618,7 +659,7 @@ class CarsPage(Gtk.Box):
             self.value_list.remove(child)
 
         cat_meta = next((c for c in CATEGORIES if c[0] == self._selected_category), CATEGORIES[0])
-        _cat_key, cat_name, items = cat_meta
+        _cat_key, cat_name, _icon_name, items = cat_meta
         self.content_title.set_text(cat_name)
 
         data, source_label = self._current_data()
