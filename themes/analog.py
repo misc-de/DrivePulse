@@ -245,7 +245,9 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
     r_left = r_center * 0.46
 
     cy_main = height * 0.48
-    cx_center = width * 0.46
+    # Center the three-gauge group: right gauge (r_right) is larger than left (r_left),
+    # so the visual midpoint is shifted slightly left of width/2.
+    cx_center = (width + r_left * 2.45 - r_right * 2.35) / 2
     cx_right = cx_center + r_center + r_right * 1.35
     cx_left = cx_center - r_center - r_left * 1.45
 

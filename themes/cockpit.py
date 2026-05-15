@@ -70,4 +70,3 @@ def draw(cr: Any, width: int, height: int, gauge: Any) -> None:
     text_width = size * 0.72
     gauge.draw_text(cr, gauge.state.label, cx, cy - size * 0.06, value_size, active_alpha, True, text_width)
     gauge.draw_text(cr, gauge.state.unit, cx, cy + size * 0.09, unit_size, 0.78 * active_alpha, True, text_width)
-    gauge.draw_text(cr, gauge.title, cx, cy + size * 0.26, title_size, 0.62 * active_alpha, False, text_width)

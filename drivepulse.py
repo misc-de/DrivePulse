@@ -1272,6 +1272,7 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self.cars_page = CarsPage(self.language, db=self.db)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
+        self.cars_page.set_header_trash_fn = self.set_ctx_trash
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
@@ -1320,9 +1321,16 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.settings_button = settings_button
         settings_button.set_tooltip_text(_translate(self.language, "settings.tooltip"))
         settings_button.connect("clicked", self._open_settings)
+
+        self._ctx_trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        self._ctx_trash_btn.add_css_class("flat")
+        self._ctx_trash_btn.set_visible(False)
+        self._ctx_trash_handler: int | None = None
+
         header.pack_start(self.obd_indicator["box"])
         header.pack_start(self.gps_indicator["box"])
         header.pack_end(settings_button)
+        header.pack_end(self._ctx_trash_btn)
 
         self.header = header
         self.switcher_bar = switcher_bar
@@ -1470,6 +1478,18 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.gps_reader.stop()
         self.orientation_reader.stop()
         return super().close()
+
+    def set_ctx_trash(self, action_fn: Any) -> None:
+        """Show/hide the context trash button in the header and wire up its action."""
+        btn = self._ctx_trash_btn
+        if self._ctx_trash_handler is not None:
+            btn.disconnect(self._ctx_trash_handler)
+            self._ctx_trash_handler = None
+        if action_fn is not None:
+            self._ctx_trash_handler = btn.connect("clicked", lambda _b: action_fn())
+            btn.set_visible(True)
+        else:
+            btn.set_visible(False)
 
     def _load_settings(self) -> dict[str, Any]:
         return load_settings()

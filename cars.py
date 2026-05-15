@@ -1386,6 +1386,7 @@ class CarsPage(Gtk.Box):
         self._selected_car_id: int | None = None
         self._selected_category: str = CATEGORIES[0][0]
         self._detail_pushed = False
+        self.set_header_trash_fn: Any = None
         self._trip_detail_pushed = False
         self._trip_detail_page: Adw.NavigationPage | None = None
         self._scan_detail_pushed = False
@@ -1508,14 +1509,9 @@ class CarsPage(Gtk.Box):
         self._detail_title = Gtk.Label(xalign=0.0)
         self._detail_title.add_css_class("title-3")
         self._detail_title.set_hexpand(True)
-        self._vehicle_trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        self._vehicle_trash_btn.add_css_class("flat")
-        self._vehicle_trash_btn.set_visible(False)
-        self._vehicle_trash_btn.connect("clicked", lambda _b: self._confirm_delete_vehicle())
 
         head.append(self._detail_back_btn)
         head.append(self._detail_title)
-        head.append(self._vehicle_trash_btn)
         outer.append(head)
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
@@ -1804,9 +1800,10 @@ class CarsPage(Gtk.Box):
         self._detail_page.set_title(title)
         self._detail_title.set_text(title)
         # Show trash only for real vehicles, not the live view
-        self._vehicle_trash_btn.set_visible(
-            source != self.LIVE_ID and self._selected_car_id is not None
-        )
+        if source != self.LIVE_ID and self._selected_car_id is not None:
+            self._set_trash(self._confirm_delete_vehicle)
+        else:
+            self._set_trash(None)
         self._render_detail()
         if not self._detail_pushed:
             self.nav_view.push(self._detail_page)
@@ -1818,17 +1815,27 @@ class CarsPage(Gtk.Box):
             self._trip_select_mode = False
             self._trip_selected_ids = set()
             self._select_revealer.set_reveal_child(False)
+            self._set_trash(None)
         if page is self._trip_detail_page:
             self._trip_detail_pushed = False
             self._trip_detail_page = None
             if self._detail_pushed and self._selected_category == "trips":
                 self._render_detail()
+            # Restore vehicle delete action when returning to vehicle detail
+            if self._detail_pushed and self._selected_car_id is not None:
+                self._set_trash(self._confirm_delete_vehicle)
         if page is self._scan_detail_page:
             self._scan_detail_pushed = False
             self._scan_detail_page = None
             self._scan_id_shown = None
             if self._detail_pushed and self._selected_category == "scans":
                 self._render_detail()
+            if self._detail_pushed and self._selected_car_id is not None:
+                self._set_trash(self._confirm_delete_vehicle)
+
+    def _set_trash(self, action_fn: Any) -> None:
+        if self.set_header_trash_fn is not None:
+            self.set_header_trash_fn(action_fn)
 
     def _on_category_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
@@ -2049,18 +2056,9 @@ class CarsPage(Gtk.Box):
         page_content = _build_trip_detail_widget(self.language, trip, samples)
         title = self._trip_detail_title(trip)
 
-        trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        trash_btn.add_css_class("flat")
-        trash_btn.connect("clicked", lambda _b: self._confirm_delete_trip(trip_id))
+        self._set_trash(lambda: self._confirm_delete_trip(trip_id))
 
-        header = Adw.HeaderBar()
-        header.pack_end(trash_btn)
-
-        toolbar_view = Adw.ToolbarView()
-        toolbar_view.add_top_bar(header)
-        toolbar_view.set_content(page_content)
-
-        page = Adw.NavigationPage(child=toolbar_view, title=title)
+        page = Adw.NavigationPage(child=page_content, title=title)
         page.set_tag(f"trip-{trip_id}")
         self._trip_detail_page = page
         self._trip_detail_pushed = True
@@ -2281,18 +2279,9 @@ class CarsPage(Gtk.Box):
         title = _translate(self.language, "cars.scan.title",
                            date=ts.strftime("%d.%m.%Y %H:%M") if ts else str(scan_id))
 
-        trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        trash_btn.add_css_class("flat")
-        trash_btn.connect("clicked", lambda _b: self._confirm_delete_scan(scan_id))
+        self._set_trash(lambda: self._confirm_delete_scan(scan_id))
 
-        header = Adw.HeaderBar()
-        header.pack_end(trash_btn)
-
-        toolbar_view = Adw.ToolbarView()
-        toolbar_view.add_top_bar(header)
-        toolbar_view.set_content(page_content)
-
-        page = Adw.NavigationPage(child=toolbar_view, title=title)
+        page = Adw.NavigationPage(child=page_content, title=title)
         page.set_tag(f"scan-{scan_id}")
         self._scan_detail_page = page
         self._scan_detail_pushed = True
