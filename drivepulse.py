@@ -1753,7 +1753,11 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self._nav_visible = True
         self._last_swipe_time = 0.0
+        self._tap_press_time = 0.0
+        self._tap_press_x = 0.0
+        self._tap_press_y = 0.0
         tap = Gtk.GestureClick()
+        tap.connect("pressed", self._on_content_press)
         tap.connect("released", self._on_content_tap)
         self.view_stack.add_controller(tap)
 
@@ -1810,8 +1814,24 @@ class DashboardWindow(Adw.ApplicationWindow):
         else:
             spinner.stop()
 
-    def _on_content_tap(self, _gesture: Gtk.GestureClick, _n: int, _x: float, _y: float) -> None:
-        if time.monotonic() - self._last_swipe_time < 0.35:
+    # Maximum duration / movement that still counts as a "short tap"
+    _TAP_MAX_DURATION_S = 0.30
+    _TAP_MAX_MOVE_PX = 14.0
+
+    def _on_content_press(self, _gesture: Gtk.GestureClick, _n: int, x: float, y: float) -> None:
+        self._tap_press_time = time.monotonic()
+        self._tap_press_x = x
+        self._tap_press_y = y
+
+    def _on_content_tap(self, _gesture: Gtk.GestureClick, _n: int, x: float, y: float) -> None:
+        now = time.monotonic()
+        # Reject if a swipe just fired — its release event still reaches the click gesture
+        if now - self._last_swipe_time < 0.35:
+            return
+        # Reject if the touch lasted too long (long-press) or moved too far (swipe/drag)
+        duration = now - self._tap_press_time
+        moved = math.hypot(x - self._tap_press_x, y - self._tap_press_y)
+        if duration > self._TAP_MAX_DURATION_S or moved > self._TAP_MAX_MOVE_PX:
             return
         # Auf der Autos-Seite muss die Navigation jederzeit erreichbar bleiben,
         # damit der Anwender zurück zu Tachos/Beschleunigung kommt.
@@ -2117,6 +2137,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         # Horizontal swipe → switch page
         if ax < 220 or ax <= ay:
             return
+        self._last_swipe_time = time.monotonic()
         current = self.view_stack.get_visible_child_name()
         # Wenn das Auto-Detail offen ist, übernimmt Adw.NavigationView den
         # Zurück-Swipe (Detail → Liste). Wir schalten dann nicht zusätzlich den Tab um.
