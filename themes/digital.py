@@ -80,14 +80,13 @@ def _draw_digital_landscape(cr: Any, width: int, height: int, d: Any) -> None:
     sp_a = 1.0 if d.speed_active else 0.28
 
     sp_size = min(height * 0.50, panel_w * 0.72)
+    if d.speed_source:
+        _txt(cr, d.speed_source, panel_w * 0.50, height * 0.36 - sp_size * 0.55,
+             height * 0.054, (0.45, 0.52, 0.60, 0.65 * sp_a))
     _txt(cr, d.speed_label, panel_w * 0.50, height * 0.36, sp_size,
          (1, 1, 1, sp_a), bold=True, max_w=panel_w * 0.90)
-    unit_y = height * 0.36 + sp_size * 0.60
-    _txt(cr, d.speed_unit, panel_w * 0.50, unit_y,
+    _txt(cr, d.speed_unit, panel_w * 0.50, height * 0.36 + sp_size * 0.60,
          height * 0.082, (0.65, 0.72, 0.80, sp_a * 0.85))
-    if d.speed_source:
-        _txt(cr, d.speed_source, panel_w * 0.50, unit_y + height * 0.088,
-             height * 0.054, (0.45, 0.52, 0.60, 0.65 * sp_a))
 
     bx = panel_w * 0.07
     bw = panel_w * 0.86
@@ -125,14 +124,13 @@ def _draw_digital_portrait(cr: Any, width: int, height: int, d: Any) -> None:
     sp_panel_h = height * 0.38
     sp_size = min(sp_panel_h * 0.55, width * 0.60)
     sp_cy = sp_panel_h * 0.42
+    if d.speed_source:
+        _txt(cr, d.speed_source, width * 0.50, sp_cy - sp_size * 0.55,
+             sp_panel_h * 0.068, (0.45, 0.52, 0.60, 0.65 * sp_a))
     _txt(cr, d.speed_label, width * 0.50, sp_cy, sp_size,
          (1, 1, 1, sp_a), bold=True, max_w=width * 0.88)
-    unit_y = sp_cy + sp_size * 0.60
-    _txt(cr, d.speed_unit, width * 0.50, unit_y,
+    _txt(cr, d.speed_unit, width * 0.50, sp_cy + sp_size * 0.60,
          sp_panel_h * 0.10, (0.65, 0.72, 0.80, sp_a * 0.85))
-    if d.speed_source:
-        _txt(cr, d.speed_source, width * 0.50, unit_y + sp_panel_h * 0.11,
-             sp_panel_h * 0.068, (0.45, 0.52, 0.60, 0.65 * sp_a))
 
     # Rainbow speed bar
     bx = pad
