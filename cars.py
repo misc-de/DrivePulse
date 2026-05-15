@@ -1007,17 +1007,11 @@ class CarsPage(Gtk.Box):
             self._render_trips_into_value_list()
             return
 
-        stacked = cat_key == "vehicle"
-
         for pid_key, label_key in items:
             raw = data.get(pid_key)
             value_text, is_unknown = self._format_entry(pid_key, raw)
             label = _translate(self.language, label_key)
-
-            if stacked:
-                self.value_list.append(self._make_stacked_row(label, value_text, is_unknown))
-            else:
-                self.value_list.append(self._make_inline_row(pid_key, label, value_text, is_unknown))
+            self.value_list.append(self._make_stacked_row(label, value_text, is_unknown))
 
     def _make_inline_row(self, pid_key: str, label: str, value_text: str, is_unknown: bool) -> Adw.ActionRow:
         row = Adw.ActionRow()
