@@ -33,6 +33,7 @@ def _ring_circle(
     active: bool,
     title: str = "",
     title_size: float = 0,
+    source: str = "",
 ) -> None:
     a = 1.0 if active else 0.28
     track = (0.18, 0.20, 0.25, 0.55)
@@ -45,11 +46,17 @@ def _ring_circle(
 
     _arc_track(cr, cx, cy, r, lw, _ARC_START, _ARC_END, track, fill, norm)
 
+    # Speed source (OBD / GPS) above center
+    if source:
+        src_sz = max(8.0, r * 0.18)
+        _txt(cr, source, cx, cy - r * 0.52, src_sz,
+             (0.55, 0.60, 0.66, 0.55 * a), max_w=r * 1.4)
+
     # Center value
     _txt(cr, label, cx, cy - label_size * 0.12, label_size,
          (1, 1, 1, a), bold=True, max_w=r * 1.5)
     if sublabel:
-        _txt(cr, sublabel, cx, cy + sub_size * 1.1, sub_size,
+        _txt(cr, sublabel, cx, cy + sub_size * 2.2, sub_size,
              (*fill_rgb, 0.80 * a), max_w=r * 1.4)
     if title:
         _txt(cr, title, cx, cy + r * 0.66 + title_size, title_size,
@@ -128,28 +135,24 @@ def _draw_rings_landscape(
     lw_side = r_side * 0.26
 
     cy = height * 0.47
-    cx_main = width * 0.47
+    cx_main = width * 0.50
     cx_left  = cx_main - r_main - r_side * 1.30
     cx_right = cx_main + r_main + r_side * 1.30
 
     _ring_circle(cr, cx_left, cy, r_side, lw_side,
                  _norm(d.rpm, 0, d.rpm_max), sec_accent,
                  d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), r_side * 0.68, r_side * 0.30,
-                 d.rpm_active, title=_translate(d.language, "dashboard.rpm"), title_size=r_side * 0.22)
+                 d.rpm_active)
 
     _ring_circle(cr, cx_main, cy, r_main, lw_main,
                  _norm(d.speed, 0, d.speed_max), accent,
                  d.speed_label, d.speed_unit, r_main * 0.68, r_main * 0.28,
-                 d.speed_active)
+                 d.speed_active, source=d.speed_source)
 
-    if d.heading_active:
-        _compass_circle(cr, cx_right, cy, r_side, lw_side,
-                        d.heading_deg, d.heading_str, sec_accent, True)
-    else:
-        _ring_circle(cr, cx_right, cy, r_side, lw_side,
-                     _norm(d.coolant, d.coolant_min, d.coolant_max), sec_accent,
-                     d.coolant_label, "°C", r_side * 0.68, r_side * 0.30,
-                     d.coolant_active, title=_translate(d.language, "dashboard.coolant"), title_size=r_side * 0.22)
+    _ring_circle(cr, cx_right, cy, r_side, lw_side,
+                 _norm(d.coolant, 0.0, 130.0), sec_accent,
+                 d.coolant_label, "°C", r_side * 0.68, r_side * 0.30,
+                 d.coolant_active)
 
     # Bottom info strip
     info_y = cy + r_main + lw_main + height * 0.065
@@ -180,21 +183,17 @@ def _draw_rings_portrait(
     _ring_circle(cr, cx_mid, cy_main, r_main, lw_main,
                  _norm(d.speed, 0, d.speed_max), accent,
                  d.speed_label, d.speed_unit, r_main * 0.68, r_main * 0.28,
-                 d.speed_active)
+                 d.speed_active, source=d.speed_source)
 
     _ring_circle(cr, cx_left, cy_side, r_side, lw_side,
                  _norm(d.rpm, 0, d.rpm_max), sec_accent,
                  d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), r_side * 0.68, r_side * 0.30,
-                 d.rpm_active, title=_translate(d.language, "dashboard.rpm"), title_size=r_side * 0.22)
+                 d.rpm_active)
 
-    if d.heading_active:
-        _compass_circle(cr, cx_right, cy_side, r_side, lw_side,
-                        d.heading_deg, d.heading_str, sec_accent, True)
-    else:
-        _ring_circle(cr, cx_right, cy_side, r_side, lw_side,
-                     _norm(d.coolant, d.coolant_min, d.coolant_max), sec_accent,
-                     d.coolant_label, "°C", r_side * 0.68, r_side * 0.30,
-                     d.coolant_active, title=_translate(d.language, "dashboard.coolant"), title_size=r_side * 0.22)
+    _ring_circle(cr, cx_right, cy_side, r_side, lw_side,
+                 _norm(d.coolant, 0.0, 130.0), sec_accent,
+                 d.coolant_label, "°C", r_side * 0.68, r_side * 0.30,
+                 d.coolant_active)
 
     # Info strip below side circles
     info_y = cy_side + r_side + lw_side + height * 0.04
@@ -205,12 +204,10 @@ def _draw_rings_portrait(
 def _draw_rings_info(cr: Any, width: int, height: int, d: Any, info_y: float) -> None:
     """Shared bottom info strip for both ring layouts."""
     items: list = []
-    if d.heading_active:
-        items.append((_translate(d.language, "dashboard.coolant"), f"{d.coolant_label} °C", d.coolant_active))
     if d.fuel_active:
         items.append((_translate(d.language, "dashboard.fuel"), d.fuel_label, True))
-    if not d.heading_active:
-        items.append((_translate(d.language, "dashboard.heading"), d.heading_str or "--", d.heading_active))
+    if d.heading_active:
+        items.append((_translate(d.language, "dashboard.heading"), d.heading_str or "--", True))
     col_w = width / max(len(items), 1)
     for i, (name, val, act) in enumerate(items):
         ia = 1.0 if act else 0.25
