@@ -37,7 +37,6 @@ import pty
 import random
 import signal
 import socket
-import struct
 import subprocess
 import threading
 import time
@@ -93,6 +92,10 @@ from dashboard import DashboardCanvas, DASHBOARD_THEMES
 from acceleration import AccelerationPage
 from cars import CarsPage
 from db import DriveDB, TripRecorder
+from app_settings import load_settings, save_settings
+from gps_reader import GpsReader
+from orientation_reader import OrientationReader
+from obd_devices import candidate_bt_addresses, parse_bt_port, scan_obd_devices
 
 REQUIRED_PYTHON_PACKAGES = (
     ("PyGObject", "gi", "GTK/libadwaita Python-Bindings"),
@@ -126,112 +129,6 @@ def _print_required_python_packages() -> None:
         print("  - Bluetooth-Hinweis: ELM327 koppeln und z. B. mit OBD_PORT=/dev/rfcomm0 starten.")
         print("  - Direktes BT: OBD_BT_ADDR=AA:BB:CC:DD:EE:FF (oder AA:BB:CC:DD:EE:FF:Kanal)")
         print("  - socat-Brücke: OBD_SOCKET_URL=socket://localhost:35000")
-
-
-def _candidate_bt_addresses() -> list[tuple[str, int]]:
-    """Parse OBD_BT_ADDR into (mac_address, rfcomm_channel) pairs."""
-    if not OBD_BT_ADDR or OBD_PORT:
-        return []
-    result = []
-    for entry in OBD_BT_ADDR.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        parts = entry.split(":")
-        if len(parts) == 7 and parts[6].isdigit():
-            result.append((":".join(parts[:6]).upper(), int(parts[6])))
-        else:
-            result.append((entry.upper(), 1))
-    return result
-
-
-def _parse_bt_port(port: str) -> tuple[str, int]:
-    """Parse 'bt:AA:BB:CC:DD:EE:FF' or 'bt:AA:BB:CC:DD:EE:FF:channel' into (addr, channel)."""
-    raw = port[3:]  # strip 'bt:'
-    parts = raw.split(":")
-    if len(parts) == 7 and parts[6].isdigit():
-        return ":".join(parts[:6]).upper(), int(parts[6])
-    return raw.upper(), 1
-
-
-def _scan_bt_paired_devices() -> list[tuple[str, str]]:
-    """Return (label, bt:ADDR) for all paired Bluetooth devices via bluetoothctl."""
-    try:
-        # Try modern syntax first, fall back to legacy
-        for args in (["bluetoothctl", "devices", "Paired"], ["bluetoothctl", "paired-devices"]):
-            result = subprocess.run(args, capture_output=True, text=True, timeout=5)
-            if result.returncode == 0 and result.stdout.strip():
-                break
-        devices: list[tuple[str, str]] = []
-        for line in result.stdout.strip().splitlines():
-            parts = line.split(" ", 2)
-            if len(parts) >= 2 and parts[0] == "Device":
-                addr = parts[1].upper()
-                name = parts[2].strip() if len(parts) >= 3 else addr
-                devices.append((f"BT: {name} ({addr})", f"bt:{addr}"))
-        return devices
-    except Exception:
-        return []
-
-
-_OBD_CANDIDATE_PATHS = [
-    "/dev/rfcomm0",
-    "/dev/rfcomm1",
-    "/dev/ttyUSB0",
-    "/dev/ttyUSB1",
-    "/dev/ttyUSB2",
-    "/dev/ttyACM0",
-    "/dev/ttyACM1",
-]
-
-
-def _scan_obd_devices() -> list[tuple[str, str]]:
-    """Return (display_label, port_value) pairs of detectable and common OBD device paths.
-
-    Existing devices come first (with their real path or descriptive by-id name).
-    Common candidate paths that are not currently present are appended with a
-    '(not found)' suffix so users can pre-configure a port before connecting.
-    """
-    devices: list[tuple[str, str]] = []
-    seen_paths: set[str] = set()
-
-    # /dev/serial/by-id/* — descriptive USB-serial names (only existing)
-    for path in sorted(Path("/dev/serial/by-id").glob("*")) if Path("/dev/serial/by-id").exists() else []:
-        real = str(path.resolve())
-        label = f"{path.name} ({real})"
-        devices.append((label, real))
-        seen_paths.add(real)
-
-    # Directly present wired / already-bound serial devices
-    for pattern in ("/dev/rfcomm*", "/dev/ttyUSB*", "/dev/ttyACM*"):
-        for path in sorted(Path("/").glob(pattern.lstrip("/"))):
-            p = str(path)
-            if p not in seen_paths:
-                devices.append((p, p))
-                seen_paths.add(p)
-
-    # Paired Bluetooth devices (direct RFCOMM socket, no rfcomm bind needed)
-    seen_bt: set[str] = set()
-    for label, val in _scan_bt_paired_devices():
-        devices.append((label, val))
-        seen_bt.add(val)
-
-    # Manually configured BT addresses from env (if not already listed)
-    for addr, channel in _candidate_bt_addresses():
-        val = f"bt:{addr}" if channel == 1 else f"bt:{addr}:{channel}"
-        if val not in seen_bt:
-            devices.append((f"BT: {addr}", val))
-
-    if OBD_SOCKET_URL:
-        devices.append((OBD_SOCKET_URL, OBD_SOCKET_URL))
-
-    # Common candidate paths not yet present — let users pre-configure
-    for candidate in _OBD_CANDIDATE_PATHS:
-        if candidate not in seen_paths:
-            devices.append((f"{candidate} (not found)", candidate))
-            seen_paths.add(candidate)
-
-    return devices
 
 
 class BluetoothPtyBridge:
@@ -565,6 +462,8 @@ class ObdReader(GObject.Object):
         # asynchronous vehicle-scan thread so they can interleave queries safely.
         self._obd_lock = threading.Lock()
         self._scan_thread: threading.Thread | None = None
+        self._obd_value_cache: dict[str, Any] = {}
+        self._obd_last_query: dict[str, float] = {}
         if obd is None:
             self.mock_reason = "python-obd fehlt"
         elif force_mock:
@@ -751,7 +650,7 @@ class ObdReader(GObject.Object):
         if self._configured_port:
             if not self.stop_event.is_set():
                 if self._configured_port.startswith("bt:"):
-                    addr, ch = _parse_bt_port(self._configured_port)
+                    addr, ch = parse_bt_port(self._configured_port)
                     # Try rfcomm bind first (creates /dev/rfcommN, most reliable)
                     dev = self._rfcomm_bind(addr, ch)
                     if dev:
@@ -845,7 +744,7 @@ class ObdReader(GObject.Object):
                 self._close_connection()
                 self._connection_log("connect_exception", port=port, error=repr(exc), error_type=type(exc).__name__)
 
-        for addr, channel in _candidate_bt_addresses():
+        for addr, channel in candidate_bt_addresses():
             if self.stop_event.is_set():
                 self._connection_log("connect_aborted", reason="stop_event")
                 return
@@ -988,20 +887,48 @@ class ObdReader(GObject.Object):
         data: dict[str, Any] = {}
         command_count = 0
         read_error_count = 0
+        now = time.monotonic()
         for key, command in commands.items():
             if command is None:
+                continue
+            if not self._should_query_obd_key(key, now):
+                if key in self._obd_value_cache:
+                    data[key] = self._obd_value_cache[key]
                 continue
             command_count += 1
             try:
                 with self._obd_lock:
                     response = self.connection.query(command)
-                data[key] = self._response_to_plain_value(response)
+                value = self._response_to_plain_value(response)
+                data[key] = value
+                self._obd_value_cache[key] = value
+                self._obd_last_query[key] = now
             except Exception as exc:
                 read_error_count += 1
                 data[f"{key}_error"] = str(exc)
         data["_command_count"] = command_count
         data["_read_error_count"] = read_error_count
         return data
+
+    def _should_query_obd_key(self, key: str, now: float) -> bool:
+        """Poll fast-moving PIDs every tick and slower PIDs less often."""
+        intervals = {
+            "rpm": 0.0,
+            "speed": 0.0,
+            "coolant_temp": 0.0,
+            "throttle_pos": 2.0,
+            "engine_load": 2.0,
+            "intake_temp": 5.0,
+            "maf": 2.0,
+            "fuel_level": 10.0,
+            "runtime": 10.0,
+            "control_module_voltage": 5.0,
+        }
+        interval = intervals.get(key, 2.0)
+        if interval <= 0:
+            return True
+        last = self._obd_last_query.get(key)
+        return last is None or now - last >= interval
 
     def _response_to_plain_value(self, response: Any) -> Any:
         if response is None or response.is_null():
@@ -1093,177 +1020,6 @@ class ObdReader(GObject.Object):
             pass
 
 
-class GpsReader:
-    """Reads GPS speed from GeoClue2 (D-Bus) with GPSD as fallback."""
-
-    # GeoClue2 D-Bus constants (same as Sensor-Suite)
-    _GEOCLUE_BUS = "org.freedesktop.GeoClue2"
-    _GEOCLUE_MANAGER_PATH = "/org/freedesktop/GeoClue2/Manager"
-    _GEOCLUE_MANAGER_IFACE = "org.freedesktop.GeoClue2.Manager"
-    _GEOCLUE_CLIENT_IFACE = "org.freedesktop.GeoClue2.Client"
-    _GEOCLUE_LOCATION_IFACE = "org.freedesktop.GeoClue2.Location"
-    _DBUS_PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
-
-    GPSD_HOST = "localhost"
-    GPSD_PORT = 2947
-    GPSD_RETRY_INTERVAL = 10.0
-
-    def __init__(self, on_update: Callable[[dict[str, Any]], None]) -> None:
-        self.on_update = on_update
-        self.stop_event = threading.Event()
-        self._gpsd_thread: threading.Thread | None = None
-        self._geoclue_bus: Any = None
-        self._geoclue_client: Any = None
-        self._geoclue_client_path: str | None = None
-
-    def start(self) -> None:
-        GLib.idle_add(self._start_geoclue)
-        self._gpsd_thread = threading.Thread(target=self._run_gpsd, name="gps-gpsd", daemon=True)
-        self._gpsd_thread.start()
-
-    def stop(self) -> None:
-        self.stop_event.set()
-        if self._geoclue_client is not None:
-            try:
-                self._geoclue_client.call_sync("Stop", None, Gio.DBusCallFlags.NONE, 1000, None)
-            except Exception:
-                pass
-
-    # ------------------------------------------------------------------
-    # GeoClue2
-    # ------------------------------------------------------------------
-
-    def _start_geoclue(self) -> bool:
-        try:
-            bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
-            manager = Gio.DBusProxy.new_sync(
-                bus, Gio.DBusProxyFlags.NONE, None,
-                self._GEOCLUE_BUS, self._GEOCLUE_MANAGER_PATH, self._GEOCLUE_MANAGER_IFACE, None,
-            )
-            res = manager.call_sync("GetClient", None, Gio.DBusCallFlags.NONE, 3000, None)
-            client_path = res.get_child_value(0).get_string()
-            client = Gio.DBusProxy.new_sync(
-                bus, Gio.DBusProxyFlags.NONE, None,
-                self._GEOCLUE_BUS, client_path, self._GEOCLUE_CLIENT_IFACE, None,
-            )
-            self._geoclue_bus = bus
-            self._geoclue_client = client
-            self._geoclue_client_path = client_path
-            for name, value in (
-                ("DesktopId", GLib.Variant("s", APP_ID)),
-                ("RequestedAccuracyLevel", GLib.Variant("u", 8)),
-                ("DistanceThreshold", GLib.Variant("u", 0)),
-                ("TimeThreshold", GLib.Variant("u", 1)),
-            ):
-                try:
-                    bus.call_sync(
-                        self._GEOCLUE_BUS, client_path, self._DBUS_PROPERTIES_IFACE, "Set",
-                        GLib.Variant("(ssv)", (self._GEOCLUE_CLIENT_IFACE, name, value)),
-                        None, Gio.DBusCallFlags.NONE, 3000, None,
-                    )
-                except Exception:
-                    pass
-            client.connect("g-signal", self._on_geoclue_signal)
-            client.call_sync("Start", None, Gio.DBusCallFlags.NONE, 3000, None)
-        except Exception:
-            pass
-        return False
-
-    def _on_geoclue_signal(self, _proxy: Any, _sender: str, signal_name: str, params: Any) -> None:
-        if signal_name != "LocationUpdated":
-            return
-        location_path = params.get_child_value(1).get_string()
-        try:
-            location = Gio.DBusProxy.new_sync(
-                self._geoclue_bus, Gio.DBusProxyFlags.NONE, None,
-                self._GEOCLUE_BUS, location_path, self._GEOCLUE_LOCATION_IFACE, None,
-            )
-            speed = self._geoclue_double(location, "Speed")
-            if speed is not None and speed >= 0:
-                gps_payload: dict[str, Any] = {
-                    "source": "gps",
-                    "gps_speed": {"value": speed * 3.6, "unit": "km/h"},
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                heading = self._geoclue_double(location, "Heading")
-                if heading is not None and 0 <= heading < 360:
-                    gps_payload["gps_heading"] = {"value": heading, "unit": "deg"}
-                lat = self._geoclue_double(location, "Latitude")
-                lon = self._geoclue_double(location, "Longitude")
-                if lat is not None and lon is not None:
-                    gps_payload["gps_lat"] = {"value": lat, "unit": "degree"}
-                    gps_payload["gps_lon"] = {"value": lon, "unit": "degree"}
-                altitude = self._geoclue_double(location, "Altitude")
-                if altitude is not None:
-                    gps_payload["gps_altitude"] = {"value": altitude, "unit": "meter"}
-                self.on_update(gps_payload)
-        except Exception:
-            pass
-
-    def _geoclue_double(self, proxy: Any, name: str) -> float | None:
-        value = proxy.get_cached_property(name)
-        if value is None:
-            return None
-        result = value.get_double()
-        return result if math.isfinite(result) else None
-
-    # ------------------------------------------------------------------
-    # GPSD
-    # ------------------------------------------------------------------
-
-    def _run_gpsd(self) -> None:
-        while not self.stop_event.is_set():
-            try:
-                self._connect_and_read_gpsd()
-            except Exception:
-                pass
-            self.stop_event.wait(self.GPSD_RETRY_INTERVAL)
-
-    def _connect_and_read_gpsd(self) -> None:
-        import socket
-        with socket.create_connection((self.GPSD_HOST, self.GPSD_PORT), timeout=5) as sock:
-            sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
-            buf = ""
-            while not self.stop_event.is_set():
-                chunk = sock.recv(4096).decode("utf-8", errors="replace")
-                if not chunk:
-                    break
-                buf += chunk
-                while "\n" in buf:
-                    line, buf = buf.split("\n", 1)
-                    self._handle_gpsd_line(line.strip())
-
-    def _handle_gpsd_line(self, line: str) -> None:
-        if not line:
-            return
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
-            return
-        if data.get("class") != "TPV" or data.get("mode", 0) < 2:
-            return
-        speed_ms = data.get("speed")
-        if speed_ms is None:
-            return
-        gps_payload: dict[str, Any] = {
-            "source": "gps",
-            "gps_speed": {"value": float(speed_ms) * 3.6, "unit": "km/h"},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        track = data.get("track")
-        if track is not None:
-            gps_payload["gps_heading"] = {"value": float(track), "unit": "deg"}
-        lat = data.get("lat")
-        lon = data.get("lon")
-        if lat is not None and lon is not None:
-            gps_payload["gps_lat"] = {"value": float(lat), "unit": "degree"}
-            gps_payload["gps_lon"] = {"value": float(lon), "unit": "degree"}
-        altitude = data.get("alt")
-        if altitude is not None:
-            gps_payload["gps_altitude"] = {"value": float(altitude), "unit": "meter"}
-        GLib.idle_add(self.on_update, gps_payload)
-
-
 class SettingsDialog(Adw.PreferencesDialog):
     __gtype_name__ = "SettingsDialog"
 
@@ -1353,7 +1109,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         page.add(group)
 
         # OBD hardware group
-        obd_devices = _scan_obd_devices()
+        obd_devices = scan_obd_devices()
         self._obd_port_values: list[str | None] = [None] + [val for _, val in obd_devices]
         obd_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.obd"))
         dongle_model = Gtk.StringList()
@@ -1400,238 +1156,6 @@ class SettingsDialog(Adw.PreferencesDialog):
             idx = self.gauge_theme_row.get_selected()
             theme = self._theme_options[idx][0] if idx < len(self._theme_options) else "cockpit"
             self.on_gauge_theme_changed(theme)
-
-
-class OrientationReader:
-    """Reads physical device orientation from the accelerometer.
-
-    Tries sensorfwd (com.nokia.SensorService, FuriOS/Droidian) first,
-    then falls back to iio-sensor-proxy (net.hadess.SensorProxy).
-    Calls on_changed(orientation_str, angle_degrees, is_landscape) on the
-    GTK main thread whenever the orientation changes.
-    Gracefully does nothing when neither service is available.
-    """
-
-    _MAP: dict[str, tuple[int, bool]] = {
-        "normal":    (0,   False),
-        "right-up":  (90,  True),
-        "bottom-up": (180, False),
-        "left-up":   (270, True),
-    }
-
-    # Binary protocol constants for sensorfwd socket
-    _HDR   = struct.Struct("<I")        # 4 bytes: packet count
-    _ACCEL = struct.Struct("<Qfffi")    # 20 bytes: ts + x + y + z + reserved (mg)
-
-    # Axis threshold for orientation detection (mg)
-    _THRESHOLD = 600
-
-    def __init__(self, on_changed: Callable[[str, int, bool], None], enabled: bool = True) -> None:
-        self.on_changed = on_changed
-        self.on_gforce: Callable[[float, float, float], None] | None = None
-        self._enabled = enabled
-        self._current = "normal"
-        # sensorfwd state
-        self._bus: Any = None
-        self._session_id: int = -1
-        self._sock: Any = None
-        self._watch_id: int = 0
-        self._buf = b""
-        # iio-sensor-proxy state (fallback)
-        self._iio_proxy: Any = None
-        if enabled:
-            GLib.idle_add(self._start)
-
-    # ── start / stop ──────────────────────────────────────────────────────
-
-    def _start(self) -> bool:
-        if self._try_sensorfwd():
-            return False
-        self._try_iio_proxy()
-        return False
-
-    def _try_sensorfwd(self) -> bool:
-        """Connect to com.nokia.SensorService. Returns True on success."""
-        try:
-            bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
-            pid = os.getpid()
-            # Load accelerometer plugin
-            bus.call_sync(
-                "com.nokia.SensorService", "/SensorManager",
-                "local.SensorManager", "loadPlugin",
-                GLib.Variant("(s)", ("accelerometersensor",)),
-                None, Gio.DBusCallFlags.NONE, 2000, None,
-            )
-            # Request session
-            res = bus.call_sync(
-                "com.nokia.SensorService", "/SensorManager",
-                "local.SensorManager", "requestSensor",
-                GLib.Variant("(sx)", ("accelerometersensor", pid)),
-                GLib.VariantType.new("(i)"),
-                Gio.DBusCallFlags.NONE, 2000, None,
-            )
-            session_id = res.get_child_value(0).get_int32()
-            # 33 ms interval (~30 Hz)
-            bus.call_sync(
-                "com.nokia.SensorService", "/SensorManager/accelerometersensor",
-                "local.AccelerometerSensor", "setInterval",
-                GLib.Variant("(ii)", (session_id, 33)),
-                None, Gio.DBusCallFlags.NONE, 2000, None,
-            )
-            # Start sensor
-            bus.call_sync(
-                "com.nokia.SensorService", "/SensorManager/accelerometersensor",
-                "local.AccelerometerSensor", "start",
-                GLib.Variant("(i)", (session_id,)),
-                None, Gio.DBusCallFlags.NONE, 2000, None,
-            )
-            # Connect to the data socket
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.connect("/run/sensord.sock")
-            sock.send(struct.pack("<i", session_id))
-            sock.recv(1)  # handshake byte
-            sock.setblocking(False)
-            self._bus = bus
-            self._session_id = session_id
-            self._sock = sock
-            self._watch_id = GLib.io_add_watch(
-                sock.fileno(),
-                GLib.IO_IN | GLib.IO_ERR | GLib.IO_HUP,
-                self._on_socket,
-            )
-            return True
-        except Exception:
-            return False
-
-    def _try_iio_proxy(self) -> None:
-        """Fall back to iio-sensor-proxy."""
-        try:
-            proxy = Gio.DBusProxy.new_for_bus_sync(
-                Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None,
-                "net.hadess.SensorProxy", "/net/hadess/SensorProxy",
-                "net.hadess.SensorProxy", None,
-            )
-            has = proxy.get_cached_property("HasAccelerometer")
-            if not has or not has.get_boolean():
-                return
-            proxy.call_sync("ClaimAccelerometer", None, Gio.DBusCallFlags.NONE, 2000, None)
-            proxy.connect("g-properties-changed", self._on_iio_props_changed)
-            self._iio_proxy = proxy
-            v = proxy.get_cached_property("AccelerometerOrientation")
-            if v:
-                self._emit(v.get_string())
-        except Exception:
-            pass
-
-    # ── sensorfwd socket data ─────────────────────────────────────────────
-
-    def _on_socket(self, _fd: int, condition: int) -> bool:
-        if condition & (GLib.IO_ERR | GLib.IO_HUP):
-            return False
-        try:
-            self._buf += self._sock.recv(4096)
-            while len(self._buf) >= self._HDR.size:
-                (count,) = self._HDR.unpack_from(self._buf)
-                need = self._HDR.size + count * self._ACCEL.size
-                if len(self._buf) < need:
-                    break
-                last_xyz = None
-                for i in range(count):
-                    _, x, y, z, _ = self._ACCEL.unpack_from(
-                        self._buf, self._HDR.size + i * self._ACCEL.size
-                    )
-                    last_xyz = (x, y, z)
-                self._buf = self._buf[need:]
-                if last_xyz:
-                    self._on_accel(*last_xyz)
-                    if self.on_gforce is not None:
-                        x, y, z = last_xyz
-                        GLib.idle_add(self.on_gforce, x / 1000.0, y / 1000.0, z / 1000.0)
-        except BlockingIOError:
-            pass
-        except Exception:
-            return False
-        return True
-
-    def _on_accel(self, x: float, y: float, z: float) -> None:
-        """Determine orientation from raw accelerometer values (in mg)."""
-        ax, ay = abs(x), abs(y)
-        if ax < self._THRESHOLD and ay < self._THRESHOLD:
-            return  # device lying flat — keep current orientation
-        if ay >= ax:
-            orientation = "normal" if y > 0 else "bottom-up"
-        else:
-            orientation = "left-up" if x > 0 else "right-up"
-        self._emit(orientation)
-
-    # ── iio-sensor-proxy fallback ─────────────────────────────────────────
-
-    def _on_iio_props_changed(self, _proxy: Any, changed: Any, _invalidated: Any) -> None:
-        v = changed.lookup_value("AccelerometerOrientation", None)
-        if v is not None:
-            self._emit(v.get_string())
-
-    # ── shared emit / enable ──────────────────────────────────────────────
-
-    def _emit(self, orientation: str) -> None:
-        if not self._enabled or orientation == self._current:
-            return
-        self._current = orientation
-        angle, landscape = self._MAP.get(orientation, (0, False))
-        GLib.idle_add(self.on_changed, orientation, angle, landscape)
-
-    def set_enabled(self, enabled: bool) -> None:
-        if enabled == self._enabled:
-            return
-        self._enabled = enabled
-        if enabled:
-            # Start if not already connected
-            if self._sock is None and self._iio_proxy is None:
-                GLib.idle_add(self._start)
-            else:
-                # Re-emit current orientation immediately
-                angle, landscape = self._MAP.get(self._current, (0, False))
-                GLib.idle_add(self.on_changed, self._current, angle, landscape)
-        else:
-            # Reset to upright so the UI goes back to default when disabled
-            GLib.idle_add(self.on_changed, "normal", 0, False)
-
-    def stop(self) -> None:
-        if self._watch_id:
-            GLib.source_remove(self._watch_id)
-            self._watch_id = 0
-        if self._sock is not None:
-            try:
-                self._sock.close()
-            except Exception:
-                pass
-            self._sock = None
-        if self._bus is not None and self._session_id >= 0:
-            try:
-                self._bus.call_sync(
-                    "com.nokia.SensorService", "/SensorManager/accelerometersensor",
-                    "local.AccelerometerSensor", "stop",
-                    GLib.Variant("(i)", (self._session_id,)),
-                    None, Gio.DBusCallFlags.NONE, 1000, None,
-                )
-                self._bus.call_sync(
-                    "com.nokia.SensorService", "/SensorManager",
-                    "local.SensorManager", "releaseSensor",
-                    GLib.Variant("(sx)", ("accelerometersensor", os.getpid())),
-                    None, Gio.DBusCallFlags.NONE, 1000, None,
-                )
-            except Exception:
-                pass
-            self._bus = None
-            self._session_id = -1
-        if self._iio_proxy is not None:
-            try:
-                self._iio_proxy.call_sync(
-                    "ReleaseAccelerometer", None, Gio.DBusCallFlags.NONE, 1000, None,
-                )
-            except Exception:
-                pass
-            self._iio_proxy = None
 
 
 class DashboardWindow(Adw.ApplicationWindow):
@@ -1948,41 +1472,21 @@ class DashboardWindow(Adw.ApplicationWindow):
         return super().close()
 
     def _load_settings(self) -> dict[str, Any]:
-        try:
-            data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-            units = data.get("units")
-            language = data.get("language")
-            return {
-                "units": units if units in {"metric", "imperial"} else "metric",
-                "language": _normalize_language(language or _detect_language()),
-                "mock_mode": bool(data.get("mock_mode", False)),
-                "obd_port": data.get("obd_port") or None,
-                "gauge_theme": data.get("gauge_theme", "cockpit") or "cockpit",
-                "auto_rotate": bool(data.get("auto_rotate", True)),
-            }
-        except Exception:
-            return {"units": "metric", "language": _detect_language(), "mock_mode": False, "obd_port": None, "gauge_theme": "cockpit", "auto_rotate": True}
+        return load_settings()
 
     def _load_units(self) -> str:
         return self._load_settings()["units"]
 
     def _save_settings(self) -> None:
         try:
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
-            SETTINGS_FILE.write_text(
-                json.dumps(
-                    {
-                        "units": getattr(self, "units", "metric"),
-                        "language": _normalize_language(getattr(self, "language", _detect_language())),
-                        "mock_mode": getattr(self, "mock_mode", False),
-                        "obd_port": getattr(self, "obd_port", None),
-                        "gauge_theme": getattr(self, "gauge_theme", "cockpit"),
-                        "auto_rotate": getattr(self, "auto_rotate", True),
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
+            save_settings({
+                "units": getattr(self, "units", "metric"),
+                "language": getattr(self, "language", _detect_language()),
+                "mock_mode": getattr(self, "mock_mode", False),
+                "obd_port": getattr(self, "obd_port", None),
+                "gauge_theme": getattr(self, "gauge_theme", "cockpit"),
+                "auto_rotate": getattr(self, "auto_rotate", True),
+            })
         except Exception:
             pass
 
@@ -2107,7 +1611,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         if hasattr(self, "cars_page"):
             self.cars_page.set_narrow(width < self.CARS_NARROW_BREAKPOINT)
 
-        if self.gauge_box.get_visible():
+        gauge_box_visible = self.gauge_box.get_visible()
+        if gauge_box_visible is not False:
             # On Phosh / compositor-side rotation (right-up or left-up): the GTK window
             # stays portrait (e.g. 360×800) while the physical display is landscape.
             # VERTICAL layout in the GTK window appears HORIZONTAL after the compositor
@@ -2115,7 +1620,8 @@ class DashboardWindow(Adw.ApplicationWindow):
             # proportions (physical_w = GTK_h, physical_h = GTK_w).
             # Guard: only use this path when GTK window really is portrait (width < height),
             # so a true landscape desktop window (width > height) still gets landscape layout.
-            if self._device_rotation in (90, 270) and width < height:
+            device_rotation = getattr(self, "_device_rotation", 0)
+            if device_rotation in (90, 270) and width < height:
                 self._set_portrait_layout(min(width, height), max(width, height))
             elif width >= height:
                 self._set_landscape_layout(width, height)
@@ -2298,7 +1804,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         if gps_speed_kmh is not None:
             self._gps_last_seen = now
             return True
-        return (now - self._gps_last_seen) < self.GPS_UNAVAIL_HOLDOVER
+        return (now - getattr(self, "_gps_last_seen", 0.0)) < self.GPS_UNAVAIL_HOLDOVER
 
     def _update_from_payload(self, payload: dict[str, Any]) -> bool:
         source = payload.get("source", "")
@@ -2317,24 +1823,31 @@ class DashboardWindow(Adw.ApplicationWindow):
             lat = self._plain_number(payload, "gps_lat")
             lon = self._plain_number(payload, "gps_lon")
             altitude_m = self._plain_number(payload, "gps_altitude")
-            self.trip_recorder.update_gps(
-                lat=lat, lon=lon, altitude_m=altitude_m,
-                heading_deg=gps_heading, gps_speed_kmh=gps_speed_kmh,
-            )
+            trip_recorder = getattr(self, "trip_recorder", None)
+            if trip_recorder is not None:
+                trip_recorder.update_gps(
+                    lat=lat, lon=lon, altitude_m=altitude_m,
+                    heading_deg=gps_heading, gps_speed_kmh=gps_speed_kmh,
+                )
             self._set_link_indicator(self.gps_indicator, self._gps_connected_with_holdover(gps_speed_kmh), False)
             self.acceleration_page.update_payload(payload, self._plain_number)
             self.cars_page.update_live(payload)
-            if gps_heading is not None:
-                self.dashboard_canvas.update_heading(gps_heading)
-            self.dashboard_canvas.update_gps_speed(self._display_speed(gps_speed_kmh))
-            self.dashboard_canvas.update_gps_pos(lat, lon, altitude_m)
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
                 display = self._display_speed(gps_speed_kmh)
                 src_gps = _translate(self.language, "gauge.source.gps")
                 self.speed_gauge.set_value(display, f"{display:.0f}" if display is not None else None)
                 self.speed_gauge.set_source_label(src_gps)
-                self.dashboard_canvas.update_speed(display, f"{display:.0f}" if display is not None else None)
-                self.dashboard_canvas.update_speed_source(src_gps)
+            else:
+                display = None
+                src_gps = ""
+            with self.dashboard_canvas.batch_update():
+                if gps_heading is not None:
+                    self.dashboard_canvas.update_heading(gps_heading)
+                self.dashboard_canvas.update_gps_speed(self._display_speed(gps_speed_kmh))
+                self.dashboard_canvas.update_gps_pos(lat, lon, altitude_m)
+                if src_gps:
+                    self.dashboard_canvas.update_speed(display, f"{display:.0f}" if display is not None else None)
+                    self.dashboard_canvas.update_speed_source(src_gps)
             return False
 
         self.last_payload = payload
@@ -2362,7 +1875,6 @@ class DashboardWindow(Adw.ApplicationWindow):
         else:
             _spd_src = ""
         self.speed_gauge.set_source_label(_spd_src)
-        self.dashboard_canvas.update_speed_source(_spd_src)
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
         self.acceleration_page.update_payload(payload, self._plain_number)
         self.cars_page.update_live(payload)
@@ -2377,22 +1889,24 @@ class DashboardWindow(Adw.ApplicationWindow):
         voltage = self._plain_number(payload, "control_module_voltage") if active else None
         accel = self._plain_number(payload, "acceleration_g") if active else None
 
-        self.dashboard_canvas.update_rpm(rpm, None if rpm is None else f"{rpm:.0f}")
-        self.dashboard_canvas.update_speed(canvas_speed, None if canvas_speed is None else f"{canvas_speed:.0f}")
-        self.dashboard_canvas.update_coolant(temp, None if temp is None else f"{temp:.0f}")
-        self.dashboard_canvas.update_fuel(fuel, None if fuel is None else f"{fuel:.0f}%")
-        self.dashboard_canvas.update_throttle(throttle)
-        self.dashboard_canvas.update_engine_load(engine_load)
-        self.dashboard_canvas.update_intake(intake)
-        self.dashboard_canvas.update_maf(maf)
-        self.dashboard_canvas.update_voltage(voltage)
-        self.dashboard_canvas.update_accel(accel)
-        self.dashboard_canvas.update_obd_speed(self._display_speed(obd_speed_kmh))
-        # gps_speed appears in mock payloads; real GPS updates come via the "gps" branch
-        if gps_speed_kmh is not None:
-            self.dashboard_canvas.update_gps_speed(self._display_speed(gps_speed_kmh))
-        if heading is not None:
-            self.dashboard_canvas.update_heading(heading)
+        with self.dashboard_canvas.batch_update():
+            self.dashboard_canvas.update_speed_source(_spd_src)
+            self.dashboard_canvas.update_rpm(rpm, None if rpm is None else f"{rpm:.0f}")
+            self.dashboard_canvas.update_speed(canvas_speed, None if canvas_speed is None else f"{canvas_speed:.0f}")
+            self.dashboard_canvas.update_coolant(temp, None if temp is None else f"{temp:.0f}")
+            self.dashboard_canvas.update_fuel(fuel, None if fuel is None else f"{fuel:.0f}%")
+            self.dashboard_canvas.update_throttle(throttle)
+            self.dashboard_canvas.update_engine_load(engine_load)
+            self.dashboard_canvas.update_intake(intake)
+            self.dashboard_canvas.update_maf(maf)
+            self.dashboard_canvas.update_voltage(voltage)
+            self.dashboard_canvas.update_accel(accel)
+            self.dashboard_canvas.update_obd_speed(self._display_speed(obd_speed_kmh))
+            # gps_speed appears in mock payloads; real GPS updates come via the "gps" branch
+            if gps_speed_kmh is not None:
+                self.dashboard_canvas.update_gps_speed(self._display_speed(gps_speed_kmh))
+            if heading is not None:
+                self.dashboard_canvas.update_heading(heading)
 
         status = payload.get("connection_status") or source or "?"
         language = _normalize_language(getattr(self, "language", _detect_language()))
