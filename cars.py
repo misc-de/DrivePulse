@@ -595,51 +595,66 @@ def _build_osm_map_widget(
     ]
     speeds = [s for _, _, s in gps_points if s is not None]
     max_speed = max(speeds) if speeds else 1.0
-
     pts_json = json.dumps(pts_data)
+
+    # Explicit pixel height in CSS — `height:100%` collapses in WebKit GTK
+    # because the embedded viewport has no defined height anchor.
+    # The map init is deferred via window.onload so Leaflet is fully parsed first.
     html = f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <style>
-  body,html,#map{{margin:0;padding:0;height:100%;background:#111;}}
-  #map{{width:100%;height:100%;}}
+*{{box-sizing:border-box;margin:0;padding:0;}}
+html,body{{width:100%;height:{height}px;overflow:hidden;background:#1a1a2e;}}
+#map{{width:100%;height:{height}px;}}
+#msg{{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+      color:#aaa;font:14px sans-serif;text-align:center;pointer-events:none;}}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <div id="map"></div>
+<div id="msg">Loading map…</div>
 <script>
-var pts={pts_json};
-var maxSpd={max_speed:.2f};
-var map=L.map('map',{{attributionControl:true,zoomControl:true}});
-L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{
-  maxZoom:19,
-  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-}}).addTo(map);
-function spColor(spd){{
-  if(spd<0||maxSpd<=0)return'#6699ee';
-  var t=Math.min(1.0,spd/Math.max(1.0,maxSpd));
-  return'rgb('+Math.round(51+178*t)+','+Math.round(128+102*(1-Math.abs(0.5-t)*2))+','+Math.round(230-204*t)+')';
-}}
-for(var i=1;i<pts.length;i++){{
-  L.polyline([[pts[i-1][0],pts[i-1][1]],[pts[i][0],pts[i][1]]],{{
-    color:spColor(pts[i][2]),weight:3.5,opacity:0.9
+window.addEventListener('load', function() {{
+  var msg = document.getElementById('msg');
+  if (typeof L === 'undefined') {{
+    msg.textContent = 'Map unavailable — no internet?';
+    return;
+  }}
+  msg.style.display = 'none';
+  var pts = {pts_json};
+  var maxSpd = {max_speed:.2f};
+  var map = L.map('map', {{attributionControl:true, zoomControl:true}});
+  L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+    maxZoom: 19,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }}).addTo(map);
-}}
-if(pts.length>0){{
-  L.circleMarker([pts[0][0],pts[0][1]],{{radius:7,color:'#fff',weight:2,fillColor:'#22aa44',fillOpacity:1}}).addTo(map);
-  L.circleMarker([pts[pts.length-1][0],pts[pts.length-1][1]],{{radius:7,color:'#fff',weight:2,fillColor:'#dd3333',fillOpacity:1}}).addTo(map);
-}}
-if(pts.length>1){{
-  var lats=pts.map(function(p){{return p[0];}});
-  var lons=pts.map(function(p){{return p[1];}});
-  map.fitBounds([[Math.min.apply(null,lats),Math.min.apply(null,lons)],
-                 [Math.max.apply(null,lats),Math.max.apply(null,lons)]],{{padding:[20,20]}});
-}}else if(pts.length===1){{
-  map.setView([pts[0][0],pts[0][1]],15);
-}}
+  function spColor(spd) {{
+    if (spd < 0 || maxSpd <= 0) return '#6699ee';
+    var t = Math.min(1.0, spd / Math.max(1.0, maxSpd));
+    return 'rgb(' + Math.round(51+178*t) + ',' + Math.round(128+102*(1-Math.abs(0.5-t)*2)) + ',' + Math.round(230-204*t) + ')';
+  }}
+  for (var i = 1; i < pts.length; i++) {{
+    L.polyline([[pts[i-1][0],pts[i-1][1]],[pts[i][0],pts[i][1]]], {{
+      color: spColor(pts[i][2]), weight: 3.5, opacity: 0.9
+    }}).addTo(map);
+  }}
+  if (pts.length > 0) {{
+    L.circleMarker([pts[0][0],pts[0][1]], {{radius:7,color:'#fff',weight:2,fillColor:'#22aa44',fillOpacity:1}}).addTo(map);
+    L.circleMarker([pts[pts.length-1][0],pts[pts.length-1][1]], {{radius:7,color:'#fff',weight:2,fillColor:'#dd3333',fillOpacity:1}}).addTo(map);
+  }}
+  if (pts.length > 1) {{
+    var lats = pts.map(function(p){{return p[0];}});
+    var lons = pts.map(function(p){{return p[1];}});
+    map.fitBounds([[Math.min.apply(null,lats),Math.min.apply(null,lons)],
+                   [Math.max.apply(null,lats),Math.max.apply(null,lons)]], {{padding:[20,20]}});
+  }} else {{
+    map.setView([pts[0][0],pts[0][1]], 15);
+  }}
+}});
 </script>
 </body>
 </html>"""
@@ -651,7 +666,10 @@ if(pts.length>1){{
         view.set_settings(settings)
         view.set_size_request(-1, height)
         view.set_hexpand(True)
-        view.load_html(html, None)
+        # Pass a real https base URI so WebKit allows external resource loading.
+        # None / about:blank can cause opaque-origin security restrictions for
+        # subresources (CDN scripts, tile images) in some WebKit builds.
+        view.load_html(html, "https://www.openstreetmap.org/")
         return view
     except Exception:
         return None
