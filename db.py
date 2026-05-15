@@ -233,6 +233,11 @@ class DriveDB:
                 (car_id,),
             ).fetchall())
 
+    def delete_trip(self, trip_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM trips WHERE id=?", (trip_id,))
+            self._conn.commit()
+
     # --------------------------------------------------------------- Scans
 
     def add_scan(self, car_id: int, data: dict[str, Any]) -> int:
@@ -350,8 +355,8 @@ class TripRecorder:
     def record_obd(self, ts: float, **fields: Any) -> None:
         """Schreibt ein OBD-Sample (inklusive zuletzt gesehener GPS-Daten)."""
         if self.car_id is None:
-            # Ohne Identität auf einen anonymen Eintrag fallen
-            self.car_id = self.db.upsert_car(label="Unbekanntes Fahrzeug")
+            # Fahrzeugidentität noch nicht bekannt — Sample verwerfen
+            return
         if self.trip_id is None:
             self.trip_id = self.db.start_trip(self.car_id)
         merged = dict(self._last_gps)
