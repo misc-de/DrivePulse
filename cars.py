@@ -632,18 +632,40 @@ def _fetch_osm_tile(zoom: int, tx: int, ty: int) -> bytes | None:
     return data
 
 
+def _tile_to_grayscale(surf: Any) -> Any:
+    """Return a new grayscale Cairo surface. Done once per tile in the fetch thread."""
+    import cairo as _c
+    w, h = surf.get_width(), surf.get_height()
+    out = _c.ImageSurface(_c.FORMAT_ARGB32, w, h)
+    ctx = _c.Context(out)
+    ctx.set_source_surface(surf, 0, 0)
+    ctx.paint()
+    del ctx
+    out.flush()
+    mv = out.get_data()
+    stride = out.get_stride()
+    # Cairo ARGB32 in memory on little-endian: [B, G, R, A] per pixel
+    for i in range(0, h * stride, 4):
+        gray = (29 * mv[i] + 150 * mv[i + 1] + 77 * mv[i + 2]) >> 8
+        mv[i] = mv[i + 1] = mv[i + 2] = gray
+    out.mark_dirty()
+    return out
+
+
 def _build_osm_map_widget(
     gps_points: list[tuple[float, float, float | None]],
     height: int = 300,
 ) -> "Gtk.Widget | None":
-    """Tile-stitched OSM map rendered with Cairo — no WebKit required.
+    """Tile-stitched grayscale OSM map with pinch-to-zoom, rendered via Cairo.
 
-    Tiles are fetched from tile.openstreetmap.org in a background thread and
-    composited onto a DrawingArea.  The GPS track is drawn on top.
-    Returns None only if the cairo module is unavailable.
+    Tiles are fetched from tile.openstreetmap.org in a background thread,
+    converted to grayscale, and composited onto a DrawingArea so the
+    colour-coded GPS track stands out clearly.  Pinch gesture changes the
+    integer zoom level and re-fetches tiles for the new zoom.
+    Returns None only if pycairo is unavailable.
     """
     try:
-        import cairo as _cairo
+        import cairo as _cairo  # noqa: F401  (existence check only)
     except ImportError:
         return None
 
@@ -651,46 +673,57 @@ def _build_osm_map_widget(
     lons = [p[1] for p in gps_points]
     lat_min, lat_max = min(lats), max(lats)
     lon_min, lon_max = min(lons), max(lons)
-
-    # Pad the bounding box so the track doesn't touch the edges
     lat_pad = max((lat_max - lat_min) * 0.15, 0.003)
     lon_pad = max((lon_max - lon_min) * 0.15, 0.005)
     lat_min -= lat_pad; lat_max += lat_pad
     lon_min -= lon_pad; lon_max += lon_pad
 
-    zoom = _pick_zoom(lat_min, lat_max, lon_min, lon_max)
-    tx0 = _lon_to_tx(lon_min, zoom)
-    tx1 = _lon_to_tx(lon_max, zoom)
-    ty0 = _lat_to_ty(lat_max, zoom)   # north → smaller y index
-    ty1 = _lat_to_ty(lat_min, zoom)   # south → larger  y index
+    def _view(z: int) -> dict[str, Any]:
+        _tx0 = _lon_to_tx(lon_min, z)
+        _tx1 = _lon_to_tx(lon_max, z)
+        _ty0 = _lat_to_ty(lat_max, z)
+        _ty1 = _lat_to_ty(lat_min, z)
+        return {
+            "zoom": z,
+            "tx0": _tx0, "tx1": _tx1, "ty0": _ty0, "ty1": _ty1,
+            "n_tx": _tx1 - _tx0 + 1, "n_ty": _ty1 - _ty0 + 1,
+            "nw_lon": _tx_to_lon(_tx0, z),      "nw_lat": _ty_to_lat(_ty0, z),
+            "se_lon": _tx_to_lon(_tx1 + 1, z),  "se_lat": _ty_to_lat(_ty1 + 1, z),
+        }
 
-    # Geographic extent covered by the full tile grid
-    nw_lon = _tx_to_lon(tx0, zoom)
-    nw_lat = _ty_to_lat(ty0, zoom)
-    se_lon = _tx_to_lon(tx1 + 1, zoom)
-    se_lat = _ty_to_lat(ty1 + 1, zoom)
-    n_tx = tx1 - tx0 + 1
-    n_ty = ty1 - ty0 + 1
-
-    state: dict[str, Any] = {"surfaces": {}, "loading": True}
+    state: dict[str, Any] = {
+        **_view(_pick_zoom(lat_min, lat_max, lon_min, lon_max)),
+        "surfaces": {},
+        "loading": True,
+        "pinch_scale": 1.0,
+    }
     area_holder: list[Gtk.DrawingArea] = []
 
-    def _gps_to_widget(lat: float, lon: float, w: float, h: float) -> tuple[float, float]:
-        fx = (lon - nw_lon) / (se_lon - nw_lon)
-        fy = (nw_lat - lat) / (nw_lat - se_lat)
+    def _gps_px(lat: float, lon: float, w: float, h: float) -> tuple[float, float]:
+        fx = (lon - state["nw_lon"]) / (state["se_lon"] - state["nw_lon"])
+        fy = (state["nw_lat"] - lat) / (state["nw_lat"] - state["se_lat"])
         return fx * w, fy * h
 
     def draw_cb(area: Gtk.DrawingArea, cr: Any, w: int, h: int) -> None:
-        # Background
         cr.set_source_rgb(0.10, 0.12, 0.18)
         cr.paint()
 
-        # Map tiles
+        n_tx = state["n_tx"]
+        n_ty = state["n_ty"]
         tile_w = w / n_tx
         tile_h = h / n_ty
-        for (tz, ttx, tty), surf in list(state["surfaces"].items()):
-            dx = (ttx - tx0) * tile_w
-            dy = (tty - ty0) * tile_h
+        scale = state["pinch_scale"]
+
+        # Zoom feedback: scale tile layer from widget centre during pinch
+        if scale != 1.0:
+            cr.save()
+            cr.translate(w / 2, h / 2)
+            cr.scale(scale, scale)
+            cr.translate(-w / 2, -h / 2)
+
+        for (z, ttx, tty), surf in list(state["surfaces"].items()):
+            dx = (ttx - state["tx0"]) * tile_w
+            dy = (tty - state["ty0"]) * tile_h
             cr.save()
             cr.translate(dx, dy)
             cr.scale(tile_w / _TILE_PX, tile_h / _TILE_PX)
@@ -698,7 +731,9 @@ def _build_osm_map_widget(
             cr.paint()
             cr.restore()
 
-        # Loading indicator (shown only before first tile arrives)
+        if scale != 1.0:
+            cr.restore()
+
         if state["loading"] and not state["surfaces"]:
             cr.set_source_rgba(1, 1, 1, 0.55)
             cr.select_font_face("Sans", 0, 0)
@@ -708,23 +743,23 @@ def _build_osm_map_widget(
             cr.move_to(w / 2 - te.width / 2, h / 2 + te.height / 2)
             cr.show_text(text)
 
-        # GPS track
+        # GPS track — drawn after tiles so it's always on top
         speeds = [s for _, _, s in gps_points if s is not None]
         vmax = max(speeds) if speeds else 0.0
-        cr.set_line_width(2.5)
-        cr.set_line_cap(1)   # ROUND
+        cr.set_line_width(3.0)
+        cr.set_line_cap(1)
         cr.set_line_join(1)
         prev: tuple[float, float] | None = None
         for lat, lon, spd in gps_points:
-            px, py = _gps_to_widget(lat, lon, w, h)
+            px, py = _gps_px(lat, lon, w, h)
             if spd is not None and vmax > 0:
                 t = min(1.0, spd / vmax)
-                r = 0.2 + 0.7 * t
-                g = 0.5 + 0.4 * (1 - abs(0.5 - t) * 2)
-                b = 0.9 - 0.8 * t
+                rr = 0.2 + 0.7 * t
+                gg = 0.5 + 0.4 * (1 - abs(0.5 - t) * 2)
+                bb = 0.9 - 0.8 * t
             else:
-                r, g, b = 0.4, 0.6, 0.9
-            cr.set_source_rgb(r, g, b)
+                rr, gg, bb = 0.4, 0.6, 0.9
+            cr.set_source_rgb(rr, gg, bb)
             if prev is None:
                 cr.move_to(px, py)
             else:
@@ -733,15 +768,18 @@ def _build_osm_map_widget(
                 cr.stroke()
             prev = (px, py)
 
-        # Start / end markers
-        sx, sy = _gps_to_widget(gps_points[0][0], gps_points[0][1], w, h)
-        ex, ey = _gps_to_widget(gps_points[-1][0], gps_points[-1][1], w, h)
-        cr.set_source_rgb(0.13, 0.67, 0.27)
-        cr.arc(sx, sy, 5, 0, 6.2832)
-        cr.fill()
-        cr.set_source_rgb(0.86, 0.21, 0.27)
-        cr.arc(ex, ey, 5, 0, 6.2832)
-        cr.fill()
+        # Start (green) / end (red) markers with white border
+        for lat, lon, fill in [
+            (gps_points[0][0],  gps_points[0][1],  (0.13, 0.67, 0.27)),
+            (gps_points[-1][0], gps_points[-1][1], (0.86, 0.21, 0.27)),
+        ]:
+            mx, my = _gps_px(lat, lon, w, h)
+            cr.set_source_rgb(1, 1, 1)
+            cr.arc(mx, my, 7, 0, 6.2832)
+            cr.fill()
+            cr.set_source_rgb(*fill)
+            cr.arc(mx, my, 5.5, 0, 6.2832)
+            cr.fill()
 
     area = Gtk.DrawingArea()
     area.set_content_height(height)
@@ -750,15 +788,22 @@ def _build_osm_map_widget(
     area.set_draw_func(draw_cb)
     area_holder.append(area)
 
-    def fetch_tiles() -> None:
+    # ---- Pinch-to-zoom ------------------------------------------------
+    zoom_at_gesture_start: list[int] = [state["zoom"]]
+
+    def _start_fetch(v: dict[str, Any]) -> None:
         import cairo as _c
-        for ty in range(ty0, ty1 + 1):
-            for tx in range(tx0, tx1 + 1):
-                data = _fetch_osm_tile(zoom, tx, ty)
+        z = v["zoom"]
+        for ty in range(v["ty0"], v["ty1"] + 1):
+            for tx in range(v["tx0"], v["tx1"] + 1):
+                if state["zoom"] != z:       # abort if user zoomed again
+                    return
+                data = _fetch_osm_tile(z, tx, ty)
                 if data:
                     try:
-                        surf = _c.ImageSurface.create_from_png(io.BytesIO(data))
-                        state["surfaces"][(zoom, tx, ty)] = surf
+                        raw = _c.ImageSurface.create_from_png(io.BytesIO(data))
+                        surf = _tile_to_grayscale(raw)
+                        state["surfaces"][(z, tx, ty)] = surf
                         if area_holder:
                             GLib.idle_add(area_holder[0].queue_draw)
                     except Exception:
@@ -767,7 +812,39 @@ def _build_osm_map_widget(
         if area_holder:
             GLib.idle_add(area_holder[0].queue_draw)
 
-    threading.Thread(target=fetch_tiles, daemon=True).start()
+    def _on_zoom_begin(gesture: Any, seq: Any) -> None:
+        zoom_at_gesture_start[0] = state["zoom"]
+        state["pinch_scale"] = 1.0
+
+    def _on_scale_changed(gesture: Any, scale: float) -> None:
+        state["pinch_scale"] = max(0.25, min(4.0, scale))
+        if area_holder:
+            area_holder[0].queue_draw()
+
+    def _on_zoom_end(gesture: Any, seq: Any) -> None:
+        scale = state["pinch_scale"]
+        state["pinch_scale"] = 1.0
+        delta = round(math.log2(max(0.01, scale)))
+        new_zoom = max(2, min(18, zoom_at_gesture_start[0] + delta))
+        if new_zoom == state["zoom"]:
+            if area_holder:
+                area_holder[0].queue_draw()
+            return
+        v = _view(new_zoom)
+        state.update(v)
+        state["surfaces"] = {}
+        state["loading"] = True
+        if area_holder:
+            area_holder[0].queue_draw()
+        threading.Thread(target=_start_fetch, args=(v,), daemon=True).start()
+
+    zoom_gesture = Gtk.GestureZoom()
+    zoom_gesture.connect("begin", _on_zoom_begin)
+    zoom_gesture.connect("scale-changed", _on_scale_changed)
+    zoom_gesture.connect("end", _on_zoom_end)
+    area.add_controller(zoom_gesture)
+
+    threading.Thread(target=_start_fetch, args=(dict(state),), daemon=True).start()
     return area
 
 
