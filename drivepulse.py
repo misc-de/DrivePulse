@@ -2537,22 +2537,54 @@ class DashboardWindow(Adw.ApplicationWindow):
             pass
 
 
-def _register_local_icon() -> None:
-    """Register the app PNG icon (window/taskbar) and ensure SVG icons are reachable.
+def _build_icon_gresource() -> Path | None:
+    """Compile icons.gresource.xml → icons.gresource if the source is newer.
 
-    Symbolic SVGs under icons/hicolor/ are already discoverable via XDG_DATA_DIRS
-    (set at module load time before GTK imports).  GTK recolours them automatically
-    for dark/light theme because the SVGs use fill="currentColor".
+    Returns the path to the compiled bundle, or None on failure.
+    """
+    src_xml = Path(__file__).parent / "icons.gresource.xml"
+    out_bin = Path(__file__).parent / "icons.gresource"
+    if not src_xml.exists():
+        return None
+    if out_bin.exists() and out_bin.stat().st_mtime >= src_xml.stat().st_mtime:
+        return out_bin
+    try:
+        subprocess.run(
+            ["glib-compile-resources", "--target", str(out_bin), str(src_xml)],
+            cwd=str(Path(__file__).parent),
+            check=True,
+            capture_output=True,
+        )
+        return out_bin
+    except Exception:
+        return None
+
+
+def _register_local_icon() -> None:
+    """Register bundled SVG icons via GResource + app PNG icon for window/taskbar.
+
+    GResource is the most reliable method: icons are loaded directly into the
+    process without depending on XDG_DATA_DIRS or a filesystem icon-theme cache.
+    GTK recolours symbolic SVGs (fill="currentColor") automatically for dark/light.
     """
     theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
 
-    # Belt-and-suspenders: also add via add_search_path in case XDG_DATA_DIRS
-    # was already consumed by GTK before our modification took effect.
+    # Primary: GResource — icons compiled into a binary bundle at build/run time.
+    gresource_bin = _build_icon_gresource()
+    if gresource_bin is not None:
+        try:
+            resource = Gio.Resource.load(str(gresource_bin))
+            Gio.resources_register(resource)
+            theme.add_resource_path("/de/cais/DrivePulse/icons")
+        except Exception:
+            pass
+
+    # Fallback: filesystem search path (requires icons/hicolor/index.theme).
     icons_dir = Path(__file__).parent / "icons"
     if icons_dir.is_dir():
         theme.add_search_path(str(icons_dir))
 
-    # App icon (PNG, for window/taskbar)
+    # App icon (PNG, for window/taskbar).
     local_icon = Path(__file__).parent / "icon.png"
     if local_icon.exists():
         try:
