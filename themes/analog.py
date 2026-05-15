@@ -137,9 +137,8 @@ def _analog_gauge(
         _txt(cr, val_unit, cx, cy + r * 0.22 + title_sz * 0.9 + val_sz * 1.22, unit_sz,
              (*dim_col, 0.80 * a), max_w=r * 1.2)
     else:
-        _txt(cr, val_label, cx, cy + r * 0.30, val_sz, (*text_col, a), bold=True, max_w=r * 1.4)
-        _txt(cr, val_unit, cx, cy + r * 0.30 + val_sz * 0.72, unit_sz,
-             (*dim_col, 0.80 * a), max_w=r * 1.2)
+        _txt(cr, val_unit, cx, cy + r * 0.30, unit_sz, (*dim_col, 0.80 * a), max_w=r * 1.2)
+        _txt(cr, val_label, cx, cy + r * 0.50, val_sz, (*text_col, a), bold=True, max_w=r * 1.4)
 
 
 def _compass_analog(
@@ -214,8 +213,6 @@ def _compass_analog(
 def _analog_info_bar(cr: Any, width: int, height: int, d: Any, bar_y: float) -> None:
     """Bottom info strip for analog — label above, value below."""
     items: list = []  # (label, value, active)
-    if d.heading_active:
-        items.append((_translate(d.language, 'dashboard.coolant'), f"{d.coolant_label} °C", d.coolant_active))
     if d.fuel_active:
         items.append((_translate(d.language, 'dashboard.fuel'), d.fuel_label, True))
     if not items or bar_y >= height * 0.96:
@@ -261,17 +258,13 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
 
     _analog_gauge(cr, cx_right, cy_main, r_right,
                   d.rpm, 0, d.rpm_max,
-                  d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), _translate(d.language, "dashboard.rpm"),
+                  d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), "",
                   d.rpm_active, 1000.0, 500.0)
 
-    if d.heading_active:
-        _compass_analog(cr, cx_left, cy_main, r_left,
-                        d.heading_deg, d.heading_str, True)
-    else:
-        _analog_gauge(cr, cx_left, cy_main, r_left,
-                      d.coolant, d.coolant_min, d.coolant_max,
-                      d.coolant_label, "°C", _translate(d.language, "dashboard.coolant"),
-                      d.coolant_active, 20.0, 10.0)
+    _analog_gauge(cr, cx_left, cy_main, r_left,
+                  d.coolant, 0.0, 130.0,
+                  d.coolant_label, "°C", _translate(d.language, "dashboard.coolant"),
+                  d.coolant_active, 20.0, 10.0)
 
     _analog_info_bar(cr, width, height, d, cy_main + r_center + height * 0.045)
 
@@ -298,17 +291,13 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
 
     _analog_gauge(cr, cx_left, cy_side, r_side,
                   d.rpm, 0, d.rpm_max,
-                  d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), _translate(d.language, "dashboard.rpm"),
+                  d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), "",
                   d.rpm_active, 1000.0, 500.0)
 
-    if d.heading_active:
-        _compass_analog(cr, cx_right, cy_side, r_side,
-                        d.heading_deg, d.heading_str, True)
-    else:
-        _analog_gauge(cr, cx_right, cy_side, r_side,
-                      d.coolant, d.coolant_min, d.coolant_max,
-                      d.coolant_label, "°C", _translate(d.language, "dashboard.coolant"),
-                      d.coolant_active, 20.0, 10.0)
+    _analog_gauge(cr, cx_right, cy_side, r_side,
+                  d.coolant, 0.0, 130.0,
+                  d.coolant_label, "°C", _translate(d.language, "dashboard.coolant"),
+                  d.coolant_active, 20.0, 10.0)
 
     _analog_info_bar(cr, width, height, d, cy_side + r_side + height * 0.04)
 
