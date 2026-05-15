@@ -2,8 +2,7 @@
 <gresources>
   <gresource prefix="/de/cais/DrivePulse/icons/scalable/actions">
     <file alias="speedometer4-symbolic.svg">icons/hicolor/symbolic/actions/speedometer4-symbolic.svg</file>
-    <file alias="speedometer3-symbolic.svg">icons/hicolor/symbolic/actions/speedometer3-symbolic.svg</file>
-    <file alias="driving-symbolic.svg">icons/hicolor/symbolic/actions/driving-symbolic.svg</file>
+<file alias="driving-symbolic.svg">icons/hicolor/symbolic/actions/driving-symbolic.svg</file>
     <file alias="playback-speed-symbolic.svg">icons/hicolor/symbolic/actions/playback-speed-symbolic.svg</file>
     <file alias="thermometer-symbolic.svg">icons/hicolor/symbolic/actions/thermometer-symbolic.svg</file>
     <file alias="globe-symbolic.svg">icons/hicolor/symbolic/actions/globe-symbolic.svg</file>
