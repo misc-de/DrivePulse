@@ -50,7 +50,7 @@ _SPECIAL_PENDING = "__PENDING_DTC__"
 _SPECIAL_ADAPTER_V = "__ATRV__"
 
 CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
-    ("vehicle", "cars.category.vehicle", "info", (
+    ("vehicle", "cars.category.vehicle", "info-symbolic", (
         (_SPECIAL_VIN,        "cars.pid.VIN"),
         (_SPECIAL_CAL,        "cars.pid.CAL"),
         (_SPECIAL_CVN,        "cars.pid.CVN"),
@@ -58,7 +58,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("011C",              "cars.pid.011C"),
         (_SPECIAL_SCAN_DATE,  "cars.pid.SCAN_DATE"),
     )),
-    ("engine", "cars.category.engine", "step_object_LinearMotor", (
+    ("engine", "cars.category.engine", "step_object_LinearMotor-symbolic", (
         ("010C", "cars.pid.010C"),
         ("0104", "cars.pid.0104"),
         ("0143", "cars.pid.0143"),
@@ -67,13 +67,13 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("0142", "cars.pid.0142"),
         (_SPECIAL_ADAPTER_V, "cars.pid.ATRV"),
     )),
-    ("drive", "cars.category.drive", "speedometer3", (
+    ("drive", "cars.category.drive", "speedometer3-symbolic", (
         ("010D", "cars.pid.010D"),
         ("0131", "cars.pid.0131"),
         ("0121", "cars.pid.0121"),
         ("0130", "cars.pid.0130"),
     )),
-    ("temperatures", "cars.category.temperatures", "thermometer", (
+    ("temperatures", "cars.category.temperatures", "thermometer-symbolic", (
         ("0105", "cars.pid.0105"),
         ("010F", "cars.pid.010F"),
         ("0146", "cars.pid.0146"),
@@ -109,7 +109,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("0141", "cars.pid.0141"),
     )),
     # Sonderfall: keine PID-Liste, Inhalt = Fahrten dieses Autos aus der DB
-    ("trips", "cars.category.trips", "globe", ()),
+    ("trips", "cars.category.trips", "globe-symbolic", ()),
     # Sonderfall: Scan-Verlauf aus der DB
     ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
 )
