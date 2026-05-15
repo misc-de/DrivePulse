@@ -67,7 +67,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("0142", "cars.pid.0142"),
         (_SPECIAL_ADAPTER_V, "cars.pid.ATRV"),
     )),
-    ("drive", "cars.category.drive", "speedometer3-symbolic", (
+    ("drive", "cars.category.drive", "speedometer4-symbolic", (
         ("010D", "cars.pid.010D"),
         ("0131", "cars.pid.0131"),
         ("0121", "cars.pid.0121"),
