@@ -1,12 +1,12 @@
 """Autos-Browser: Liste bekannter Fahrzeuge → Detail mit kategorisierten Werten."""
 from __future__ import annotations
 
-import http.server
+import io
 import json
 import math
 import re
-import socketserver
 import threading
+import urllib.request
 from datetime import datetime
 from typing import Any, Callable
 
@@ -572,184 +572,203 @@ def _draw_speed_series(cr: Any, width: int, height: int, series: list[tuple[floa
     cr.stroke()
 
 
-class _TileProxyHandler(http.server.BaseHTTPRequestHandler):
-    """Proxies OSM tile requests from WebKit to tile.openstreetmap.org.
+# ---------------------------------------------------------------------------
+# OSM tile rendering — pure Python/Cairo, no WebKit needed
+# ---------------------------------------------------------------------------
 
-    WebKit's content-process sandbox can silently block tile images even when
-    script loading works.  Routing through localhost bypasses this because
-    WebKit always allows loopback connections.
-    """
-
-    _cache: dict[str, bytes] = {}
-    _cache_lock = threading.Lock()
-    _MAX_TILES = 800  # ~20–40 MB depending on tile size
-
-    def do_GET(self) -> None:
-        # self.path is e.g. "/15/17602/11365.png"
-        import urllib.request as _ur
-        cache_key = self.path
-        with self._cache_lock:
-            data = self._cache.get(cache_key)
-        if data is None:
-            try:
-                req = _ur.Request(
-                    "https://tile.openstreetmap.org" + self.path,
-                    headers={"User-Agent": "DrivePulse/1.0 (GTK4 OBD dashboard)"},
-                )
-                with _ur.urlopen(req, timeout=10) as resp:
-                    data = resp.read()
-                with self._cache_lock:
-                    if len(self._cache) >= self._MAX_TILES:
-                        oldest = next(iter(self._cache))
-                        del self._cache[oldest]
-                    self._cache[cache_key] = data
-            except Exception:
-                self.send_error(502)
-                return
-        self.send_response(200)
-        self.send_header("Content-Type", "image/png")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(data)
-
-    def log_message(self, *_args: object) -> None:
-        pass  # suppress access log noise
+_osm_tile_cache: dict[tuple[int, int, int], bytes] = {}
+_osm_tile_lock = threading.Lock()
+_OSM_TILE_CACHE_MAX = 1000
+_TILE_PX = 256
 
 
-_tile_proxy_port: int | None = None
-_tile_proxy_lock = threading.Lock()
+def _lon_to_tx(lon: float, zoom: int) -> int:
+    return int((lon + 180.0) / 360.0 * (1 << zoom))
 
 
-def _get_tile_proxy_port() -> int:
-    """Start the tile proxy on first call and return its port (lazy singleton)."""
-    global _tile_proxy_port
-    with _tile_proxy_lock:
-        if _tile_proxy_port is None:
-            server = socketserver.TCPServer(("127.0.0.1", 0), _TileProxyHandler)
-            server.allow_reuse_address = True
-            _tile_proxy_port = server.server_address[1]
-            t = threading.Thread(target=server.serve_forever, daemon=True)
-            t.start()
-    return _tile_proxy_port
+def _lat_to_ty(lat: float, zoom: int) -> int:
+    lat_r = math.radians(lat)
+    return int((1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r)) / math.pi) / 2.0 * (1 << zoom))
+
+
+def _tx_to_lon(tx: int, zoom: int) -> float:
+    return tx / (1 << zoom) * 360.0 - 180.0
+
+
+def _ty_to_lat(ty: int, zoom: int) -> float:
+    n = math.pi - 2.0 * math.pi * ty / (1 << zoom)
+    return math.degrees(math.atan(math.sinh(n)))
+
+
+def _pick_zoom(lat_min: float, lat_max: float, lon_min: float, lon_max: float) -> int:
+    """Highest zoom where the bounding box needs ≤6 tiles in each dimension."""
+    for zoom in range(16, 9, -1):
+        ntx = _lon_to_tx(lon_max, zoom) - _lon_to_tx(lon_min, zoom) + 1
+        nty = _lat_to_ty(lat_min, zoom) - _lat_to_ty(lat_max, zoom) + 1
+        if ntx <= 6 and nty <= 6:
+            return zoom
+    return 10
+
+
+def _fetch_osm_tile(zoom: int, tx: int, ty: int) -> bytes | None:
+    key = (zoom, tx, ty)
+    with _osm_tile_lock:
+        cached = _osm_tile_cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        req = urllib.request.Request(
+            f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png",
+            headers={"User-Agent": "DrivePulse/1.0 (GTK4 OBD dashboard)"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = r.read()
+    except Exception:
+        return None
+    with _osm_tile_lock:
+        if len(_osm_tile_cache) >= _OSM_TILE_CACHE_MAX:
+            del _osm_tile_cache[next(iter(_osm_tile_cache))]
+        _osm_tile_cache[key] = data
+    return data
 
 
 def _build_osm_map_widget(
     gps_points: list[tuple[float, float, float | None]],
     height: int = 300,
 ) -> "Gtk.Widget | None":
-    """Return a WebKit WebView showing the GPS track on OpenStreetMap.
+    """Tile-stitched OSM map rendered with Cairo — no WebKit required.
 
-    Returns None when WebKit is not available so callers can fall back to the
-    Cairo drawing.
+    Tiles are fetched from tile.openstreetmap.org in a background thread and
+    composited onto a DrawingArea.  The GPS track is drawn on top.
+    Returns None only if the cairo module is unavailable.
     """
     try:
-        import gi as _gi
-        try:
-            _gi.require_version("WebKit", "6.0")
-            from gi.repository import WebKit as _WebKit  # type: ignore[attr-defined]
-            print("[OSM] using WebKit 6.0")
-        except (ValueError, ImportError):
-            _gi.require_version("WebKit2", "4.1")
-            from gi.repository import WebKit2 as _WebKit  # type: ignore[attr-defined,no-redef]
-            print("[OSM] using WebKit2 4.1")
-    except Exception as e:
-        print(f"[OSM] WebKit not available: {e} — falling back to Cairo")
+        import cairo as _cairo
+    except ImportError:
         return None
 
-    pts_data = [
-        [lat, lon, spd if spd is not None else -1.0]
-        for lat, lon, spd in gps_points
-    ]
-    speeds = [s for _, _, s in gps_points if s is not None]
-    max_speed = max(speeds) if speeds else 1.0
-    pts_json = json.dumps(pts_data)
+    lats = [p[0] for p in gps_points]
+    lons = [p[1] for p in gps_points]
+    lat_min, lat_max = min(lats), max(lats)
+    lon_min, lon_max = min(lons), max(lons)
 
-    # Route tiles through a local Python proxy so WebKit's content-process
-    # sandbox cannot block them.  Leaflet still loads from the CDN (scripts are
-    # not affected by the sandbox), but tile images go via 127.0.0.1.
-    try:
-        port = _get_tile_proxy_port()
-    except Exception:
-        port = None
+    # Pad the bounding box so the track doesn't touch the edges
+    lat_pad = max((lat_max - lat_min) * 0.15, 0.003)
+    lon_pad = max((lon_max - lon_min) * 0.15, 0.005)
+    lat_min -= lat_pad; lat_max += lat_pad
+    lon_min -= lon_pad; lon_max += lon_pad
 
-    if port is not None:
-        tile_url = f"http://127.0.0.1:{port}/{{z}}/{{x}}/{{y}}.png"
-        tile_opts = "maxZoom:19,attribution:'\\u00a9 <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors'"
-    else:
-        # Fallback: direct OSM (may not work in sandboxed WebKit)
-        tile_url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        tile_opts = "maxZoom:19,attribution:'\\u00a9 OpenStreetMap contributors'"
+    zoom = _pick_zoom(lat_min, lat_max, lon_min, lon_max)
+    tx0 = _lon_to_tx(lon_min, zoom)
+    tx1 = _lon_to_tx(lon_max, zoom)
+    ty0 = _lat_to_ty(lat_max, zoom)   # north → smaller y index
+    ty1 = _lat_to_ty(lat_min, zoom)   # south → larger  y index
 
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-*{{box-sizing:border-box;margin:0;padding:0;}}
-html,body{{width:100%;height:{height}px;overflow:hidden;background:#1a1a2e;}}
-#map{{width:100%;height:{height}px;}}
-#msg{{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-      color:#aaa;font:14px sans-serif;text-align:center;pointer-events:none;}}
-</style>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-</head>
-<body>
-<div id="map"></div>
-<div id="msg">Loading map…</div>
-<script>
-window.addEventListener('load', function() {{
-  var msg = document.getElementById('msg');
-  if (typeof L === 'undefined') {{
-    msg.textContent = 'Map unavailable — no internet?';
-    return;
-  }}
-  msg.style.display = 'none';
-  var pts = {pts_json};
-  var maxSpd = {max_speed:.2f};
-  var map = L.map('map', {{attributionControl:true, zoomControl:true}});
-  L.tileLayer('{tile_url}', {{{tile_opts}}}).addTo(map);
-  function spColor(spd) {{
-    if (spd < 0 || maxSpd <= 0) return '#6699ee';
-    var t = Math.min(1.0, spd / Math.max(1.0, maxSpd));
-    return 'rgb(' + Math.round(51+178*t) + ',' + Math.round(128+102*(1-Math.abs(0.5-t)*2)) + ',' + Math.round(230-204*t) + ')';
-  }}
-  for (var i = 1; i < pts.length; i++) {{
-    L.polyline([[pts[i-1][0],pts[i-1][1]],[pts[i][0],pts[i][1]]], {{
-      color: spColor(pts[i][2]), weight: 3.5, opacity: 0.9
-    }}).addTo(map);
-  }}
-  if (pts.length > 0) {{
-    L.circleMarker([pts[0][0],pts[0][1]], {{radius:7,color:'#fff',weight:2,fillColor:'#22aa44',fillOpacity:1}}).addTo(map);
-    L.circleMarker([pts[pts.length-1][0],pts[pts.length-1][1]], {{radius:7,color:'#fff',weight:2,fillColor:'#dd3333',fillOpacity:1}}).addTo(map);
-  }}
-  if (pts.length > 1) {{
-    var lats = pts.map(function(p){{return p[0];}});
-    var lons = pts.map(function(p){{return p[1];}});
-    map.fitBounds([[Math.min.apply(null,lats),Math.min.apply(null,lons)],
-                   [Math.max.apply(null,lats),Math.max.apply(null,lons)]], {{padding:[20,20]}});
-  }} else {{
-    map.setView([pts[0][0],pts[0][1]], 15);
-  }}
-}});
-</script>
-</body>
-</html>"""
+    # Geographic extent covered by the full tile grid
+    nw_lon = _tx_to_lon(tx0, zoom)
+    nw_lat = _ty_to_lat(ty0, zoom)
+    se_lon = _tx_to_lon(tx1 + 1, zoom)
+    se_lat = _ty_to_lat(ty1 + 1, zoom)
+    n_tx = tx1 - tx0 + 1
+    n_ty = ty1 - ty0 + 1
 
-    try:
-        settings = _WebKit.Settings()
-        settings.set_enable_javascript(True)
-        view = _WebKit.WebView()
-        view.set_settings(settings)
-        view.set_size_request(-1, height)
-        view.set_hexpand(True)
-        view.load_html(html, None)
-        print(f"[OSM] WebView created, tile proxy port={port}, {len(gps_points)} GPS points")
-        return view
-    except Exception as e:
-        print(f"[OSM] WebView creation failed: {e} — falling back to Cairo")
-        return None
+    state: dict[str, Any] = {"surfaces": {}, "loading": True}
+    area_holder: list[Gtk.DrawingArea] = []
+
+    def _gps_to_widget(lat: float, lon: float, w: float, h: float) -> tuple[float, float]:
+        fx = (lon - nw_lon) / (se_lon - nw_lon)
+        fy = (nw_lat - lat) / (nw_lat - se_lat)
+        return fx * w, fy * h
+
+    def draw_cb(area: Gtk.DrawingArea, cr: Any, w: int, h: int) -> None:
+        # Background
+        cr.set_source_rgb(0.10, 0.12, 0.18)
+        cr.paint()
+
+        # Map tiles
+        tile_w = w / n_tx
+        tile_h = h / n_ty
+        for (tz, ttx, tty), surf in list(state["surfaces"].items()):
+            dx = (ttx - tx0) * tile_w
+            dy = (tty - ty0) * tile_h
+            cr.save()
+            cr.translate(dx, dy)
+            cr.scale(tile_w / _TILE_PX, tile_h / _TILE_PX)
+            cr.set_source_surface(surf, 0, 0)
+            cr.paint()
+            cr.restore()
+
+        # Loading indicator (shown only before first tile arrives)
+        if state["loading"] and not state["surfaces"]:
+            cr.set_source_rgba(1, 1, 1, 0.55)
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(13)
+            text = "Loading map…"
+            te = cr.text_extents(text)
+            cr.move_to(w / 2 - te.width / 2, h / 2 + te.height / 2)
+            cr.show_text(text)
+
+        # GPS track
+        speeds = [s for _, _, s in gps_points if s is not None]
+        vmax = max(speeds) if speeds else 0.0
+        cr.set_line_width(2.5)
+        cr.set_line_cap(1)   # ROUND
+        cr.set_line_join(1)
+        prev: tuple[float, float] | None = None
+        for lat, lon, spd in gps_points:
+            px, py = _gps_to_widget(lat, lon, w, h)
+            if spd is not None and vmax > 0:
+                t = min(1.0, spd / vmax)
+                r = 0.2 + 0.7 * t
+                g = 0.5 + 0.4 * (1 - abs(0.5 - t) * 2)
+                b = 0.9 - 0.8 * t
+            else:
+                r, g, b = 0.4, 0.6, 0.9
+            cr.set_source_rgb(r, g, b)
+            if prev is None:
+                cr.move_to(px, py)
+            else:
+                cr.move_to(*prev)
+                cr.line_to(px, py)
+                cr.stroke()
+            prev = (px, py)
+
+        # Start / end markers
+        sx, sy = _gps_to_widget(gps_points[0][0], gps_points[0][1], w, h)
+        ex, ey = _gps_to_widget(gps_points[-1][0], gps_points[-1][1], w, h)
+        cr.set_source_rgb(0.13, 0.67, 0.27)
+        cr.arc(sx, sy, 5, 0, 6.2832)
+        cr.fill()
+        cr.set_source_rgb(0.86, 0.21, 0.27)
+        cr.arc(ex, ey, 5, 0, 6.2832)
+        cr.fill()
+
+    area = Gtk.DrawingArea()
+    area.set_content_height(height)
+    area.set_hexpand(True)
+    area.add_css_class("card")
+    area.set_draw_func(draw_cb)
+    area_holder.append(area)
+
+    def fetch_tiles() -> None:
+        import cairo as _c
+        for ty in range(ty0, ty1 + 1):
+            for tx in range(tx0, tx1 + 1):
+                data = _fetch_osm_tile(zoom, tx, ty)
+                if data:
+                    try:
+                        surf = _c.ImageSurface.create_from_png(io.BytesIO(data))
+                        state["surfaces"][(zoom, tx, ty)] = surf
+                        if area_holder:
+                            GLib.idle_add(area_holder[0].queue_draw)
+                    except Exception:
+                        pass
+        state["loading"] = False
+        if area_holder:
+            GLib.idle_add(area_holder[0].queue_draw)
+
+    threading.Thread(target=fetch_tiles, daemon=True).start()
+    return area
 
 
 def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
@@ -1322,9 +1341,7 @@ class CarsPage(Gtk.Box):
         self.content_title.set_text(_translate(self.language, cat_name_key))
 
         data, source_label = self._current_data()
-        self.content_subtitle.set_text(
-            _translate(self.language, "cars.source.label", source=source_label)
-        )
+        self.content_subtitle.set_text("")
 
         if cat_key == "trips":
             self._render_trips_into_value_list()
