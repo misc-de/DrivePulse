@@ -207,6 +207,7 @@ class GaugeState:
     unit: str = ""
     min_value: float = 0.0
     max_value: float = 100.0
+    source_label: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +258,14 @@ class Gauge(Gtk.DrawingArea):
 
     def set_theme(self, theme: str) -> None:
         self.theme = theme
+        self.queue_draw()
+
+    def set_source_label(self, text: str) -> None:
+        """Discreet source annotation (e.g. 'OBD'/'GPS') drawn over the gauge."""
+        text = text or ""
+        if text == self.state.source_label:
+            return
+        self.state.source_label = text
         self.queue_draw()
 
     def set_rotation(self, angle: int) -> None:
@@ -329,6 +338,7 @@ class Gauge(Gtk.DrawingArea):
 
     def _draw(self, area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
         w, h = _gauge_apply_rotation(cr, width, height, self._rotation)
+        drew_theme = False
         if self.theme.startswith("user:"):
             stem = self.theme[5:]
             if stem in _user_themes:
@@ -336,12 +346,24 @@ class Gauge(Gtk.DrawingArea):
                 if draw_fn is not None:
                     try:
                         draw_fn(cr, w, h, self)
-                        return
+                        drew_theme = True
                     except Exception:
                         pass  # fall through to default on error
-                # draw_fn is None = only CSS theme, use cockpit for gauge
-        mod = _builtin_gauge_mods.get(self.theme) or _builtin_gauge_mods.get("cockpit")
-        if mod:
-            draw_fn = getattr(mod, "draw", None)
-            if callable(draw_fn):
-                draw_fn(cr, w, h, self)
+        if not drew_theme:
+            mod = _builtin_gauge_mods.get(self.theme) or _builtin_gauge_mods.get("cockpit")
+            if mod:
+                draw_fn = getattr(mod, "draw", None)
+                if callable(draw_fn):
+                    draw_fn(cr, w, h, self)
+        self._draw_source_overlay(cr, w, h)
+
+    def _draw_source_overlay(self, cr: Any, width: int, height: int) -> None:
+        text = self.state.source_label
+        if not text or not self.active:
+            return
+        size = min(width, height)
+        cx = width / 2
+        cy = height / 2
+        font_size = max(9.0, size * 0.052)
+        self._draw_text_centered(cr, text, cx, cy - size * 0.22,
+                                 font_size, 0.55, False, size * 0.5)

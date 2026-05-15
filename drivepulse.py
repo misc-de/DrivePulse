@@ -320,11 +320,21 @@ class ObdScanner:
         port: str | None,
         on_update: Callable[[dict[str, Any]], None],
         session_cache: set[str],
+        force_rescan: bool = False,
+        query_locked: Callable[[Any], Any] | None = None,
+        yield_between_queries: float = 0.0,
+        stop_event: threading.Event | None = None,
     ) -> None:
         self.connection = connection
         self.port = port or "unknown"
         self.on_update = on_update
         self._session_cache = session_cache
+        self.force_rescan = force_rescan
+        # When provided, the scanner queries the OBD bus through this callable so
+        # the reader thread can safely interleave its own queries via a shared lock.
+        self._query_locked = query_locked or (lambda cmd: connection.query(cmd))
+        self._yield = max(0.0, yield_between_queries)
+        self._stop_event = stop_event
 
     def _emit(self, status: str, progress: float, current: str = "") -> None:
         GLib.idle_add(self.on_update, {
@@ -354,11 +364,11 @@ class ObdScanner:
         # Identität für die Trip-DB immer mitteilen, auch wenn der Scan ansonsten geskippt wird.
         self._emit_identity(vin, profile_path)
 
-        if identity in self._session_cache:
+        if identity in self._session_cache and not self.force_rescan:
             self._emit("skipped", 1.0)
             return
 
-        if profile_path.exists():
+        if profile_path.exists() and not self.force_rescan:
             self._session_cache.add(identity)
             # Schnellscan: Cal-ID/CVN aus dem vorhandenen Profil nachreichen
             try:
@@ -387,14 +397,18 @@ class ObdScanner:
         # Mode 01: snapshot of all supported live-data PIDs
         live_data: dict[str, Any] = {}
         for cmd in mode1_cmds:
+            if self._stop_event is not None and self._stop_event.is_set():
+                return
             done += 1
             self._emit("scanning", done / total_steps, str(cmd))
             try:
-                r = self.connection.query(cmd)
+                r = self._query_locked(cmd)
                 if not r.is_null():
                     live_data[str(cmd)] = self._to_plain(r)
             except Exception as exc:
                 live_data[str(cmd)] = {"error": str(exc)}
+            if self._yield:
+                time.sleep(self._yield)
 
         # Mode 03: stored DTCs
         done += 1
@@ -417,11 +431,13 @@ class ObdScanner:
             if cmd is None:
                 continue
             try:
-                r = self.connection.query(cmd)
+                r = self._query_locked(cmd)
                 if not r.is_null():
                     vehicle_info[name] = str(r.value)
             except Exception:
                 pass
+            if self._yield:
+                time.sleep(self._yield)
 
         # Save profile
         done += 1
@@ -476,7 +492,7 @@ class ObdScanner:
             cmd = getattr(obd.commands, "VIN", None)
             if cmd is None:
                 return None
-            r = self.connection.query(cmd)
+            r = self._query_locked(cmd)
             if not r.is_null():
                 val = str(r.value).strip()
                 return val if val else None
@@ -488,7 +504,7 @@ class ObdScanner:
         if cmd is None:
             return []
         try:
-            r = self.connection.query(cmd)
+            r = self._query_locked(cmd)
             if not r.is_null() and r.value:
                 return [str(d) for d in r.value]
         except Exception:
@@ -516,6 +532,11 @@ class ObdReader(GObject.Object):
 
     # Minimum OBD() timeout for direct BT connections (ELM327 init can be slow over BT)
     _BT_OBD_TIMEOUT = 15.0
+    # Periodic re-scan keeps the scan history (DTCs, PIDs) fresh while connected.
+    _RESCAN_INTERVAL_S = float(os.environ.get("OBD_RESCAN_INTERVAL", "900"))
+    # How often to probe for a real dongle while in mock fallback. Lower = faster
+    # pickup when the car is started, at the cost of more failed connect attempts.
+    _MOCK_RECONNECT_INTERVAL_S = float(os.environ.get("OBD_MOCK_RECONNECT_INTERVAL", "3"))
 
     def __init__(self, on_update: Callable[[dict[str, Any]], None], force_mock: bool = False) -> None:
         super().__init__()
@@ -531,6 +552,11 @@ class ObdReader(GObject.Object):
         self._configured_port: str | None = None
         self._force_reconnect = False
         self._scanned_identities: set[str] = set()
+        self._last_scan_monotonic: float = 0.0
+        # Serializes access to self.connection between the reader thread and the
+        # asynchronous vehicle-scan thread so they can interleave queries safely.
+        self._obd_lock = threading.Lock()
+        self._scan_thread: threading.Thread | None = None
         if obd is None:
             self.mock_reason = "python-obd fehlt"
         elif force_mock:
@@ -822,10 +848,51 @@ class ObdReader(GObject.Object):
         self.mock_reason = "kein nutzbarer Dongle gefunden"
         self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
 
-    def _run_vehicle_scan(self) -> None:
+    def _query_locked(self, command: Any) -> Any:
+        """Run an OBD query through the shared lock so the reader and scanner
+        threads cannot interleave bytes on the serial line."""
+        with self._obd_lock:
+            return self.connection.query(command)
+
+    def _run_vehicle_scan(self, force_rescan: bool = False) -> None:
+        """Start the vehicle scan in a background thread so the live read loop
+        is not blocked. The scan can take 30+ seconds over Bluetooth; running it
+        asynchronously lets gauges update within the first poll cycle after
+        connect instead of after the full scan."""
         if obd is None or self.connection is None or self.mock:
             return
-        ObdScanner(self.connection, self.connected_port, self.on_update, self._scanned_identities).run()
+        if self._scan_thread is not None and self._scan_thread.is_alive():
+            return  # a scan is already in progress
+        connection = self.connection
+        port = self.connected_port
+        # Mark scan time at start so periodic re-scans don't pile up.
+        self._last_scan_monotonic = time.monotonic()
+
+        def _worker() -> None:
+            try:
+                ObdScanner(
+                    connection, port, self.on_update, self._scanned_identities,
+                    force_rescan=force_rescan,
+                    query_locked=self._query_locked,
+                    yield_between_queries=0.04,
+                    stop_event=self.stop_event,
+                ).run()
+            except Exception as exc:
+                self._connection_log("scan_thread_error", error=repr(exc), error_type=type(exc).__name__)
+
+        self._scan_thread = threading.Thread(target=_worker, name="obd-scan", daemon=True)
+        self._scan_thread.start()
+
+    def _maybe_periodic_rescan(self) -> None:
+        if self.mock or self.connection is None or self._RESCAN_INTERVAL_S <= 0:
+            return
+        if self._last_scan_monotonic <= 0:
+            return
+        if time.monotonic() - self._last_scan_monotonic < self._RESCAN_INTERVAL_S:
+            return
+        if self._scan_thread is not None and self._scan_thread.is_alive():
+            return
+        self._run_vehicle_scan(force_rescan=True)
 
     def _run(self) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -840,6 +907,7 @@ class ObdReader(GObject.Object):
                 self._connect()
                 self._run_vehicle_scan()
             self._maybe_reconnect_from_mock()
+            self._maybe_periodic_rescan()
             payload = self._read_mock() if self.mock else self._read_obd()
             payload["timestamp"] = datetime.now(timezone.utc).isoformat()
             payload["source"] = ("mock" if self.force_mock else "mock_fallback") if self.mock else "obd"
@@ -861,7 +929,7 @@ class ObdReader(GObject.Object):
         if now < self.next_mock_reconnect_attempt:
             return
 
-        self.next_mock_reconnect_attempt = now + 8.0
+        self.next_mock_reconnect_attempt = now + self._MOCK_RECONNECT_INTERVAL_S
         self._connection_log("mock_reconnect_probe")
         self._connect()
         self._run_vehicle_scan()
@@ -915,7 +983,8 @@ class ObdReader(GObject.Object):
                 continue
             command_count += 1
             try:
-                response = self.connection.query(command)
+                with self._obd_lock:
+                    response = self.connection.query(command)
                 data[key] = self._response_to_plain_value(response)
             except Exception as exc:
                 read_error_count += 1
@@ -2184,6 +2253,7 @@ class DashboardWindow(Adw.ApplicationWindow):
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
                 display = self._display_speed(gps_speed_kmh)
                 self.speed_gauge.set_value(display, f"{display:.0f}" if display is not None else None)
+                self.speed_gauge.set_source_label(_translate(self.language, "gauge.source.gps"))
                 self.dashboard_canvas.update_speed(display, f"{display:.0f}" if display is not None else None)
             return False
 
@@ -2205,6 +2275,12 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self.rpm_gauge.set_value(rpm, None if rpm is None else f"{rpm:.0f}")
         self.speed_gauge.set_value(speed, None if speed is None else f"{speed:.0f}")
+        if obd_speed_kmh is not None:
+            self.speed_gauge.set_source_label(_translate(self.language, "gauge.source.obd"))
+        elif gps_speed_kmh is not None:
+            self.speed_gauge.set_source_label(_translate(self.language, "gauge.source.gps"))
+        else:
+            self.speed_gauge.set_source_label("")
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
         self.acceleration_page.update_payload(payload, self._plain_number)
         self.cars_page.update_live(payload)

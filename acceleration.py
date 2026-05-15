@@ -1,6 +1,7 @@
 """Acceleration measurement page for DrivePulse."""
 from __future__ import annotations
 
+import math
 import time
 from typing import Any, Callable
 
@@ -15,6 +16,148 @@ _WARNING_CSS = (
     b"button.warning-reset{background:rgba(229,165,10,0.85);color:#1c1c1c;}"
     b"button.warning-reset:hover{background:rgba(200,144,8,0.9);}"
 )
+
+
+class GForceCanvas(Gtk.DrawingArea):
+    """2D G-Force visualization: dot inside a ring grid (lateral × longitudinal).
+
+    Style and scale follow the Sensor-Suite reference
+    (https://github.com/misc-de/Sensor-Suite).
+    """
+
+    __gtype_name__ = "GForceCanvas"
+
+    MAX_G = 2.0
+    _SMOOTH = 0.30
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._target_x = 0.0
+        self._target_y = 0.0
+        self._target_z = 1.0
+        self._x = 0.0
+        self._y = 0.0
+        self._z = 1.0
+        self._has_data = False
+        self.set_draw_func(self._draw)
+        self.set_hexpand(True)
+        self.set_vexpand(True)
+        self.set_content_width(220)
+        self.set_content_height(220)
+
+    def update_g(self, x_g: float | None, y_g: float | None, z_g: float | None = None) -> None:
+        if x_g is None and y_g is None and z_g is None:
+            return
+        if x_g is not None:
+            self._target_x = float(x_g)
+        if y_g is not None:
+            self._target_y = float(y_g)
+        if z_g is not None:
+            self._target_z = float(z_g)
+        self._has_data = True
+        self._x += (self._target_x - self._x) * self._SMOOTH
+        self._y += (self._target_y - self._y) * self._SMOOTH
+        self._z += (self._target_z - self._z) * self._SMOOTH
+        self.queue_draw()
+
+    def clear(self) -> None:
+        self._target_x = self._target_y = 0.0
+        self._target_z = 1.0
+        self._x = self._y = 0.0
+        self._z = 1.0
+        self._has_data = False
+        self.queue_draw()
+
+    @staticmethod
+    def _text_center(cr: Any, text: str, x: float, y: float) -> None:
+        ext = cr.text_extents(text)
+        cr.move_to(x - ext.width / 2 - ext.x_bearing, y - ext.height / 2 - ext.y_bearing)
+        cr.show_text(text)
+
+    def _draw(self, _area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
+        cx = width / 2
+        cy = height / 2
+        margin = min(width, height) * 0.165
+        radius = min(width, height) / 2 - margin
+        if radius < 18:
+            return
+
+        # Magnitude (deviation from 1g of gravity) drives colour
+        mag = math.sqrt(self._x ** 2 + self._y ** 2 + self._z ** 2)
+        dev = abs(mag - 1.0)
+        if not self._has_data:
+            r, g, b = 0.45, 0.48, 0.52
+        elif dev < 0.10:
+            r, g, b = 0.20, 0.78, 0.34
+        elif dev < 0.45:
+            r, g, b = 0.95, 0.72, 0.10
+        else:
+            r, g, b = 0.90, 0.22, 0.16
+
+        font_value = max(11.0, radius * 0.16)
+        font_ring  = max(8.0,  radius * 0.095)
+        label_pad  = margin * 0.55
+
+        # Background disc + outer ring
+        cr.arc(cx, cy, radius, 0, math.tau)
+        cr.set_source_rgba(0.08, 0.09, 0.11, 0.95)
+        cr.fill_preserve()
+        cr.set_source_rgba(r, g, b, 0.40)
+        cr.set_line_width(2.2)
+        cr.stroke()
+
+        # Inner rings at 0.5g and 1.0g with labels
+        for ring_g, alpha, lw in ((0.5, 0.20, 1.0), (1.0, 0.45, 1.4)):
+            rpx = (ring_g / self.MAX_G) * radius
+            cr.arc(cx, cy, rpx, 0, math.tau)
+            cr.set_source_rgba(r, g, b, alpha)
+            cr.set_line_width(lw)
+            cr.stroke()
+            cr.select_font_face("Cantarell", 0, 0)
+            cr.set_font_size(font_ring)
+            cr.set_source_rgba(0.60, 0.62, 0.66, 0.75)
+            self._text_center(cr, f"{ring_g:.1f}g", cx + rpx * 0.70, cy - rpx * 0.70)
+
+        # Cross-hairs through centre
+        cr.set_line_width(1.0)
+        cr.set_source_rgba(0.45, 0.47, 0.50, 0.40)
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            cr.move_to(cx + dx * radius * 0.06, cy + dy * radius * 0.06)
+            cr.line_to(cx + dx * radius * 0.94, cy + dy * radius * 0.94)
+        cr.stroke()
+
+        # G-force dot (clamped to ring)
+        dot_r = max(6.0, radius * 0.11)
+        nx = self._x / self.MAX_G
+        ny = self._y / self.MAX_G
+        dist = math.sqrt(nx * nx + ny * ny)
+        limit = 1.0 - dot_r / radius
+        if dist > limit and dist > 0:
+            nx *= limit / dist
+            ny *= limit / dist
+        # X axis: right = positive (right turn / right G)
+        # Y axis: up = positive (forward acceleration)
+        dot_x = cx + nx * radius
+        dot_y = cy - ny * radius
+        cr.arc(dot_x, dot_y, dot_r, 0, math.tau)
+        cr.set_source_rgba(r, g, b, 0.30 if self._has_data else 0.18)
+        cr.fill()
+        cr.arc(dot_x, dot_y, dot_r, 0, math.tau)
+        cr.set_source_rgba(r, g, b, 0.95 if self._has_data else 0.5)
+        cr.set_line_width(2.2)
+        cr.stroke()
+        if self._has_data:
+            cr.arc(dot_x, dot_y, dot_r * 0.32, 0, math.tau)
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.30)
+            cr.fill()
+
+        # Axis labels around the ring (top = longitudinal, right = lateral, bottom = magnitude)
+        cr.select_font_face("Cantarell", 0, 0)
+        cr.set_font_size(font_value)
+        cr.set_source_rgba(0.92, 0.93, 0.95, 0.95 if self._has_data else 0.55)
+        self._text_center(cr, f"{self._y:+.2f}g", cx, cy - radius - label_pad)
+        self._text_center(cr, f"{self._x:+.2f}g", cx + radius + label_pad, cy)
+        self._text_center(cr, f"{mag:.2f}g",     cx, cy + radius + label_pad)
 
 
 def _apply_warning_css(button: Gtk.Button) -> None:
@@ -56,6 +199,10 @@ class AccelerationPage(Gtk.Box):
         self.max_obd_speed: float | None = None
         self.max_gps_speed: float | None = None
         self.max_g: float | None = None
+        # State for synthesizing lateral G from GPS heading change × speed
+        self._last_heading_deg: float | None = None
+        self._last_heading_time: float | None = None
+        self._lateral_g: float = 0.0
         self.results: dict[int, dict[str, float | None]] = {
             target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
         }
@@ -125,11 +272,47 @@ class AccelerationPage(Gtk.Box):
         controls.append(self.abort_button)
         controls.append(self.reset_button)
 
+        # G-Force visualization (Sensor-Suite inspired)
+        self.gforce_canvas = GForceCanvas()
+        self.gforce_canvas.set_size_request(220, 220)
+
+        # Container that switches orientation between portrait (canvas below results)
+        # and landscape (canvas next to results).
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.content_box.set_hexpand(True)
+        self.content_box.set_vexpand(True)
+        self.results_box.set_hexpand(True)
+        self.results_box.set_vexpand(True)
+        self.content_box.append(self.results_box)
+        self.content_box.append(self.gforce_canvas)
+
         self.append(intro)
-        self.append(self.results_box)
+        self.append(self.content_box)
         self.append(controls)
 
+        self._current_layout = "portrait"
+
         self._refresh_texts()
+
+    # ------------------------------------------------------------------
+    # Responsive layout — switch canvas position based on widget size
+    # ------------------------------------------------------------------
+
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:  # type: ignore[override]
+        Gtk.Box.do_size_allocate(self, width, height, baseline)
+        # Landscape: canvas right of results. Portrait: canvas below results.
+        # Threshold leaves a comfortable margin around square aspect.
+        wants_landscape = width > height * 1.15 and width >= 560
+        target = "landscape" if wants_landscape else "portrait"
+        if target == self._current_layout:
+            return
+        self._current_layout = target
+        if target == "landscape":
+            self.content_box.set_orientation(Gtk.Orientation.HORIZONTAL)
+            self.content_box.set_spacing(16)
+        else:
+            self.content_box.set_orientation(Gtk.Orientation.VERTICAL)
+            self.content_box.set_spacing(8)
 
     # ------------------------------------------------------------------
     # Layout helpers
@@ -325,6 +508,10 @@ class AccelerationPage(Gtk.Box):
         self.max_obd_speed = None
         self.max_gps_speed = None
         self.max_g = None
+        self._last_heading_deg = None
+        self._last_heading_time = None
+        self._lateral_g = 0.0
+        self.gforce_canvas.clear()
         self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
         self.range_results = {r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH}
         self._reset_labels()
@@ -337,11 +524,40 @@ class AccelerationPage(Gtk.Box):
     # Data processing
     # ------------------------------------------------------------------
 
+    def _update_lateral_g(self, heading_deg: float | None, speed_kmh: float | None, now: float) -> None:
+        """Estimate lateral G from GPS heading change × speed (centripetal acceleration).
+
+        a_lat = v · ω, where ω = d(heading)/dt. Below ~10 km/h GPS heading is too
+        noisy, so the estimate falls back to 0 to avoid jitter in the display.
+        """
+        if heading_deg is None or speed_kmh is None or speed_kmh < 10.0:
+            self._last_heading_deg = heading_deg
+            self._last_heading_time = now
+            self._lateral_g *= 0.6  # decay toward zero when no usable input
+            return
+        if self._last_heading_deg is None or self._last_heading_time is None:
+            self._last_heading_deg = heading_deg
+            self._last_heading_time = now
+            return
+        dt = max(0.05, now - self._last_heading_time)
+        # Wrap heading delta into (-180, 180]
+        delta = (heading_deg - self._last_heading_deg + 540.0) % 360.0 - 180.0
+        omega_rad_s = math.radians(delta) / dt
+        v_ms = speed_kmh / 3.6
+        a_lat_ms2 = v_ms * omega_rad_s
+        # Light low-pass to suppress GPS jitter; positive = right turn
+        target = a_lat_ms2 / 9.80665
+        self._lateral_g += (target - self._lateral_g) * 0.35
+        self._last_heading_deg = heading_deg
+        self._last_heading_time = now
+
     def update_payload(self, payload: dict[str, Any], read_number: Callable[[dict[str, Any], str], float | None]) -> None:
         now = time.monotonic()
         obd_speed = read_number(payload, "speed")
         gps_speed = read_number(payload, "gps_speed")
         measured_g = read_number(payload, "acceleration_g")
+        heading = read_number(payload, "gps_heading")
+        self._update_lateral_g(heading, gps_speed if gps_speed is not None else obd_speed, now)
         self._set_source_visibility(obd_speed is not None, gps_speed is not None)
 
         if obd_speed is not None and self.last_obd_speed is not None and self.last_speed_time is not None:
@@ -355,6 +571,10 @@ class AccelerationPage(Gtk.Box):
 
         active_g = measured_g if measured_g is not None else self.computed_acceleration_g
         self._set_g_text(active_g)
+        if active_g is not None or gps_speed is not None or obd_speed is not None:
+            # Y axis: longitudinal G (positive = forward acceleration)
+            # X axis: lateral G (positive = right turn, computed via heading delta)
+            self.gforce_canvas.update_g(self._lateral_g, active_g if active_g is not None else 0.0, 1.0)
 
         # Maxima fortschreiben (über die ganze Anzeigedauer, bis Reset/Start)
         if obd_speed is not None and (self.max_obd_speed is None or obd_speed > self.max_obd_speed):
