@@ -12,8 +12,8 @@ mkdir -p "$(dirname "$ICON_DEST")"
 cp "$SCRIPT_DIR/icon.png" "$ICON_DEST"
 echo "  Icon         → $ICON_DEST"
 
-ICONS_SRC="$SCRIPT_DIR/icons/hicolor/scalable/actions"
-ICONS_DEST="$HOME/.local/share/icons/hicolor/scalable/actions"
+ICONS_SRC="$SCRIPT_DIR/icons/hicolor/symbolic/actions"
+ICONS_DEST="$HOME/.local/share/icons/hicolor/symbolic/actions"
 if [ -d "$ICONS_SRC" ]; then
     mkdir -p "$ICONS_DEST"
     cp "$ICONS_SRC"/*.svg "$ICONS_DEST/"

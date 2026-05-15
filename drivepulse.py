@@ -1708,19 +1708,19 @@ class DashboardWindow(Adw.ApplicationWindow):
             dashboard_scroller,
             self.PAGE_DASHBOARD,
             _translate(self.language, "nav.gauges"),
-            "speedometer4",
+            "speedometer4-symbolic",
         )
         self.acceleration_stack_page = self.view_stack.add_titled_with_icon(
             acceleration_scroller,
             self.PAGE_ACCELERATION,
             _translate(self.language, "nav.acceleration"),
-            "playback-speed",
+            "playback-speed-symbolic",
         )
         self.cars_stack_page = self.view_stack.add_titled_with_icon(
             self.cars_page,
             self.PAGE_CARS,
             _translate(self.language, "nav.cars"),
-            "driving",
+            "driving-symbolic",
         )
 
         self.view_stack.connect("notify::visible-child-name", self._on_visible_page_changed)
