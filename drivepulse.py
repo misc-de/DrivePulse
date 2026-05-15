@@ -2090,6 +2090,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         if status == "complete":
             self.scan_bar.set_fraction(1.0)
             self.scan_bar.set_text("Fahrzeugscan abgeschlossen")
+            self._save_scan_to_db(current)
             self.cars_page.refresh_profiles()
             GLib.timeout_add(3000, self._hide_scan_bar)
             return
@@ -2098,6 +2099,16 @@ class DashboardWindow(Adw.ApplicationWindow):
             self.scan_bar.set_visible(True)
             self.scan_bar.set_text(f"Scan-Fehler: {current}")
             GLib.timeout_add(6000, self._hide_scan_bar)
+
+    def _save_scan_to_db(self, profile_path_str: str) -> None:
+        car_id = getattr(self.trip_recorder, "car_id", None)
+        if not profile_path_str or car_id is None:
+            return
+        try:
+            data = json.loads(Path(profile_path_str).read_text(encoding="utf-8"))
+            self.db.add_scan(car_id, data)
+        except Exception:
+            pass
 
     def _hide_scan_bar(self) -> bool:
         self.scan_bar.set_visible(False)
