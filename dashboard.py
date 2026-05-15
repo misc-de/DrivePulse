@@ -35,6 +35,7 @@ class DashData:
     speed_unit: str = "km/h"
     speed_max: float = 240.0
     speed_active: bool = False
+    speed_source: str = ""
 
     coolant: float = 0.0
     coolant_label: str = "--"
@@ -159,6 +160,11 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.speed = max(0.0, min(self.data.speed_max, value))
             self.data.speed_label = label if label is not None else f"{value:.0f}"
         self.queue_draw()
+
+    def update_speed_source(self, source: str) -> None:
+        if self.data.speed_source != source:
+            self.data.speed_source = source
+            self.queue_draw()
 
     def update_coolant(self, value: float | None, label: str | None = None) -> None:
         if value is None:

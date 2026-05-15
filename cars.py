@@ -1312,6 +1312,7 @@ class CarsPage(Gtk.Box):
         self._trip_detail_page: Adw.NavigationPage | None = None
         self._scan_detail_pushed = False
         self._scan_detail_page: Adw.NavigationPage | None = None
+        self._scan_id_shown: int | None = None
         self._live_row: Adw.ActionRow | None = None
         self._narrow = False
         self._cat_rows: list[Gtk.ListBoxRow] = []
@@ -1738,6 +1739,7 @@ class CarsPage(Gtk.Box):
         if page is self._scan_detail_page:
             self._scan_detail_pushed = False
             self._scan_detail_page = None
+            self._scan_id_shown = None
             if self._detail_pushed and self._selected_category == "scans":
                 self._render_detail()
 
@@ -1977,16 +1979,28 @@ class CarsPage(Gtk.Box):
         self._trip_detail_pushed = True
         self.nav_view.push(page)
 
-    def _confirm_delete_trip(self, trip_id: int) -> None:
-        dialog = Adw.AlertDialog.new(
-            _translate(self.language, "cars.trip.delete_title"),
-            _translate(self.language, "cars.trip.delete_body"),
-        )
+    def _make_delete_dialog(self, heading_key: str, body_key: str) -> Adw.AlertDialog:
+        """Create a destructive AlertDialog with a red heading."""
+        try:
+            dark = Adw.StyleManager.get_default().get_dark()
+        except Exception:
+            dark = True
+        color = "#ff7b63" if dark else "#e01b24"
+        heading = _translate(self.language, heading_key)
+        body = _translate(self.language, body_key)
+        dialog = Adw.AlertDialog()
+        dialog.set_heading_use_markup(True)
+        dialog.set_heading(f'<span foreground="{color}"><b>{GLib.markup_escape_text(heading)}</b></span>')
+        dialog.set_body(body)
         dialog.add_response("cancel", _translate(self.language, "cars.trip.delete_cancel"))
         dialog.add_response("delete", _translate(self.language, "cars.trip.delete_confirm"))
         dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
+        return dialog
+
+    def _confirm_delete_trip(self, trip_id: int) -> None:
+        dialog = self._make_delete_dialog("cars.trip.delete_title", "cars.trip.delete_body")
         dialog.connect("response", lambda _d, resp: self._delete_trip(trip_id) if resp == "delete" else None)
         dialog.present(self)
 
@@ -2000,18 +2014,29 @@ class CarsPage(Gtk.Box):
         if self._trip_detail_page is not None:
             self.nav_view.pop()
 
+    # ---------------------------------------------------- Scan löschen
+
+    def _confirm_delete_scan(self, scan_id: int) -> None:
+        dialog = self._make_delete_dialog("cars.scan.delete_title", "cars.scan.delete_body")
+        dialog.connect("response", lambda _d, r: self._delete_scan(scan_id) if r == "delete" else None)
+        dialog.present(self)
+
+    def _delete_scan(self, scan_id: int) -> None:
+        if self.db is None:
+            return
+        try:
+            self.db.delete_scan(scan_id)
+        except Exception:
+            return
+        if self._scan_detail_page is not None:
+            self.nav_view.pop()
+        self._scan_id_shown = None
+        self._render_detail()
+
     # ---------------------------------------------------- Fahrzeug löschen
 
     def _confirm_delete_vehicle(self) -> None:
-        dialog = Adw.AlertDialog.new(
-            _translate(self.language, "cars.vehicle.delete_title"),
-            _translate(self.language, "cars.vehicle.delete_body"),
-        )
-        dialog.add_response("cancel", _translate(self.language, "cars.trip.delete_cancel"))
-        dialog.add_response("delete", _translate(self.language, "cars.trip.delete_confirm"))
-        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.set_default_response("cancel")
-        dialog.set_close_response("cancel")
+        dialog = self._make_delete_dialog("cars.vehicle.delete_title", "cars.vehicle.delete_body")
         dialog.connect("response", lambda _d, r: self._delete_vehicle() if r == "delete" else None)
         dialog.present(self)
 
@@ -2069,15 +2094,9 @@ class CarsPage(Gtk.Box):
         n = len(self._trip_selected_ids)
         if n == 0:
             return
-        dialog = Adw.AlertDialog.new(
-            _translate(self.language, "cars.trip.delete_title"),
-            _translate(self.language, "cars.trip.delete_multi_body", n=n),
-        )
-        dialog.add_response("cancel", _translate(self.language, "cars.trip.delete_cancel"))
-        dialog.add_response("delete", _translate(self.language, "cars.trip.delete_confirm"))
-        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.set_default_response("cancel")
-        dialog.set_close_response("cancel")
+        dialog = self._make_delete_dialog("cars.trip.delete_title", "cars.trip.delete_title")
+        # Override body with dynamic count text
+        dialog.set_body(_translate(self.language, "cars.trip.delete_multi_body", n=n))
         dialog.connect("response", lambda _d, r: self._delete_selected_trips() if r == "delete" else None)
         dialog.present(self)
 
@@ -2174,10 +2193,23 @@ class CarsPage(Gtk.Box):
         ts = self._parse_ts(scan_meta["scanned_at"])
         title = _translate(self.language, "cars.scan.title",
                            date=ts.strftime("%d.%m.%Y %H:%M") if ts else str(scan_id))
-        page = Adw.NavigationPage(child=page_content, title=title)
+
+        trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        trash_btn.add_css_class("flat")
+        trash_btn.connect("clicked", lambda _b: self._confirm_delete_scan(scan_id))
+
+        header = Adw.HeaderBar()
+        header.pack_end(trash_btn)
+
+        toolbar_view = Adw.ToolbarView()
+        toolbar_view.add_top_bar(header)
+        toolbar_view.set_content(page_content)
+
+        page = Adw.NavigationPage(child=toolbar_view, title=title)
         page.set_tag(f"scan-{scan_id}")
         self._scan_detail_page = page
         self._scan_detail_pushed = True
+        self._scan_id_shown = scan_id
         self.nav_view.push(page)
 
     def _make_stacked_row(self, label: str, value_text: str, is_unknown: bool) -> Gtk.ListBoxRow:

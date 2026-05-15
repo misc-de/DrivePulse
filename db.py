@@ -243,6 +243,11 @@ class DriveDB:
             self._conn.execute("DELETE FROM cars WHERE id=?", (car_id,))
             self._conn.commit()
 
+    def delete_scan(self, scan_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM scans WHERE id=?", (scan_id,))
+            self._conn.commit()
+
     # --------------------------------------------------------------- Scans
 
     def add_scan(self, car_id: int, data: dict[str, Any]) -> int:
