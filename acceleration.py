@@ -199,6 +199,11 @@ class AccelerationPage(Gtk.Box):
         self.max_obd_speed: float | None = None
         self.max_gps_speed: float | None = None
         self.max_g: float | None = None
+        # Sticky availability flags — once seen during this measurement cycle,
+        # the corresponding OBD/GPS column stays visible until reset to prevent
+        # the row from flickering between sources on alternating payloads.
+        self._obd_ever_seen: bool = False
+        self._gps_ever_seen: bool = False
         # State for synthesizing lateral G from GPS heading change × speed
         self._last_heading_deg: float | None = None
         self._last_heading_time: float | None = None
@@ -271,22 +276,37 @@ class AccelerationPage(Gtk.Box):
         controls.append(self.abort_button)
         controls.append(self.reset_button)
 
-        # G-Force visualization (Sensor-Suite inspired) with Vmax/Gmax line above
+        # G-Force visualization (Sensor-Suite inspired) with Vmax/Gmax line above.
+        # The canvas has a natural size and does NOT expand, so the group can be
+        # centered as a block inside the remaining space below the results list.
         self.gforce_canvas = GForceCanvas()
-        self.gforce_canvas.set_size_request(220, 220)
+        self.gforce_canvas.set_hexpand(False)
+        self.gforce_canvas.set_vexpand(False)
+        self.gforce_canvas.set_halign(Gtk.Align.CENTER)
+        self.gforce_canvas.set_content_width(240)
+        self.gforce_canvas.set_content_height(240)
+        self.gforce_canvas.set_size_request(200, 200)
+
         self.gforce_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.gforce_box.set_hexpand(True)
         self.gforce_box.set_vexpand(True)
+        # valign=CENTER + vexpand=True: gforce_box grabs the remaining space and
+        # then positions its (natural-sized) content centered within it. Without
+        # this the box would stretch and the canvas would drift downward.
+        self.gforce_box.set_halign(Gtk.Align.CENTER)
+        self.gforce_box.set_valign(Gtk.Align.CENTER)
         self.gforce_box.append(self.maxes_label)
         self.gforce_box.append(self.gforce_canvas)
 
         # Container that switches orientation between portrait (canvas below results)
-        # and landscape (canvas next to results).
-        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        # and landscape (canvas next to results). results_box keeps its natural
+        # height so the gforce group is free to centre in whatever is left.
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.content_box.set_hexpand(True)
         self.content_box.set_vexpand(True)
         self.results_box.set_hexpand(True)
-        self.results_box.set_vexpand(True)
+        self.results_box.set_vexpand(False)
+        self.results_box.set_valign(Gtk.Align.START)
         self.content_box.append(self.results_box)
         self.content_box.append(self.gforce_box)
 
@@ -465,6 +485,11 @@ class AccelerationPage(Gtk.Box):
             self.source_rows[(key, "obd")].set_visible(obd_available or obd_has)
             self.source_rows[(key, "gps")].set_visible(gps_available or gps_has)
 
+    def _is_active(self) -> bool:
+        """Live updates only happen while a measurement is running or armed.
+        After abort/done the maxes label and source rows freeze on screen."""
+        return self.armed or self.running
+
     def _reset_labels(self) -> None:
         for key in self._all_keys():
             for source in ("obd", "gps", "best"):
@@ -491,7 +516,10 @@ class AccelerationPage(Gtk.Box):
         self.max_obd_speed = None
         self.max_gps_speed = None
         self.max_g = None
+        self._obd_ever_seen = False
+        self._gps_ever_seen = False
         self._reset_labels()
+        self._set_source_visibility(False, False)
         self._update_maxes_label()
         self._show_abort()
         self.status_label.set_text(_translate(self.language, "acceleration.armed"))
@@ -512,6 +540,8 @@ class AccelerationPage(Gtk.Box):
         self.max_obd_speed = None
         self.max_gps_speed = None
         self.max_g = None
+        self._obd_ever_seen = False
+        self._gps_ever_seen = False
         self._last_heading_deg = None
         self._last_heading_time = None
         self._lateral_g = 0.0
@@ -519,6 +549,7 @@ class AccelerationPage(Gtk.Box):
         self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
         self.range_results = {r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH}
         self._reset_labels()
+        self._set_source_visibility(False, False)
         self._update_maxes_label()
         self._show_start()
         self._set_g_text(None)
@@ -561,8 +592,9 @@ class AccelerationPage(Gtk.Box):
         gps_speed = read_number(payload, "gps_speed")
         measured_g = read_number(payload, "acceleration_g")
         heading = read_number(payload, "gps_heading")
+        active = self._is_active()
+
         self._update_lateral_g(heading, gps_speed if gps_speed is not None else obd_speed, now)
-        self._set_source_visibility(obd_speed is not None, gps_speed is not None)
 
         if obd_speed is not None and self.last_obd_speed is not None and self.last_speed_time is not None:
             dt = max(0.001, now - self.last_speed_time)
@@ -573,6 +605,8 @@ class AccelerationPage(Gtk.Box):
             self.last_obd_speed = obd_speed
             self.last_speed_time = now
 
+        # Live displays (current G, gforce ball) keep updating regardless of
+        # measurement state — they show "right now", not measurement data.
         active_g = measured_g if measured_g is not None else self.computed_acceleration_g
         self._set_g_text(active_g)
         if active_g is not None or gps_speed is not None or obd_speed is not None:
@@ -580,7 +614,22 @@ class AccelerationPage(Gtk.Box):
             # X axis: lateral G (positive = right turn, computed via heading delta)
             self.gforce_canvas.update_g(self._lateral_g, active_g if active_g is not None else 0.0, 1.0)
 
-        # Maxima fortschreiben (über die ganze Anzeigedauer, bis Reset/Start)
+        # Measurement-bound displays (source row visibility, Vmax/Gmax) only
+        # change while a run is armed/active. Once it ends, they freeze at their
+        # final value and stop flickering between OBD/GPS payloads.
+        if not active:
+            return
+
+        # Sticky source visibility: a column appears as soon as that source has
+        # ever produced a speed during this measurement cycle, and stays put
+        # until reset, so alternating GPS/OBD payloads no longer cause flicker.
+        if obd_speed is not None:
+            self._obd_ever_seen = True
+        if gps_speed is not None:
+            self._gps_ever_seen = True
+        self._set_source_visibility(self._obd_ever_seen, self._gps_ever_seen)
+
+        # Maxima fortschreiben — nur während laufender / scharfer Messung
         if obd_speed is not None and (self.max_obd_speed is None or obd_speed > self.max_obd_speed):
             self.max_obd_speed = obd_speed
         if gps_speed is not None and (self.max_gps_speed is None or gps_speed > self.max_gps_speed):
