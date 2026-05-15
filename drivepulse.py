@@ -896,16 +896,18 @@ class ObdReader(GObject.Object):
 
     def _run(self) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-        self._connect()
-        self._run_vehicle_scan()
+        if not self.force_mock:
+            self._connect()
+            self._run_vehicle_scan()
 
         while not self.stop_event.is_set():
             if self._force_reconnect:
                 self._force_reconnect = False
-                self.mock = False
-                self.mock_reason = ""
-                self._connect()
-                self._run_vehicle_scan()
+                if not self.force_mock:
+                    self.mock = False
+                    self.mock_reason = ""
+                    self._connect()
+                    self._run_vehicle_scan()
             self._maybe_reconnect_from_mock()
             self._maybe_periodic_rescan()
             payload = self._read_mock() if self.mock else self._read_obd()
@@ -1004,30 +1006,72 @@ class ObdReader(GObject.Object):
         except Exception:
             return str(value)
 
+    def trigger_mock_acceleration(self) -> None:
+        """Start a mock 0-230 km/h acceleration run (called when Start is pressed in mock mode)."""
+        self._mock_accel_start: float = time.monotonic()
+        self._mock_speed: float = 0.0
+        self._mock_prev_tick: float = time.time()
+
+    @staticmethod
+    def _mock_accel_g_for_speed(speed_kmh: float) -> float:
+        """Target longitudinal acceleration in g for the mock run, by speed."""
+        if speed_kmh < 100:
+            # 0→100 km/h: ~0.50g tapering to ~0.30g → ~7 s
+            return 0.50 - 0.002 * speed_kmh
+        if speed_kmh < 200:
+            # 100→200 km/h: ~0.22g tapering to ~0.09g → ~18 s
+            return 0.22 - 0.0013 * (speed_kmh - 100)
+        if speed_kmh < 230:
+            # 200→230 km/h: ~0.09g tapering to ~0.02g
+            return max(0.02, 0.09 - 0.002333 * (speed_kmh - 200))
+        return -0.03  # slight engine drag above 230
+
     def _read_mock(self) -> dict[str, Any]:
         now = time.time()
-        rpm = 900 + 700 * (math.sin(now / 3) + 1) + random.uniform(-80, 80)
-        speed = max(0, 55 + 18 * math.sin(now / 6) + random.uniform(-3, 3))
+        now_mono = time.monotonic()
         temp = 84 + 4 * math.sin(now / 15) + random.uniform(-0.5, 0.5)
-        previous_speed = getattr(self, "_mock_previous_speed", speed)
-        previous_time = getattr(self, "_mock_previous_time", now)
-        dt = max(0.001, now - previous_time)
-        acceleration_ms2 = ((speed - previous_speed) / 3.6) / dt
-        acceleration_g = acceleration_ms2 / 9.80665
-        self._mock_previous_speed = speed
-        self._mock_previous_time = now
 
-        heading = (now * 8.0) % 360.0
+        accel_start: float | None = getattr(self, "_mock_accel_start", None)
+        if accel_start is not None:
+            prev_tick = getattr(self, "_mock_prev_tick", now)
+            dt = max(0.001, now - prev_tick)
+            self._mock_prev_tick = now
+
+            current_speed: float = getattr(self, "_mock_speed", 0.0)
+            target_g = self._mock_accel_g_for_speed(current_speed)
+            noise_g = random.gauss(0, 0.018)
+            acceleration_g = target_g + noise_g
+            accel_ms2 = acceleration_g * 9.80665
+            new_speed = current_speed + accel_ms2 * 3.6 * dt
+            speed = max(0.0, new_speed)
+            self._mock_speed = speed
+
+            if target_g <= -0.03 and speed < 1.0:
+                self._mock_accel_start = None
+
+            throttle = max(5.0, min(100.0, 95.0 * (target_g / 0.50) + random.gauss(0, 2)))
+            load = max(10.0, min(100.0, 90.0 * (target_g / 0.50) + random.gauss(0, 3)))
+            rpm = 1000 + 5500 * min(1.0, speed / 230.0) + random.gauss(0, 60)
+        else:
+            # Idle: stable cruising speed, near-zero G
+            speed = 30.0 + 1.5 * math.sin(now / 30.0) + random.gauss(0, 0.15)
+            speed = max(0.0, speed)
+            acceleration_g = random.gauss(0, 0.008)
+            throttle = random.uniform(8, 18)
+            load = random.uniform(12, 28)
+            rpm = 900 + 700 * (math.sin(now / 3) + 1) + random.uniform(-80, 80)
+
+        heading = (now_mono * 8.0) % 360.0
         return {
             "rpm": {"value": rpm, "unit": "rpm"},
             "speed": {"value": speed, "unit": "km/h"},
-            "gps_speed": {"value": max(0, speed + random.uniform(-1.5, 1.5)), "unit": "km/h"},
+            "gps_speed": {"value": max(0.0, speed + random.gauss(0, 0.8)), "unit": "km/h"},
             "gps_heading": {"value": heading, "unit": "deg"},
             "acceleration_g": {"value": acceleration_g, "unit": "g"},
             "coolant_temp": {"value": temp, "unit": "degC"},
             "fuel_level": {"value": 68 + 5 * math.sin(now / 60), "unit": "percent"},
-            "throttle_pos": {"value": random.uniform(8, 42), "unit": "percent"},
-            "engine_load": {"value": random.uniform(12, 68), "unit": "percent"},
+            "throttle_pos": {"value": throttle, "unit": "percent"},
+            "engine_load": {"value": load, "unit": "percent"},
             "intake_temp": {"value": 20 + random.uniform(-3, 5), "unit": "degC"},
             "control_module_voltage": {"value": 13.8 + random.uniform(-0.25, 0.25), "unit": "volt"},
         }
@@ -1780,6 +1824,7 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader._configured_port = self.obd_port
+        self.acceleration_page.on_mock_start = self.reader.trigger_mock_acceleration
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
@@ -2277,9 +2322,11 @@ class DashboardWindow(Adw.ApplicationWindow):
             self.dashboard_canvas.update_gps_pos(lat, lon, altitude_m)
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
                 display = self._display_speed(gps_speed_kmh)
+                src_gps = _translate(self.language, "gauge.source.gps")
                 self.speed_gauge.set_value(display, f"{display:.0f}" if display is not None else None)
-                self.speed_gauge.set_source_label(_translate(self.language, "gauge.source.gps"))
+                self.speed_gauge.set_source_label(src_gps)
                 self.dashboard_canvas.update_speed(display, f"{display:.0f}" if display is not None else None)
+                self.dashboard_canvas.update_speed_source(src_gps)
             return False
 
         self.last_payload = payload
@@ -2301,11 +2348,13 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.rpm_gauge.set_value(rpm, None if rpm is None else f"{rpm:.0f}")
         self.speed_gauge.set_value(speed, None if speed is None else f"{speed:.0f}")
         if obd_speed_kmh is not None:
-            self.speed_gauge.set_source_label(_translate(self.language, "gauge.source.obd"))
+            _spd_src = _translate(self.language, "gauge.source.obd")
         elif gps_speed_kmh is not None:
-            self.speed_gauge.set_source_label(_translate(self.language, "gauge.source.gps"))
+            _spd_src = _translate(self.language, "gauge.source.gps")
         else:
-            self.speed_gauge.set_source_label("")
+            _spd_src = ""
+        self.speed_gauge.set_source_label(_spd_src)
+        self.dashboard_canvas.update_speed_source(_spd_src)
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
         self.acceleration_page.update_payload(payload, self._plain_number)
         self.cars_page.update_live(payload)

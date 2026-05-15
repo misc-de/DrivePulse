@@ -33,6 +33,7 @@ def _analog_gauge(
     step_major: float,
     step_minor: float,
     dark: bool = True,
+    source: str = "",
 ) -> None:
     a = 1.0 if active else 0.30
     face_col = (0.11, 0.12, 0.13) if dark else (0.92, 0.93, 0.95)
@@ -121,10 +122,14 @@ def _analog_gauge(
     cr.arc(cx, cy, r * 0.072, 0, math.tau)
     cr.stroke()
 
+    # Source label (OBD / GPS) above the needle hub — same size as unit
+    unit_sz = max(10.0, r * 0.14)
+    if source:
+        _txt(cr, source, cx, cy - r * 0.28, unit_sz, (*dim_col, 0.55 * a))
+
     # Label (title) above value, both grouped in the lower center
     title_sz = max(9.0, r * 0.13)
     val_sz = max(16.0, r * 0.28)
-    unit_sz = max(10.0, r * 0.14)
     if title:
         _txt(cr, title, cx, cy + r * 0.22, title_sz, (*dim_col, 0.65 * a), max_w=r * 1.6)
         _txt(cr, val_label, cx, cy + r * 0.22 + title_sz * 0.9 + val_sz * 0.55, val_sz,
@@ -251,7 +256,8 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
     _analog_gauge(cr, cx_center, cy_main, r_center,
                   d.speed, 0, d.speed_max,
                   d.speed_label, d.speed_unit, "",
-                  d.speed_active, speed_step_maj, speed_step_min)
+                  d.speed_active, speed_step_maj, speed_step_min,
+                  source=d.speed_source)
 
     _analog_gauge(cr, cx_right, cy_main, r_right,
                   d.rpm, 0, d.rpm_max,
@@ -287,7 +293,8 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
     _analog_gauge(cr, cx_mid, cy_main, r_center,
                   d.speed, 0, d.speed_max,
                   d.speed_label, d.speed_unit, "",
-                  d.speed_active, speed_step_maj, speed_step_min)
+                  d.speed_active, speed_step_maj, speed_step_min,
+                  source=d.speed_source)
 
     _analog_gauge(cr, cx_left, cy_side, r_side,
                   d.rpm, 0, d.rpm_max,

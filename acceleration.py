@@ -180,6 +180,7 @@ class AccelerationPage(Gtk.Box):
     SPEED_TARGETS_KMH = (30, 50, 70, 100, 150, 200)
     RANGE_TARGETS_KMH: tuple[tuple[int, int], ...] = ((100, 200),)
     G_FORCE_START_THRESHOLD = 0.1
+    G_FORCE_TRIGGER_THRESHOLD = 0.2
 
     def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -210,6 +211,7 @@ class AccelerationPage(Gtk.Box):
         self._last_heading_deg: float | None = None
         self._last_heading_time: float | None = None
         self._lateral_g: float = 0.0
+        self.on_mock_start: Callable[[], None] | None = None
         self.results: dict[int, dict[str, float | None]] = {
             target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
         }
@@ -536,6 +538,8 @@ class AccelerationPage(Gtk.Box):
         self._update_maxes_label()
         self._show_abort()
         self.status_label.set_text(_translate(self.language, "acceleration.armed"))
+        if self.on_mock_start is not None:
+            self.on_mock_start()
 
     def abort_measurement(self, *_args: Any) -> None:
         self.armed = False
@@ -662,7 +666,7 @@ class AccelerationPage(Gtk.Box):
 
         if self.armed and not self.running:
             if self._gforce_trigger:
-                triggered = self._raw_g_dev > self.G_FORCE_START_THRESHOLD
+                triggered = self._raw_g_dev > self.G_FORCE_TRIGGER_THRESHOLD
             else:
                 speed_rising = self.computed_acceleration_g is not None and self.computed_acceleration_g > self.G_FORCE_START_THRESHOLD
                 g_rising = active_g is not None and active_g > self.G_FORCE_START_THRESHOLD
