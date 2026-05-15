@@ -600,12 +600,15 @@ def _ty_to_lat(ty: int, zoom: int) -> float:
     return math.degrees(math.atan(math.sinh(n)))
 
 
+_OSM_MAX_TILES = 4  # max tiles per axis at any zoom level
+
+
 def _pick_zoom(lat_min: float, lat_max: float, lon_min: float, lon_max: float) -> int:
-    """Highest zoom where the bounding box needs ≤6 tiles in each dimension."""
+    """Highest zoom where the bounding box fits in ≤_OSM_MAX_TILES tiles per axis."""
     for zoom in range(16, 9, -1):
         ntx = _lon_to_tx(lon_max, zoom) - _lon_to_tx(lon_min, zoom) + 1
         nty = _lat_to_ty(lat_min, zoom) - _lat_to_ty(lat_max, zoom) + 1
-        if ntx <= 6 and nty <= 6:
+        if ntx <= _OSM_MAX_TILES and nty <= _OSM_MAX_TILES:
             return zoom
     return 10
 
@@ -677,16 +680,28 @@ def _build_osm_map_widget(
     lon_pad = max((lon_max - lon_min) * 0.15, 0.005)
     lat_min -= lat_pad; lat_max += lat_pad
     lon_min -= lon_pad; lon_max += lon_pad
+    center_lat = (lat_min + lat_max) / 2
+    center_lon = (lon_min + lon_max) / 2
 
     def _view(z: int) -> dict[str, Any]:
-        _tx0 = _lon_to_tx(lon_min, z)
-        _tx1 = _lon_to_tx(lon_max, z)
-        _ty0 = _lat_to_ty(lat_max, z)
-        _ty1 = _lat_to_ty(lat_min, z)
+        # Tile count needed to cover the full route bounding box
+        route_ntx = _lon_to_tx(lon_max, z) - _lon_to_tx(lon_min, z) + 1
+        route_nty = _lat_to_ty(lat_min, z) - _lat_to_ty(lat_max, z) + 1
+        # Cap at _OSM_MAX_TILES so zooming in never multiplies downloads.
+        # When capped, the window is centered on the route centre —
+        # the route enters/exits the frame but tile count stays constant.
+        ntx = max(1, min(route_ntx, _OSM_MAX_TILES))
+        nty = max(1, min(route_nty, _OSM_MAX_TILES))
+        ctx = _lon_to_tx(center_lon, z)
+        cty = _lat_to_ty(center_lat, z)
+        _tx0 = ctx - ntx // 2
+        _ty0 = cty - nty // 2
+        _tx1 = _tx0 + ntx - 1
+        _ty1 = _ty0 + nty - 1
         return {
             "zoom": z,
             "tx0": _tx0, "tx1": _tx1, "ty0": _ty0, "ty1": _ty1,
-            "n_tx": _tx1 - _tx0 + 1, "n_ty": _ty1 - _ty0 + 1,
+            "n_tx": ntx, "n_ty": nty,
             "nw_lon": _tx_to_lon(_tx0, z),      "nw_lat": _ty_to_lat(_ty0, z),
             "se_lon": _tx_to_lon(_tx1 + 1, z),  "se_lat": _ty_to_lat(_ty1 + 1, z),
         }
