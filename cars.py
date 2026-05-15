@@ -104,6 +104,8 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
     )),
     # Sonderfall: keine PID-Liste, Inhalt = Fahrten dieses Autos aus der DB
     ("trips", "cars.category.trips", "document-open-recent-symbolic", ()),
+    # Sonderfall: Scan-Verlauf aus der DB
+    ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
 )
 
 
@@ -301,6 +303,134 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         empty = Gtk.Label(label=_translate(language, "cars.trip.no_data"), xalign=0.0)
         empty.add_css_class("dim-label")
         outer.append(empty)
+
+    scroll = Gtk.ScrolledWindow()
+    scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroll.set_vexpand(True)
+    scroll.set_hexpand(True)
+    scroll.set_child(outer)
+    return scroll
+
+
+def _build_scan_detail_widget(
+    language: str,
+    scan_meta: Any,
+    prev_meta: Any | None,
+    data: dict[str, Any],
+) -> Gtk.Widget:
+    """Detail view for a single OBD scan: stats, DTC trend, fault codes, PID snapshot."""
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+    outer.set_margin_top(14)
+    outer.set_margin_bottom(14)
+    outer.set_margin_start(14)
+    outer.set_margin_end(14)
+
+    def _stat_list(*rows: tuple[str, str]) -> Gtk.ListBox:
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        lb.set_valign(Gtk.Align.START)
+        for title_text, value_text in rows:
+            r = Adw.ActionRow()
+            r.set_title(GLib.markup_escape_text(title_text))
+            lbl = Gtk.Label(label=value_text, xalign=1.0)
+            lbl.add_css_class("monospace")
+            lbl.set_halign(Gtk.Align.END)
+            r.add_suffix(lbl)
+            lb.append(r)
+        return lb
+
+    # --- Summary stats ---
+    ts = _safe_ts(scan_meta["scanned_at"])
+    dtc = int(scan_meta["dtc_count"] or 0)
+    pending = int(scan_meta["pending_dtc_count"] or 0)
+    pids = int(scan_meta["pids_count"] or 0)
+
+    if prev_meta is None:
+        trend_text = _translate(language, "cars.scan.trend_first")
+    else:
+        delta = dtc - int(prev_meta["dtc_count"] or 0)
+        if delta > 0:
+            trend_text = _translate(language, "cars.scan.trend_up", delta=delta)
+        elif delta < 0:
+            trend_text = _translate(language, "cars.scan.trend_down", delta=abs(delta))
+        else:
+            trend_text = _translate(language, "cars.scan.trend_same")
+
+    outer.append(_stat_list(
+        (_translate(language, "cars.scan.date"),
+         ts.strftime("%d.%m.%Y %H:%M:%S") if ts else "—"),
+        (_translate(language, "cars.scan.protocol"),
+         str(scan_meta["protocol"] or "—")),
+        (_translate(language, "cars.scan.dtc_count"),   str(dtc)),
+        (_translate(language, "cars.scan.pending_count"), str(pending)),
+        (_translate(language, "cars.scan.pids_count"),  str(pids)),
+        ("DTC Trend", trend_text),
+    ))
+
+    # --- Active fault codes ---
+    dtcs = data.get("dtcs") or []
+    dtc_title = Gtk.Label(label=_translate(language, "cars.scan.dtcs"), xalign=0.0)
+    dtc_title.add_css_class("heading")
+    outer.append(dtc_title)
+    if dtcs:
+        dtc_lb = Gtk.ListBox()
+        dtc_lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        dtc_lb.add_css_class("boxed-list")
+        dtc_lb.set_valign(Gtk.Align.START)
+        for code in dtcs:
+            r = Adw.ActionRow()
+            r.set_title(GLib.markup_escape_text(str(code)))
+            r.add_css_class("error")
+            dtc_lb.append(r)
+        outer.append(dtc_lb)
+    else:
+        lbl = Gtk.Label(label=_translate(language, "cars.scan.dtcs_none"), xalign=0.0)
+        lbl.add_css_class("dim-label")
+        outer.append(lbl)
+
+    # --- Pending fault codes ---
+    pending_dtcs = data.get("pending_dtcs") or []
+    if pending_dtcs:
+        p_title = Gtk.Label(label=_translate(language, "cars.scan.pending_dtcs"), xalign=0.0)
+        p_title.add_css_class("heading")
+        outer.append(p_title)
+        p_lb = Gtk.ListBox()
+        p_lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        p_lb.add_css_class("boxed-list")
+        p_lb.set_valign(Gtk.Align.START)
+        for code in pending_dtcs:
+            r = Adw.ActionRow()
+            r.set_title(GLib.markup_escape_text(str(code)))
+            p_lb.append(r)
+        outer.append(p_lb)
+
+    # --- PID snapshot ---
+    live = data.get("live_data") or {}
+    if live:
+        pid_title = Gtk.Label(label="PID Snapshot", xalign=0.0)
+        pid_title.add_css_class("heading")
+        outer.append(pid_title)
+        pid_lb = Gtk.ListBox()
+        pid_lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        pid_lb.add_css_class("boxed-list")
+        pid_lb.set_valign(Gtk.Align.START)
+        for pid_name, val in sorted(live.items()):
+            r = Adw.ActionRow()
+            r.set_title(GLib.markup_escape_text(str(pid_name)))
+            if isinstance(val, dict):
+                v = val.get("value")
+                u = val.get("unit", "")
+                display = f"{v} {u}".strip() if v is not None else str(val.get("error", "—"))
+            else:
+                display = str(val) if val is not None else "—"
+            lbl = Gtk.Label(label=display, xalign=1.0)
+            lbl.add_css_class("monospace")
+            lbl.set_halign(Gtk.Align.END)
+            lbl.set_selectable(True)
+            r.add_suffix(lbl)
+            pid_lb.append(r)
+        outer.append(pid_lb)
 
     scroll = Gtk.ScrolledWindow()
     scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -626,6 +756,8 @@ class CarsPage(Gtk.Box):
         self._detail_pushed = False
         self._trip_detail_pushed = False
         self._trip_detail_page: Adw.NavigationPage | None = None
+        self._scan_detail_pushed = False
+        self._scan_detail_page: Adw.NavigationPage | None = None
         self._live_row: Adw.ActionRow | None = None
         self._narrow = False
         self._cat_rows: list[Gtk.ListBoxRow] = []
@@ -1003,8 +1135,12 @@ class CarsPage(Gtk.Box):
         if page is self._trip_detail_page:
             self._trip_detail_pushed = False
             self._trip_detail_page = None
-            # Trip-Liste auf der Detail-Seite neu rendern (z. B. nach Notiz-Änderung)
             if self._detail_pushed and self._selected_category == "trips":
+                self._render_detail()
+        if page is self._scan_detail_page:
+            self._scan_detail_pushed = False
+            self._scan_detail_page = None
+            if self._detail_pushed and self._selected_category == "scans":
                 self._render_detail()
 
     def _on_category_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
@@ -1097,6 +1233,10 @@ class CarsPage(Gtk.Box):
 
         if cat_key == "trips":
             self._render_trips_into_value_list()
+            return
+
+        if cat_key == "scans":
+            self._render_scans_into_value_list()
             return
 
         for pid_key, label_key in items:
@@ -1217,6 +1357,89 @@ class CarsPage(Gtk.Box):
         if started is None:
             return _translate(self.language, "cars.trip.title", id=int(trip["id"]))
         return started.strftime("%d.%m.%Y %H:%M")
+
+    # ---------------------------------------------------- Scan-Liste & Detail
+
+    def _render_scans_into_value_list(self) -> None:
+        if self.db is None or self._selected_car_id is None:
+            self.value_list.append(self._info_row(_translate(self.language, "cars.scans.empty")))
+            return
+        try:
+            scans = self.db.list_scans_for_car(self._selected_car_id)
+        except Exception:
+            scans = []
+        if not scans:
+            self.value_list.append(self._info_row(_translate(self.language, "cars.scans.empty")))
+            return
+        for i, scan in enumerate(scans):
+            prev = scans[i + 1] if i + 1 < len(scans) else None
+            self.value_list.append(self._make_scan_row(scan, prev))
+
+    def _make_scan_row(self, scan: Any, prev_scan: Any | None) -> Adw.ActionRow:
+        row = Adw.ActionRow()
+        ts = self._parse_ts(scan["scanned_at"])
+        title = ts.strftime("%d.%m.%Y · %H:%M") if ts else str(scan["id"])
+        row.set_title(GLib.markup_escape_text(title))
+
+        dtc = int(scan["dtc_count"] or 0)
+        pending = int(scan["pending_dtc_count"] or 0)
+        pids = int(scan["pids_count"] or 0)
+
+        # DTC trend vs. previous scan
+        if prev_scan is None:
+            trend = _translate(self.language, "cars.scan.trend_first")
+        else:
+            delta = dtc - int(prev_scan["dtc_count"] or 0)
+            if delta > 0:
+                trend = _translate(self.language, "cars.scan.trend_up", delta=delta)
+            elif delta < 0:
+                trend = _translate(self.language, "cars.scan.trend_down", delta=abs(delta))
+            else:
+                trend = _translate(self.language, "cars.scan.trend_same")
+
+        parts = [
+            f"{dtc} {_translate(self.language, 'cars.scan.dtc_count')}",
+            f"{pending} {_translate(self.language, 'cars.scan.pending_count')}",
+            f"{pids} {_translate(self.language, 'cars.scan.pids_count')}",
+            trend,
+        ]
+        row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
+        row.set_activatable(True)
+
+        # Colour-code the DTC count badge
+        badge = Gtk.Label(label=str(dtc))
+        badge.add_css_class("pill" if dtc == 0 else "error")
+        badge.add_css_class("caption")
+        badge.set_halign(Gtk.Align.END)
+        row.add_suffix(badge)
+        row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+        row.connect("activated", lambda _r, sid=int(scan["id"]): self._open_scan_detail(sid))
+        return row
+
+    def _open_scan_detail(self, scan_id: int) -> None:
+        if self.db is None:
+            return
+        try:
+            data = self.db.get_scan_data(scan_id)
+            scans = self.db.list_scans_for_car(self._selected_car_id) if self._selected_car_id else []
+            scan_meta = next((s for s in scans if int(s["id"]) == scan_id), None)
+            # Previous scan for trend context
+            idx = next((i for i, s in enumerate(scans) if int(s["id"]) == scan_id), None)
+            prev_meta = scans[idx + 1] if idx is not None and idx + 1 < len(scans) else None
+        except Exception:
+            return
+        if scan_meta is None:
+            return
+
+        page_content = _build_scan_detail_widget(self.language, scan_meta, prev_meta, data)
+        ts = self._parse_ts(scan_meta["scanned_at"])
+        title = _translate(self.language, "cars.scan.title",
+                           date=ts.strftime("%d.%m.%Y %H:%M") if ts else str(scan_id))
+        page = Adw.NavigationPage(child=page_content, title=title)
+        page.set_tag(f"scan-{scan_id}")
+        self._scan_detail_page = page
+        self._scan_detail_pushed = True
+        self.nav_view.push(page)
 
     def _make_stacked_row(self, label: str, value_text: str, is_unknown: bool) -> Gtk.ListBoxRow:
         """Titel oben, Wert rechtsbündig darunter — passend für lange Werte wie VIN."""
