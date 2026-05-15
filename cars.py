@@ -931,6 +931,7 @@ def _build_osm_map_widget(
         "surfaces": {},
         "loading": True,
         "pinch_scale": 1.0,
+        "zoom_factor": 1.0,
         "pan_x": 0.0,
         "pan_y": 0.0,
     }
@@ -944,11 +945,12 @@ def _build_osm_map_widget(
         z     = state["zoom"]
         pan_x = state["pan_x"]
         pan_y = state["pan_y"]
-        pinch = state["pinch_scale"]
+        # Combined zoom: persistent factor × live pinch gesture
+        effective_zoom = state["zoom_factor"] * state["pinch_scale"]
 
         # ── Viewport bbox ─────────────────────────────────────────────────────
         # Base: padded route bbox, expanded to match widget aspect ratio so the
-        # route always fills the full widget without distortion.
+        # route fills the widget initially. zoom_factor persists across gestures.
         cos_mid = math.cos(math.radians((lat_min + lat_max) / 2))
         half_lat = (lat_max - lat_min) / 2
         half_lon = (lon_max - lon_min) / 2
@@ -959,9 +961,9 @@ def _build_osm_map_widget(
         else:
             half_lon = (half_lat * widget_ar) / max(1e-9, cos_mid)
 
-        # Apply pinch zoom
-        half_lat /= pinch
-        half_lon /= pinch
+        # Apply zoom
+        half_lat /= effective_zoom
+        half_lon /= effective_zoom
 
         # Pixel-to-degree scale factors (used by drag handler too)
         lat_per_px = (half_lat * 2) / max(1, h)
@@ -1169,13 +1171,16 @@ def _build_osm_map_widget(
             area_holder[0].queue_draw()
 
     def _on_zoom_end(gest: Any, seq: Any) -> None:
-        delta = round(math.log2(max(0.01, state["pinch_scale"])))
+        # Commit the pinch factor into the persistent zoom_factor
+        state["zoom_factor"] = max(0.1, state["zoom_factor"] * state["pinch_scale"])
         state["pinch_scale"] = 1.0
-        new_z = max(2, min(18, zoom_start_z[0] + delta))
+        delta = round(math.log2(max(0.01, state["zoom_factor"])))
+        new_z = max(2, min(18, _init_zoom + delta))
+        ctr_lat = (lat_min + lat_max) / 2 + state.get("geo_pan_lat", 0.0)
+        ctr_lon = (lon_min + lon_max) / 2 + state.get("geo_pan_lon", 0.0)
+        state["cx"] = _lon_to_tx(ctr_lon, new_z) + 0.5
+        state["cy"] = _lat_to_ty(ctr_lat, new_z) + 0.5
         if new_z != state["zoom"]:
-            factor = 2.0 ** (new_z - state["zoom"])
-            state["cx"] *= factor
-            state["cy"] *= factor
             state["zoom"] = new_z
             _reload(new_z, state["cx"], state["cy"])
         elif area_holder:
@@ -1203,15 +1208,16 @@ def _build_osm_map_widget(
             area_holder[0].queue_draw()
 
     def _on_drag_end(gest: Any, off_x: float, off_y: float) -> None:
-        a  = area_holder[0] if area_holder else None
-        pw = a.get_width()  if a else 0
-        ph = a.get_height() if a else 0
-        if pw > 0 and ph > 0 and state["n_tx"] > 0 and state["n_ty"] > 0:
-            state["cx"] -= off_x / (pw / state["n_tx"])
-            state["cy"] -= off_y / (ph / state["n_ty"])
+        state["geo_pan_lat"] = state.get("geo_pan_lat", 0.0) + off_y * state.get("_lat_per_px", 0.0)
+        state["geo_pan_lon"] = state.get("geo_pan_lon", 0.0) - off_x * state.get("_lon_per_px", 0.0)
         state["pan_x"] = 0.0
         state["pan_y"] = 0.0
-        _reload(state["zoom"], state["cx"], state["cy"])
+        ctr_lat = (lat_min + lat_max) / 2 + state["geo_pan_lat"]
+        ctr_lon = (lon_min + lon_max) / 2 + state["geo_pan_lon"]
+        z = state["zoom"]
+        state["cx"] = _lon_to_tx(ctr_lon, z) + 0.5
+        state["cy"] = _lat_to_ty(ctr_lat, z) + 0.5
+        _reload(z, state["cx"], state["cy"])
 
     drag_gest = Gtk.GestureDrag()
     # CAPTURE phase: this controller sees the touch sequence before parent
@@ -1226,6 +1232,10 @@ def _build_osm_map_widget(
 
     def _on_tap(gest: Any, n_press: int, x: float, y: float) -> None:
         if n_press == 2:
+            state["geo_pan_lat"] = 0.0
+            state["geo_pan_lon"] = 0.0
+            state["zoom_factor"] = 1.0
+            state["pinch_scale"] = 1.0
             state["cx"]    = _init_cx
             state["cy"]    = _init_cy
             state["pan_x"] = 0.0
