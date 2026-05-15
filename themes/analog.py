@@ -138,7 +138,7 @@ def _analog_gauge(
              (*dim_col, 0.80 * a), max_w=r * 1.2)
     else:
         _txt(cr, val_unit, cx, cy + r * 0.30, unit_sz, (*dim_col, 0.80 * a), max_w=r * 1.2)
-        _txt(cr, val_label, cx, cy + r * 0.50, val_sz, (*text_col, a), bold=True, max_w=r * 1.4)
+        _txt(cr, val_label, cx, cy + r * 0.64, val_sz, (*text_col, a), bold=True, max_w=r * 1.4)
 
 
 def _compass_analog(
@@ -263,7 +263,7 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
 
     _analog_gauge(cr, cx_left, cy_main, r_left,
                   d.coolant, 0.0, 130.0,
-                  d.coolant_label, "°C", _translate(d.language, "dashboard.coolant"),
+                  d.coolant_label, "°C", "",
                   d.coolant_active, 20.0, 10.0)
 
     _analog_info_bar(cr, width, height, d, cy_main + r_center + height * 0.045)
@@ -296,7 +296,7 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
 
     _analog_gauge(cr, cx_right, cy_side, r_side,
                   d.coolant, 0.0, 130.0,
-                  d.coolant_label, "°C", _translate(d.language, "dashboard.coolant"),
+                  d.coolant_label, "°C", "",
                   d.coolant_active, 20.0, 10.0)
 
     _analog_info_bar(cr, width, height, d, cy_side + r_side + height * 0.04)
