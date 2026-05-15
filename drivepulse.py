@@ -1700,6 +1700,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         self._obd_active = False
         self._device_rotation = 0
 
+        GLib.idle_add(self._load_initial_scan_data)
+
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader._configured_port = self.obd_port
         self.reader.start()
@@ -1960,12 +1962,15 @@ class DashboardWindow(Adw.ApplicationWindow):
             self.cars_page.set_narrow(width < self.CARS_NARROW_BREAKPOINT)
 
         if self.gauge_box.get_visible():
-            # Sensor landscape (90/270) takes precedence — handles compositors that
-            # rotate the screen without changing the reported window dimensions (Phosh).
-            # Portrait sensor values (0/180) are skipped so window dimensions decide:
-            # on desktop or when auto-rotate is off, width/height is the right signal.
-            if self._device_rotation in (90, 270):
-                self._set_landscape_layout(max(width, height), min(width, height))
+            # On Phosh / compositor-side rotation (right-up or left-up): the GTK window
+            # stays portrait (e.g. 360×800) while the physical display is landscape.
+            # VERTICAL layout in the GTK window appears HORIZONTAL after the compositor
+            # rotates the output 90°. Pass swapped dimensions so sizing uses the physical
+            # proportions (physical_w = GTK_h, physical_h = GTK_w).
+            # Guard: only use this path when GTK window really is portrait (width < height),
+            # so a true landscape desktop window (width > height) still gets landscape layout.
+            if self._device_rotation in (90, 270) and width < height:
+                self._set_portrait_layout(min(width, height), max(width, height))
             elif width >= height:
                 self._set_landscape_layout(width, height)
             else:
@@ -2090,6 +2095,13 @@ class DashboardWindow(Adw.ApplicationWindow):
             self.scan_bar.set_fraction(1.0)
             self.scan_bar.set_text("Fahrzeugscan abgeschlossen")
             self._save_scan_to_db(current)
+            if current:
+                try:
+                    self._update_dashboard_from_profile(
+                        json.loads(Path(current).read_text(encoding="utf-8"))
+                    )
+                except Exception:
+                    pass
             self.cars_page.refresh_profiles()
             GLib.timeout_add(3000, self._hide_scan_bar)
             return
@@ -2257,6 +2269,62 @@ class DashboardWindow(Adw.ApplicationWindow):
             self.trip_recorder.record_obd(ts, **fields)
         except Exception:
             pass
+
+    def _update_dashboard_from_profile(self, data: dict[str, Any]) -> None:
+        """Parse a scan profile dict and push all PID / identity / DTC data to the dashboard."""
+        from cars import _parse_profile_pid_key, _extract_inner_string, _wmi_to_brand
+
+        pids: dict[str, float | None] = {}
+        for raw_key, raw_val in (data.get("live_data") or {}).items():
+            pid = _parse_profile_pid_key(raw_key)
+            if not pid:
+                continue
+            if isinstance(raw_val, dict):
+                v = raw_val.get("value")
+            else:
+                v = raw_val
+            try:
+                pids[pid] = float(v) if v is not None else None
+            except (TypeError, ValueError):
+                pids[pid] = None
+
+        info_src = data.get("vehicle_info") or {}
+        info: dict[str, str] = {}
+        vin = _extract_inner_string(info_src.get("VIN") or "")
+        if vin:
+            info["vin"] = vin
+            brand = _wmi_to_brand(vin)
+            if brand:
+                info["brand"] = brand
+        cal = _extract_inner_string(info_src.get("CALIBRATION_ID") or "")
+        if cal:
+            info["cal_id"] = cal
+        cvn = _extract_inner_string(info_src.get("CVN") or "")
+        if cvn:
+            info["cvn"] = cvn
+        if data.get("protocol"):
+            info["protocol"] = str(data["protocol"])
+        obd_std = pids.pop("011C", None)
+        if obd_std is not None:
+            info["obd_standard"] = str(int(obd_std)) if obd_std == int(obd_std) else str(obd_std)
+
+        dtcs = [str(d) for d in (data.get("dtcs") or [])]
+        pending = [str(d) for d in (data.get("pending_dtcs") or [])]
+
+        self.dashboard_canvas.update_scan_data(pids, info, dtcs, pending)
+
+    def _load_initial_scan_data(self) -> bool:
+        """Called once after startup: push the most recent profile into the dashboard."""
+        try:
+            from cars import _load_profiles
+            profiles = _load_profiles(self.db)
+            if profiles:
+                best = max(profiles, key=lambda p: p.get("last_seen") or "")
+                if best.get("data"):
+                    self._update_dashboard_from_profile(best["data"])
+        except Exception:
+            pass
+        return False
 
     def _handle_scan_identity(self, payload: dict[str, Any]) -> None:
         """Vom Scanner gemeldete Fahrzeug-Identität in die Trip-DB und in cars_page übernehmen."""
