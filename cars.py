@@ -846,15 +846,32 @@ def _get_tile_surface(zoom: int, tx: int, ty: int) -> Any:
 
 
 def _tile_to_grayscale(surf: Any) -> Any:
-    """Decode the raw PNG into a Cairo surface ready for blitting.
-
-    The previous implementation also converted every tile to grayscale via a
-    per-pixel Python loop (~300 ms per 256×256 tile). For a 4×4 grid that
-    cost ~5 s of CPU on every map open. The colored OSM tiles work fine in
-    both light and dark mode (we paint them with reduced alpha over a tinted
-    background) so the conversion is no longer worth its cost.
-    """
-    return surf
+    """Convert OSM tile to grayscale using numpy (fast, << 1 ms per tile)."""
+    try:
+        import numpy as np
+        import cairo as _c
+        w, h = surf.get_width(), surf.get_height()
+        out = _c.ImageSurface(_c.FORMAT_ARGB32, w, h)
+        cr = _c.Context(out)
+        cr.set_source_surface(surf, 0, 0)
+        cr.paint()
+        del cr
+        out.flush()
+        stride = out.get_stride()
+        # writable view over surface pixels; Cairo ARGB32 LE = [B, G, R, A]
+        arr = np.frombuffer(out.get_data(), dtype=np.uint8).reshape(h, stride // 4, 4)
+        lum = (
+            arr[:, :w, 0].astype(np.uint16) * 29    # B
+            + arr[:, :w, 1].astype(np.uint16) * 150  # G
+            + arr[:, :w, 2].astype(np.uint16) * 77   # R
+        ) >> 8
+        arr[:, :w, 0] = lum
+        arr[:, :w, 1] = lum
+        arr[:, :w, 2] = lum
+        out.mark_dirty()
+        return out
+    except Exception:
+        return surf  # fallback: show colour tile if numpy unavailable
 
 
 def _build_osm_map_widget(
@@ -959,12 +976,27 @@ def _build_osm_map_widget(
         if scale != 1.0:
             cr.restore()
 
-        # GPS track
+        # GPS track — dark outline first, then coloured line on top
         speeds = [s for _, _, s in gps_points if s is not None]
         vmax   = max(speeds) if speeds else 0.0
-        cr.set_line_width(3.0)
         cr.set_line_cap(1)
         cr.set_line_join(1)
+
+        # Pass 1: black outline (wider) for contrast against the B&W tiles
+        cr.set_line_width(5.5)
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.55)
+        first_pt = True
+        for lat, lon, _spd in gps_points:
+            px, py = _gps_px(lat, lon, w, h)
+            if first_pt:
+                cr.move_to(px, py)
+                first_pt = False
+            else:
+                cr.line_to(px, py)
+        cr.stroke()
+
+        # Pass 2: speed-coloured line
+        cr.set_line_width(3.0)
         prev: tuple[float, float] | None = None
         for lat, lon, spd in gps_points:
             px, py = _gps_px(lat, lon, w, h)
@@ -1866,11 +1898,46 @@ class CarsPage(Gtk.Box):
 
         page_content = _build_trip_detail_widget(self.language, trip, samples)
         title = self._trip_detail_title(trip)
-        page = Adw.NavigationPage(child=page_content, title=title)
+
+        trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        trash_btn.add_css_class("destructive-action")
+        trash_btn.connect("clicked", lambda _b: self._confirm_delete_trip(trip_id))
+
+        header = Adw.HeaderBar()
+        header.pack_end(trash_btn)
+
+        toolbar_view = Adw.ToolbarView()
+        toolbar_view.add_top_bar(header)
+        toolbar_view.set_content(page_content)
+
+        page = Adw.NavigationPage(child=toolbar_view, title=title)
         page.set_tag(f"trip-{trip_id}")
         self._trip_detail_page = page
         self._trip_detail_pushed = True
         self.nav_view.push(page)
+
+    def _confirm_delete_trip(self, trip_id: int) -> None:
+        dialog = Adw.AlertDialog.new(
+            _translate(self.language, "cars.trip.delete_title"),
+            _translate(self.language, "cars.trip.delete_body"),
+        )
+        dialog.add_response("cancel", _translate(self.language, "cars.trip.delete_cancel"))
+        dialog.add_response("delete", _translate(self.language, "cars.trip.delete_confirm"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", lambda _d, resp: self._delete_trip(trip_id) if resp == "delete" else None)
+        dialog.present(self)
+
+    def _delete_trip(self, trip_id: int) -> None:
+        if self.db is None:
+            return
+        try:
+            self.db.delete_trip(trip_id)
+        except Exception:
+            return
+        if self._trip_detail_page is not None:
+            self.nav_view.pop()
 
     def _trip_detail_title(self, trip: Any) -> str:
         started = self._parse_ts(trip["started_at"])
