@@ -166,14 +166,41 @@ def _scan_bt_paired_devices() -> list[tuple[str, str]]:
         return []
 
 
-def _scan_obd_devices() -> list[tuple[str, str]]:
-    """Return (display_label, port_value) pairs of currently detectable OBD devices."""
-    devices: list[tuple[str, str]] = []
+_OBD_CANDIDATE_PATHS = [
+    "/dev/rfcomm0",
+    "/dev/rfcomm1",
+    "/dev/ttyUSB0",
+    "/dev/ttyUSB1",
+    "/dev/ttyUSB2",
+    "/dev/ttyACM0",
+    "/dev/ttyACM1",
+]
 
-    # Wired / already-bound serial devices
+
+def _scan_obd_devices() -> list[tuple[str, str]]:
+    """Return (display_label, port_value) pairs of detectable and common OBD device paths.
+
+    Existing devices come first (with their real path or descriptive by-id name).
+    Common candidate paths that are not currently present are appended with a
+    '(not found)' suffix so users can pre-configure a port before connecting.
+    """
+    devices: list[tuple[str, str]] = []
+    seen_paths: set[str] = set()
+
+    # /dev/serial/by-id/* — descriptive USB-serial names (only existing)
+    for path in sorted(Path("/dev/serial/by-id").glob("*")) if Path("/dev/serial/by-id").exists() else []:
+        real = str(path.resolve())
+        label = f"{path.name} ({real})"
+        devices.append((label, real))
+        seen_paths.add(real)
+
+    # Directly present wired / already-bound serial devices
     for pattern in ("/dev/rfcomm*", "/dev/ttyUSB*", "/dev/ttyACM*"):
         for path in sorted(Path("/").glob(pattern.lstrip("/"))):
-            devices.append((str(path), str(path)))
+            p = str(path)
+            if p not in seen_paths:
+                devices.append((p, p))
+                seen_paths.add(p)
 
     # Paired Bluetooth devices (direct RFCOMM socket, no rfcomm bind needed)
     seen_bt: set[str] = set()
@@ -189,6 +216,13 @@ def _scan_obd_devices() -> list[tuple[str, str]]:
 
     if OBD_SOCKET_URL:
         devices.append((OBD_SOCKET_URL, OBD_SOCKET_URL))
+
+    # Common candidate paths not yet present — let users pre-configure
+    for candidate in _OBD_CANDIDATE_PATHS:
+        if candidate not in seen_paths:
+            devices.append((f"{candidate} (not found)", candidate))
+            seen_paths.add(candidate)
+
     return devices
 
 

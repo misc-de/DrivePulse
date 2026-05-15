@@ -266,19 +266,23 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
 
     outer.append(stats)
 
-    # --- GPS-Track ---
+    # --- GPS-Track / OSM Map ---
     gps_points = [(s["lat"], s["lon"], s["speed_kmh"]) for s in samples
                   if s["lat"] is not None and s["lon"] is not None]
     if gps_points:
         gps_title = Gtk.Label(label=_translate(language, "cars.trip.route"), xalign=0.0)
         gps_title.add_css_class("heading")
         outer.append(gps_title)
-        gps_area = Gtk.DrawingArea()
-        gps_area.set_content_height(240)
-        gps_area.set_hexpand(True)
-        gps_area.add_css_class("card")
-        gps_area.set_draw_func(lambda area, cr, w, h, pts=gps_points: _draw_gps_track(cr, w, h, pts))
-        outer.append(gps_area)
+        map_widget = _build_osm_map_widget(gps_points)
+        if map_widget is not None:
+            outer.append(map_widget)
+        else:
+            gps_area = Gtk.DrawingArea()
+            gps_area.set_content_height(240)
+            gps_area.set_hexpand(True)
+            gps_area.add_css_class("card")
+            gps_area.set_draw_func(lambda area, cr, w, h, pts=gps_points: _draw_gps_track(cr, w, h, pts))
+            outer.append(gps_area)
 
     # --- Geschwindigkeitsverlauf ---
     speed_series = [(s["ts"], s["speed_kmh"]) for s in samples if s["speed_kmh"] is not None]
@@ -433,6 +437,94 @@ def _draw_speed_series(cr: Any, width: int, height: int, series: list[tuple[floa
         else:
             cr.line_to(x, y)
     cr.stroke()
+
+
+def _build_osm_map_widget(
+    gps_points: list[tuple[float, float, float | None]],
+    height: int = 300,
+) -> "Gtk.Widget | None":
+    """Return a WebKit WebView showing the GPS track on OpenStreetMap.
+
+    Returns None when WebKit is not available so callers can fall back to the
+    Cairo drawing.
+    """
+    try:
+        import gi as _gi
+        try:
+            _gi.require_version("WebKit", "6.0")
+            from gi.repository import WebKit as _WebKit  # type: ignore[attr-defined]
+        except (ValueError, ImportError):
+            _gi.require_version("WebKit2", "4.1")
+            from gi.repository import WebKit2 as _WebKit  # type: ignore[attr-defined,no-redef]
+    except Exception:
+        return None
+
+    pts_data = [
+        [lat, lon, spd if spd is not None else -1.0]
+        for lat, lon, spd in gps_points
+    ]
+    speeds = [s for _, _, s in gps_points if s is not None]
+    max_speed = max(speeds) if speeds else 1.0
+
+    pts_json = json.dumps(pts_data)
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body,html,#map{{margin:0;padding:0;height:100%;background:#111;}}
+  #map{{width:100%;height:100%;}}
+</style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<div id="map"></div>
+<script>
+var pts={pts_json};
+var maxSpd={max_speed:.2f};
+var map=L.map('map',{{attributionControl:true,zoomControl:true}});
+L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{
+  maxZoom:19,
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}}).addTo(map);
+function spColor(spd){{
+  if(spd<0||maxSpd<=0)return'#6699ee';
+  var t=Math.min(1.0,spd/Math.max(1.0,maxSpd));
+  return'rgb('+Math.round(51+178*t)+','+Math.round(128+102*(1-Math.abs(0.5-t)*2))+','+Math.round(230-204*t)+')';
+}}
+for(var i=1;i<pts.length;i++){{
+  L.polyline([[pts[i-1][0],pts[i-1][1]],[pts[i][0],pts[i][1]]],{{
+    color:spColor(pts[i][2]),weight:3.5,opacity:0.9
+  }}).addTo(map);
+}}
+if(pts.length>0){{
+  L.circleMarker([pts[0][0],pts[0][1]],{{radius:7,color:'#fff',weight:2,fillColor:'#22aa44',fillOpacity:1}}).addTo(map);
+  L.circleMarker([pts[pts.length-1][0],pts[pts.length-1][1]],{{radius:7,color:'#fff',weight:2,fillColor:'#dd3333',fillOpacity:1}}).addTo(map);
+}}
+if(pts.length>1){{
+  var lats=pts.map(function(p){{return p[0];}});
+  var lons=pts.map(function(p){{return p[1];}});
+  map.fitBounds([[Math.min.apply(null,lats),Math.min.apply(null,lons)],
+                 [Math.max.apply(null,lats),Math.max.apply(null,lons)]],{{padding:[20,20]}});
+}}else if(pts.length===1){{
+  map.setView([pts[0][0],pts[0][1]],15);
+}}
+</script>
+</body>
+</html>"""
+
+    try:
+        settings = _WebKit.Settings()
+        settings.set_enable_javascript(True)
+        view = _WebKit.WebView()
+        view.set_settings(settings)
+        view.set_size_request(-1, height)
+        view.set_hexpand(True)
+        view.load_html(html, None)
+        return view
+    except Exception:
+        return None
 
 
 def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
