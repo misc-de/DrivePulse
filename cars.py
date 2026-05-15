@@ -8,6 +8,7 @@ import math
 import os
 import re
 import threading
+import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -935,59 +936,90 @@ def _build_osm_map_widget(
     }
     area_holder: list[Gtk.DrawingArea] = []
 
-    def _gps_px(lat: float, lon: float, w: float, h: float) -> tuple[float, float]:
-        fx = (lon - state["nw_lon"]) / (state["se_lon"] - state["nw_lon"])
-        fy = (state["nw_lat"] - lat) / (state["nw_lat"] - state["se_lat"])
-        return fx * w, fy * h
-
     def draw_cb(_area: Gtk.DrawingArea, cr: Any, w: int, h: int) -> None:
         dark = _is_dark()
         cr.set_source_rgb(0.10, 0.12, 0.18) if dark else cr.set_source_rgb(0.90, 0.91, 0.93)
         cr.paint()
 
-        n_tx = state["n_tx"]
-        n_ty = state["n_ty"]
-        tile_w = w / n_tx
-        tile_h = h / n_ty
-        pan_x  = state["pan_x"]
-        pan_y  = state["pan_y"]
-        scale  = state["pinch_scale"]
+        z     = state["zoom"]
+        pan_x = state["pan_x"]
+        pan_y = state["pan_y"]
+        pinch = state["pinch_scale"]
 
-        cr.save()
-        cr.translate(pan_x, pan_y)
+        # ── Viewport bbox ─────────────────────────────────────────────────────
+        # Base: padded route bbox, expanded to match widget aspect ratio so the
+        # route always fills the full widget without distortion.
+        cos_mid = math.cos(math.radians((lat_min + lat_max) / 2))
+        half_lat = (lat_max - lat_min) / 2
+        half_lon = (lon_max - lon_min) / 2
+        widget_ar = w / max(1, h)
+        geo_ar = (half_lon * cos_mid) / max(1e-9, half_lat)
+        if geo_ar > widget_ar:
+            half_lat = (half_lon * cos_mid) / max(1e-9, widget_ar)
+        else:
+            half_lon = (half_lat * widget_ar) / max(1e-9, cos_mid)
 
-        if scale != 1.0:
-            cr.save()
-            cr.translate(w / 2, h / 2)
-            cr.scale(scale, scale)
-            cr.translate(-w / 2, -h / 2)
+        # Apply pinch zoom
+        half_lat /= pinch
+        half_lon /= pinch
 
+        # Pixel-to-degree scale factors (used by drag handler too)
+        lat_per_px = (half_lat * 2) / max(1, h)
+        lon_per_px = (half_lon * 2) / max(1, w)
+        state["_lat_per_px"] = lat_per_px
+        state["_lon_per_px"] = lon_per_px
+
+        # Live drag offset + accumulated geo pan
+        geo_pan_lat = state.get("geo_pan_lat", 0.0) + pan_y * lat_per_px
+        geo_pan_lon = state.get("geo_pan_lon", 0.0) - pan_x * lon_per_px
+
+        ctr_lat = (lat_min + lat_max) / 2 + geo_pan_lat
+        ctr_lon = (lon_min + lon_max) / 2 + geo_pan_lon
+
+        disp_lat_min = ctr_lat - half_lat
+        disp_lat_max = ctr_lat + half_lat
+        disp_lon_min = ctr_lon - half_lon
+        disp_lon_max = ctr_lon + half_lon
+
+        def proj(lat: float, lon: float) -> tuple[float, float]:
+            fx = (lon - disp_lon_min) / max(1e-9, disp_lon_max - disp_lon_min)
+            fy = (disp_lat_max - lat) / max(1e-9, disp_lat_max - disp_lat_min)
+            return fx * w, fy * h
+
+        # ── Tiles ─────────────────────────────────────────────────────────────
+        # Each tile is placed at its geographic position in the viewport,
+        # so tiles and GPS track share the same coordinate space.
         tile_alpha = 0.85 if dark else 0.95
-        for (z, ttx, tty), surf in list(state["surfaces"].items()):
-            dx = (ttx - state["tx0"]) * tile_w
-            dy = (tty - state["ty0"]) * tile_h
+        for (tz, ttx, tty), surf in list(state["surfaces"].items()):
+            if tz != z:
+                continue
+            tnw_lon = _tx_to_lon(ttx, z)
+            tse_lon = _tx_to_lon(ttx + 1, z)
+            tnw_lat = _ty_to_lat(tty, z)
+            tse_lat = _ty_to_lat(tty + 1, z)
+            x0, y0 = proj(tnw_lat, tnw_lon)
+            x1, y1 = proj(tse_lat, tse_lon)
+            tdw, tdh = x1 - x0, y1 - y0
+            if tdw < 1 or tdh < 1:
+                continue
             cr.save()
-            cr.translate(dx, dy)
-            cr.scale(tile_w / _TILE_PX, tile_h / _TILE_PX)
+            cr.translate(x0, y0)
+            cr.scale(tdw / _TILE_PX, tdh / _TILE_PX)
             cr.set_source_surface(surf, 0, 0)
             cr.paint_with_alpha(tile_alpha)
             cr.restore()
 
-        if scale != 1.0:
-            cr.restore()
-
-        # GPS track — dark outline first, then coloured line on top
+        # ── GPS track ─────────────────────────────────────────────────────────
         speeds = [s for _, _, s in gps_points if s is not None]
         vmax   = max(speeds) if speeds else 0.0
         cr.set_line_cap(1)
         cr.set_line_join(1)
 
-        # Pass 1: black outline (wider) for contrast against the B&W tiles
         cr.set_line_width(5.5)
         cr.set_source_rgba(0.0, 0.0, 0.0, 0.55)
         first_pt = True
         for lat, lon, _spd in gps_points:
-            px, py = _gps_px(lat, lon, w, h)
+            px, py = proj(lat, lon)
             if first_pt:
                 cr.move_to(px, py)
                 first_pt = False
@@ -995,11 +1027,10 @@ def _build_osm_map_widget(
                 cr.line_to(px, py)
         cr.stroke()
 
-        # Pass 2: speed-coloured line
         cr.set_line_width(3.0)
         prev: tuple[float, float] | None = None
         for lat, lon, spd in gps_points:
-            px, py = _gps_px(lat, lon, w, h)
+            px, py = proj(lat, lon)
             if spd is not None and vmax > 0:
                 t  = min(1.0, spd / vmax)
                 rr = 0.2 + 0.7 * t
@@ -1016,12 +1047,12 @@ def _build_osm_map_widget(
                 cr.stroke()
             prev = (px, py)
 
-        # Start (green) / end (red) markers
+        # ── Markers ───────────────────────────────────────────────────────────
         for lat, lon, fill in [
             (gps_points[0][0],  gps_points[0][1],  (0.13, 0.67, 0.27)),
             (gps_points[-1][0], gps_points[-1][1], (0.86, 0.21, 0.27)),
         ]:
-            mx, my = _gps_px(lat, lon, w, h)
+            mx, my = proj(lat, lon)
             cr.set_source_rgb(1, 1, 1)
             cr.arc(mx, my, 7, 0, 6.2832)
             cr.fill()
@@ -1029,14 +1060,14 @@ def _build_osm_map_widget(
             cr.arc(mx, my, 5.5, 0, 6.2832)
             cr.fill()
 
-        # Cursor dot
+        # ── Cursor dot ────────────────────────────────────────────────────────
         if cursor_state is not None and speed_pts:
             idx = cursor_state.get("idx", -1)
             if 0 <= idx < len(speed_pts):
                 clat = speed_pts[idx][2]
                 clon = speed_pts[idx][3]
                 if clat is not None and clon is not None:
-                    dot_x, dot_y = _gps_px(clat, clon, w, h)
+                    dot_x, dot_y = proj(clat, clon)
                     cr.set_source_rgb(1.0, 0.9, 0.0)
                     cr.arc(dot_x, dot_y, 7, 0, 6.2832)
                     cr.fill()
@@ -1045,9 +1076,7 @@ def _build_osm_map_widget(
                     cr.arc(dot_x, dot_y, 7, 0, 6.2832)
                     cr.stroke()
 
-        cr.restore()  # pop pan/pinch transforms
-
-        # Loading label — unaffected by pan
+        # ── Loading overlay ───────────────────────────────────────────────────
         if state["loading"] and not state["surfaces"]:
             cr.set_source_rgba(0.5, 0.5, 0.5, 0.8)
             cr.select_font_face("Sans", 0, 0)
@@ -1295,6 +1324,7 @@ class CarsPage(Gtk.Box):
     __gtype_name__ = "CarsPage"
 
     LIVE_ID = "__live__"
+    LIVE_DETAIL_RENDER_INTERVAL_S = 0.25
 
     def __init__(self, language: str = SOURCE_LANGUAGE, db: DriveDB | None = None) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -1314,6 +1344,7 @@ class CarsPage(Gtk.Box):
         self._scan_detail_page: Adw.NavigationPage | None = None
         self._scan_id_shown: int | None = None
         self._live_row: Adw.ActionRow | None = None
+        self._last_live_detail_render = -self.LIVE_DETAIL_RENDER_INTERVAL_S
         self._narrow = False
         self._cat_rows: list[Gtk.ListBoxRow] = []
         self._trip_select_mode: bool = False
@@ -1627,14 +1658,22 @@ class CarsPage(Gtk.Box):
                 self._latest_live[k] = v
             self._obd_connected = source == "obd"
             self._update_live_row_subtitle()
-        if self._selected_source == self.LIVE_ID and self._detail_pushed:
+        if self._selected_source == self.LIVE_ID and self._detail_pushed and self._live_detail_render_due():
             self._render_detail()
 
     def set_live_identity(self, identity: dict[str, str]) -> None:
         self._live_identity = dict(identity)
         self._update_live_row_subtitle()
         if self._selected_source == self.LIVE_ID and self._detail_pushed:
+            self._last_live_detail_render = time.monotonic()
             self._render_detail()
+
+    def _live_detail_render_due(self) -> bool:
+        now = time.monotonic()
+        if now - self._last_live_detail_render < self.LIVE_DETAIL_RENDER_INTERVAL_S:
+            return False
+        self._last_live_detail_render = now
+        return True
 
     # ---------------------------------------------------- Listen-Render
 
