@@ -1,9 +1,12 @@
 """Autos-Browser: Liste bekannter Fahrzeuge → Detail mit kategorisierten Werten."""
 from __future__ import annotations
 
+import http.server
 import json
 import math
 import re
+import socketserver
+import threading
 from datetime import datetime
 from typing import Any, Callable
 
@@ -569,6 +572,68 @@ def _draw_speed_series(cr: Any, width: int, height: int, series: list[tuple[floa
     cr.stroke()
 
 
+class _TileProxyHandler(http.server.BaseHTTPRequestHandler):
+    """Proxies OSM tile requests from WebKit to tile.openstreetmap.org.
+
+    WebKit's content-process sandbox can silently block tile images even when
+    script loading works.  Routing through localhost bypasses this because
+    WebKit always allows loopback connections.
+    """
+
+    _cache: dict[str, bytes] = {}
+    _cache_lock = threading.Lock()
+    _MAX_TILES = 800  # ~20–40 MB depending on tile size
+
+    def do_GET(self) -> None:
+        # self.path is e.g. "/15/17602/11365.png"
+        import urllib.request as _ur
+        cache_key = self.path
+        with self._cache_lock:
+            data = self._cache.get(cache_key)
+        if data is None:
+            try:
+                req = _ur.Request(
+                    "https://tile.openstreetmap.org" + self.path,
+                    headers={"User-Agent": "DrivePulse/1.0 (GTK4 OBD dashboard)"},
+                )
+                with _ur.urlopen(req, timeout=10) as resp:
+                    data = resp.read()
+                with self._cache_lock:
+                    if len(self._cache) >= self._MAX_TILES:
+                        oldest = next(iter(self._cache))
+                        del self._cache[oldest]
+                    self._cache[cache_key] = data
+            except Exception:
+                self.send_error(502)
+                return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *_args: object) -> None:
+        pass  # suppress access log noise
+
+
+_tile_proxy_port: int | None = None
+_tile_proxy_lock = threading.Lock()
+
+
+def _get_tile_proxy_port() -> int:
+    """Start the tile proxy on first call and return its port (lazy singleton)."""
+    global _tile_proxy_port
+    with _tile_proxy_lock:
+        if _tile_proxy_port is None:
+            server = socketserver.TCPServer(("127.0.0.1", 0), _TileProxyHandler)
+            server.allow_reuse_address = True
+            _tile_proxy_port = server.server_address[1]
+            t = threading.Thread(target=server.serve_forever, daemon=True)
+            t.start()
+    return _tile_proxy_port
+
+
 def _build_osm_map_widget(
     gps_points: list[tuple[float, float, float | None]],
     height: int = 300,
@@ -597,9 +662,22 @@ def _build_osm_map_widget(
     max_speed = max(speeds) if speeds else 1.0
     pts_json = json.dumps(pts_data)
 
-    # Explicit pixel height in CSS — `height:100%` collapses in WebKit GTK
-    # because the embedded viewport has no defined height anchor.
-    # The map init is deferred via window.onload so Leaflet is fully parsed first.
+    # Route tiles through a local Python proxy so WebKit's content-process
+    # sandbox cannot block them.  Leaflet still loads from the CDN (scripts are
+    # not affected by the sandbox), but tile images go via 127.0.0.1.
+    try:
+        port = _get_tile_proxy_port()
+    except Exception:
+        port = None
+
+    if port is not None:
+        tile_url = f"http://127.0.0.1:{port}/{{z}}/{{x}}/{{y}}.png"
+        tile_opts = "maxZoom:19,attribution:'\\u00a9 <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors'"
+    else:
+        # Fallback: direct OSM (may not work in sandboxed WebKit)
+        tile_url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        tile_opts = "maxZoom:19,attribution:'\\u00a9 OpenStreetMap contributors'"
+
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -628,10 +706,7 @@ window.addEventListener('load', function() {{
   var pts = {pts_json};
   var maxSpd = {max_speed:.2f};
   var map = L.map('map', {{attributionControl:true, zoomControl:true}});
-  L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-    maxZoom: 19,
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }}).addTo(map);
+  L.tileLayer('{tile_url}', {{{tile_opts}}}).addTo(map);
   function spColor(spd) {{
     if (spd < 0 || maxSpd <= 0) return '#6699ee';
     var t = Math.min(1.0, spd / Math.max(1.0, maxSpd));
@@ -666,10 +741,7 @@ window.addEventListener('load', function() {{
         view.set_settings(settings)
         view.set_size_request(-1, height)
         view.set_hexpand(True)
-        # Pass a real https base URI so WebKit allows external resource loading.
-        # None / about:blank can cause opaque-origin security restrictions for
-        # subresources (CDN scripts, tile images) in some WebKit builds.
-        view.load_html(html, "https://www.openstreetmap.org/")
+        view.load_html(html, None)
         return view
     except Exception:
         return None
