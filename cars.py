@@ -687,7 +687,10 @@ def _build_speed_chart_widget(
     # Touch: drag / swipe
     drag_ctl = Gtk.GestureDrag()
 
-    def _on_chart_drag_begin(_g: Any, x: float, _y: float) -> None:
+    def _on_chart_drag_begin(g: Any, x: float, _y: float) -> None:
+        # Claim the sequence so horizontal cursor-scrubbing on the chart does
+        # not also drive the parent page-swipe / back-swipe gestures.
+        g.set_state(Gtk.EventSequenceState.CLAIMED)
         _set_cursor(x, area.get_width())
 
     def _on_chart_drag_update(g: Any, off_x: float, _off_y: float) -> None:
@@ -695,6 +698,8 @@ def _build_speed_chart_widget(
         if ok:
             _set_cursor(sx + off_x, area.get_width())
 
+    # CAPTURE phase: claim the sequence before parent swipe/back gestures.
+    drag_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
     drag_ctl.connect("drag-begin", _on_chart_drag_begin)
     drag_ctl.connect("drag-update", _on_chart_drag_update)
     area.add_controller(drag_ctl)
@@ -1091,6 +1096,9 @@ def _build_osm_map_widget(
     zoom_start_z: list[int] = [state["zoom"]]
 
     def _on_zoom_begin(gest: Any, seq: Any) -> None:
+        # Claim the touch sequence so the parent page-switch swipe and the
+        # NavigationView back-swipe stop seeing follow-up events on this map.
+        gest.set_state(Gtk.EventSequenceState.CLAIMED)
         zoom_start_z[0] = state["zoom"]
         state["pinch_scale"] = 1.0
 
@@ -1113,12 +1121,17 @@ def _build_osm_map_widget(
             area_holder[0].queue_draw()
 
     zoom_gest = Gtk.GestureZoom()
+    zoom_gest.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
     zoom_gest.connect("begin", _on_zoom_begin)
     zoom_gest.connect("scale-changed", _on_scale_changed)
     zoom_gest.connect("end", _on_zoom_end)
     area.add_controller(zoom_gest)
 
     def _on_drag_begin(gest: Any, x: float, y: float) -> None:
+        # Claim the touch sequence: blocks the parent ViewStack horizontal
+        # page-swipe and the Adw.NavigationView back-swipe while the user is
+        # panning the map. Without this, dragging the map would also flip pages.
+        gest.set_state(Gtk.EventSequenceState.CLAIMED)
         state["pan_x"] = 0.0
         state["pan_y"] = 0.0
 
@@ -1140,6 +1153,10 @@ def _build_osm_map_widget(
         _reload(state["zoom"], state["cx"], state["cy"])
 
     drag_gest = Gtk.GestureDrag()
+    # CAPTURE phase: this controller sees the touch sequence before parent
+    # gestures (ViewStack page-swipe, NavigationView back-swipe), so its
+    # drag-begin can claim the sequence before any of them lock on.
+    drag_gest.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
     drag_gest.connect("drag-begin",  _on_drag_begin)
     drag_gest.connect("drag-update", _on_drag_update)
     drag_gest.connect("drag-end",    _on_drag_end)
