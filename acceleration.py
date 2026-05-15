@@ -277,24 +277,26 @@ class AccelerationPage(Gtk.Box):
         controls.append(self.reset_button)
 
         # G-Force visualization (Sensor-Suite inspired) with Vmax/Gmax line above.
-        # The canvas has a natural size and does NOT expand, so the group can be
-        # centered as a block inside the remaining space below the results list.
+        # The canvas expands within its centred parent so it fills the available
+        # space below the results list, while the inner draw routine still keeps
+        # the circle square (uses min(width, height) for the radius).
         self.gforce_canvas = GForceCanvas()
-        self.gforce_canvas.set_hexpand(False)
-        self.gforce_canvas.set_vexpand(False)
-        self.gforce_canvas.set_halign(Gtk.Align.CENTER)
-        self.gforce_canvas.set_content_width(240)
-        self.gforce_canvas.set_content_height(240)
-        self.gforce_canvas.set_size_request(200, 200)
+        self.gforce_canvas.set_hexpand(True)
+        self.gforce_canvas.set_vexpand(True)
+        self.gforce_canvas.set_halign(Gtk.Align.FILL)
+        self.gforce_canvas.set_valign(Gtk.Align.FILL)
+        self.gforce_canvas.set_content_width(360)
+        self.gforce_canvas.set_content_height(360)
+        self.gforce_canvas.set_size_request(240, 240)
 
         self.gforce_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.gforce_box.set_hexpand(True)
         self.gforce_box.set_vexpand(True)
-        # valign=CENTER + vexpand=True: gforce_box grabs the remaining space and
-        # then positions its (natural-sized) content centered within it. Without
-        # this the box would stretch and the canvas would drift downward.
-        self.gforce_box.set_halign(Gtk.Align.CENTER)
-        self.gforce_box.set_valign(Gtk.Align.CENTER)
+        # Group fills the remaining space so the canvas inside can grow. The
+        # canvas keeps a square draw via min(w, h) in its _draw method, so
+        # excess width in landscape just leaves padding either side.
+        self.gforce_box.set_halign(Gtk.Align.FILL)
+        self.gforce_box.set_valign(Gtk.Align.FILL)
         self.gforce_box.append(self.maxes_label)
         self.gforce_box.append(self.gforce_canvas)
 
