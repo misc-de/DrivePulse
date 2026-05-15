@@ -34,6 +34,7 @@ def _analog_gauge(
     step_minor: float,
     dark: bool = True,
     source: str = "",
+    lbl_x_nudge: dict | None = None,
 ) -> None:
     a = 1.0 if active else 0.30
     face_col = (0.11, 0.12, 0.13) if dark else (0.92, 0.93, 0.95)
@@ -87,7 +88,8 @@ def _analog_gauge(
         cr.set_font_size(lbl_size)
         txt = f"{lval:.0f}"
         ext = cr.text_extents(txt)
-        nx = cx + math.cos(angle) * lbl_r - ext.width / 2 - ext.x_bearing
+        nudge = (lbl_x_nudge.get(round(lval), 0.0) if lbl_x_nudge else 0.0) * lbl_size * 0.6
+        nx = cx + math.cos(angle) * lbl_r - ext.width / 2 - ext.x_bearing + nudge
         ny = cy + math.sin(angle) * lbl_r - ext.height / 2 - ext.y_bearing
         cr.set_source_rgba(*dim_col, 0.80 * a)
         cr.move_to(nx, ny)
@@ -259,7 +261,8 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
     _analog_gauge(cr, cx_right, cy_main, r_right,
                   d.rpm, 0, d.rpm_max,
                   d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), "",
-                  d.rpm_active, 1000.0, 500.0)
+                  d.rpm_active, 1000.0, 500.0,
+                  lbl_x_nudge={1000: 1.0, 2000: 1.0, 5000: -1.0, 6000: -1.0})
 
     _analog_gauge(cr, cx_left, cy_main, r_left,
                   d.coolant, 0.0, 130.0,
@@ -292,7 +295,8 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
     _analog_gauge(cr, cx_left, cy_side, r_side,
                   d.rpm, 0, d.rpm_max,
                   d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), "",
-                  d.rpm_active, 1000.0, 500.0)
+                  d.rpm_active, 1000.0, 500.0,
+                  lbl_x_nudge={1000: 1.0, 2000: 1.0, 5000: -1.0, 6000: -1.0})
 
     _analog_gauge(cr, cx_right, cy_side, r_side,
                   d.coolant, 0.0, 130.0,
