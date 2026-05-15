@@ -2532,6 +2532,8 @@ class DashboardWindow(Adw.ApplicationWindow):
 def _register_local_icon() -> None:
     """Add the local icon.png and bundled SVG icons to the GTK icon theme."""
     theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+
+    # App icon (PNG, for window/taskbar)
     local_icon = Path(__file__).parent / "icon.png"
     if local_icon.exists():
         try:
@@ -2541,9 +2543,21 @@ def _register_local_icon() -> None:
             dest = cache_dir / f"{APP_ID}.png"
             if not dest.exists() or dest.stat().st_mtime < local_icon.stat().st_mtime:
                 shutil.copy2(local_icon, dest)
-            theme.add_search_path(str(cache_dir.parent.parent.parent))
+            hicolor_cache = cache_dir.parent.parent
+            index = hicolor_cache / "index.theme"
+            if not index.exists():
+                index.write_text(
+                    "[Icon Theme]\nName=hicolor\nHidden=true\n"
+                    "Directories=128x128/apps\n\n"
+                    "[128x128/apps]\nSize=128\nType=Fixed\n",
+                    encoding="utf-8",
+                )
+            theme.add_search_path(str(hicolor_cache.parent))
         except Exception:
             pass
+
+    # Bundled symbolic SVG icons — index.theme in icons/hicolor/ enables GTK lookup.
+    # GTK recolours symbolic icons (fill="currentColor") automatically for dark/light theme.
     icons_dir = Path(__file__).parent / "icons"
     if icons_dir.is_dir():
         theme.add_search_path(str(icons_dir))
