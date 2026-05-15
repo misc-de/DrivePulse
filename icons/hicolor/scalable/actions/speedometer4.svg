@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Gauge donut arc: from lower-left to lower-right over the top (240° span) -->
+  <path fill="currentColor" d="M4.21 17.5A9 9 0 1 0 19.79 17.5L18.06 16.5A7 7 0 1 1 5.94 16.5Z"/>
+  <!-- Needle pointing upper-right (~65% position) -->
+  <path fill="currentColor" d="M10.7 13.8L15.1 7.4 13.3 14Z"/>
+  <circle cx="12" cy="13" r="1.5" fill="currentColor"/>
+</svg>
