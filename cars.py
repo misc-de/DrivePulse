@@ -50,7 +50,7 @@ _SPECIAL_PENDING = "__PENDING_DTC__"
 _SPECIAL_ADAPTER_V = "__ATRV__"
 
 CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
-    ("vehicle", "cars.category.vehicle", "dialog-information-symbolic", (
+    ("vehicle", "cars.category.vehicle", "info", (
         (_SPECIAL_VIN,        "cars.pid.VIN"),
         (_SPECIAL_CAL,        "cars.pid.CAL"),
         (_SPECIAL_CVN,        "cars.pid.CVN"),
@@ -58,7 +58,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("011C",              "cars.pid.011C"),
         (_SPECIAL_SCAN_DATE,  "cars.pid.SCAN_DATE"),
     )),
-    ("engine", "cars.category.engine", "applications-engineering-symbolic", (
+    ("engine", "cars.category.engine", "step_object_LinearMotor", (
         ("010C", "cars.pid.010C"),
         ("0104", "cars.pid.0104"),
         ("0143", "cars.pid.0143"),
@@ -67,13 +67,13 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("0142", "cars.pid.0142"),
         (_SPECIAL_ADAPTER_V, "cars.pid.ATRV"),
     )),
-    ("drive", "cars.category.drive", "media-seek-forward-symbolic", (
+    ("drive", "cars.category.drive", "speedometer3", (
         ("010D", "cars.pid.010D"),
         ("0131", "cars.pid.0131"),
         ("0121", "cars.pid.0121"),
         ("0130", "cars.pid.0130"),
     )),
-    ("temperatures", "cars.category.temperatures", "weather-clear-symbolic", (
+    ("temperatures", "cars.category.temperatures", "thermometer", (
         ("0105", "cars.pid.0105"),
         ("010F", "cars.pid.010F"),
         ("0146", "cars.pid.0146"),
@@ -109,7 +109,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("0141", "cars.pid.0141"),
     )),
     # Sonderfall: keine PID-Liste, Inhalt = Fahrten dieses Autos aus der DB
-    ("trips", "cars.category.trips", "document-open-recent-symbolic", ()),
+    ("trips", "cars.category.trips", "globe", ()),
     # Sonderfall: Scan-Verlauf aus der DB
     ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
 )
@@ -1315,6 +1315,8 @@ class CarsPage(Gtk.Box):
         self._live_row: Adw.ActionRow | None = None
         self._narrow = False
         self._cat_rows: list[Gtk.ListBoxRow] = []
+        self._trip_select_mode: bool = False
+        self._trip_selected_ids: set[int] = set()
         # Wird vom DashboardWindow gesetzt: Callback, wenn der Anwender auf der
         # Wurzel (Auto-Liste) nach rechts wischt, um zum vorherigen Tab zurückzukehren.
         self.on_back_swipe: Callable[[], None] | None = None
@@ -1426,8 +1428,14 @@ class CarsPage(Gtk.Box):
         self._detail_title = Gtk.Label(xalign=0.0)
         self._detail_title.add_css_class("title-3")
         self._detail_title.set_hexpand(True)
+        self._vehicle_trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        self._vehicle_trash_btn.add_css_class("flat")
+        self._vehicle_trash_btn.set_visible(False)
+        self._vehicle_trash_btn.connect("clicked", lambda _b: self._confirm_delete_vehicle())
+
         head.append(self._detail_back_btn)
         head.append(self._detail_title)
+        head.append(self._vehicle_trash_btn)
         outer.append(head)
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
@@ -1517,6 +1525,35 @@ class CarsPage(Gtk.Box):
         value_scroll.set_hexpand(True)
         value_scroll.set_child(self.value_list)
         content.append(value_scroll)
+
+        # Selection action bar (trips multi-select mode)
+        self._select_count_lbl = Gtk.Label(xalign=0.0)
+        self._select_count_lbl.set_hexpand(True)
+
+        self._select_delete_btn = Gtk.Button()
+        self._select_delete_btn.add_css_class("destructive-action")
+        self._select_delete_btn.connect("clicked", lambda _b: self._confirm_delete_selected_trips())
+
+        _sel_cancel_btn = Gtk.Button(label="")
+        _sel_cancel_btn.add_css_class("flat")
+        _sel_cancel_btn.connect("clicked", lambda _b: self._exit_trip_select_mode())
+
+        self._select_cancel_btn = _sel_cancel_btn
+
+        sel_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        sel_bar.set_margin_start(16)
+        sel_bar.set_margin_end(16)
+        sel_bar.set_margin_top(8)
+        sel_bar.set_margin_bottom(8)
+        sel_bar.append(self._select_count_lbl)
+        sel_bar.append(self._select_delete_btn)
+        sel_bar.append(_sel_cancel_btn)
+
+        self._select_revealer = Gtk.Revealer()
+        self._select_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
+        self._select_revealer.set_reveal_child(False)
+        self._select_revealer.set_child(sel_bar)
+        content.append(self._select_revealer)
 
         body.append(content)
         outer.append(body)
@@ -1678,6 +1715,10 @@ class CarsPage(Gtk.Box):
                 title = _translate(self.language, "cars.unknown")
         self._detail_page.set_title(title)
         self._detail_title.set_text(title)
+        # Show trash only for real vehicles, not the live view
+        self._vehicle_trash_btn.set_visible(
+            source != self.LIVE_ID and self._selected_car_id is not None
+        )
         self._render_detail()
         if not self._detail_pushed:
             self.nav_view.push(self._detail_page)
@@ -1686,6 +1727,9 @@ class CarsPage(Gtk.Box):
     def _on_popped(self, _view: Adw.NavigationView, page: Adw.NavigationPage) -> None:
         if page is self._detail_page:
             self._detail_pushed = False
+            self._trip_select_mode = False
+            self._trip_selected_ids = set()
+            self._select_revealer.set_reveal_child(False)
         if page is self._trip_detail_page:
             self._trip_detail_pushed = False
             self._trip_detail_page = None
@@ -1700,7 +1744,12 @@ class CarsPage(Gtk.Box):
     def _on_category_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
             return
-        self._selected_category = getattr(row, "cat_key", CATEGORIES[0][0])
+        new_cat = getattr(row, "cat_key", CATEGORIES[0][0])
+        if self._trip_select_mode and new_cat != "trips":
+            self._trip_select_mode = False
+            self._trip_selected_ids = set()
+            self._select_revealer.set_reveal_child(False)
+        self._selected_category = new_cat
         if self._detail_pushed:
             self._render_detail()
 
@@ -1866,12 +1915,24 @@ class CarsPage(Gtk.Box):
             parts.append(f"⏺ {_translate(self.language, 'cars.trip.ongoing')}")
         row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
 
-        row.set_activatable(True)
-        icon = Gtk.Image.new_from_icon_name("mark-location-symbolic")
-        row.add_prefix(icon)
-        chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
-        row.add_suffix(chev)
-        row.connect("activated", lambda _r, tid=trip_id: self._open_trip_detail(tid))
+        if self._trip_select_mode:
+            chk = Gtk.CheckButton()
+            chk.set_active(trip_id in self._trip_selected_ids)
+            chk.set_valign(Gtk.Align.CENTER)
+            chk.connect("toggled", lambda c, tid=trip_id: self._on_trip_checkbox_toggled(tid, c.get_active()))
+            row.add_prefix(chk)
+            row.set_activatable(False)
+        else:
+            icon = Gtk.Image.new_from_icon_name("mark-location-symbolic")
+            row.add_prefix(icon)
+            chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
+            row.add_suffix(chev)
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, tid=trip_id: self._open_trip_detail(tid))
+            lp = Gtk.GestureLongPress()
+            lp.connect("pressed", lambda _g, _x, _y, tid=trip_id: self._enter_trip_select_mode(tid))
+            row.add_controller(lp)
+
         return row
 
     def _parse_ts(self, raw: Any) -> datetime | None:
@@ -1900,7 +1961,7 @@ class CarsPage(Gtk.Box):
         title = self._trip_detail_title(trip)
 
         trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        trash_btn.add_css_class("destructive-action")
+        trash_btn.add_css_class("flat")
         trash_btn.connect("clicked", lambda _b: self._confirm_delete_trip(trip_id))
 
         header = Adw.HeaderBar()
@@ -1938,6 +1999,97 @@ class CarsPage(Gtk.Box):
             return
         if self._trip_detail_page is not None:
             self.nav_view.pop()
+
+    # ---------------------------------------------------- Fahrzeug löschen
+
+    def _confirm_delete_vehicle(self) -> None:
+        dialog = Adw.AlertDialog.new(
+            _translate(self.language, "cars.vehicle.delete_title"),
+            _translate(self.language, "cars.vehicle.delete_body"),
+        )
+        dialog.add_response("cancel", _translate(self.language, "cars.trip.delete_cancel"))
+        dialog.add_response("delete", _translate(self.language, "cars.trip.delete_confirm"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", lambda _d, r: self._delete_vehicle() if r == "delete" else None)
+        dialog.present(self)
+
+    def _delete_vehicle(self) -> None:
+        if self.db and self._selected_car_id:
+            try:
+                self.db.delete_car(self._selected_car_id)
+            except Exception:
+                pass
+        entry = next(
+            (e for e in self._profiles if e.get("path") and str(e["path"]) == self._selected_source),
+            None,
+        )
+        if entry and entry.get("path"):
+            try:
+                Path(entry["path"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+        if self._detail_pushed:
+            self.nav_view.pop()
+        GLib.idle_add(self.refresh_profiles)
+
+    # ---------------------------------------------------- Fahrten Multi-Auswahl
+
+    def _enter_trip_select_mode(self, trip_id: int) -> None:
+        self._trip_select_mode = True
+        self._trip_selected_ids = {trip_id}
+        self._render_detail()
+        self._update_select_bar()
+        self._select_revealer.set_reveal_child(True)
+
+    def _exit_trip_select_mode(self) -> None:
+        self._trip_select_mode = False
+        self._trip_selected_ids = set()
+        self._select_revealer.set_reveal_child(False)
+        self._render_detail()
+
+    def _on_trip_checkbox_toggled(self, trip_id: int, active: bool) -> None:
+        if active:
+            self._trip_selected_ids.add(trip_id)
+        else:
+            self._trip_selected_ids.discard(trip_id)
+        self._update_select_bar()
+
+    def _update_select_bar(self) -> None:
+        n = len(self._trip_selected_ids)
+        self._select_count_lbl.set_text(
+            _translate(self.language, "cars.trip.selected_count", n=n)
+        )
+        self._select_delete_btn.set_label(_translate(self.language, "cars.trip.delete_confirm"))
+        self._select_delete_btn.set_sensitive(n > 0)
+        self._select_cancel_btn.set_label(_translate(self.language, "cars.trip.delete_cancel"))
+
+    def _confirm_delete_selected_trips(self) -> None:
+        n = len(self._trip_selected_ids)
+        if n == 0:
+            return
+        dialog = Adw.AlertDialog.new(
+            _translate(self.language, "cars.trip.delete_title"),
+            _translate(self.language, "cars.trip.delete_multi_body", n=n),
+        )
+        dialog.add_response("cancel", _translate(self.language, "cars.trip.delete_cancel"))
+        dialog.add_response("delete", _translate(self.language, "cars.trip.delete_confirm"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", lambda _d, r: self._delete_selected_trips() if r == "delete" else None)
+        dialog.present(self)
+
+    def _delete_selected_trips(self) -> None:
+        if self.db is None:
+            return
+        for tid in list(self._trip_selected_ids):
+            try:
+                self.db.delete_trip(tid)
+            except Exception:
+                pass
+        self._exit_trip_select_mode()
 
     def _trip_detail_title(self, trip: Any) -> str:
         started = self._parse_ts(trip["started_at"])

@@ -1376,6 +1376,7 @@ class OrientationReader:
 
     def __init__(self, on_changed: Callable[[str, int, bool], None], enabled: bool = True) -> None:
         self.on_changed = on_changed
+        self.on_gforce: Callable[[float, float, float], None] | None = None
         self._enabled = enabled
         self._current = "normal"
         # sensorfwd state
@@ -1491,6 +1492,9 @@ class OrientationReader:
                 self._buf = self._buf[need:]
                 if last_xyz:
                     self._on_accel(*last_xyz)
+                    if self.on_gforce is not None:
+                        x, y, z = last_xyz
+                        GLib.idle_add(self.on_gforce, x / 1000.0, y / 1000.0, z / 1000.0)
         except BlockingIOError:
             pass
         except Exception:
@@ -1642,7 +1646,6 @@ class DashboardWindow(Adw.ApplicationWindow):
         footer.set_halign(Gtk.Align.FILL)
         footer.set_hexpand(True)
         footer.append(self.scan_bar)
-        footer.append(self.status_label)
 
         self.footer = footer
 
@@ -1705,19 +1708,19 @@ class DashboardWindow(Adw.ApplicationWindow):
             dashboard_scroller,
             self.PAGE_DASHBOARD,
             _translate(self.language, "nav.gauges"),
-            "view-grid-symbolic",
+            "speedometer4",
         )
         self.acceleration_stack_page = self.view_stack.add_titled_with_icon(
             acceleration_scroller,
             self.PAGE_ACCELERATION,
             _translate(self.language, "nav.acceleration"),
-            "media-skip-forward-symbolic",
+            "playback-speed",
         )
         self.cars_stack_page = self.view_stack.add_titled_with_icon(
             self.cars_page,
             self.PAGE_CARS,
             _translate(self.language, "nav.cars"),
-            "applications-system-symbolic",
+            "driving",
         )
 
         self.view_stack.connect("notify::visible-child-name", self._on_visible_page_changed)
@@ -1781,6 +1784,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
         self.orientation_reader = OrientationReader(self._on_orientation_changed, enabled=self.auto_rotate)
+        self.orientation_reader.on_gforce = self.acceleration_page.update_gforce_raw
 
         # Idle-Erkennung + WAL-Checkpoint alle 30 s
         GLib.timeout_add_seconds(30, self._db_periodic_tick)
