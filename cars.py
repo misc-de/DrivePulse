@@ -904,10 +904,14 @@ def _build_osm_map_widget(
     center_lon = (lon_min + lon_max) / 2
 
     def _make_view(z: int, cx: float, cy: float) -> dict:
-        route_ntx = _lon_to_tx(lon_max, z) - _lon_to_tx(lon_min, z) + 1
-        route_nty = _lat_to_ty(lat_min, z) - _lat_to_ty(lat_max, z) + 1
-        ntx = max(1, min(route_ntx, _OSM_MAX_TILES))
-        nty = max(1, min(route_nty, _OSM_MAX_TILES))
+        # Use stored display bounds when available (set after the first draw);
+        # fall back to the padded route bbox before the widget has been painted.
+        dlat_min = state.get("disp_lat_min", lat_min)
+        dlat_max = state.get("disp_lat_max", lat_max)
+        dlon_min = state.get("disp_lon_min", lon_min)
+        dlon_max = state.get("disp_lon_max", lon_max)
+        ntx = max(3, min(_lon_to_tx(dlon_max, z) - _lon_to_tx(dlon_min, z) + 3, _OSM_MAX_TILES))
+        nty = max(3, min(_lat_to_ty(dlat_min, z) - _lat_to_ty(dlat_max, z) + 3, _OSM_MAX_TILES))
         tx0 = int(cx - ntx / 2)
         ty0 = int(cy - nty / 2)
         tx1 = tx0 + ntx - 1
@@ -982,6 +986,35 @@ def _build_osm_map_widget(
         disp_lat_max = ctr_lat + half_lat
         disp_lon_min = ctr_lon - half_lon
         disp_lon_max = ctr_lon + half_lon
+
+        # Check if the loaded tile grid fully covers the visible viewport.
+        # On the first draw (and on widget resize) the tile grid was built from
+        # the route bbox which may be narrower than the aspect-ratio-expanded
+        # viewport → blank strips at the edges.  Schedule exactly one reload
+        # when a coverage gap is detected and no gesture is in progress.
+        disp_bounds = (round(disp_lat_min, 4), round(disp_lat_max, 4),
+                       round(disp_lon_min, 4), round(disp_lon_max, 4))
+        if (state.get("_last_disp_bounds") != disp_bounds
+                and pan_x == 0.0 and pan_y == 0.0
+                and state["pinch_scale"] == 1.0
+                and not state.get("_reload_pending")):
+            state["_last_disp_bounds"] = disp_bounds
+            need_tx0 = _lon_to_tx(disp_lon_min, z) - 1
+            need_tx1 = _lon_to_tx(disp_lon_max, z) + 1
+            need_ty0 = _lat_to_ty(disp_lat_max, z) - 1
+            need_ty1 = _lat_to_ty(disp_lat_min, z) + 1
+            if (need_tx0 < state["tx0"] or need_tx1 > state["tx1"] or
+                    need_ty0 < state["ty0"] or need_ty1 > state["ty1"]):
+                state["disp_lat_min"] = disp_lat_min
+                state["disp_lat_max"] = disp_lat_max
+                state["disp_lon_min"] = disp_lon_min
+                state["disp_lon_max"] = disp_lon_max
+                state["_reload_pending"] = True
+                def _do_coverage_reload():
+                    state["_reload_pending"] = False
+                    _reload(state["zoom"], state["cx"], state["cy"])
+                    return False
+                GLib.idle_add(_do_coverage_reload)
 
         def proj(lat: float, lon: float) -> tuple[float, float]:
             fx = (lon - disp_lon_min) / max(1e-9, disp_lon_max - disp_lon_min)
