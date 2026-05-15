@@ -70,6 +70,18 @@ CREATE TABLE IF NOT EXISTS samples (
 
 CREATE INDEX IF NOT EXISTS idx_trips_car_started ON trips(car_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cars_vin          ON cars(vin);
+
+CREATE TABLE IF NOT EXISTS scans (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    car_id            INTEGER NOT NULL REFERENCES cars(id) ON DELETE CASCADE,
+    scanned_at        TEXT NOT NULL,
+    protocol          TEXT,
+    dtc_count         INTEGER NOT NULL DEFAULT 0,
+    pending_dtc_count INTEGER NOT NULL DEFAULT 0,
+    pids_count        INTEGER NOT NULL DEFAULT 0,
+    data_json         TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_scans_car_date ON scans(car_id, scanned_at DESC);
 """
 
 
@@ -220,6 +232,50 @@ class DriveDB:
                 "SELECT * FROM trips WHERE car_id=? ORDER BY started_at DESC",
                 (car_id,),
             ).fetchall())
+
+    # --------------------------------------------------------------- Scans
+
+    def add_scan(self, car_id: int, data: dict[str, Any]) -> int:
+        """Store a full OBD scan snapshot. Returns the new scan id."""
+        import json as _json
+        scanned_at = data.get("scanned_at") or datetime.now(timezone.utc).isoformat()
+        protocol = data.get("protocol")
+        dtc_count = len(data.get("dtcs") or [])
+        pending_count = len(data.get("pending_dtcs") or [])
+        pids_count = len(data.get("supported_pids") or [])
+        blob = _json.dumps(data, ensure_ascii=False, default=str)
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "INSERT INTO scans"
+                "(car_id, scanned_at, protocol, dtc_count, pending_dtc_count, pids_count, data_json)"
+                " VALUES(?,?,?,?,?,?,?)",
+                (car_id, scanned_at, protocol, dtc_count, pending_count, pids_count, blob),
+            )
+            self._conn.commit()
+            return int(cur.lastrowid)
+
+    def list_scans_for_car(self, car_id: int) -> list[sqlite3.Row]:
+        with self._lock:
+            return list(self._conn.execute(
+                "SELECT id, car_id, scanned_at, protocol, dtc_count, pending_dtc_count, pids_count"
+                " FROM scans WHERE car_id=? ORDER BY scanned_at DESC",
+                (car_id,),
+            ).fetchall())
+
+    def get_scan_data(self, scan_id: int) -> dict[str, Any]:
+        """Return the full JSON blob for a single scan."""
+        import json as _json
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT data_json FROM scans WHERE id=?", (scan_id,)
+            ).fetchone()
+        if row is None:
+            return {}
+        try:
+            return _json.loads(row["data_json"])
+        except Exception:
+            return {}
 
     # --------------------------------------------------------------- Samples
 
