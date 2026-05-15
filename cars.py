@@ -648,10 +648,13 @@ def _build_osm_map_widget(
         try:
             _gi.require_version("WebKit", "6.0")
             from gi.repository import WebKit as _WebKit  # type: ignore[attr-defined]
+            print("[OSM] using WebKit 6.0")
         except (ValueError, ImportError):
             _gi.require_version("WebKit2", "4.1")
             from gi.repository import WebKit2 as _WebKit  # type: ignore[attr-defined,no-redef]
-    except Exception:
+            print("[OSM] using WebKit2 4.1")
+    except Exception as e:
+        print(f"[OSM] WebKit not available: {e} — falling back to Cairo")
         return None
 
     pts_data = [
@@ -742,8 +745,10 @@ window.addEventListener('load', function() {{
         view.set_size_request(-1, height)
         view.set_hexpand(True)
         view.load_html(html, None)
+        print(f"[OSM] WebView created, tile proxy port={port}, {len(gps_points)} GPS points")
         return view
-    except Exception:
+    except Exception as e:
+        print(f"[OSM] WebView creation failed: {e} — falling back to Cairo")
         return None
 
 
