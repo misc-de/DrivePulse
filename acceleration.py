@@ -155,9 +155,9 @@ class GForceCanvas(Gtk.DrawingArea):
         cr.select_font_face("Cantarell", 0, 0)
         cr.set_font_size(font_value)
         cr.set_source_rgba(0.92, 0.93, 0.95, 0.95 if self._has_data else 0.55)
-        self._text_center(cr, f"{self._y:+.2f}g", cx, cy - radius - label_pad)
-        self._text_center(cr, f"{self._x:+.2f}g", cx + radius + label_pad, cy)
-        self._text_center(cr, f"{mag:.2f}g",     cx, cy + radius + label_pad)
+        self._text_center(cr, f"{self._y:+.1f}g", cx, cy - radius - label_pad)
+        self._text_center(cr, f"{self._x:+.1f}g", cx + radius + label_pad, cy)
+        self._text_center(cr, f"{mag:.1f}g",       cx, cy + radius + label_pad)
 
 
 def _apply_warning_css(button: Gtk.Button) -> None:
@@ -226,7 +226,6 @@ class AccelerationPage(Gtk.Box):
 
         header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         header_row.append(self.title_label)
-        header_row.append(self.g_label)
 
         self.status_label = _make_label_responsive(Gtk.Label(label=""), 42)
         self.status_label.add_css_class("dim-label")
@@ -242,7 +241,6 @@ class AccelerationPage(Gtk.Box):
         intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         intro.set_margin_bottom(10)
         intro.append(header_row)
-        intro.append(self.status_label)
 
         self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         self.result_labels: dict[Any, Gtk.Label] = {}
@@ -459,7 +457,7 @@ class AccelerationPage(Gtk.Box):
         else:
             parts.append(_translate(self.language, "acceleration.vmax.empty"))
         if self.max_g is not None:
-            parts.append(_translate(self.language, "acceleration.gmax", value=f"{self.max_g:.2f}"))
+            parts.append(_translate(self.language, "acceleration.gmax", value=f"{self.max_g:.1f}"))
         else:
             parts.append(_translate(self.language, "acceleration.gmax.empty"))
         self.maxes_label.set_text("  ·  ".join(parts))
@@ -560,6 +558,10 @@ class AccelerationPage(Gtk.Box):
         self._show_start()
         self._set_g_text(None)
         self.status_label.set_text(_translate(self.language, "acceleration.ready"))
+
+    def update_gforce_raw(self, x_g: float, y_g: float, z_g: float) -> None:
+        """Feed raw physical accelerometer values (in g) to the G-Force canvas."""
+        self.gforce_canvas.update_g(x_g, y_g, z_g)
 
     # ------------------------------------------------------------------
     # Data processing
