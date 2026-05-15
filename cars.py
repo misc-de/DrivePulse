@@ -271,6 +271,23 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
 
     outer.append(stats)
 
+    # Build combined speed_pts (ts, speed, lat, lon) for cursor sync
+    speed_pts = [
+        (s["ts"], s["speed_kmh"], s["lat"], s["lon"])
+        for s in samples if s["speed_kmh"] is not None
+    ]
+
+    # Shared cursor state: idx = index into speed_pts, -1 = none
+    cursor_state: dict[str, Any] = {"idx": -1}
+    map_widget_ref: list[Any] = [None]
+    chart_area_ref: list[Any] = [None]
+
+    def _on_cursor_change() -> None:
+        if map_widget_ref[0]:
+            map_widget_ref[0].queue_draw()
+        if chart_area_ref[0]:
+            chart_area_ref[0].queue_draw()
+
     # --- GPS-Track / OSM Map ---
     gps_points = [(s["lat"], s["lon"], s["speed_kmh"]) for s in samples
                   if s["lat"] is not None and s["lon"] is not None]
@@ -278,8 +295,13 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         gps_title = Gtk.Label(label=_translate(language, "cars.trip.route"), xalign=0.0)
         gps_title.add_css_class("heading")
         outer.append(gps_title)
-        map_widget = _build_osm_map_widget(gps_points)
+        map_widget = _build_osm_map_widget(
+            gps_points,
+            speed_pts=speed_pts,
+            cursor_state=cursor_state,
+        )
         if map_widget is not None:
+            map_widget_ref[0] = map_widget
             outer.append(map_widget)
         else:
             gps_area = Gtk.DrawingArea()
@@ -290,19 +312,15 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
             outer.append(gps_area)
 
     # --- Geschwindigkeitsverlauf ---
-    speed_series = [(s["ts"], s["speed_kmh"]) for s in samples if s["speed_kmh"] is not None]
-    if speed_series:
+    if speed_pts:
         sp_title = Gtk.Label(label=_translate(language, "cars.trip.speed_chart"), xalign=0.0)
         sp_title.add_css_class("heading")
         outer.append(sp_title)
-        sp_area = Gtk.DrawingArea()
-        sp_area.set_content_height(180)
-        sp_area.set_hexpand(True)
-        sp_area.add_css_class("card")
-        sp_area.set_draw_func(lambda area, cr, w, h, s=speed_series: _draw_speed_series(cr, w, h, s))
+        sp_area = _build_speed_chart_widget(speed_pts, cursor_state, _on_cursor_change)
+        chart_area_ref[0] = sp_area
         outer.append(sp_area)
 
-    if not gps_points and not speed_series:
+    if not gps_points and not speed_pts:
         empty = Gtk.Label(label=_translate(language, "cars.trip.no_data"), xalign=0.0)
         empty.add_css_class("dim-label")
         outer.append(empty)
@@ -452,6 +470,13 @@ def _safe_ts(raw: Any) -> datetime | None:
         return None
 
 
+def _is_dark() -> bool:
+    try:
+        return Adw.StyleManager.get_default().get_dark()
+    except Exception:
+        return True
+
+
 def _draw_gps_track(cr: Any, width: int, height: int, points: list[tuple[float, float, float | None]]) -> None:
     """Zeichnet die GPS-Spur in den DrawingArea-Bereich. Speed kodiert per Farbe."""
     if not points:
@@ -518,58 +543,160 @@ def _draw_gps_track(cr: Any, width: int, height: int, points: list[tuple[float, 
     cr.fill()
 
 
-def _draw_speed_series(cr: Any, width: int, height: int, series: list[tuple[float, float]]) -> None:
-    if len(series) < 2:
-        return
-    pad_l, pad_r, pad_t, pad_b = 36, 12, 10, 22
-    iw = max(1, width - pad_l - pad_r)
-    ih = max(1, height - pad_t - pad_b)
-    ts0 = series[0][0]
-    ts1 = series[-1][0]
+def _build_speed_chart_widget(
+    speed_pts: list[tuple[float, float, "float | None", "float | None"]],
+    cursor_state: dict,
+    on_cursor_change: "Callable",
+    height: int = 180,
+) -> Gtk.DrawingArea:
+    """Interactive speed/time chart. speed_pts = (ts, speed_kmh, lat|None, lon|None).
+    cursor_state['idx'] holds the active index (-1 = none).
+    Calls on_cursor_change() whenever the cursor moves so the caller can redraw the map.
+    """
+    PAD_L, PAD_R, PAD_T, PAD_B = 40, 12, 10, 24
+    area = Gtk.DrawingArea()
+    area.set_content_height(height)
+    area.set_hexpand(True)
+    area.add_css_class("card")
+
+    if len(speed_pts) < 2:
+        return area
+
+    ts0 = speed_pts[0][0]
+    ts1 = speed_pts[-1][0]
     t_span = max(1e-6, ts1 - ts0)
-    v_max = max(s[1] for s in series)
-    v_max_disp = max(20.0, math.ceil(v_max / 20.0) * 20.0)
+    v_max_raw = max(p[1] for p in speed_pts)
+    v_max_disp = max(20.0, math.ceil(v_max_raw / 20.0) * 20.0)
 
-    # Achsen
-    cr.set_source_rgba(1, 1, 1, 0.20)
-    cr.set_line_width(1.0)
-    for frac in (0.0, 0.25, 0.5, 0.75, 1.0):
-        y = pad_t + ih - frac * ih
-        cr.move_to(pad_l, y)
-        cr.line_to(pad_l + iw, y)
-        cr.stroke()
-    cr.set_source_rgba(1, 1, 1, 0.55)
-    cr.select_font_face("Sans")
-    cr.set_font_size(10)
-    for frac in (0.0, 0.5, 1.0):
-        label = f"{int(v_max_disp * frac)}"
-        y = pad_t + ih - frac * ih + 4
-        cr.move_to(4, y)
-        cr.show_text(label)
+    def _idx_from_px(px: float, w: float) -> int:
+        iw = max(1.0, w - PAD_L - PAD_R)
+        frac = max(0.0, min(1.0, (px - PAD_L) / iw))
+        return max(0, min(len(speed_pts) - 1, round(frac * (len(speed_pts) - 1))))
 
-    # Polyline + leicht gefüllte Fläche
-    cr.set_line_width(2.0)
-    cr.set_source_rgba(0.34, 0.62, 0.86, 0.25)
-    cr.move_to(pad_l, pad_t + ih)
-    for ts, v in series:
-        x = pad_l + ((ts - ts0) / t_span) * iw
-        y = pad_t + ih - (min(v, v_max_disp) / v_max_disp) * ih
-        cr.line_to(x, y)
-    cr.line_to(pad_l + iw, pad_t + ih)
-    cr.close_path()
-    cr.fill()
+    def _set_cursor(px: float, w: float) -> None:
+        idx = _idx_from_px(px, w)
+        if idx != cursor_state.get("idx", -1):
+            cursor_state["idx"] = idx
+            area.queue_draw()
+            on_cursor_change()
 
-    cr.set_source_rgb(0.34, 0.62, 0.86)
-    first = True
-    for ts, v in series:
-        x = pad_l + ((ts - ts0) / t_span) * iw
-        y = pad_t + ih - (min(v, v_max_disp) / v_max_disp) * ih
-        if first:
-            cr.move_to(x, y)
-            first = False
-        else:
+    def _clear_cursor() -> None:
+        if cursor_state.get("idx", -1) != -1:
+            cursor_state["idx"] = -1
+            area.queue_draw()
+            on_cursor_change()
+
+    def draw_cb(_area: Gtk.DrawingArea, cr: Any, w: int, h: int) -> None:
+        dark = _is_dark()
+        iw = max(1, w - PAD_L - PAD_R)
+        ih = max(1, h - PAD_T - PAD_B)
+        grid_rgba = (1.0, 1.0, 1.0, 0.18) if dark else (0.0, 0.0, 0.0, 0.15)
+        text_rgba = (1.0, 1.0, 1.0, 0.55) if dark else (0.0, 0.0, 0.0, 0.55)
+
+        # Grid lines
+        cr.set_line_width(1.0)
+        cr.set_source_rgba(*grid_rgba)
+        for frac in (0.0, 0.25, 0.5, 0.75, 1.0):
+            y = PAD_T + ih - frac * ih
+            cr.move_to(PAD_L, y)
+            cr.line_to(PAD_L + iw, y)
+            cr.stroke()
+
+        # Y-axis labels
+        cr.set_source_rgba(*text_rgba)
+        cr.select_font_face("Sans", 0, 0)
+        cr.set_font_size(10)
+        for frac in (0.0, 0.5, 1.0):
+            label = f"{int(v_max_disp * frac)}"
+            y = PAD_T + ih - frac * ih + 4
+            cr.move_to(4, y)
+            cr.show_text(label)
+
+        # Speed fill
+        cr.set_source_rgba(0.34, 0.62, 0.86, 0.22)
+        cr.move_to(PAD_L, PAD_T + ih)
+        for ts, v, _la, _lo in speed_pts:
+            x = PAD_L + ((ts - ts0) / t_span) * iw
+            y = PAD_T + ih - (min(v, v_max_disp) / v_max_disp) * ih
             cr.line_to(x, y)
-    cr.stroke()
+        cr.line_to(PAD_L + iw, PAD_T + ih)
+        cr.close_path()
+        cr.fill()
+
+        # Speed line
+        cr.set_source_rgb(0.34, 0.62, 0.86)
+        cr.set_line_width(2.0)
+        first = True
+        for ts, v, _la, _lo in speed_pts:
+            x = PAD_L + ((ts - ts0) / t_span) * iw
+            y = PAD_T + ih - (min(v, v_max_disp) / v_max_disp) * ih
+            if first:
+                cr.move_to(x, y)
+                first = False
+            else:
+                cr.line_to(x, y)
+        cr.stroke()
+
+        # Cursor
+        idx = cursor_state.get("idx", -1)
+        if 0 <= idx < len(speed_pts):
+            ts_c, v_c, _clat, _clon = speed_pts[idx]
+            cx = PAD_L + ((ts_c - ts0) / t_span) * iw
+            cy_dot = PAD_T + ih - (min(v_c, v_max_disp) / v_max_disp) * ih
+
+            cr.set_source_rgba(1.0, 0.82, 0.1, 0.9)
+            cr.set_line_width(1.5)
+            cr.move_to(cx, PAD_T)
+            cr.line_to(cx, PAD_T + ih)
+            cr.stroke()
+
+            cr.set_source_rgb(1.0, 0.82, 0.1)
+            cr.arc(cx, cy_dot, 4, 0, 6.2832)
+            cr.fill()
+
+            label = f"{v_c:.0f} km/h"
+            cr.set_font_size(11)
+            te = cr.text_extents(label)
+            lx = min(cx + 6, w - te.width - 6)
+            ly = max(PAD_T + te.height + 4, cy_dot - 4)
+            bg = (0.0, 0.0, 0.0, 0.6) if dark else (1.0, 1.0, 1.0, 0.82)
+            cr.set_source_rgba(*bg)
+            cr.rectangle(lx - 3, ly - te.height - 1, te.width + 6, te.height + 4)
+            cr.fill()
+            fg = (1.0, 1.0, 1.0) if dark else (0.0, 0.0, 0.0)
+            cr.set_source_rgb(*fg)
+            cr.move_to(lx, ly)
+            cr.show_text(label)
+
+    area.set_draw_func(draw_cb)
+
+    # Pointer hover (mouse / stylus)
+    motion_ctl = Gtk.EventControllerMotion()
+    motion_ctl.connect("motion", lambda _c, x, _y: _set_cursor(x, area.get_width()))
+    motion_ctl.connect("leave", lambda _c: _clear_cursor())
+    area.add_controller(motion_ctl)
+
+    # Touch: tap
+    tap_ctl = Gtk.GestureClick()
+    tap_ctl.connect("pressed", lambda _g, _n, x, _y: _set_cursor(x, area.get_width()))
+    area.add_controller(tap_ctl)
+
+    # Touch: drag / swipe
+    drag_ctl = Gtk.GestureDrag()
+
+    def _on_chart_drag_begin(_g: Any, x: float, _y: float) -> None:
+        _set_cursor(x, area.get_width())
+
+    def _on_chart_drag_update(g: Any, off_x: float, _off_y: float) -> None:
+        ok, sx, _sy = g.get_start_point()
+        if ok:
+            _set_cursor(sx + off_x, area.get_width())
+
+    drag_ctl.connect("drag-begin", _on_chart_drag_begin)
+    drag_ctl.connect("drag-update", _on_chart_drag_update)
+    area.add_controller(drag_ctl)
+
+    return area
 
 
 # ---------------------------------------------------------------------------
@@ -656,19 +783,19 @@ def _tile_to_grayscale(surf: Any) -> Any:
 
 
 def _build_osm_map_widget(
-    gps_points: list[tuple[float, float, float | None]],
+    gps_points: list[tuple[float, float, "float | None"]],
+    speed_pts: "list[tuple[float, float, float | None, float | None]] | None" = None,
+    cursor_state: "dict | None" = None,
     height: int = 300,
-) -> "Gtk.Widget | None":
-    """Tile-stitched grayscale OSM map with pinch-to-zoom, rendered via Cairo.
+) -> "Gtk.DrawingArea | None":
+    """Tile-stitched OSM map with pinch-zoom, finger-pan, double-tap reset.
 
-    Tiles are fetched from tile.openstreetmap.org in a background thread,
-    converted to grayscale, and composited onto a DrawingArea so the
-    colour-coded GPS track stands out clearly.  Pinch gesture changes the
-    integer zoom level and re-fetches tiles for the new zoom.
-    Returns None only if pycairo is unavailable.
+    gps_points:   (lat, lon, speed_kmh) — GPS track
+    speed_pts:    (ts, speed_kmh, lat|None, lon|None) — for cursor dot
+    cursor_state: shared dict with key 'idx' (index into speed_pts); -1 = no cursor
     """
     try:
-        import cairo as _cairo  # noqa: F401  (existence check only)
+        import cairo as _cairo  # noqa: F401
     except ImportError:
         return None
 
@@ -683,37 +810,31 @@ def _build_osm_map_widget(
     center_lat = (lat_min + lat_max) / 2
     center_lon = (lon_min + lon_max) / 2
 
-    def _view(z: int, ctx: int | None = None, cty: int | None = None) -> dict[str, Any]:
-        # Tile count needed to cover the full route bounding box
+    def _make_view(z: int, cx: float, cy: float) -> dict:
         route_ntx = _lon_to_tx(lon_max, z) - _lon_to_tx(lon_min, z) + 1
         route_nty = _lat_to_ty(lat_min, z) - _lat_to_ty(lat_max, z) + 1
-        # Cap at _OSM_MAX_TILES so zooming in never multiplies downloads.
         ntx = max(1, min(route_ntx, _OSM_MAX_TILES))
         nty = max(1, min(route_nty, _OSM_MAX_TILES))
-        if ctx is None:
-            ctx = _lon_to_tx(center_lon, z)
-        if cty is None:
-            cty = _lat_to_ty(center_lat, z)
-        _tx0 = ctx - ntx // 2
-        _ty0 = cty - nty // 2
-        _tx1 = _tx0 + ntx - 1
-        _ty1 = _ty0 + nty - 1
+        tx0 = int(cx - ntx / 2)
+        ty0 = int(cy - nty / 2)
+        tx1 = tx0 + ntx - 1
+        ty1 = ty0 + nty - 1
         return {
-            "zoom": z,
-            "tx0": _tx0, "tx1": _tx1, "ty0": _ty0, "ty1": _ty1,
             "n_tx": ntx, "n_ty": nty,
-            "nw_lon": _tx_to_lon(_tx0, z),      "nw_lat": _ty_to_lat(_ty0, z),
-            "se_lon": _tx_to_lon(_tx1 + 1, z),  "se_lat": _ty_to_lat(_ty1 + 1, z),
+            "tx0": tx0, "ty0": ty0, "tx1": tx1, "ty1": ty1,
+            "nw_lon": _tx_to_lon(tx0, z),      "nw_lat": _ty_to_lat(ty0, z),
+            "se_lon": _tx_to_lon(tx1 + 1, z),  "se_lat": _ty_to_lat(ty1 + 1, z),
         }
 
-    _initial_zoom = _pick_zoom(lat_min, lat_max, lon_min, lon_max)
-    _initial_ctx  = _lon_to_tx(center_lon, _initial_zoom)
-    _initial_cty  = _lat_to_ty(center_lat, _initial_zoom)
+    _init_zoom = _pick_zoom(lat_min, lat_max, lon_min, lon_max)
+    _init_cx   = _lon_to_tx(center_lon, _init_zoom) + 0.5
+    _init_cy   = _lat_to_ty(center_lat, _init_zoom) + 0.5
 
     state: dict[str, Any] = {
-        **_view(_initial_zoom, _initial_ctx, _initial_cty),
-        "ctx": _initial_ctx,
-        "cty": _initial_cty,
+        "zoom": _init_zoom,
+        "cx": _init_cx,
+        "cy": _init_cy,
+        **_make_view(_init_zoom, _init_cx, _init_cy),
         "surfaces": {},
         "loading": True,
         "pinch_scale": 1.0,
@@ -727,29 +848,29 @@ def _build_osm_map_widget(
         fy = (state["nw_lat"] - lat) / (state["nw_lat"] - state["se_lat"])
         return fx * w, fy * h
 
-    def draw_cb(area: Gtk.DrawingArea, cr: Any, w: int, h: int) -> None:
-        cr.set_source_rgb(0.10, 0.12, 0.18)
+    def draw_cb(_area: Gtk.DrawingArea, cr: Any, w: int, h: int) -> None:
+        dark = _is_dark()
+        cr.set_source_rgb(0.10, 0.12, 0.18) if dark else cr.set_source_rgb(0.90, 0.91, 0.93)
         cr.paint()
 
         n_tx = state["n_tx"]
         n_ty = state["n_ty"]
         tile_w = w / n_tx
         tile_h = h / n_ty
-        scale = state["pinch_scale"]
-        pan_x = state["pan_x"]
-        pan_y = state["pan_y"]
+        pan_x  = state["pan_x"]
+        pan_y  = state["pan_y"]
+        scale  = state["pinch_scale"]
 
-        # All map content (tiles + track) shifts together with the pan offset
         cr.save()
         cr.translate(pan_x, pan_y)
 
-        # Zoom feedback: scale tile layer from widget centre during pinch
         if scale != 1.0:
             cr.save()
             cr.translate(w / 2, h / 2)
             cr.scale(scale, scale)
             cr.translate(-w / 2, -h / 2)
 
+        tile_alpha = 0.85 if dark else 0.95
         for (z, ttx, tty), surf in list(state["surfaces"].items()):
             dx = (ttx - state["tx0"]) * tile_w
             dy = (tty - state["ty0"]) * tile_h
@@ -757,15 +878,15 @@ def _build_osm_map_widget(
             cr.translate(dx, dy)
             cr.scale(tile_w / _TILE_PX, tile_h / _TILE_PX)
             cr.set_source_surface(surf, 0, 0)
-            cr.paint()
+            cr.paint_with_alpha(tile_alpha)
             cr.restore()
 
         if scale != 1.0:
             cr.restore()
 
-        # GPS track — drawn after tiles so it's always on top
+        # GPS track
         speeds = [s for _, _, s in gps_points if s is not None]
-        vmax = max(speeds) if speeds else 0.0
+        vmax   = max(speeds) if speeds else 0.0
         cr.set_line_width(3.0)
         cr.set_line_cap(1)
         cr.set_line_join(1)
@@ -773,7 +894,7 @@ def _build_osm_map_widget(
         for lat, lon, spd in gps_points:
             px, py = _gps_px(lat, lon, w, h)
             if spd is not None and vmax > 0:
-                t = min(1.0, spd / vmax)
+                t  = min(1.0, spd / vmax)
                 rr = 0.2 + 0.7 * t
                 gg = 0.5 + 0.4 * (1 - abs(0.5 - t) * 2)
                 bb = 0.9 - 0.8 * t
@@ -788,7 +909,7 @@ def _build_osm_map_widget(
                 cr.stroke()
             prev = (px, py)
 
-        # Start (green) / end (red) markers with white border
+        # Start (green) / end (red) markers
         for lat, lon, fill in [
             (gps_points[0][0],  gps_points[0][1],  (0.13, 0.67, 0.27)),
             (gps_points[-1][0], gps_points[-1][1], (0.86, 0.21, 0.27)),
@@ -801,11 +922,27 @@ def _build_osm_map_widget(
             cr.arc(mx, my, 5.5, 0, 6.2832)
             cr.fill()
 
-        cr.restore()  # pop pan translate
+        # Cursor dot
+        if cursor_state is not None and speed_pts:
+            idx = cursor_state.get("idx", -1)
+            if 0 <= idx < len(speed_pts):
+                clat = speed_pts[idx][2]
+                clon = speed_pts[idx][3]
+                if clat is not None and clon is not None:
+                    dot_x, dot_y = _gps_px(clat, clon, w, h)
+                    cr.set_source_rgb(1.0, 0.9, 0.0)
+                    cr.arc(dot_x, dot_y, 7, 0, 6.2832)
+                    cr.fill()
+                    cr.set_source_rgb(0.0, 0.0, 0.0)
+                    cr.set_line_width(2.0)
+                    cr.arc(dot_x, dot_y, 7, 0, 6.2832)
+                    cr.stroke()
 
-        # Loading text — always centred, unaffected by pan
+        cr.restore()  # pop pan/pinch transforms
+
+        # Loading label — unaffected by pan
         if state["loading"] and not state["surfaces"]:
-            cr.set_source_rgba(1, 1, 1, 0.55)
+            cr.set_source_rgba(0.5, 0.5, 0.5, 0.8)
             cr.select_font_face("Sans", 0, 0)
             cr.set_font_size(13)
             text = "Loading map…"
@@ -820,20 +957,19 @@ def _build_osm_map_widget(
     area.set_draw_func(draw_cb)
     area_holder.append(area)
 
-    # ---- Pinch-to-zoom ------------------------------------------------
-    zoom_at_gesture_start: list[int] = [state["zoom"]]
+    # ── Tile loader ──────────────────────────────────────────────────────────
 
     def _start_fetch(v: dict[str, Any]) -> None:
         import cairo as _c
         z = v["zoom"]
         for ty in range(v["ty0"], v["ty1"] + 1):
             for tx in range(v["tx0"], v["tx1"] + 1):
-                if state["zoom"] != z:       # abort if user zoomed again
+                if state["zoom"] != z:
                     return
                 data = _fetch_osm_tile(z, tx, ty)
                 if data:
                     try:
-                        raw = _c.ImageSurface.create_from_png(io.BytesIO(data))
+                        raw  = _c.ImageSurface.create_from_png(io.BytesIO(data))
                         surf = _tile_to_grayscale(raw)
                         state["surfaces"][(z, tx, ty)] = surf
                         if area_holder:
@@ -844,116 +980,86 @@ def _build_osm_map_widget(
         if area_holder:
             GLib.idle_add(area_holder[0].queue_draw)
 
-    def _on_zoom_begin(gesture: Any, seq: Any) -> None:
-        zoom_at_gesture_start[0] = state["zoom"]
+    def _reload(z: int, cx: float, cy: float) -> None:
+        v = {"zoom": z, "cx": cx, "cy": cy, **_make_view(z, cx, cy)}
+        state.update(v)
+        state["surfaces"] = {}
+        state["loading"]  = True
+        if area_holder:
+            area_holder[0].queue_draw()
+        threading.Thread(target=_start_fetch, args=(dict(state),), daemon=True).start()
+
+    # ── Gestures ─────────────────────────────────────────────────────────────
+
+    zoom_start_z: list[int] = [state["zoom"]]
+
+    def _on_zoom_begin(gest: Any, seq: Any) -> None:
+        zoom_start_z[0] = state["zoom"]
         state["pinch_scale"] = 1.0
 
-    def _on_scale_changed(gesture: Any, scale: float) -> None:
+    def _on_scale_changed(gest: Any, scale: float) -> None:
         state["pinch_scale"] = max(0.25, min(4.0, scale))
         if area_holder:
             area_holder[0].queue_draw()
 
-    def _on_zoom_end(gesture: Any, seq: Any) -> None:
-        scale = state["pinch_scale"]
+    def _on_zoom_end(gest: Any, seq: Any) -> None:
+        delta = round(math.log2(max(0.01, state["pinch_scale"])))
         state["pinch_scale"] = 1.0
-        delta = round(math.log2(max(0.01, scale)))
-        new_zoom = max(2, min(18, zoom_at_gesture_start[0] + delta))
-        if new_zoom == state["zoom"]:
-            if area_holder:
-                area_holder[0].queue_draw()
-            return
-        # Preserve the geographic centre of the current view at the new zoom level
-        cur_z = state["zoom"]
-        n = 2 ** cur_z
-        ctx_frac = state["tx0"] + state["n_tx"] / 2
-        cty_frac = state["ty0"] + state["n_ty"] / 2
-        geo_lon = ctx_frac / n * 360.0 - 180.0
-        lat_rad = math.atan(math.sinh(math.pi * (1.0 - 2.0 * cty_frac / n)))
-        geo_lat = math.degrees(lat_rad)
-        new_ctx = _lon_to_tx(geo_lon, new_zoom)
-        new_cty = _lat_to_ty(geo_lat, new_zoom)
-        state["ctx"] = new_ctx
-        state["cty"] = new_cty
+        new_z = max(2, min(18, zoom_start_z[0] + delta))
+        if new_z != state["zoom"]:
+            factor = 2.0 ** (new_z - state["zoom"])
+            state["cx"] *= factor
+            state["cy"] *= factor
+            state["zoom"] = new_z
+            _reload(new_z, state["cx"], state["cy"])
+        elif area_holder:
+            area_holder[0].queue_draw()
+
+    zoom_gest = Gtk.GestureZoom()
+    zoom_gest.connect("begin", _on_zoom_begin)
+    zoom_gest.connect("scale-changed", _on_scale_changed)
+    zoom_gest.connect("end", _on_zoom_end)
+    area.add_controller(zoom_gest)
+
+    def _on_drag_begin(gest: Any, x: float, y: float) -> None:
         state["pan_x"] = 0.0
         state["pan_y"] = 0.0
-        v = _view(new_zoom, new_ctx, new_cty)
-        state.update(v)
-        state["surfaces"] = {}
-        state["loading"] = True
-        if area_holder:
-            area_holder[0].queue_draw()
-        threading.Thread(target=_start_fetch, args=(v,), daemon=True).start()
 
-    zoom_gesture = Gtk.GestureZoom()
-    zoom_gesture.connect("begin", _on_zoom_begin)
-    zoom_gesture.connect("scale-changed", _on_scale_changed)
-    zoom_gesture.connect("end", _on_zoom_end)
-    area.add_controller(zoom_gesture)
-
-    # ---- Finger-drag panning ------------------------------------------
-    drag_start_pan: list[float] = [0.0, 0.0]
-
-    def _on_drag_begin(gesture: Any, x: float, y: float) -> None:
-        drag_start_pan[0] = state["pan_x"]
-        drag_start_pan[1] = state["pan_y"]
-
-    def _on_drag_update(gesture: Any, offset_x: float, offset_y: float) -> None:
-        state["pan_x"] = drag_start_pan[0] + offset_x
-        state["pan_y"] = drag_start_pan[1] + offset_y
+    def _on_drag_update(gest: Any, off_x: float, off_y: float) -> None:
+        state["pan_x"] = off_x
+        state["pan_y"] = off_y
         if area_holder:
             area_holder[0].queue_draw()
 
-    def _on_drag_end(gesture: Any, offset_x: float, offset_y: float) -> None:
-        a = area_holder[0] if area_holder else None
-        if a is None:
-            return
-        pw = a.get_width()
-        ph = a.get_height()
-        n_tx = state["n_tx"]
-        n_ty = state["n_ty"]
-        if pw > 0 and ph > 0 and n_tx > 0 and n_ty > 0:
-            tile_w = pw / n_tx
-            tile_h = ph / n_ty
-            delta_ctx = round(-state["pan_x"] / tile_w)
-            delta_cty = round(-state["pan_y"] / tile_h)
-            new_ctx = state["ctx"] + delta_ctx
-            new_cty = state["cty"] + delta_cty
-            state["ctx"] = new_ctx
-            state["cty"] = new_cty
+    def _on_drag_end(gest: Any, off_x: float, off_y: float) -> None:
+        a  = area_holder[0] if area_holder else None
+        pw = a.get_width()  if a else 0
+        ph = a.get_height() if a else 0
+        if pw > 0 and ph > 0 and state["n_tx"] > 0 and state["n_ty"] > 0:
+            state["cx"] -= off_x / (pw / state["n_tx"])
+            state["cy"] -= off_y / (ph / state["n_ty"])
         state["pan_x"] = 0.0
         state["pan_y"] = 0.0
-        v = _view(state["zoom"], state["ctx"], state["cty"])
-        state.update(v)
-        state["surfaces"] = {}
-        state["loading"] = True
-        a.queue_draw()
-        threading.Thread(target=_start_fetch, args=(dict(v),), daemon=True).start()
+        _reload(state["zoom"], state["cx"], state["cy"])
 
-    drag_gesture = Gtk.GestureDrag()
-    drag_gesture.connect("drag-begin", _on_drag_begin)
-    drag_gesture.connect("drag-update", _on_drag_update)
-    drag_gesture.connect("drag-end", _on_drag_end)
-    area.add_controller(drag_gesture)
+    drag_gest = Gtk.GestureDrag()
+    drag_gest.connect("drag-begin",  _on_drag_begin)
+    drag_gest.connect("drag-update", _on_drag_update)
+    drag_gest.connect("drag-end",    _on_drag_end)
+    drag_gest.group(zoom_gest)   # cooperate: 2-finger zoom cancels 1-finger pan
+    area.add_controller(drag_gest)
 
-    # ---- Double-tap to reset to initial view ---------------------------
-    def _on_tap_pressed(gesture: Any, n_press: int, x: float, y: float) -> None:
-        if n_press != 2:
-            return
-        state["ctx"] = _initial_ctx
-        state["cty"] = _initial_cty
-        state["pan_x"] = 0.0
-        state["pan_y"] = 0.0
-        v = _view(_initial_zoom, _initial_ctx, _initial_cty)
-        state.update(v)
-        state["surfaces"] = {}
-        state["loading"] = True
-        if area_holder:
-            area_holder[0].queue_draw()
-        threading.Thread(target=_start_fetch, args=(dict(v),), daemon=True).start()
+    def _on_tap(gest: Any, n_press: int, x: float, y: float) -> None:
+        if n_press == 2:
+            state["cx"]    = _init_cx
+            state["cy"]    = _init_cy
+            state["pan_x"] = 0.0
+            state["pan_y"] = 0.0
+            _reload(_init_zoom, _init_cx, _init_cy)
 
-    tap_gesture = Gtk.GestureClick()
-    tap_gesture.connect("pressed", _on_tap_pressed)
-    area.add_controller(tap_gesture)
+    tap_gest = Gtk.GestureClick()
+    tap_gest.connect("pressed", _on_tap)
+    area.add_controller(tap_gest)
 
     threading.Thread(target=_start_fetch, args=(dict(state),), daemon=True).start()
     return area
