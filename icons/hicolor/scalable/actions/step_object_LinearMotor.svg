@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Engine block body -->
+  <path fill="currentColor" d="M4 9h16v8H4z"/>
+  <!-- Left cylinder head -->
+  <path fill="currentColor" d="M7 5h4v5H7z"/>
+  <!-- Right cylinder head -->
+  <path fill="currentColor" d="M13 5h4v5h-4z"/>
+  <!-- Oil pan / sump -->
+  <path fill="currentColor" d="M8 17h8v3H8z"/>
+</svg>

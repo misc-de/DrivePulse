@@ -199,6 +199,8 @@ class AccelerationPage(Gtk.Box):
         self.max_obd_speed: float | None = None
         self.max_gps_speed: float | None = None
         self.max_g: float | None = None
+        self._gforce_trigger: bool = False
+        self._raw_g_dev: float = 0.0
         # Sticky availability flags — once seen during this measurement cycle,
         # the corresponding OBD/GPS column stays visible until reset to prevent
         # the row from flickering between sources on alternating payloads.
@@ -239,7 +241,7 @@ class AccelerationPage(Gtk.Box):
         self.maxes_label.set_margin_top(30)
 
         intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        intro.set_margin_bottom(10)
+        intro.set_margin_bottom(22)
         intro.append(header_row)
 
         self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -269,8 +271,13 @@ class AccelerationPage(Gtk.Box):
         self.reset_button.connect("clicked", self.reset_measurement)
         _apply_warning_css(self.reset_button)
 
+        self.gforce_trigger_check = Gtk.CheckButton()
+        self.gforce_trigger_check.set_halign(Gtk.Align.CENTER)
+        self.gforce_trigger_check.set_margin_top(12)
+        self.gforce_trigger_check.connect("toggled", self._on_gforce_trigger_toggled)
+
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        controls.set_margin_top(16)
+        controls.set_margin_top(8)
         controls.set_hexpand(True)
         controls.append(self.start_button)
         controls.append(self.abort_button)
@@ -316,6 +323,7 @@ class AccelerationPage(Gtk.Box):
 
         self.append(intro)
         self.append(self.content_box)
+        self.append(self.gforce_trigger_check)
         self.append(controls)
 
         self._current_layout = "portrait"
@@ -420,6 +428,7 @@ class AccelerationPage(Gtk.Box):
         self.start_button.set_label(_translate(self.language, "acceleration.start"))
         self.abort_button.set_label(_translate(self.language, "acceleration.abort"))
         self.reset_button.set_label(_translate(self.language, "acceleration.reset"))
+        self.gforce_trigger_check.set_label(_translate(self.language, "acceleration.gforce_trigger"))
         if not self.armed and not self.running:
             self.status_label.set_text(_translate(self.language, "acceleration.ready"))
         obd_text = _translate(self.language, "acceleration.obd")
@@ -561,7 +570,12 @@ class AccelerationPage(Gtk.Box):
 
     def update_gforce_raw(self, x_g: float, y_g: float, z_g: float) -> None:
         """Feed raw physical accelerometer values (in g) to the G-Force canvas."""
+        mag = math.sqrt(x_g ** 2 + y_g ** 2 + z_g ** 2)
+        self._raw_g_dev = abs(mag - 1.0)
         self.gforce_canvas.update_g(x_g, y_g, z_g)
+
+    def _on_gforce_trigger_toggled(self, btn: Gtk.CheckButton) -> None:
+        self._gforce_trigger = btn.get_active()
 
     # ------------------------------------------------------------------
     # Data processing
@@ -647,9 +661,13 @@ class AccelerationPage(Gtk.Box):
         self._update_maxes_label()
 
         if self.armed and not self.running:
-            speed_rising = self.computed_acceleration_g is not None and self.computed_acceleration_g > self.G_FORCE_START_THRESHOLD
-            g_rising = active_g is not None and active_g > self.G_FORCE_START_THRESHOLD
-            if speed_rising or g_rising:
+            if self._gforce_trigger:
+                triggered = self._raw_g_dev > self.G_FORCE_START_THRESHOLD
+            else:
+                speed_rising = self.computed_acceleration_g is not None and self.computed_acceleration_g > self.G_FORCE_START_THRESHOLD
+                g_rising = active_g is not None and active_g > self.G_FORCE_START_THRESHOLD
+                triggered = speed_rising or g_rising
+            if triggered:
                 self.running = True
                 self.start_monotonic = now
                 self.status_label.set_text(_translate(self.language, "acceleration.running"))
