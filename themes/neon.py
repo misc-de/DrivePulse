@@ -71,4 +71,3 @@ def draw(cr: Any, width: int, height: int, gauge: Any) -> None:
     cr.move_to(cx - ext.width / 2 - ext.x_bearing, (cy + size * 0.10) - ext.height / 2 - ext.y_bearing)
     cr.show_text(gauge.state.unit)
 
-    gauge.draw_text(cr, gauge.title, cx, cy + size * 0.27, title_size, 0.45 * active_alpha, False, text_width)
