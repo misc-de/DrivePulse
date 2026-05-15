@@ -236,6 +236,8 @@ class AccelerationPage(Gtk.Box):
         self.maxes_label.add_css_class("dim-label")
         self.maxes_label.set_halign(Gtk.Align.CENTER)
         self.maxes_label.set_hexpand(True)
+        # Sit ~30 px below the time list (above the G-Force ball)
+        self.maxes_label.set_margin_top(30)
 
         intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         intro.set_margin_bottom(10)
@@ -303,7 +305,9 @@ class AccelerationPage(Gtk.Box):
         # Container that switches orientation between portrait (canvas below results)
         # and landscape (canvas next to results). results_box keeps its natural
         # height so the gforce group is free to centre in whatever is left.
-        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        # Spacing 0 — the 30 px gap between list and Vmax/Gmax is enforced by
+        # maxes_label's own margin_top.
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.content_box.set_hexpand(True)
         self.content_box.set_vexpand(True)
         self.results_box.set_hexpand(True)
