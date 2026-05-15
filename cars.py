@@ -906,10 +906,15 @@ def _build_osm_map_widget(
     def _make_view(z: int, cx: float, cy: float) -> dict:
         # Use stored display bounds when available (set after the first draw);
         # fall back to the padded route bbox before the widget has been painted.
-        dlat_min = state.get("disp_lat_min", lat_min)
-        dlat_max = state.get("disp_lat_max", lat_max)
-        dlon_min = state.get("disp_lon_min", lon_min)
-        dlon_max = state.get("disp_lon_max", lon_max)
+        # state does not exist yet on the very first call (during state = {...}),
+        # so we catch the NameError and use the route bbox as initial fallback.
+        try:
+            dlat_min = state.get("disp_lat_min", lat_min)
+            dlat_max = state.get("disp_lat_max", lat_max)
+            dlon_min = state.get("disp_lon_min", lon_min)
+            dlon_max = state.get("disp_lon_max", lon_max)
+        except NameError:
+            dlat_min, dlat_max, dlon_min, dlon_max = lat_min, lat_max, lon_min, lon_max
         ntx = max(3, min(_lon_to_tx(dlon_max, z) - _lon_to_tx(dlon_min, z) + 3, _OSM_MAX_TILES))
         nty = max(3, min(_lat_to_ty(dlat_min, z) - _lat_to_ty(dlat_max, z) + 3, _OSM_MAX_TILES))
         tx0 = int(cx - ntx / 2)
