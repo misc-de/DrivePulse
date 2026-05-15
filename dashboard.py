@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import gi
@@ -84,6 +84,15 @@ class DashData:
     gps_lon: float = 0.0
     gps_altitude_m: float = 0.0
     gps_pos_active: bool = False
+
+    # Scan / profile data — populated once per scan, persists between OBD ticks
+    scan_available: bool = False
+    # Keyed by 4-char OBD PID code (uppercase), value = float or None
+    scan_pids: dict = field(default_factory=dict)
+    # "vin", "brand", "protocol", "cal_id", "cvn", "obd_standard"
+    scan_info: dict = field(default_factory=dict)
+    scan_dtcs: list = field(default_factory=list)
+    scan_pending_dtcs: list = field(default_factory=list)
 
     language: str = SOURCE_LANGUAGE
 
@@ -244,6 +253,21 @@ class DashboardCanvas(Gtk.DrawingArea):
         self.data.gps_speed_active = speed is not None
         if speed is not None:
             self.data.gps_speed = max(0.0, speed)
+        self.queue_draw()
+
+    def update_scan_data(
+        self,
+        pids: dict,
+        info: dict,
+        dtcs: list,
+        pending_dtcs: list,
+    ) -> None:
+        """Push a completed scan snapshot into DashData for dashboard themes."""
+        self.data.scan_available = True
+        self.data.scan_pids = dict(pids)
+        self.data.scan_info = dict(info)
+        self.data.scan_dtcs = list(dtcs)
+        self.data.scan_pending_dtcs = list(pending_dtcs)
         self.queue_draw()
 
     def update_gps_pos(self, lat: float | None, lon: float | None, altitude_m: float | None = None) -> None:

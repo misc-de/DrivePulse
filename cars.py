@@ -683,17 +683,17 @@ def _build_osm_map_widget(
     center_lat = (lat_min + lat_max) / 2
     center_lon = (lon_min + lon_max) / 2
 
-    def _view(z: int) -> dict[str, Any]:
+    def _view(z: int, ctx: int | None = None, cty: int | None = None) -> dict[str, Any]:
         # Tile count needed to cover the full route bounding box
         route_ntx = _lon_to_tx(lon_max, z) - _lon_to_tx(lon_min, z) + 1
         route_nty = _lat_to_ty(lat_min, z) - _lat_to_ty(lat_max, z) + 1
         # Cap at _OSM_MAX_TILES so zooming in never multiplies downloads.
-        # When capped, the window is centered on the route centre —
-        # the route enters/exits the frame but tile count stays constant.
         ntx = max(1, min(route_ntx, _OSM_MAX_TILES))
         nty = max(1, min(route_nty, _OSM_MAX_TILES))
-        ctx = _lon_to_tx(center_lon, z)
-        cty = _lat_to_ty(center_lat, z)
+        if ctx is None:
+            ctx = _lon_to_tx(center_lon, z)
+        if cty is None:
+            cty = _lat_to_ty(center_lat, z)
         _tx0 = ctx - ntx // 2
         _ty0 = cty - nty // 2
         _tx1 = _tx0 + ntx - 1
@@ -706,11 +706,19 @@ def _build_osm_map_widget(
             "se_lon": _tx_to_lon(_tx1 + 1, z),  "se_lat": _ty_to_lat(_ty1 + 1, z),
         }
 
+    _initial_zoom = _pick_zoom(lat_min, lat_max, lon_min, lon_max)
+    _initial_ctx  = _lon_to_tx(center_lon, _initial_zoom)
+    _initial_cty  = _lat_to_ty(center_lat, _initial_zoom)
+
     state: dict[str, Any] = {
-        **_view(_pick_zoom(lat_min, lat_max, lon_min, lon_max)),
+        **_view(_initial_zoom, _initial_ctx, _initial_cty),
+        "ctx": _initial_ctx,
+        "cty": _initial_cty,
         "surfaces": {},
         "loading": True,
         "pinch_scale": 1.0,
+        "pan_x": 0.0,
+        "pan_y": 0.0,
     }
     area_holder: list[Gtk.DrawingArea] = []
 
@@ -728,6 +736,12 @@ def _build_osm_map_widget(
         tile_w = w / n_tx
         tile_h = h / n_ty
         scale = state["pinch_scale"]
+        pan_x = state["pan_x"]
+        pan_y = state["pan_y"]
+
+        # All map content (tiles + track) shifts together with the pan offset
+        cr.save()
+        cr.translate(pan_x, pan_y)
 
         # Zoom feedback: scale tile layer from widget centre during pinch
         if scale != 1.0:
@@ -748,15 +762,6 @@ def _build_osm_map_widget(
 
         if scale != 1.0:
             cr.restore()
-
-        if state["loading"] and not state["surfaces"]:
-            cr.set_source_rgba(1, 1, 1, 0.55)
-            cr.select_font_face("Sans", 0, 0)
-            cr.set_font_size(13)
-            text = "Loading map…"
-            te = cr.text_extents(text)
-            cr.move_to(w / 2 - te.width / 2, h / 2 + te.height / 2)
-            cr.show_text(text)
 
         # GPS track — drawn after tiles so it's always on top
         speeds = [s for _, _, s in gps_points if s is not None]
@@ -795,6 +800,18 @@ def _build_osm_map_widget(
             cr.set_source_rgb(*fill)
             cr.arc(mx, my, 5.5, 0, 6.2832)
             cr.fill()
+
+        cr.restore()  # pop pan translate
+
+        # Loading text — always centred, unaffected by pan
+        if state["loading"] and not state["surfaces"]:
+            cr.set_source_rgba(1, 1, 1, 0.55)
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(13)
+            text = "Loading map…"
+            te = cr.text_extents(text)
+            cr.move_to(w / 2 - te.width / 2, h / 2 + te.height / 2)
+            cr.show_text(text)
 
     area = Gtk.DrawingArea()
     area.set_content_height(height)
@@ -845,7 +862,21 @@ def _build_osm_map_widget(
             if area_holder:
                 area_holder[0].queue_draw()
             return
-        v = _view(new_zoom)
+        # Preserve the geographic centre of the current view at the new zoom level
+        cur_z = state["zoom"]
+        n = 2 ** cur_z
+        ctx_frac = state["tx0"] + state["n_tx"] / 2
+        cty_frac = state["ty0"] + state["n_ty"] / 2
+        geo_lon = ctx_frac / n * 360.0 - 180.0
+        lat_rad = math.atan(math.sinh(math.pi * (1.0 - 2.0 * cty_frac / n)))
+        geo_lat = math.degrees(lat_rad)
+        new_ctx = _lon_to_tx(geo_lon, new_zoom)
+        new_cty = _lat_to_ty(geo_lat, new_zoom)
+        state["ctx"] = new_ctx
+        state["cty"] = new_cty
+        state["pan_x"] = 0.0
+        state["pan_y"] = 0.0
+        v = _view(new_zoom, new_ctx, new_cty)
         state.update(v)
         state["surfaces"] = {}
         state["loading"] = True
@@ -858,6 +889,71 @@ def _build_osm_map_widget(
     zoom_gesture.connect("scale-changed", _on_scale_changed)
     zoom_gesture.connect("end", _on_zoom_end)
     area.add_controller(zoom_gesture)
+
+    # ---- Finger-drag panning ------------------------------------------
+    drag_start_pan: list[float] = [0.0, 0.0]
+
+    def _on_drag_begin(gesture: Any, x: float, y: float) -> None:
+        drag_start_pan[0] = state["pan_x"]
+        drag_start_pan[1] = state["pan_y"]
+
+    def _on_drag_update(gesture: Any, offset_x: float, offset_y: float) -> None:
+        state["pan_x"] = drag_start_pan[0] + offset_x
+        state["pan_y"] = drag_start_pan[1] + offset_y
+        if area_holder:
+            area_holder[0].queue_draw()
+
+    def _on_drag_end(gesture: Any, offset_x: float, offset_y: float) -> None:
+        a = area_holder[0] if area_holder else None
+        if a is None:
+            return
+        pw = a.get_width()
+        ph = a.get_height()
+        n_tx = state["n_tx"]
+        n_ty = state["n_ty"]
+        if pw > 0 and ph > 0 and n_tx > 0 and n_ty > 0:
+            tile_w = pw / n_tx
+            tile_h = ph / n_ty
+            delta_ctx = round(-state["pan_x"] / tile_w)
+            delta_cty = round(-state["pan_y"] / tile_h)
+            new_ctx = state["ctx"] + delta_ctx
+            new_cty = state["cty"] + delta_cty
+            state["ctx"] = new_ctx
+            state["cty"] = new_cty
+        state["pan_x"] = 0.0
+        state["pan_y"] = 0.0
+        v = _view(state["zoom"], state["ctx"], state["cty"])
+        state.update(v)
+        state["surfaces"] = {}
+        state["loading"] = True
+        a.queue_draw()
+        threading.Thread(target=_start_fetch, args=(dict(v),), daemon=True).start()
+
+    drag_gesture = Gtk.GestureDrag()
+    drag_gesture.connect("drag-begin", _on_drag_begin)
+    drag_gesture.connect("drag-update", _on_drag_update)
+    drag_gesture.connect("drag-end", _on_drag_end)
+    area.add_controller(drag_gesture)
+
+    # ---- Double-tap to reset to initial view ---------------------------
+    def _on_tap_pressed(gesture: Any, n_press: int, x: float, y: float) -> None:
+        if n_press != 2:
+            return
+        state["ctx"] = _initial_ctx
+        state["cty"] = _initial_cty
+        state["pan_x"] = 0.0
+        state["pan_y"] = 0.0
+        v = _view(_initial_zoom, _initial_ctx, _initial_cty)
+        state.update(v)
+        state["surfaces"] = {}
+        state["loading"] = True
+        if area_holder:
+            area_holder[0].queue_draw()
+        threading.Thread(target=_start_fetch, args=(dict(v),), daemon=True).start()
+
+    tap_gesture = Gtk.GestureClick()
+    tap_gesture.connect("pressed", _on_tap_pressed)
+    area.add_controller(tap_gesture)
 
     threading.Thread(target=_start_fetch, args=(dict(state),), daemon=True).start()
     return area

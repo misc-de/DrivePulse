@@ -103,12 +103,97 @@ def draw(cr, width, height, data):
     data.gps_speed        – GPS speed in display units (km/h or mph)
     data.gps_speed_active – bool
 
+    ── Speed breakdown ───────────────────────────────────────────────────────
+
+    data.obd_speed        – OBD vehicle speed in display units (km/h or mph)
+    data.obd_speed_active – bool
+
+    data.gps_speed        – GPS speed in display units (km/h or mph)
+    data.gps_speed_active – bool
+
     ── GPS position ──────────────────────────────────────────────────────────
 
     data.gps_lat          – latitude in decimal degrees
     data.gps_lon          – longitude in decimal degrees
     data.gps_altitude_m   – altitude in metres
     data.gps_pos_active   – bool; True only when lat+lon are valid
+
+    ── Scan / profile snapshot ───────────────────────────────────────────────
+    Populated once when a scan completes or on app startup from the last
+    saved profile.  Not updated every OBD tick — values reflect the most
+    recent full vehicle scan.
+
+    data.scan_available       – bool; False until first scan loads
+
+    data.scan_info            – dict with string entries:
+        "vin"           Vehicle identification number
+        "brand"         Manufacturer derived from VIN WMI
+        "protocol"      OBD protocol string, e.g. "ISO 15765-4 (CAN 11/500)"
+        "cal_id"        ECU software / calibration ID
+        "cvn"           Calibration verification number
+        "obd_standard"  OBD standard code (numeric string)
+
+    data.scan_dtcs            – list[str] of stored fault codes, e.g. ["P0420"]
+    data.scan_pending_dtcs    – list[str] of pending fault codes
+
+    data.scan_pids            – dict[str, float | None]
+        Key = 4-char uppercase OBD PID hex code.  Value = float or None.
+        Units are SI originals (°C, km/h, %, g/s, kPa, V, s, km …).
+
+        ── Vehicle ──────────────────────────────────
+        "011C"  OBD standard (numeric code)
+
+        ── Engine ───────────────────────────────────
+        "010C"  RPM (rev/min)
+        "0104"  Engine load – calculated (%)
+        "0143"  Engine load – absolute (%)
+        "010E"  Ignition timing advance (°)
+        "011F"  Engine run time since start (s)
+        "0142"  Board / control module voltage (V)
+
+        ── Drive ────────────────────────────────────
+        "010D"  Vehicle speed (km/h)
+        "0131"  Distance since DTC clear (km)
+        "0121"  Distance driven with MIL on (km)
+        "0130"  Warm-up cycles since DTC clear (count)
+
+        ── Temperatures ─────────────────────────────
+        "0105"  Coolant temperature (°C)
+        "010F"  Intake air temperature (°C)
+        "0146"  Ambient air temperature (°C)
+        "013C"  Catalyst temperature Bank 1 Sensor 1 (°C)
+
+        ── Throttle / pedal ─────────────────────────
+        "0111"  Throttle position (%)
+        "0145"  Relative throttle position (%)
+        "0147"  Throttle position sensor B (%)
+        "0149"  Accelerator pedal sensor D (%)
+        "014A"  Accelerator pedal sensor E (%)
+        "014C"  Commanded throttle actuator (%)
+
+        ── Mixture / lambda ─────────────────────────
+        "0103"  Fuel system status (numeric code)
+        "0106"  Short-term fuel trim Bank 1 (%)
+        "0107"  Long-term fuel trim Bank 1 (%)
+        "0156"  Long-term fuel trim secondary Bank 1 (%)
+        "0134"  Lambda Bank 1 Sensor 1 (ratio)
+        "0144"  Commanded lambda (ratio)
+        "0115"  O₂ sensor Bank 1 Sensor 2 (V)
+
+        ── Fuel system ──────────────────────────────
+        "0110"  MAF air mass flow (g/s)
+        "012F"  Fuel level (%)
+        "0123"  Fuel rail pressure (kPa)
+        "012E"  EVAP purge commanded (%)
+        "0133"  Barometric pressure (kPa)
+
+        ── Diagnostics ──────────────────────────────
+        "0141"  Monitor status this drive cycle (numeric)
+
+    Example usage:
+        ltft = data.scan_pids.get("0107")   # long-term fuel trim %
+        vin  = data.scan_info.get("vin", "")
+        has_faults = bool(data.scan_dtcs)
 
     ── Locale ────────────────────────────────────────────────────────────────
 
