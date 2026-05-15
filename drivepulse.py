@@ -2481,21 +2481,23 @@ class DashboardWindow(Adw.ApplicationWindow):
 
 
 def _register_local_icon() -> None:
-    """Add the local icon.png to the GTK icon theme when running from source."""
+    """Add the local icon.png and bundled SVG icons to the GTK icon theme."""
+    theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
     local_icon = Path(__file__).parent / "icon.png"
-    if not local_icon.exists():
-        return
-    try:
-        import shutil
-        cache_dir = Path(__file__).parent / ".icon-cache" / "hicolor" / "128x128" / "apps"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        dest = cache_dir / f"{APP_ID}.png"
-        if not dest.exists() or dest.stat().st_mtime < local_icon.stat().st_mtime:
-            shutil.copy2(local_icon, dest)
-        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
-        theme.add_search_path(str(cache_dir.parent.parent.parent))
-    except Exception:
-        pass
+    if local_icon.exists():
+        try:
+            import shutil
+            cache_dir = Path(__file__).parent / ".icon-cache" / "hicolor" / "128x128" / "apps"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            dest = cache_dir / f"{APP_ID}.png"
+            if not dest.exists() or dest.stat().st_mtime < local_icon.stat().st_mtime:
+                shutil.copy2(local_icon, dest)
+            theme.add_search_path(str(cache_dir.parent.parent.parent))
+        except Exception:
+            pass
+    icons_dir = Path(__file__).parent / "icons"
+    if icons_dir.is_dir():
+        theme.add_search_path(str(icons_dir))
 
 
 class ObdDashboardApp(Adw.Application):
