@@ -182,7 +182,7 @@ def _info_col(cr: Any, x: float, y: float, w: float, h: float, d: Any) -> None:
         label_cx = x + w * 0.54
         _txt(cr, label, label_cx, cy_top + row_h * 0.28,
              lbl_sz, (*_CYAN, 0.85 * a))
-        _txt(cr, value, label_cx, cy_top + row_h * 0.72,
+        _txt(cr, value, label_cx, cy_top + row_h * 0.72 - 4,
              val_sz, (*_WHITE, a), bold=True, max_w=w * 0.88)
 
 

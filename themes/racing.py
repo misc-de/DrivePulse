@@ -63,65 +63,6 @@ def _ring_circle(
              (0.55, 0.60, 0.66, 0.60 * a), max_w=r * 1.8)
 
 
-def _compass_circle(
-    cr: Any,
-    cx: float,
-    cy: float,
-    r: float,
-    lw: float,
-    deg: float,
-    heading_str: str,
-    accent: tuple,
-    active: bool,
-) -> None:
-    a = 1.0 if active else 0.28
-    cr.set_source_rgba(0.04, 0.06, 0.10, 0.70)
-    cr.arc(cx, cy, r + lw * 0.9, 0, math.tau)
-    cr.fill()
-
-    # Thin outer ring
-    cr.set_line_width(lw * 0.28)
-    cr.set_source_rgba(*accent, 0.35 * a)
-    cr.arc(cx, cy, r + lw * 0.28, 0, math.tau)
-    cr.stroke()
-
-    # N indicator tick at top
-    cr.set_line_width(lw * 0.55)
-    cr.set_source_rgba(*accent, 0.80 * a)
-    cr.move_to(cx, cy - r + lw * 0.5)
-    cr.line_to(cx, cy - r - lw * 0.8)
-    cr.stroke()
-
-    # Compass needle pointing toward heading_deg (north=up)
-    needle_r = r * 0.60
-    angle = math.radians(deg) - math.pi / 2
-    # Arrow head
-    tip_x = cx + math.cos(angle) * needle_r
-    tip_y = cy + math.sin(angle) * needle_r
-    tail_x = cx - math.cos(angle) * needle_r * 0.40
-    tail_y = cy - math.sin(angle) * needle_r * 0.40
-    perp_x = -math.sin(angle) * lw * 0.60
-    perp_y = math.cos(angle) * lw * 0.60
-    cr.set_source_rgba(*accent, 0.92 * a)
-    cr.move_to(tip_x, tip_y)
-    cr.line_to(cx + perp_x, cy + perp_y)
-    cr.line_to(tail_x, tail_y)
-    cr.line_to(cx - perp_x, cy - perp_y)
-    cr.close_path()
-    cr.fill()
-
-    # Center hub
-    cr.set_source_rgba(0.15, 0.18, 0.22, 1.0)
-    cr.arc(cx, cy, lw * 0.65, 0, math.tau)
-    cr.fill()
-    cr.set_source_rgba(*accent, 0.7 * a)
-    cr.arc(cx, cy, lw * 0.65, 0, math.tau)
-    cr.set_line_width(1.0)
-    cr.stroke()
-
-    sz = r * 0.28
-    _txt(cr, heading_str if active else "--", cx, cy + r * 0.55 + sz,
-         sz, (0.85, 0.88, 0.92, 0.80 * a), max_w=r * 1.7)
 
 
 def _draw_rings_landscape(
@@ -206,8 +147,6 @@ def _draw_rings_info(cr: Any, width: int, height: int, d: Any, info_y: float) ->
     items: list = []
     if d.fuel_active:
         items.append((_translate(d.language, "dashboard.fuel"), d.fuel_label, True))
-    if d.heading_active:
-        items.append((_translate(d.language, "dashboard.heading"), d.heading_str or "--", True))
     col_w = width / max(len(items), 1)
     for i, (name, val, act) in enumerate(items):
         ia = 1.0 if act else 0.25
