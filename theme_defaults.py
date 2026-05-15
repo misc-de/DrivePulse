@@ -42,29 +42,75 @@ DASHBOARD THEME  (THEME_TYPE = "dashboard")
 ────────────────────────────────────────────
 def draw(cr, width, height, data):
 
+    ── Core gauges ───────────────────────────────────────────────────────────
+
     data.rpm              – current value (float)
-    data.rpm_label        – display text
-    data.rpm_active       – bool
+    data.rpm_label        – display text, e.g. "3 200"
+    data.rpm_active       – bool; False = no OBD signal
     data.rpm_max          – scale maximum (default 7000)
 
-    data.speed            – current value
+    data.speed            – current value in display units
     data.speed_label      – display text
     data.speed_unit       – "km/h" or "mph"
-    data.speed_max        – scale maximum
+    data.speed_max        – scale maximum (240 metric / 150 imperial)
     data.speed_active     – bool
 
-    data.coolant          – current value (°C)
+    data.coolant          – coolant temperature (°C)
     data.coolant_label    – display text
     data.coolant_active   – bool
-    data.coolant_min / coolant_max
+    data.coolant_min      – scale minimum (default 40 °C)
+    data.coolant_max      – scale maximum (default 130 °C)
 
-    data.heading_deg      – heading angle 0–360
+    data.heading_deg      – compass heading 0–360
     data.heading_str      – formatted text, e.g. "270° W"
-    data.heading_active   – bool
+    data.heading_active   – bool (False when GPS has no fix)
 
-    data.fuel_pct         – fuel level 0–100
-    data.fuel_label       – display text
+    data.fuel_pct         – fuel level 0–100 %
+    data.fuel_label       – display text, e.g. "68%"
     data.fuel_active      – bool
+
+    ── Extended OBD channels ─────────────────────────────────────────────────
+
+    data.throttle_pct     – throttle position 0–100 %
+    data.throttle_label   – display text, e.g. "32%"
+    data.throttle_active  – bool
+
+    data.engine_load_pct  – calculated engine load 0–100 %
+    data.engine_load_label
+    data.engine_load_active
+
+    data.intake_c         – intake air temperature (°C)
+    data.intake_label     – display text, e.g. "22"
+    data.intake_active    – bool
+
+    data.maf_gps          – mass air flow (g/s)
+    data.maf_label        – display text, e.g. "14.3"
+    data.maf_active       – bool
+
+    data.voltage_v        – control module / battery voltage (V)
+    data.voltage_label    – display text, e.g. "13.8"
+    data.voltage_active   – bool
+
+    data.accel_g          – longitudinal acceleration (g, signed: + = forward)
+    data.accel_label      – display text, e.g. "+0.12"
+    data.accel_active     – bool
+
+    ── Speed breakdown ───────────────────────────────────────────────────────
+
+    data.obd_speed        – OBD vehicle speed in display units (km/h or mph)
+    data.obd_speed_active – bool
+
+    data.gps_speed        – GPS speed in display units (km/h or mph)
+    data.gps_speed_active – bool
+
+    ── GPS position ──────────────────────────────────────────────────────────
+
+    data.gps_lat          – latitude in decimal degrees
+    data.gps_lon          – longitude in decimal degrees
+    data.gps_altitude_m   – altitude in metres
+    data.gps_pos_active   – bool; True only when lat+lon are valid
+
+    ── Locale ────────────────────────────────────────────────────────────────
 
     data.language         – current language: "en" | "de"
 

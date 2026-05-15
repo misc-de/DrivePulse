@@ -1960,13 +1960,12 @@ class DashboardWindow(Adw.ApplicationWindow):
             self.cars_page.set_narrow(width < self.CARS_NARROW_BREAKPOINT)
 
         if self.gauge_box.get_visible():
-            # Physical orientation takes precedence over window-aspect detection.
-            # max()/min() ensures correct sizing even when the window hasn't been
-            # resized yet by the compositor (system rotation locked).
+            # Sensor landscape (90/270) takes precedence — handles compositors that
+            # rotate the screen without changing the reported window dimensions (Phosh).
+            # Portrait sensor values (0/180) are skipped so window dimensions decide:
+            # on desktop or when auto-rotate is off, width/height is the right signal.
             if self._device_rotation in (90, 270):
                 self._set_landscape_layout(max(width, height), min(width, height))
-            elif self._device_rotation in (0, 180):
-                self._set_portrait_layout(min(width, height), max(width, height))
             elif width >= height:
                 self._set_landscape_layout(width, height)
             else:
@@ -2156,18 +2155,20 @@ class DashboardWindow(Adw.ApplicationWindow):
         if source == "gps":
             gps_speed_kmh = self._plain_number(payload, "gps_speed")
             gps_heading = self._plain_number(payload, "gps_heading")
+            lat = self._plain_number(payload, "gps_lat")
+            lon = self._plain_number(payload, "gps_lon")
+            altitude_m = self._plain_number(payload, "gps_altitude")
             self.trip_recorder.update_gps(
-                lat=self._plain_number(payload, "gps_lat"),
-                lon=self._plain_number(payload, "gps_lon"),
-                altitude_m=self._plain_number(payload, "gps_altitude"),
-                heading_deg=gps_heading,
-                gps_speed_kmh=gps_speed_kmh,
+                lat=lat, lon=lon, altitude_m=altitude_m,
+                heading_deg=gps_heading, gps_speed_kmh=gps_speed_kmh,
             )
             self._set_link_indicator(self.gps_indicator, self._gps_connected_with_holdover(gps_speed_kmh), False)
             self.acceleration_page.update_payload(payload, self._plain_number)
             self.cars_page.update_live(payload)
             if gps_heading is not None:
                 self.dashboard_canvas.update_heading(gps_heading)
+            self.dashboard_canvas.update_gps_speed(self._display_speed(gps_speed_kmh))
+            self.dashboard_canvas.update_gps_pos(lat, lon, altitude_m)
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
                 display = self._display_speed(gps_speed_kmh)
                 self.speed_gauge.set_value(display, f"{display:.0f}" if display is not None else None)
@@ -2199,10 +2200,27 @@ class DashboardWindow(Adw.ApplicationWindow):
         canvas_speed = self._display_speed(speed_source_kmh)
         fuel = self._plain_number(payload, "fuel_level") if active else None
         heading = self._plain_number(payload, "gps_heading") if active else None
+        throttle = self._plain_number(payload, "throttle_pos") if active else None
+        engine_load = self._plain_number(payload, "engine_load") if active else None
+        intake = self._plain_number(payload, "intake_temp") if active else None
+        maf = self._plain_number(payload, "maf") if active else None
+        voltage = self._plain_number(payload, "control_module_voltage") if active else None
+        accel = self._plain_number(payload, "acceleration_g") if active else None
+
         self.dashboard_canvas.update_rpm(rpm, None if rpm is None else f"{rpm:.0f}")
         self.dashboard_canvas.update_speed(canvas_speed, None if canvas_speed is None else f"{canvas_speed:.0f}")
         self.dashboard_canvas.update_coolant(temp, None if temp is None else f"{temp:.0f}")
         self.dashboard_canvas.update_fuel(fuel, None if fuel is None else f"{fuel:.0f}%")
+        self.dashboard_canvas.update_throttle(throttle)
+        self.dashboard_canvas.update_engine_load(engine_load)
+        self.dashboard_canvas.update_intake(intake)
+        self.dashboard_canvas.update_maf(maf)
+        self.dashboard_canvas.update_voltage(voltage)
+        self.dashboard_canvas.update_accel(accel)
+        self.dashboard_canvas.update_obd_speed(self._display_speed(obd_speed_kmh))
+        # gps_speed appears in mock payloads; real GPS updates come via the "gps" branch
+        if gps_speed_kmh is not None:
+            self.dashboard_canvas.update_gps_speed(self._display_speed(gps_speed_kmh))
         if heading is not None:
             self.dashboard_canvas.update_heading(heading)
 

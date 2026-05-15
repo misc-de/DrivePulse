@@ -50,6 +50,41 @@ class DashData:
     fuel_label: str = "--"
     fuel_active: bool = False
 
+    throttle_pct: float = 0.0
+    throttle_label: str = "--"
+    throttle_active: bool = False
+
+    engine_load_pct: float = 0.0
+    engine_load_label: str = "--"
+    engine_load_active: bool = False
+
+    intake_c: float = 0.0
+    intake_label: str = "--"
+    intake_active: bool = False
+
+    maf_gps: float = 0.0
+    maf_label: str = "--"
+    maf_active: bool = False
+
+    voltage_v: float = 0.0
+    voltage_label: str = "--"
+    voltage_active: bool = False
+
+    accel_g: float = 0.0
+    accel_label: str = "--"
+    accel_active: bool = False
+
+    obd_speed: float = 0.0
+    obd_speed_active: bool = False
+
+    gps_speed: float = 0.0
+    gps_speed_active: bool = False
+
+    gps_lat: float = 0.0
+    gps_lon: float = 0.0
+    gps_altitude_m: float = 0.0
+    gps_pos_active: bool = False
+
     language: str = SOURCE_LANGUAGE
 
 
@@ -143,6 +178,82 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.fuel_label = label if label is not None else f"{pct:.0f}%"
         else:
             self.data.fuel_label = "--"
+        self.queue_draw()
+
+    def update_throttle(self, pct: float | None) -> None:
+        self.data.throttle_active = pct is not None
+        if pct is not None:
+            self.data.throttle_pct = max(0.0, min(100.0, pct))
+            self.data.throttle_label = f"{pct:.0f}%"
+        else:
+            self.data.throttle_label = "--"
+        self.queue_draw()
+
+    def update_engine_load(self, pct: float | None) -> None:
+        self.data.engine_load_active = pct is not None
+        if pct is not None:
+            self.data.engine_load_pct = max(0.0, min(100.0, pct))
+            self.data.engine_load_label = f"{pct:.0f}%"
+        else:
+            self.data.engine_load_label = "--"
+        self.queue_draw()
+
+    def update_intake(self, temp_c: float | None) -> None:
+        self.data.intake_active = temp_c is not None
+        if temp_c is not None:
+            self.data.intake_c = temp_c
+            self.data.intake_label = f"{temp_c:.0f}"
+        else:
+            self.data.intake_label = "--"
+        self.queue_draw()
+
+    def update_maf(self, maf: float | None) -> None:
+        self.data.maf_active = maf is not None
+        if maf is not None:
+            self.data.maf_gps = maf
+            self.data.maf_label = f"{maf:.1f}"
+        else:
+            self.data.maf_label = "--"
+        self.queue_draw()
+
+    def update_voltage(self, volts: float | None) -> None:
+        self.data.voltage_active = volts is not None
+        if volts is not None:
+            self.data.voltage_v = volts
+            self.data.voltage_label = f"{volts:.1f}"
+        else:
+            self.data.voltage_label = "--"
+        self.queue_draw()
+
+    def update_accel(self, accel_g: float | None) -> None:
+        self.data.accel_active = accel_g is not None
+        if accel_g is not None:
+            self.data.accel_g = accel_g
+            self.data.accel_label = f"{accel_g:+.2f}"
+        else:
+            self.data.accel_label = "--"
+        self.queue_draw()
+
+    def update_obd_speed(self, speed: float | None) -> None:
+        self.data.obd_speed_active = speed is not None
+        if speed is not None:
+            self.data.obd_speed = max(0.0, speed)
+        self.queue_draw()
+
+    def update_gps_speed(self, speed: float | None) -> None:
+        self.data.gps_speed_active = speed is not None
+        if speed is not None:
+            self.data.gps_speed = max(0.0, speed)
+        self.queue_draw()
+
+    def update_gps_pos(self, lat: float | None, lon: float | None, altitude_m: float | None = None) -> None:
+        self.data.gps_pos_active = lat is not None and lon is not None
+        if lat is not None:
+            self.data.gps_lat = lat
+        if lon is not None:
+            self.data.gps_lon = lon
+        if altitude_m is not None:
+            self.data.gps_altitude_m = altitude_m
         self.queue_draw()
 
     def _draw(self, _area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
