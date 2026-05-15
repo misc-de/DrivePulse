@@ -46,6 +46,14 @@ from importlib import metadata, util
 from pathlib import Path
 from typing import Any, Callable
 
+# Register bundled icons via XDG_DATA_DIRS **before** GTK is imported so the
+# icon theme engine picks them up on its first initialisation pass.
+# icons/hicolor/index.theme tells GTK which sub-directories contain SVGs.
+_APP_DIR = str(Path(__file__).parent)
+_xdg_data_dirs = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
+if _APP_DIR not in _xdg_data_dirs.split(":"):
+    os.environ["XDG_DATA_DIRS"] = f"{_APP_DIR}:{_xdg_data_dirs}"
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -2530,8 +2538,19 @@ class DashboardWindow(Adw.ApplicationWindow):
 
 
 def _register_local_icon() -> None:
-    """Add the local icon.png and bundled SVG icons to the GTK icon theme."""
+    """Register the app PNG icon (window/taskbar) and ensure SVG icons are reachable.
+
+    Symbolic SVGs under icons/hicolor/ are already discoverable via XDG_DATA_DIRS
+    (set at module load time before GTK imports).  GTK recolours them automatically
+    for dark/light theme because the SVGs use fill="currentColor".
+    """
     theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+
+    # Belt-and-suspenders: also add via add_search_path in case XDG_DATA_DIRS
+    # was already consumed by GTK before our modification took effect.
+    icons_dir = Path(__file__).parent / "icons"
+    if icons_dir.is_dir():
+        theme.add_search_path(str(icons_dir))
 
     # App icon (PNG, for window/taskbar)
     local_icon = Path(__file__).parent / "icon.png"
@@ -2555,12 +2574,6 @@ def _register_local_icon() -> None:
             theme.add_search_path(str(hicolor_cache.parent))
         except Exception:
             pass
-
-    # Bundled symbolic SVG icons — index.theme in icons/hicolor/ enables GTK lookup.
-    # GTK recolours symbolic icons (fill="currentColor") automatically for dark/light theme.
-    icons_dir = Path(__file__).parent / "icons"
-    if icons_dir.is_dir():
-        theme.add_search_path(str(icons_dir))
 
 
 class ObdDashboardApp(Adw.Application):
