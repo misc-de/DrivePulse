@@ -174,7 +174,7 @@ def test_mock_reconnect_probe_is_throttled(monkeypatch, drivepulse_module):
     reader._maybe_reconnect_from_mock()
 
     assert calls == ["connect"]
-    assert reader.next_mock_reconnect_attempt == 108.0
+    assert reader.next_mock_reconnect_attempt == 100.0 + reader._MOCK_RECONNECT_INTERVAL_S
 
 
 def test_write_log_writes_jsonl(drivepulse_module, tmp_log_paths):

@@ -23,7 +23,7 @@ POLL_INTERVAL_SECONDS = float(os.environ.get("OBD_POLL_INTERVAL", "0.5"))
 OBD_PORT = os.environ.get("OBD_PORT")
 OBD_BAUDRATE = int(os.environ["OBD_BAUDRATE"]) if os.environ.get("OBD_BAUDRATE") else None
 OBD_TIMEOUT_SECONDS = float(os.environ.get("OBD_TIMEOUT", "2.0"))
-OBD_FAST = os.environ.get("OBD_FAST", "0").lower() in {"1", "true", "yes", "on"}
+OBD_FAST = os.environ.get("OBD_FAST", "1").lower() in {"1", "true", "yes", "on"}
 # Direct Bluetooth RFCOMM: comma-separated addresses, optional channel suffix
 # e.g. "00:1D:A5:68:98:8A" or "00:1D:A5:68:98:8A:1" or "AA:BB:CC:DD:EE:FF:1,11:22:33:44:55:66"
 OBD_BT_ADDR = os.environ.get("OBD_BT_ADDR")
@@ -84,6 +84,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gauge.rpm": "RPM",
         "gauge.speed": "Speed",
         "gauge.coolant": "Coolant",
+        "gauge.source.obd": "OBD",
+        "gauge.source.gps": "GPS",
         "dashboard.rpm": "RPM",
         "dashboard.rpm.unit": "rpm",
         "dashboard.coolant": "Coolant",
@@ -242,6 +244,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gauge.rpm": "Drehzahl",
         "gauge.speed": "Geschwindigkeit",
         "gauge.coolant": "Kühlmittel",
+        "gauge.source.obd": "OBD",
+        "gauge.source.gps": "GPS",
         "dashboard.rpm": "Drehzahl",
         "dashboard.rpm.unit": "U/min",
         "dashboard.coolant": "Kühlmittel",
