@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import math
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterator
 
 import gi
 
@@ -115,31 +116,51 @@ class DashboardCanvas(Gtk.DrawingArea):
             speed_max=150.0 if units == "imperial" else 240.0,
         )
         self.data.language = _normalize_language(language)
+        self._batch_depth = 0
+        self._batch_dirty = False
         self.set_content_width(1)
         self.set_content_height(1)
         self.set_size_request(1, 1)
         self.set_draw_func(self._draw)
 
+    @contextmanager
+    def batch_update(self) -> Iterator[None]:
+        """Coalesce multiple data changes into one redraw."""
+        self._batch_depth += 1
+        try:
+            yield
+        finally:
+            self._batch_depth -= 1
+            if self._batch_depth == 0 and self._batch_dirty:
+                self._batch_dirty = False
+                self.queue_draw()
+
+    def _queue_draw(self) -> None:
+        if self._batch_depth:
+            self._batch_dirty = True
+        else:
+            self.queue_draw()
+
     def set_theme(self, theme: str) -> None:
         self.theme = theme
-        self.queue_draw()
+        self._queue_draw()
 
     def set_rotation(self, angle: int) -> None:
         """Physical device rotation in degrees (0/90/180/270). Cairo drawing adapts."""
         self._rotation = angle % 360
-        self.queue_draw()
+        self._queue_draw()
 
     def set_units(self, units: str) -> None:
         self.data.speed_unit = "mph" if units == "imperial" else "km/h"
         self.data.speed_max = 150.0 if units == "imperial" else 240.0
-        self.queue_draw()
+        self._queue_draw()
 
     def set_language(self, language: str) -> None:
         self.data.language = _normalize_language(language)
         if self.data.heading_active:
             card = _cardinal(self.data.heading_deg, self.data.language)
             self.data.heading_str = f"{self.data.heading_deg:.0f}° {card}"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_rpm(self, value: float | None, label: str | None = None) -> None:
         if value is None:
@@ -149,7 +170,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.rpm_active = True
             self.data.rpm = max(0.0, min(self.data.rpm_max, value))
             self.data.rpm_label = label if label is not None else f"{value:.0f}"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_speed(self, value: float | None, label: str | None = None) -> None:
         if value is None:
@@ -159,12 +180,12 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.speed_active = True
             self.data.speed = max(0.0, min(self.data.speed_max, value))
             self.data.speed_label = label if label is not None else f"{value:.0f}"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_speed_source(self, source: str) -> None:
         if self.data.speed_source != source:
             self.data.speed_source = source
-            self.queue_draw()
+            self._queue_draw()
 
     def update_coolant(self, value: float | None, label: str | None = None) -> None:
         if value is None:
@@ -174,7 +195,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.coolant_active = True
             self.data.coolant = max(self.data.coolant_min, min(self.data.coolant_max, value))
             self.data.coolant_label = label if label is not None else f"{value:.0f}"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_heading(self, deg: float | None, heading_str: str = "") -> None:
         self.data.heading_active = deg is not None
@@ -184,7 +205,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.heading_str = heading_str or f"{deg:.0f}° {card}"
         else:
             self.data.heading_str = ""
-        self.queue_draw()
+        self._queue_draw()
 
     def update_fuel(self, pct: float | None, label: str | None = None) -> None:
         self.data.fuel_active = pct is not None
@@ -193,7 +214,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.fuel_label = label if label is not None else f"{pct:.0f}%"
         else:
             self.data.fuel_label = "--"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_throttle(self, pct: float | None) -> None:
         self.data.throttle_active = pct is not None
@@ -202,7 +223,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.throttle_label = f"{pct:.0f}%"
         else:
             self.data.throttle_label = "--"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_engine_load(self, pct: float | None) -> None:
         self.data.engine_load_active = pct is not None
@@ -211,7 +232,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.engine_load_label = f"{pct:.0f}%"
         else:
             self.data.engine_load_label = "--"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_intake(self, temp_c: float | None) -> None:
         self.data.intake_active = temp_c is not None
@@ -220,7 +241,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.intake_label = f"{temp_c:.0f}"
         else:
             self.data.intake_label = "--"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_maf(self, maf: float | None) -> None:
         self.data.maf_active = maf is not None
@@ -229,7 +250,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.maf_label = f"{maf:.1f}"
         else:
             self.data.maf_label = "--"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_voltage(self, volts: float | None) -> None:
         self.data.voltage_active = volts is not None
@@ -238,7 +259,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.voltage_label = f"{volts:.1f}"
         else:
             self.data.voltage_label = "--"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_accel(self, accel_g: float | None) -> None:
         self.data.accel_active = accel_g is not None
@@ -247,19 +268,19 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.accel_label = f"{accel_g:+.2f}"
         else:
             self.data.accel_label = "--"
-        self.queue_draw()
+        self._queue_draw()
 
     def update_obd_speed(self, speed: float | None) -> None:
         self.data.obd_speed_active = speed is not None
         if speed is not None:
             self.data.obd_speed = max(0.0, speed)
-        self.queue_draw()
+        self._queue_draw()
 
     def update_gps_speed(self, speed: float | None) -> None:
         self.data.gps_speed_active = speed is not None
         if speed is not None:
             self.data.gps_speed = max(0.0, speed)
-        self.queue_draw()
+        self._queue_draw()
 
     def update_scan_data(
         self,
@@ -274,7 +295,7 @@ class DashboardCanvas(Gtk.DrawingArea):
         self.data.scan_info = dict(info)
         self.data.scan_dtcs = list(dtcs)
         self.data.scan_pending_dtcs = list(pending_dtcs)
-        self.queue_draw()
+        self._queue_draw()
 
     def update_gps_pos(self, lat: float | None, lon: float | None, altitude_m: float | None = None) -> None:
         self.data.gps_pos_active = lat is not None and lon is not None
@@ -284,7 +305,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.gps_lon = lon
         if altitude_m is not None:
             self.data.gps_altitude_m = altitude_m
-        self.queue_draw()
+        self._queue_draw()
 
     def _draw(self, _area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
         w, h = _apply_rotation(cr, width, height, self._rotation)

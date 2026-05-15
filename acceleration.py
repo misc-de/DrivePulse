@@ -372,7 +372,9 @@ class AccelerationPage(Gtk.Box):
         name_lbl.add_css_class("heading")
         name_lbl.set_halign(Gtk.Align.START)
         name_lbl.set_hexpand(True)
-        name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        ellipsize_mode = getattr(getattr(Pango, "EllipsizeMode", None), "END", None)
+        if ellipsize_mode is not None:
+            name_lbl.set_ellipsize(ellipsize_mode)
         name_lbl.set_max_width_chars(12)
 
         obd_caption = Gtk.Label()

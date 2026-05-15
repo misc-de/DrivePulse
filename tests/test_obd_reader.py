@@ -147,6 +147,24 @@ def test_read_obd_collects_values_and_error_counts(monkeypatch, drivepulse_modul
     assert payload["_read_error_count"] == 1
 
 
+def test_read_obd_reuses_cached_slow_values_between_fast_polls(monkeypatch, drivepulse_module):
+    fake_obd = _fake_obd_module([])
+    monkeypatch.setattr(drivepulse_module, "obd", fake_obd)
+    times = iter([100.0, 100.5])
+    monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
+
+    reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader.connection = _Connection(True)
+
+    first = reader._read_obd()
+    second = reader._read_obd()
+
+    assert first["_command_count"] == 7
+    assert second["_command_count"] == 3
+    assert second["throttle_pos"] == first["throttle_pos"]
+    assert second["engine_load"] == first["engine_load"]
+
+
 def test_reconnect_after_three_failed_reads(monkeypatch, drivepulse_module):
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.mock = False

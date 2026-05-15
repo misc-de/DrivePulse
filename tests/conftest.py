@@ -138,6 +138,10 @@ class _Switch(_Widget):
         return self._active
 
 
+class _CheckButton(_Switch):
+    pass
+
+
 class _StyleContext:
     def add_provider(self, provider: object, priority: int) -> None:
         pass
@@ -254,6 +258,7 @@ def drivepulse_module(monkeypatch):
         ApplicationWindow=_ApplicationWindow,
         Box=_Box,
         Button=_Button,
+        CheckButton=_CheckButton,
         CssProvider=_CssProvider,
         ComboRow=_ComboRow,
         DrawingArea=_DrawingArea,
@@ -304,21 +309,25 @@ def drivepulse_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
     monkeypatch.setitem(sys.modules, "obd", None)
-    for _mod in ("drivepulse", "common", "gauge", "acceleration"):
+    for _mod in ("drivepulse", "common", "gauge", "acceleration", "app_settings", "gps_reader", "orientation_reader", "obd_devices"):
         sys.modules.pop(_mod, None)
 
     import drivepulse
 
     yield drivepulse
-    for _mod in ("drivepulse", "common", "gauge", "acceleration"):
+    for _mod in ("drivepulse", "common", "gauge", "acceleration", "app_settings", "gps_reader", "orientation_reader", "obd_devices"):
         sys.modules.pop(_mod, None)
 
 
 @pytest.fixture
 def tmp_log_paths(monkeypatch, drivepulse_module, tmp_path: Path):
+    import app_settings
+
     log_dir = tmp_path / "state"
     monkeypatch.setattr(drivepulse_module, "LOG_DIR", log_dir)
     monkeypatch.setattr(drivepulse_module, "LOG_FILE", log_dir / "obd-log.jsonl")
     monkeypatch.setattr(drivepulse_module, "CONNECTION_LOG_FILE", log_dir / "connection-log.jsonl")
     monkeypatch.setattr(drivepulse_module, "SETTINGS_FILE", log_dir / "settings.json")
+    monkeypatch.setattr(app_settings, "LOG_DIR", log_dir)
+    monkeypatch.setattr(app_settings, "SETTINGS_FILE", log_dir / "settings.json")
     return log_dir
