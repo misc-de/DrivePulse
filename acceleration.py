@@ -229,13 +229,12 @@ class AccelerationPage(Gtk.Box):
 
         self.maxes_label = Gtk.Label()
         self.maxes_label.add_css_class("dim-label")
-        self.maxes_label.set_halign(Gtk.Align.END)
+        self.maxes_label.set_halign(Gtk.Align.CENTER)
         self.maxes_label.set_hexpand(True)
 
         intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         intro.set_margin_bottom(10)
         intro.append(header_row)
-        intro.append(self.maxes_label)
         intro.append(self.status_label)
 
         self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -272,9 +271,14 @@ class AccelerationPage(Gtk.Box):
         controls.append(self.abort_button)
         controls.append(self.reset_button)
 
-        # G-Force visualization (Sensor-Suite inspired)
+        # G-Force visualization (Sensor-Suite inspired) with Vmax/Gmax line above
         self.gforce_canvas = GForceCanvas()
         self.gforce_canvas.set_size_request(220, 220)
+        self.gforce_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.gforce_box.set_hexpand(True)
+        self.gforce_box.set_vexpand(True)
+        self.gforce_box.append(self.maxes_label)
+        self.gforce_box.append(self.gforce_canvas)
 
         # Container that switches orientation between portrait (canvas below results)
         # and landscape (canvas next to results).
@@ -284,7 +288,7 @@ class AccelerationPage(Gtk.Box):
         self.results_box.set_hexpand(True)
         self.results_box.set_vexpand(True)
         self.content_box.append(self.results_box)
-        self.content_box.append(self.gforce_canvas)
+        self.content_box.append(self.gforce_box)
 
         self.append(intro)
         self.append(self.content_box)
