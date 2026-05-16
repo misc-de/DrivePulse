@@ -714,6 +714,7 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self.cars_page = CarsPage(self.language, db=self.db)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
+        self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
 
         self.view_stack = Adw.ViewStack()
@@ -886,6 +887,12 @@ class DashboardWindow(Adw.ApplicationWindow):
         """Vom Autos-Tab (Liste) per Wisch nach rechts zurück zur Beschleunigung."""
         if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
             self.view_stack.set_visible_child_name(self.PAGE_ACCELERATION)
+            self._last_swipe_time = time.monotonic()
+
+    def _on_cars_forward_swipe(self) -> None:
+        """Vom Autos-Tab (Liste) per Wisch nach links zum Tacho."""
+        if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
+            self.view_stack.set_visible_child_name(self.PAGE_DASHBOARD)
             self._last_swipe_time = time.monotonic()
 
     def _on_orientation_changed(self, orientation: str, angle: int, is_landscape: bool) -> None:

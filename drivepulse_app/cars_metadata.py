@@ -40,6 +40,8 @@ _CHART_METRICS: tuple[tuple, ...] = (
 )
 
 CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
+    ("trips", "cars.category.trips", "globe-symbolic", ()),
+    ("acceleration_runs", "cars.category.acceleration_runs", "stopwatch-symbolic", ()),
     ("vehicle", "cars.category.vehicle", "info-symbolic", (
         (_SPECIAL_VIN,        "cars.pid.VIN"),
         (_SPECIAL_CAL,        "cars.pid.CAL"),
@@ -98,9 +100,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         (_SPECIAL_PENDING,    "cars.pid.PENDING_DTC"),
         ("0141", "cars.pid.0141"),
     )),
-    ("trips", "cars.category.trips", "globe-symbolic", ()),
     ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
-    ("acceleration_runs", "cars.category.acceleration_runs", "stopwatch-symbolic", ()),
 )
 
 _UNIT_DISPLAY: dict[str, str] = {
