@@ -1,5 +1,4 @@
-"""Sport dashboard theme for DrivePulse — rainbow sweep arc HUD."""
-import math
+"""Sport dashboard theme for DrivePulse — rainbow L-fin HUD."""
 from typing import Any
 
 THEME_TYPE = "dashboard"
@@ -17,11 +16,7 @@ window.dp-theme-sport .dp-gauge-bg > * {
 from draw_helpers import _txt, _norm
 from common import _translate
 
-_ARC_START = math.radians(135)
-_ARC_SPAN  = math.radians(270)
-_ARC_END   = _ARC_START + _ARC_SPAN
-
-_N_FINS = 60
+_N_FINS = 48
 
 
 def _rainbow(frac: float) -> tuple:
@@ -34,68 +29,71 @@ def _rainbow(frac: float) -> tuple:
             (p, q, 1.0), (t, p, 1.0), (1.0, p, q)][hi]
 
 
-def _fin_gauge(cr: Any, cx: float, cy: float, r: float, d: Any) -> None:
+def _l_gauge(
+    cr: Any, gx: float, gy: float, gw: float, gh: float,
+    arm_t: float, d: Any,
+) -> None:
+    """Rainbow L-fin gauge in rect (gx, gy, gw, gh).
+
+    Left arm : vertical fin strip at x=gx, spans gy → gy+gh-arm_t.
+    Bottom arm: horizontal fin strip at y=gy+gh-arm_t, spans gx+arm_t → gx+gw.
+    Corner at (gx+arm_t, gy+gh-arm_t).  frac=0 at corner, increases outward.
+    Fins are lit up to the current speed norm.
+    """
     a    = 1.0 if d.speed_active else 0.32
     norm = _norm(d.speed, 0, d.speed_max)
 
-    r_inner = r * 0.72
-    r_outer = r * 0.96
+    corner_x = gx + arm_t
+    corner_y = gy + gh - arm_t
+    vert_h   = gh - arm_t
+    horiz_w  = gw - arm_t
 
-    # Rainbow fins
+    # ── Left arm: horizontal fins stacked from corner upward ─────────────────
+    spacing_v = vert_h / _N_FINS
+    lw_v      = max(1.5, spacing_v * 0.65)
+    cr.set_line_cap(1)
     for i in range(_N_FINS):
         frac  = i / (_N_FINS - 1)
-        angle = _ARC_START + _ARC_SPAN * frac
+        y     = corner_y - i * spacing_v - spacing_v * 0.5
         rgb   = _rainbow(frac)
-        alpha = (0.95 if frac <= norm + 0.005 else 0.14) * a
-        major = (i % 10 == 0)
-        lw    = max(2.8, r * 0.026) if major else max(1.2, r * 0.013)
-        cr.set_line_width(lw)
-        cr.set_line_cap(0)
+        alpha = (0.95 if frac <= norm else 0.13) * a
+        cr.set_line_width(lw_v)
         cr.set_source_rgba(*rgb, alpha)
-        cr.move_to(cx + math.cos(angle) * r_inner,
-                   cy + math.sin(angle) * r_inner)
-        cr.line_to(cx + math.cos(angle) * r_outer,
-                   cy + math.sin(angle) * r_outer)
+        cr.move_to(gx + 3,         y)
+        cr.line_to(gx + arm_t - 3, y)
         cr.stroke()
 
-    # Scale labels in matching rainbow colors
-    step    = 60.0 if d.speed_unit == "km/h" else 30.0
-    n_steps = int(round(d.speed_max / step))
-    lbl_r   = r * 1.12
-    lbl_sz  = max(8.0, r * 0.11)
-    for i in range(n_steps + 1):
-        frac  = (i * step) / max(1.0, d.speed_max)
-        angle = _ARC_START + _ARC_SPAN * frac
+    # ── Bottom arm: vertical fins from corner rightward ───────────────────────
+    spacing_h = horiz_w / _N_FINS
+    lw_h      = max(1.5, spacing_h * 0.65)
+    for j in range(_N_FINS):
+        frac  = j / (_N_FINS - 1)
+        x     = corner_x + j * spacing_h + spacing_h * 0.5
         rgb   = _rainbow(frac)
-        txt   = str(int(i * step))
-        cr.select_font_face("Cantarell", 0, 0)
-        cr.set_font_size(lbl_sz)
-        ext = cr.text_extents(txt)
-        nx  = cx + math.cos(angle) * lbl_r - ext.width / 2 - ext.x_bearing
-        ny  = cy + math.sin(angle) * lbl_r - ext.height / 2 - ext.y_bearing
-        cr.set_source_rgba(*rgb, 0.90 * a)
-        cr.move_to(nx, ny)
-        cr.show_text(txt)
+        alpha = (0.95 if frac <= norm else 0.13) * a
+        cr.set_line_width(lw_h)
+        cr.set_source_rgba(*rgb, alpha)
+        cr.move_to(x, corner_y + 3)
+        cr.line_to(x, gy + gh - 3)
+        cr.stroke()
 
-    # Inner disc for text contrast
-    cr.set_source_rgba(0.03, 0.04, 0.07, 0.84)
-    cr.arc(cx, cy, r_inner * 0.92, 0, math.tau)
-    cr.fill()
+    # ── Speed text: centered in the open interior of the L ───────────────────
+    text_cx  = (corner_x + gx + gw) / 2
+    text_cy  = (gy + corner_y) / 2
+    inner_sz = min(vert_h, horiz_w)
 
-    # Speed source
     if d.speed_source:
-        _txt(cr, d.speed_source, cx, cy - r * 0.28,
-             max(8.0, r * 0.11), (0.50, 0.58, 0.66, 0.65 * a))
+        src_sz = max(8.0, inner_sz * 0.075)
+        _txt(cr, d.speed_source, text_cx, text_cy - inner_sz * 0.22,
+             src_sz, (0.50, 0.58, 0.66, 0.65 * a))
 
-    # Speed value
-    val_sz = max(28.0, r * 0.48)
-    _txt(cr, d.speed_label, cx, cy - r * 0.02, val_sz,
-         (1.0, 1.0, 1.0, a), bold=True, max_w=r_inner * 1.72)
+    val_sz = max(28.0, min(inner_sz * 0.28, 108.0))
+    _txt(cr, d.speed_label, text_cx, text_cy, val_sz,
+         (1.0, 1.0, 1.0, a), bold=True, max_w=horiz_w * 0.86)
 
-    # Unit
-    unit_sz = max(11.0, r * 0.14)
-    _txt(cr, d.speed_unit, cx, cy + r * 0.26, unit_sz,
-         (0.52, 0.60, 0.68, 0.85 * a))
+    unit_sz = max(11.0, inner_sz * 0.085)
+    _txt(cr, d.speed_unit, text_cx, text_cy + val_sz * 0.60,
+         unit_sz, (0.52, 0.60, 0.68, 0.85 * a))
 
 
 def _info_panel(cr: Any, x: float, y: float, w: float, h: float, d: Any) -> None:
@@ -126,7 +124,7 @@ def _info_panel(cr: Any, x: float, y: float, w: float, h: float, d: Any) -> None
         cr.rectangle(x, cy0 + card_h * 0.10, bar_w, card_h * 0.80)
         cr.fill()
 
-        lbl_sz  = max(9.0, min(card_h * 0.20, 28.0))
+        lbl_sz  = max(9.0,  min(card_h * 0.20, 28.0))
         val_sz  = max(18.0, min(card_h * 0.48, 72.0))
         cx_card = x + w * 0.55
 
@@ -141,13 +139,9 @@ def _info_panel(cr: Any, x: float, y: float, w: float, h: float, d: Any) -> None
 def _draw_sport_landscape(cr: Any, width: int, height: int, d: Any) -> None:
     gauge_w = width * 0.62
     pad     = height * 0.04
-    r       = min(height * 0.38, gauge_w * 0.50)
-    # Horizontally center the arc bounding box within gauge_w
-    cx      = (gauge_w + r * 0.293) / 2
-    # Vertically center the arc bounding box within height
-    cy      = height / 2 + r * 0.146
+    arm_t   = max(24.0, min(gauge_w * 0.064, height * 0.072, 52.0))
 
-    _fin_gauge(cr, cx, cy, r, d)
+    _l_gauge(cr, 0, 0, gauge_w, height, arm_t, d)
 
     info_x = gauge_w + pad * 0.5
     _info_panel(cr, info_x, pad, width - info_x - pad, height - 2 * pad, d)
@@ -156,17 +150,13 @@ def _draw_sport_landscape(cr: Any, width: int, height: int, d: Any) -> None:
 # ── Portrait ──────────────────────────────────────────────────────────────────
 
 def _draw_sport_portrait(cr: Any, width: int, height: int, d: Any) -> None:
-    pad = width * 0.04
-    r   = min(width * 0.40, height * 0.26)
-    # Horizontally center the arc bounding box
-    cx  = (width + r * 0.293) / 2
-    # Top of topmost scale label at pad from top edge
-    cy  = r * 1.12 + pad
+    pad     = width * 0.04
+    gauge_h = height * 0.52
+    arm_t   = max(20.0, min(width * 0.064, gauge_h * 0.072, 46.0))
 
-    _fin_gauge(cr, cx, cy, r, d)
+    _l_gauge(cr, 0, 0, width, gauge_h, arm_t, d)
 
-    # Info starts just below the lowest arc point (at 135°: cy + r*sin(135°)*1.12)
-    info_y = cy + r * 0.83 + pad
+    info_y = gauge_h + pad
     _info_panel(cr, pad, info_y, width - 2 * pad, height - info_y - pad, d)
 
 
