@@ -85,10 +85,9 @@ class DashboardSettingsMixin:
             heading=_translate(self.language, "sync.title"),
             body="",
         )
-        alert.add_response("server", _translate(self.language, "sync.choose.server"))
         alert.add_response("client", _translate(self.language, "sync.choose.client"))
+        alert.add_response("server", _translate(self.language, "sync.choose.server"))
         alert.add_response("cancel", _translate(self.language, "sync.choose.cancel"))
-        alert.set_response_appearance("server", Adw.ResponseAppearance.SUGGESTED)
         alert.set_response_appearance("cancel", Adw.ResponseAppearance.SUGGESTED)
         alert.set_default_response("cancel")
         alert.set_close_response("cancel")
