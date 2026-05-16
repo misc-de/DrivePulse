@@ -202,6 +202,12 @@ class AccelerationPage(Gtk.Box):
         self.max_obd_speed: float | None = None
         self.max_gps_speed: float | None = None
         self.max_g: float | None = None
+        self._max_obd_speed_t: float | None = None
+        self._max_gps_speed_t: float | None = None
+        self._saved_vmax_obd: float | None = None
+        self._saved_vmax_obd_t: float | None = None
+        self._saved_vmax_gps: float | None = None
+        self._saved_vmax_gps_t: float | None = None
         self._gforce_trigger: bool = False
         self._raw_g_dev: float = 0.0
         self._engage_since:    float | None = None
@@ -398,6 +404,7 @@ class AccelerationPage(Gtk.Box):
             self.results_box.append(self._make_result_row(f"0–{target} km/h", target))
         for lo, hi in self.RANGE_TARGETS_KMH:
             self.results_box.append(self._make_result_row(f"{lo}–{hi} km/h", (lo, hi)))
+        self.results_box.append(self._make_result_row("Vmax", "vmax"))
 
     def _make_result_row(self, label_text: str, key: Any) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -481,6 +488,10 @@ class AccelerationPage(Gtk.Box):
             self._obd_captions[key].set_text(obd_text)
             self._gps_captions[key].set_text(gps_text)
             self._best_captions[key].set_text(best_text)
+        if "vmax" in self._obd_captions:
+            self._obd_captions["vmax"].set_text(obd_text)
+            self._gps_captions["vmax"].set_text(gps_text)
+            self._best_captions["vmax"].set_text(_translate(self.language, "acceleration.vmax.in"))
         self._update_best_labels()
         self._update_maxes_label()
 
@@ -500,6 +511,42 @@ class AccelerationPage(Gtk.Box):
             self.g_label.set_text(_translate(self.language, "acceleration.g.empty"))
         else:
             self.g_label.set_text(_translate(self.language, "acceleration.g", value=f"{active_g:.3f}"))
+
+    def _update_vmax_row(
+        self,
+        obd_v: float | None = None, obd_t: float | None = None,
+        gps_v: float | None = None, gps_t: float | None = None,
+    ) -> None:
+        obd_lbl = self.result_labels.get(("vmax", "obd"))
+        gps_lbl = self.result_labels.get(("vmax", "gps"))
+        best_lbl = self.result_labels.get(("vmax", "best"))
+        obd_box = self.source_rows.get(("vmax", "obd"))
+        gps_box = self.source_rows.get(("vmax", "gps"))
+
+        if obd_box:
+            obd_box.set_visible(self._obd_ever_seen or obd_v is not None)
+        if gps_box:
+            gps_box.set_visible(self._gps_ever_seen or gps_v is not None)
+
+        if obd_lbl:
+            obd_lbl.set_text(f"{obd_v:.0f}" if obd_v is not None else "--")
+        if gps_lbl:
+            gps_lbl.set_text(f"{gps_v:.0f}" if gps_v is not None else "--")
+
+        if best_lbl:
+            # Show the time it took to reach vmax (from whichever source had higher speed)
+            if obd_v is None and gps_v is None:
+                best_lbl.set_text("--")
+            else:
+                if obd_v is None:
+                    t = gps_t
+                elif gps_v is None:
+                    t = obd_t
+                elif gps_v >= obd_v:
+                    t = gps_t
+                else:
+                    t = obd_t
+                best_lbl.set_text(f"{t:.1f} s" if t is not None else "--")
 
     def _update_maxes_label(self) -> None:
         vmax = self.max_obd_speed if self.max_obd_speed is not None else self.max_gps_speed
@@ -548,6 +595,9 @@ class AccelerationPage(Gtk.Box):
         for key in self._all_keys():
             for source in ("obd", "gps", "best"):
                 self.result_labels[(key, source)].set_text("--")
+        for source in ("obd", "gps", "best"):
+            if ("vmax", source) in self.result_labels:
+                self.result_labels[("vmax", source)].set_text("--")
 
     def _show_start(self) -> None:
         self.start_button.set_visible(True)
@@ -579,6 +629,8 @@ class AccelerationPage(Gtk.Box):
         self.max_obd_speed = None
         self.max_gps_speed = None
         self.max_g = None
+        self._max_obd_speed_t = None
+        self._max_gps_speed_t = None
         self._obd_ever_seen = False
         self._gps_ever_seen = False
         self._engage_since   = None
@@ -611,6 +663,8 @@ class AccelerationPage(Gtk.Box):
         self.max_obd_speed = None
         self.max_gps_speed = None
         self.max_g = None
+        self._max_obd_speed_t = None
+        self._max_gps_speed_t = None
         self._obd_ever_seen = False
         self._gps_ever_seen = False
         self._last_heading_deg = None
@@ -690,11 +744,21 @@ class AccelerationPage(Gtk.Box):
                 if t is not None and t <= now_elapsed:
                     self.result_labels[(rkey, source)].set_text(f"{t:.2f} s")
         self._update_best_labels_from_saved(now_elapsed)
+        # Vmax row: pop in OBD/GPS speed labels at the time they were set
+        obd_v, obd_t = self._saved_vmax_obd, self._saved_vmax_obd_t
+        gps_v, gps_t = self._saved_vmax_gps, self._saved_vmax_gps_t
+        self._update_vmax_row(
+            obd_v=obd_v if (obd_t is not None and obd_t <= now_elapsed) else None,
+            obd_t=obd_t if (obd_t is not None and obd_t <= now_elapsed) else None,
+            gps_v=gps_v if (gps_t is not None and gps_t <= now_elapsed) else None,
+            gps_t=gps_t if (gps_t is not None and gps_t <= now_elapsed) else None,
+        )
         max_elapsed = samples[-1][0] if samples else 0.0
         if now_elapsed >= max_elapsed:
             self._stop_replay()
             self._replay_timer_id = None
             self._update_best_labels()
+            self._update_vmax_row(obd_v=obd_v, obd_t=obd_t, gps_v=gps_v, gps_t=gps_t)
             self.status_label.set_text(_translate(self.language, "acceleration.done"))
             self.replay_button.set_label(_translate(self.language, "acceleration.replay"))
             return GLib.SOURCE_REMOVE
@@ -849,6 +913,19 @@ class AccelerationPage(Gtk.Box):
 
         elapsed = now - self.start_monotonic
         self._run_samples.append((elapsed, active_g, self._lateral_g))
+
+        # Track elapsed time when a new max speed is set (requires elapsed, so done here)
+        if obd_speed is not None and (self.max_obd_speed is None or obd_speed > self.max_obd_speed):
+            self.max_obd_speed = obd_speed
+            self._max_obd_speed_t = elapsed
+        if gps_speed is not None and (self.max_gps_speed is None or gps_speed > self.max_gps_speed):
+            self.max_gps_speed = gps_speed
+            self._max_gps_speed_t = elapsed
+        self._update_vmax_row(
+            obd_v=self.max_obd_speed, obd_t=self._max_obd_speed_t,
+            gps_v=self.max_gps_speed, gps_t=self._max_gps_speed_t,
+        )
+
         for target in self.SPEED_TARGETS_KMH:
             row = self.results[target]
             if row["obd"] is None and obd_speed is not None and obd_speed >= target:
@@ -879,6 +956,10 @@ class AccelerationPage(Gtk.Box):
             self.armed = False
             self._saved_results = {k: dict(v) for k, v in self.results.items()}
             self._saved_range_results = {k: dict(v) for k, v in self.range_results.items()}
+            self._saved_vmax_obd = self.max_obd_speed
+            self._saved_vmax_obd_t = self._max_obd_speed_t
+            self._saved_vmax_gps = self.max_gps_speed
+            self._saved_vmax_gps_t = self._max_gps_speed_t
             self._show_replay()
             self.status_label.set_text(_translate(self.language, "acceleration.done"))
             if self.on_run_complete is not None:
@@ -886,7 +967,9 @@ class AccelerationPage(Gtk.Box):
                     "targets": {str(k): dict(v) for k, v in self.results.items()},
                     "ranges": {str(k): dict(v) for k, v in self.range_results.items()},
                     "max_obd_kmh": self.max_obd_speed,
+                    "max_obd_t": self._max_obd_speed_t,
                     "max_gps_kmh": self.max_gps_speed,
+                    "max_gps_t": self._max_gps_speed_t,
                     "max_g": self.max_g,
                 }
                 samples_list = [list(s) for s in self._run_samples]
