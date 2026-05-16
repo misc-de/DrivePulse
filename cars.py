@@ -61,7 +61,6 @@ _CHART_METRICS: tuple[tuple, ...] = (
     ("maf_gps",      "Luftmasse",       "g/s",  (0.70, 0.40, 0.90), "{:.1f}"),
     ("voltage_v",    "Spannung",        "V",    (0.95, 0.75, 0.10), "{:.2f}"),
     ("accel_g",      "Beschleunigung",  "g",    (0.90, 0.40, 0.20), "{:.2f}"),
-    ("altitude_m",   "Höhe",            "m",    (0.20, 0.75, 0.70), "{:.0f}"),
     ("fuel_pct",     "Kraftstoff",      "%",    (0.95, 0.80, 0.10), "{:.0f}"),
 )
 
