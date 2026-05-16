@@ -206,21 +206,16 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         # the circle square (uses min(width, height) for the radius).
         self.gforce_canvas = GForceCanvas()
         self.gforce_canvas.set_hexpand(True)
-        self.gforce_canvas.set_vexpand(True)
+        self.gforce_canvas.set_vexpand(False)
         self.gforce_canvas.set_halign(Gtk.Align.FILL)
-        self.gforce_canvas.set_valign(Gtk.Align.FILL)
-        self.gforce_canvas.set_content_width(360)
-        self.gforce_canvas.set_content_height(360)
-        self.gforce_canvas.set_size_request(240, 240)
+        self.gforce_canvas.set_valign(Gtk.Align.CENTER)
+        self.gforce_canvas.set_size_request(-1, 220)
 
         self.gforce_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.gforce_box.set_hexpand(True)
-        self.gforce_box.set_vexpand(True)
-        # Group fills the remaining space so the canvas inside can grow. The
-        # canvas keeps a square draw via min(w, h) in its _draw method, so
-        # excess width in landscape just leaves padding either side.
+        self.gforce_box.set_vexpand(False)
         self.gforce_box.set_halign(Gtk.Align.FILL)
-        self.gforce_box.set_valign(Gtk.Align.FILL)
+        self.gforce_box.set_valign(Gtk.Align.START)
         self.gforce_box.append(self.maxes_label)
         self.gforce_box.append(self.gforce_canvas)
         # G-Force trigger checkbox + threshold controls sit between canvas and buttons
