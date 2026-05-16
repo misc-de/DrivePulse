@@ -264,6 +264,15 @@ class DriveDB:
             self._conn.execute("DELETE FROM trips WHERE id=?", (trip_id,))
             self._conn.commit()
 
+    def rename_car(self, car_id: int, label: str) -> None:
+        """Setzt den benutzerdefinierten Anzeigenamen eines Fahrzeugs."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE cars SET label=? WHERE id=?",
+                (label or None, car_id),
+            )
+            self._conn.commit()
+
     def delete_car(self, car_id: int) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM cars WHERE id=?", (car_id,))
