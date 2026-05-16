@@ -50,6 +50,21 @@ _SPECIAL_DTC = "__DTC__"
 _SPECIAL_PENDING = "__PENDING_DTC__"
 _SPECIAL_ADAPTER_V = "__ATRV__"
 
+# (db_key, display_label, unit, line_color_rgb, value_fmt)
+_CHART_METRICS: tuple[tuple, ...] = (
+    ("speed_kmh",    "Geschwindigkeit", "km/h", (0.34, 0.62, 0.86), "{:.0f}"),
+    ("rpm",          "Drehzahl",        "RPM",  (0.95, 0.60, 0.20), "{:.0f}"),
+    ("coolant_c",    "Kühlmitteltemp.", "°C",   (0.90, 0.30, 0.30), "{:.0f}"),
+    ("intake_c",     "Ansauglufttemp.", "°C",   (0.95, 0.50, 0.20), "{:.0f}"),
+    ("throttle_pct", "Drosselklappe",   "%",    (0.30, 0.80, 0.40), "{:.0f}"),
+    ("engine_load",  "Motorlast",       "%",    (0.60, 0.85, 0.30), "{:.0f}"),
+    ("maf_gps",      "Luftmasse",       "g/s",  (0.70, 0.40, 0.90), "{:.1f}"),
+    ("voltage_v",    "Spannung",        "V",    (0.95, 0.75, 0.10), "{:.2f}"),
+    ("accel_g",      "Beschleunigung",  "g",    (0.90, 0.40, 0.20), "{:.2f}"),
+    ("altitude_m",   "Höhe",            "m",    (0.20, 0.75, 0.70), "{:.0f}"),
+    ("fuel_pct",     "Kraftstoff",      "%",    (0.95, 0.80, 0.10), "{:.0f}"),
+)
+
 CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
     ("vehicle", "cars.category.vehicle", "info-symbolic", (
         (_SPECIAL_VIN,        "cars.pid.VIN"),
@@ -275,13 +290,32 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
 
     outer.append(stats)
 
-    # Build combined speed_pts (ts, speed, lat, lon) for cursor sync
-    speed_pts = [
-        (s["ts"], s["speed_kmh"], s["lat"], s["lon"])
-        for s in samples if s["speed_kmh"] is not None
-    ]
+    # --- Build per-metric point lists: (ts, value|None, lat, lon) ---
+    # Base: all samples that have GPS coordinates (needed for map cursor sync)
+    _base = [s for s in samples if s["lat"] is not None and s["lon"] is not None]
+    metric_data: dict[str, list] = {}
+    for _mk, _ml, _mu, _mc, _mf in _CHART_METRICS:
+        _pts = [(s["ts"], s[_mk], s["lat"], s["lon"]) for s in _base]
+        if sum(1 for p in _pts if p[1] is not None) >= 2:
+            metric_data[_mk] = _pts
 
-    # Shared cursor state: idx = index into speed_pts, -1 = none
+    _avail = [(k, l, u, c, f) for k, l, u, c, f in _CHART_METRICS if k in metric_data]
+
+    _def_key = "speed_kmh" if "speed_kmh" in metric_data else (
+        _avail[0][0] if _avail else None
+    )
+    chart_state: dict[str, Any] = {}
+    if _def_key:
+        _dm = next(m for m in _CHART_METRICS if m[0] == _def_key)
+        chart_state = {
+            "pts": metric_data[_def_key],
+            "unit": _dm[2],
+            "color": _dm[3],
+            "fmt": _dm[4],
+            "key": _def_key,
+        }
+
+    # Shared cursor state: idx = index into chart_state["pts"], -1 = none
     cursor_state: dict[str, Any] = {"idx": -1}
     map_widget_ref: list[Any] = [None]
     chart_area_ref: list[Any] = [None]
@@ -301,7 +335,7 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         outer.append(gps_title)
         map_widget = _build_osm_map_widget(
             gps_points,
-            speed_pts=speed_pts,
+            chart_state=chart_state if chart_state else None,
             cursor_state=cursor_state,
         )
         if map_widget is not None:
@@ -315,16 +349,50 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
             gps_area.set_draw_func(lambda area, cr, w, h, pts=gps_points: _draw_gps_track(cr, w, h, pts))
             outer.append(gps_area)
 
-    # --- Geschwindigkeitsverlauf ---
-    if speed_pts:
-        sp_title = Gtk.Label(label=_translate(language, "cars.trip.speed_chart"), xalign=0.0)
-        sp_title.add_css_class("heading")
-        outer.append(sp_title)
-        sp_area = _build_speed_chart_widget(speed_pts, cursor_state, _on_cursor_change)
+    # --- Datenverlauf ---
+    if _avail and chart_state:
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_box.set_hexpand(True)
+
+        chart_title_lbl = Gtk.Label(xalign=0.0)
+        chart_title_lbl.add_css_class("heading")
+        chart_title_lbl.set_hexpand(True)
+        _init_lbl = next((m[1] for m in _avail if m[0] == chart_state["key"]), _avail[0][1])
+        chart_title_lbl.set_label(_init_lbl)
+        header_box.append(chart_title_lbl)
+
+        if len(_avail) > 1:
+            _str_model = Gtk.StringList.new([m[1] for m in _avail])
+            _dropdown = Gtk.DropDown.new(_str_model, None)
+            _dropdown.set_valign(Gtk.Align.CENTER)
+            _init_sel = next((i for i, m in enumerate(_avail) if m[0] == chart_state["key"]), 0)
+            _dropdown.set_selected(_init_sel)
+
+            def _on_metric_selected(dd: Gtk.DropDown, _pspec: Any, avail: list = _avail) -> None:
+                sel = dd.get_selected()
+                if 0 <= sel < len(avail):
+                    key, lbl, unit, color, fmt = avail[sel]
+                    chart_state["pts"] = metric_data[key]
+                    chart_state["unit"] = unit
+                    chart_state["color"] = color
+                    chart_state["fmt"] = fmt
+                    chart_state["key"] = key
+                    chart_title_lbl.set_label(lbl)
+                    cursor_state["idx"] = -1
+                    if chart_area_ref[0]:
+                        chart_area_ref[0].queue_draw()
+                    if map_widget_ref[0]:
+                        map_widget_ref[0].queue_draw()
+
+            _dropdown.connect("notify::selected", _on_metric_selected)
+            header_box.append(_dropdown)
+
+        outer.append(header_box)
+        sp_area = _build_chart_widget(chart_state, cursor_state, _on_cursor_change)
         chart_area_ref[0] = sp_area
         outer.append(sp_area)
 
-    if not gps_points and not speed_pts:
+    if not gps_points and not _avail:
         empty = Gtk.Label(label=_translate(language, "cars.trip.no_data"), xalign=0.0)
         empty.add_css_class("dim-label")
         outer.append(empty)
@@ -547,15 +615,15 @@ def _draw_gps_track(cr: Any, width: int, height: int, points: list[tuple[float, 
     cr.fill()
 
 
-def _build_speed_chart_widget(
-    speed_pts: list[tuple[float, float, "float | None", "float | None"]],
+def _build_chart_widget(
+    chart_state: dict,
     cursor_state: dict,
     on_cursor_change: "Callable",
     height: int = 180,
 ) -> Gtk.DrawingArea:
-    """Interactive speed/time chart. speed_pts = (ts, speed_kmh, lat|None, lon|None).
-    cursor_state['idx'] holds the active index (-1 = none).
-    Calls on_cursor_change() whenever the cursor moves so the caller can redraw the map.
+    """Generic metric/time chart. chart_state holds current pts, unit, color, fmt.
+    pts = list of (ts, value|None, lat|None, lon|None).
+    cursor_state['idx'] = active index into pts (-1 = none).
     """
     PAD_L, PAD_R, PAD_T, PAD_B = 40, 12, 10, 24
     area = Gtk.DrawingArea()
@@ -563,19 +631,21 @@ def _build_speed_chart_widget(
     area.set_hexpand(True)
     area.add_css_class("card")
 
-    if len(speed_pts) < 2:
-        return area
-
-    ts0 = speed_pts[0][0]
-    ts1 = speed_pts[-1][0]
-    t_span = max(1e-6, ts1 - ts0)
-    v_max_raw = max(p[1] for p in speed_pts)
-    v_max_disp = max(20.0, math.ceil(v_max_raw / 20.0) * 20.0)
-
     def _idx_from_px(px: float, w: float) -> int:
+        pts = chart_state.get("pts") or []
+        if not pts:
+            return -1
         iw = max(1.0, w - PAD_L - PAD_R)
-        frac = max(0.0, min(1.0, (px - PAD_L) / iw))
-        return max(0, min(len(speed_pts) - 1, round(frac * (len(speed_pts) - 1))))
+        ts0 = pts[0][0]
+        t_span = max(1e-6, pts[-1][0] - ts0)
+        target = ts0 + max(0.0, min(1.0, (px - PAD_L) / iw)) * t_span
+        best, best_d = 0, abs(pts[0][0] - target)
+        for i, (ts, *_) in enumerate(pts):
+            d = abs(ts - target)
+            if d < best_d:
+                best_d = d
+                best = i
+        return best
 
     def _set_cursor(px: float, w: float) -> None:
         idx = _idx_from_px(px, w)
@@ -591,17 +661,42 @@ def _build_speed_chart_widget(
             on_cursor_change()
 
     def draw_cb(_area: Gtk.DrawingArea, cr: Any, w: int, h: int) -> None:
+        pts = chart_state.get("pts") or []
+        if len(pts) < 2:
+            return
+        valid_vals = [p[1] for p in pts if p[1] is not None]
+        if not valid_vals:
+            return
+
         dark = _is_dark()
         iw = max(1, w - PAD_L - PAD_R)
         ih = max(1, h - PAD_T - PAD_B)
         grid_rgba = (1.0, 1.0, 1.0, 0.18) if dark else (0.0, 0.0, 0.0, 0.15)
         text_rgba = (1.0, 1.0, 1.0, 0.55) if dark else (0.0, 0.0, 0.0, 0.55)
+        color = chart_state.get("color", (0.34, 0.62, 0.86))
+        fmt = chart_state.get("fmt", "{:.0f}")
+        unit = chart_state.get("unit", "")
+
+        ts0 = pts[0][0]
+        t_span = max(1e-6, pts[-1][0] - ts0)
+        v_min = min(valid_vals)
+        v_max = max(valid_vals)
+        v_pad = max(1e-6, v_max - v_min) * 0.08
+        v_lo = v_min - v_pad
+        v_hi = v_max + v_pad
+        v_range = max(1e-6, v_hi - v_lo)
+
+        def _vy(v: float) -> float:
+            return PAD_T + ih - ((v - v_lo) / v_range) * ih
+
+        def _tx(ts: float) -> float:
+            return PAD_L + ((ts - ts0) / t_span) * iw
 
         # Grid lines
         cr.set_line_width(1.0)
         cr.set_source_rgba(*grid_rgba)
         for frac in (0.0, 0.25, 0.5, 0.75, 1.0):
-            y = PAD_T + ih - frac * ih
+            y = PAD_T + ih * (1.0 - frac)
             cr.move_to(PAD_L, y)
             cr.line_to(PAD_L + iw, y)
             cr.stroke()
@@ -611,66 +706,79 @@ def _build_speed_chart_widget(
         cr.select_font_face("Sans", 0, 0)
         cr.set_font_size(10)
         for frac in (0.0, 0.5, 1.0):
-            label = f"{int(v_max_disp * frac)}"
-            y = PAD_T + ih - frac * ih + 4
+            lbl = fmt.format(v_lo + frac * v_range)
+            y = PAD_T + ih * (1.0 - frac) + 4
             cr.move_to(4, y)
-            cr.show_text(label)
+            cr.show_text(lbl)
 
-        # Speed fill
-        cr.set_source_rgba(0.34, 0.62, 0.86, 0.22)
-        cr.move_to(PAD_L, PAD_T + ih)
-        for ts, v, _la, _lo in speed_pts:
-            x = PAD_L + ((ts - ts0) / t_span) * iw
-            y = PAD_T + ih - (min(v, v_max_disp) / v_max_disp) * ih
-            cr.line_to(x, y)
-        cr.line_to(PAD_L + iw, PAD_T + ih)
-        cr.close_path()
-        cr.fill()
-
-        # Speed line
-        cr.set_source_rgb(0.34, 0.62, 0.86)
-        cr.set_line_width(2.0)
-        first = True
-        for ts, v, _la, _lo in speed_pts:
-            x = PAD_L + ((ts - ts0) / t_span) * iw
-            y = PAD_T + ih - (min(v, v_max_disp) / v_max_disp) * ih
-            if first:
-                cr.move_to(x, y)
-                first = False
+        # Build draw segments (skip None gaps)
+        segments: list[list[tuple[float, float]]] = []
+        seg: list[tuple[float, float]] = []
+        for ts, v, *_ in pts:
+            if v is None:
+                if seg:
+                    segments.append(seg)
+                    seg = []
             else:
+                seg.append((_tx(ts), _vy(v)))
+        if seg:
+            segments.append(seg)
+
+        # Fill
+        fill_rgba = (*color, 0.22)
+        for seg in segments:
+            if len(seg) < 2:
+                continue
+            cr.set_source_rgba(*fill_rgba)
+            cr.move_to(seg[0][0], PAD_T + ih)
+            for x, y in seg:
                 cr.line_to(x, y)
-        cr.stroke()
+            cr.line_to(seg[-1][0], PAD_T + ih)
+            cr.close_path()
+            cr.fill()
+
+        # Line
+        for seg in segments:
+            if len(seg) < 2:
+                continue
+            cr.set_source_rgb(*color)
+            cr.set_line_width(2.0)
+            cr.move_to(*seg[0])
+            for x, y in seg[1:]:
+                cr.line_to(x, y)
+            cr.stroke()
 
         # Cursor
         idx = cursor_state.get("idx", -1)
-        if 0 <= idx < len(speed_pts):
-            ts_c, v_c, _clat, _clon = speed_pts[idx]
-            cx = PAD_L + ((ts_c - ts0) / t_span) * iw
-            cy_dot = PAD_T + ih - (min(v_c, v_max_disp) / v_max_disp) * ih
+        if 0 <= idx < len(pts):
+            ts_c, v_c, *_ = pts[idx]
+            if v_c is not None:
+                cx = _tx(ts_c)
+                cy_dot = _vy(v_c)
 
-            cr.set_source_rgba(1.0, 0.82, 0.1, 0.9)
-            cr.set_line_width(1.5)
-            cr.move_to(cx, PAD_T)
-            cr.line_to(cx, PAD_T + ih)
-            cr.stroke()
+                cr.set_source_rgba(1.0, 0.82, 0.1, 0.9)
+                cr.set_line_width(1.5)
+                cr.move_to(cx, PAD_T)
+                cr.line_to(cx, PAD_T + ih)
+                cr.stroke()
 
-            cr.set_source_rgb(1.0, 0.82, 0.1)
-            cr.arc(cx, cy_dot, 4, 0, 6.2832)
-            cr.fill()
+                cr.set_source_rgb(1.0, 0.82, 0.1)
+                cr.arc(cx, cy_dot, 4, 0, 6.2832)
+                cr.fill()
 
-            label = f"{v_c:.0f} km/h"
-            cr.set_font_size(11)
-            te = cr.text_extents(label)
-            lx = min(cx + 6, w - te.width - 6)
-            ly = max(PAD_T + te.height + 4, cy_dot - 4)
-            bg = (0.0, 0.0, 0.0, 0.6) if dark else (1.0, 1.0, 1.0, 0.82)
-            cr.set_source_rgba(*bg)
-            cr.rectangle(lx - 3, ly - te.height - 1, te.width + 6, te.height + 4)
-            cr.fill()
-            fg = (1.0, 1.0, 1.0) if dark else (0.0, 0.0, 0.0)
-            cr.set_source_rgb(*fg)
-            cr.move_to(lx, ly)
-            cr.show_text(label)
+                cursor_lbl = fmt.format(v_c) + (" " + unit if unit else "")
+                cr.set_font_size(11)
+                te = cr.text_extents(cursor_lbl)
+                lx = min(cx + 6, w - te.width - 6)
+                ly = max(PAD_T + te.height + 4, cy_dot - 4)
+                bg = (0.0, 0.0, 0.0, 0.6) if dark else (1.0, 1.0, 1.0, 0.82)
+                cr.set_source_rgba(*bg)
+                cr.rectangle(lx - 3, ly - te.height - 1, te.width + 6, te.height + 4)
+                cr.fill()
+                fg = (1.0, 1.0, 1.0) if dark else (0.0, 0.0, 0.0)
+                cr.set_source_rgb(*fg)
+                cr.move_to(lx, ly)
+                cr.show_text(cursor_lbl)
 
     area.set_draw_func(draw_cb)
 
@@ -877,15 +985,15 @@ def _tile_to_grayscale(surf: Any) -> Any:
 
 def _build_osm_map_widget(
     gps_points: list[tuple[float, float, "float | None"]],
-    speed_pts: "list[tuple[float, float, float | None, float | None]] | None" = None,
+    chart_state: "dict | None" = None,
     cursor_state: "dict | None" = None,
     height: int = 300,
 ) -> "Gtk.DrawingArea | None":
     """Tile-stitched OSM map with pinch-zoom, finger-pan, double-tap reset.
 
     gps_points:   (lat, lon, speed_kmh) — GPS track
-    speed_pts:    (ts, speed_kmh, lat|None, lon|None) — for cursor dot
-    cursor_state: shared dict with key 'idx' (index into speed_pts); -1 = no cursor
+    chart_state:  shared dict with 'pts' = [(ts, val, lat, lon), ...] — for cursor dot
+    cursor_state: shared dict with key 'idx' (index into chart_state['pts']); -1 = no cursor
     """
     try:
         import cairo as _cairo  # noqa: F401
@@ -1101,11 +1209,12 @@ def _build_osm_map_widget(
             cr.fill()
 
         # ── Cursor dot ────────────────────────────────────────────────────────
-        if cursor_state is not None and speed_pts:
+        _cpts = (chart_state or {}).get("pts") or []
+        if cursor_state is not None and _cpts:
             idx = cursor_state.get("idx", -1)
-            if 0 <= idx < len(speed_pts):
-                clat = speed_pts[idx][2]
-                clon = speed_pts[idx][3]
+            if 0 <= idx < len(_cpts):
+                clat = _cpts[idx][2]
+                clon = _cpts[idx][3]
                 if clat is not None and clon is not None:
                     dot_x, dot_y = proj(clat, clon)
                     cr.set_source_rgb(1.0, 0.9, 0.0)
