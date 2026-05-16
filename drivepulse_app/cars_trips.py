@@ -62,8 +62,6 @@ class CarsTripsMixin:
         vmax = trip["max_speed_kmh"]
         if vmax is not None:
             parts.append(f"max {vmax:.0f} km/h")
-        n = trip["samples_count"] or 0
-        parts.append(f"{n} {_translate(self.language, 'cars.trip.samples')}")
         if trip["ended_at"] is None:
             parts.append(f"⏺ {_translate(self.language, 'cars.trip.ongoing')}")
         row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
@@ -147,9 +145,6 @@ class CarsTripsMixin:
 
     def _update_select_bar(self) -> None:
         n = len(self._trip_selected_ids)
-        self._select_count_lbl.set_text(
-            _translate(self.language, "cars.trip.selected_count", n=n)
-        )
         self._select_delete_btn.set_label(_translate(self.language, "cars.trip.delete_confirm"))
         self._select_delete_btn.set_sensitive(n > 0)
         self._select_cancel_btn.set_label(_translate(self.language, "cars.trip.delete_cancel"))
