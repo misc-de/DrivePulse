@@ -13,7 +13,7 @@ window.dp-theme-sport .dp-gauge-bg > * {
   background-color: #030508;
 }"""
 
-from draw_helpers import _txt, _norm
+from draw_helpers import _txt, _norm, _draw_last_trip_strip
 from common import _translate
 
 _N_FINS = 48
@@ -165,7 +165,9 @@ def _draw_sport_portrait(cr: Any, width: int, height: int, d: Any) -> None:
 def draw(cr: Any, width: int, height: int, data: Any) -> None:
     cr.set_source_rgb(0.012, 0.016, 0.024)
     cr.paint()
+    strip_h = max(28.0, height * 0.072)
     if width >= height:
-        _draw_sport_landscape(cr, width, height, data)
+        _draw_sport_landscape(cr, width, height - strip_h, data)
     else:
-        _draw_sport_portrait(cr, width, height, data)
+        _draw_sport_portrait(cr, width, height - strip_h, data)
+    _draw_last_trip_strip(cr, 0, height - strip_h, width, strip_h, data)
