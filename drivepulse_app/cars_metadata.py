@@ -100,6 +100,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
     )),
     ("trips", "cars.category.trips", "globe-symbolic", ()),
     ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
+    ("acceleration_runs", "cars.category.acceleration_runs", "stopwatch-symbolic", ()),
 )
 
 _UNIT_DISPLAY: dict[str, str] = {

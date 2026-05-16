@@ -621,6 +621,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.auto_rotate: bool = self.settings.get("auto_rotate", True)
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
+        self._last_gps_lat: float | None = None
+        self._last_gps_lon: float | None = None
 
         # Persistente Fahrten-Datenbank (cars/trips/samples) — vor allen Pages,
         # weil CarsPage sie injiziert bekommt.
@@ -701,6 +703,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.acceleration_page.set_theme(self.gauge_theme)
         self.acceleration_page.set_engage_threshold(self.settings.get("engage_threshold", 0.20))
         self.acceleration_page.on_engage_threshold_changed = self._on_engage_threshold_changed
+        self.acceleration_page.on_run_complete = self._on_acceleration_run_complete
         acceleration_scroller = Gtk.ScrolledWindow()
         acceleration_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         acceleration_scroller.set_propagate_natural_width(False)
@@ -736,7 +739,7 @@ class DashboardWindow(Adw.ApplicationWindow):
             acceleration_scroller,
             self.PAGE_ACCELERATION,
             _translate(self.language, "nav.acceleration"),
-            "playback-speed-symbolic",
+            "stopwatch-symbolic",
         )
 
         self.view_stack.connect("notify::visible-child-name", self._on_visible_page_changed)
@@ -953,6 +956,23 @@ class DashboardWindow(Adw.ApplicationWindow):
     def _on_engage_threshold_changed(self, value: float) -> None:
         self.engage_threshold = value
         self._save_settings()
+
+    def _on_acceleration_run_complete(self, results: dict, samples: list) -> None:
+        trip_recorder = getattr(self, "trip_recorder", None)
+        car_id = trip_recorder.car_id if trip_recorder else None
+        if car_id is None:
+            return
+        try:
+            self.db.add_acceleration_run(
+                car_id=car_id,
+                results=results,
+                samples=samples,
+                lat=self._last_gps_lat,
+                lon=self._last_gps_lon,
+            )
+            self.cars_page.refresh_if_showing_car(car_id)
+        except Exception:
+            pass
 
     def _save_units(self) -> None:
         self._save_settings()
@@ -1275,6 +1295,10 @@ class DashboardWindow(Adw.ApplicationWindow):
             lat = self._plain_number(payload, "gps_lat")
             lon = self._plain_number(payload, "gps_lon")
             altitude_m = self._plain_number(payload, "gps_altitude")
+            if lat is not None:
+                self._last_gps_lat = lat
+            if lon is not None:
+                self._last_gps_lon = lon
             trip_recorder = getattr(self, "trip_recorder", None)
             if trip_recorder is not None:
                 trip_recorder.update_gps(

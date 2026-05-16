@@ -322,8 +322,8 @@ def _voltage_halfmoon_right(
     cr: Any, width: int, height: int, d: Any,
     r: float | None = None, cy: float | None = None,
 ) -> None:
-    """Semicircular battery-voltage gauge on the right edge. 12 V = bottom, 16 V = top."""
-    V_MIN, V_MAX = 12.0, 16.0
+    """Semicircular battery-voltage gauge on the right edge. 11 V = bottom, 16 V = top."""
+    V_MIN, V_MAX = 11.0, 16.0
     a = 1.0 if d.voltage_active else 0.28
     volt_norm = max(0.0, min(1.0, (d.voltage_v - V_MIN) / (V_MAX - V_MIN))) if d.voltage_active else 0.0
 
@@ -337,8 +337,8 @@ def _voltage_halfmoon_right(
         cy = height * 0.72
     cx = float(width)
 
-    ANG_BOT =  math.pi / 2   # 12 V = bottom
-    ANG_TOP = -math.pi / 2   # 16 V = top  (= 3π/2 in increasing direction)
+    ANG_BOT =  math.pi / 2   # 11 V = bottom
+    ANG_TOP = -math.pi / 2   # 16 V = top
 
     # Face disc — left D-shape, flat side at right screen edge
     cr.set_source_rgb(*face_col)
@@ -347,15 +347,21 @@ def _voltage_halfmoon_right(
     cr.close_path()
     cr.fill()
 
-    # Red warning zone: bottom 1/6 (low-voltage zone fades in as voltage drops toward 12 V)
-    ANG_WARN = ANG_BOT + math.pi / 6
-    if volt_norm < 1 / 6:
-        warn_alpha = (1 / 6 - volt_norm) / (1 / 6) * 0.55
-        cr.set_source_rgba(0.92, 0.10, 0.05, warn_alpha * a)
-        cr.move_to(cx, cy)
-        cr.arc(cx, cy, r, ANG_BOT, ANG_WARN)
-        cr.close_path()
-        cr.fill()
+    # Red danger zone: 11–12 V (bottom 1/5)
+    ANG_RED_END = ANG_BOT + math.pi * 0.2
+    cr.set_source_rgba(0.85, 0.10, 0.08, 0.30 * a)
+    cr.move_to(cx, cy)
+    cr.arc(cx, cy, r, ANG_BOT, ANG_RED_END)
+    cr.close_path()
+    cr.fill()
+
+    # Orange warning zone: 12–13 V (next 1/5)
+    ANG_ORG_END = ANG_BOT + math.pi * 0.4
+    cr.set_source_rgba(0.95, 0.52, 0.08, 0.22 * a)
+    cr.move_to(cx, cy)
+    cr.arc(cx, cy, r, ANG_RED_END, ANG_ORG_END)
+    cr.close_path()
+    cr.fill()
 
     # Outer border arc
     cr.set_line_width(max(2.0, r * 0.025))
@@ -363,34 +369,43 @@ def _voltage_halfmoon_right(
     cr.arc(cx, cy, r, ANG_BOT, ANG_TOP)
     cr.stroke()
 
-    # 4 tick marks at 25 %, 50 %, 75 %, 100 % — identical pattern to fuel gauge
+    # 5 tick marks at 1 V intervals: 12, 13, 14, 15, 16 V
     tick_outer = r * 0.92
     tick_inner = r * 0.74
     cr.set_line_width(max(1.5, r * 0.016))
-    for i in range(1, 5):
-        ang = ANG_BOT + math.pi * (i / 4)
-        if i == 1:
+    for i in range(1, 6):
+        frac = i / 5
+        ang = ANG_BOT + math.pi * frac
+        lval = V_MIN + (V_MAX - V_MIN) * frac
+        if lval <= 12.0:
             cr.set_source_rgba(0.90, 0.18, 0.12, 0.90 * a)
+        elif lval <= 13.0:
+            cr.set_source_rgba(0.95, 0.52, 0.08, 0.90 * a)
         else:
             cr.set_source_rgba(*text_col, 0.85 * a)
         cr.move_to(cx + math.cos(ang) * tick_inner, cy + math.sin(ang) * tick_inner)
         cr.line_to(cx + math.cos(ang) * tick_outer, cy + math.sin(ang) * tick_outer)
         cr.stroke()
 
-    # Scale labels at all 5 positions (12, 13, 14, 15, 16)
+    # Scale labels at all 6 positions (11, 12, 13, 14, 15, 16)
     lbl_r = r * 0.55
     lbl_size = max(9.0, r * 0.13)
     cr.select_font_face("Cantarell", 0, 0)
     cr.set_font_size(lbl_size)
-    for i in range(5):
-        frac = i / 4
+    for i in range(6):
+        frac = i / 5
         ang = ANG_BOT + math.pi * frac
         lval = V_MIN + (V_MAX - V_MIN) * frac
         txt = f"{lval:.0f}"
         ext = cr.text_extents(txt)
         nx = cx + math.cos(ang) * lbl_r - ext.width / 2 - ext.x_bearing
         ny = cy + math.sin(ang) * lbl_r - ext.height / 2 - ext.y_bearing
-        cr.set_source_rgba(*dim_col, 0.80 * a)
+        if lval <= 11.0:
+            cr.set_source_rgba(0.90, 0.18, 0.12, 0.90 * a)
+        elif lval <= 12.0:
+            cr.set_source_rgba(0.95, 0.52, 0.08, 0.90 * a)
+        else:
+            cr.set_source_rgba(*dim_col, 0.80 * a)
         cr.move_to(nx, ny)
         cr.show_text(txt)
 
