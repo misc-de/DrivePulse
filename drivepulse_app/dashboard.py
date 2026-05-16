@@ -87,6 +87,16 @@ class DashData:
     gps_altitude_m: float = 0.0
     gps_pos_active: bool = False
 
+    # Last completed trip / live session stats (populated from DB or live tracking)
+    last_trip_available: bool = False
+    last_trip_rpm_min: float = 0.0
+    last_trip_rpm_max: float = 0.0
+    last_trip_coolant_min: float = 0.0
+    last_trip_coolant_max: float = 0.0
+    last_trip_speed_max: float = 0.0
+    last_trip_distance_km: float = 0.0
+    last_trip_duration_s: float = 0.0
+
     # Scan / profile data — populated once per scan, persists between OBD ticks
     scan_available: bool = False
     # Keyed by 4-char OBD PID code (uppercase), value = float or None
@@ -290,6 +300,21 @@ class DashboardCanvas(Gtk.DrawingArea):
         self.data.gps_speed_active = speed is not None
         if speed is not None:
             self.data.gps_speed = max(0.0, speed)
+        self._queue_draw()
+
+    def update_last_trip_stats(self, stats: "dict | None") -> None:
+        """Letzter Trip oder laufende Session: rpm/coolant min-max, Distanz, Dauer."""
+        if stats is None:
+            self.data.last_trip_available = False
+        else:
+            self.data.last_trip_available = True
+            self.data.last_trip_rpm_min = float(stats.get("min_rpm") or 0.0)
+            self.data.last_trip_rpm_max = float(stats.get("max_rpm") or 0.0)
+            self.data.last_trip_coolant_min = float(stats.get("min_coolant") or 0.0)
+            self.data.last_trip_coolant_max = float(stats.get("max_coolant") or 0.0)
+            self.data.last_trip_speed_max = float(stats.get("max_speed_kmh") or 0.0)
+            self.data.last_trip_distance_km = float(stats.get("distance_km") or 0.0)
+            self.data.last_trip_duration_s = float(stats.get("duration_s") or 0.0)
         self._queue_draw()
 
     def update_scan_data(

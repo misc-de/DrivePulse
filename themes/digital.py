@@ -16,7 +16,7 @@ window.dp-theme-digital .dp-gauge-bg > * {
   background-color: #000005;
 }"""
 
-from draw_helpers import _txt, _norm, _GRAD_STOPS
+from draw_helpers import _txt, _norm, _GRAD_STOPS, _draw_last_trip_strip
 from common import _translate
 
 
@@ -171,7 +171,9 @@ def _draw_digital_portrait(cr: Any, width: int, height: int, d: Any) -> None:
 def draw(cr: Any, width: int, height: int, data: Any) -> None:
     cr.set_source_rgb(0.0, 0.0, 0.02)
     cr.paint()
+    strip_h = max(28.0, height * 0.072)
     if width >= height:
-        _draw_digital_landscape(cr, width, height, data)
+        _draw_digital_landscape(cr, width, height - strip_h, data)
     else:
-        _draw_digital_portrait(cr, width, height, data)
+        _draw_digital_portrait(cr, width, height - strip_h, data)
+    _draw_last_trip_strip(cr, 0, height - strip_h, width, strip_h, data)

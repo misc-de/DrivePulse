@@ -630,6 +630,14 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.trip_recorder = TripRecorder(self.db)
         atexit.register(self._shutdown_db)
 
+        # Live-Trip-Statistik (min/max) für das Dashboard
+        self._live_trip_id: int | None = None   # letzter bekannter trip_id
+        self._live_rpm_min: float | None = None
+        self._live_rpm_max: float | None = None
+        self._live_coolant_min: float | None = None
+        self._live_coolant_max: float | None = None
+        self._live_speed_max: float | None = None
+
         self.rpm_gauge = Gauge(_translate(self.language, "gauge.rpm"), "rpm", 0, 7000, (0.34, 0.62, 0.86), self.gauge_theme)
         speed_unit = "km/h" if self.units == "metric" else "mph"
         speed_max = 240 if self.units == "metric" else 150
@@ -1425,6 +1433,66 @@ class DashboardWindow(Adw.ApplicationWindow):
         except Exception:
             pass
 
+        self._update_live_trip_stats(fields)
+
+    def _update_live_trip_stats(self, fields: dict) -> None:
+        """Min/Max während des laufenden Trips verfolgen und Dashboard aktualisieren."""
+        current_trip_id = getattr(self.trip_recorder, "trip_id", None)
+
+        # Neuer Trip gestartet → Live-Tracking zurücksetzen
+        if current_trip_id is not None and current_trip_id != self._live_trip_id:
+            self._live_trip_id = current_trip_id
+            self._live_rpm_min = None
+            self._live_rpm_max = None
+            self._live_coolant_min = None
+            self._live_coolant_max = None
+            self._live_speed_max = None
+
+        if current_trip_id is None:
+            return
+
+        rpm = fields.get("rpm")
+        coolant = fields.get("coolant_c")
+        speed = fields.get("speed_kmh")
+
+        def _upd_min(cur: "float | None", v: float) -> float:
+            return v if cur is None else min(cur, v)
+
+        def _upd_max(cur: "float | None", v: float) -> float:
+            return v if cur is None else max(cur, v)
+
+        changed = False
+        if rpm is not None:
+            new_min = _upd_min(self._live_rpm_min, rpm)
+            new_max = _upd_max(self._live_rpm_max, rpm)
+            if new_min != self._live_rpm_min or new_max != self._live_rpm_max:
+                self._live_rpm_min = new_min
+                self._live_rpm_max = new_max
+                changed = True
+        if coolant is not None:
+            new_min = _upd_min(self._live_coolant_min, coolant)
+            new_max = _upd_max(self._live_coolant_max, coolant)
+            if new_min != self._live_coolant_min or new_max != self._live_coolant_max:
+                self._live_coolant_min = new_min
+                self._live_coolant_max = new_max
+                changed = True
+        if speed is not None:
+            new_max = _upd_max(self._live_speed_max, speed)
+            if new_max != self._live_speed_max:
+                self._live_speed_max = new_max
+                changed = True
+
+        if changed and (self._live_rpm_max or self._live_coolant_max):
+            self.dashboard_canvas.update_last_trip_stats({
+                "min_rpm": self._live_rpm_min or 0.0,
+                "max_rpm": self._live_rpm_max or 0.0,
+                "min_coolant": self._live_coolant_min or 0.0,
+                "max_coolant": self._live_coolant_max or 0.0,
+                "max_speed_kmh": self._live_speed_max or 0.0,
+                "distance_km": None,
+                "duration_s": None,
+            })
+
     def _update_dashboard_from_profile(self, data: dict[str, Any]) -> None:
         """Parse a scan profile dict and push all PID / identity / DTC data to the dashboard."""
         pids: dict[str, float | None] = {}
@@ -1505,6 +1573,20 @@ class DashboardWindow(Adw.ApplicationWindow):
             identity["protocol"] = protocol
         if identity:
             self.cars_page.set_live_identity(identity)
+
+        # Letzten abgeschlossenen Trip laden und im Dashboard anzeigen,
+        # solange noch kein laufender Trip aktiv ist.
+        car_id = getattr(self.trip_recorder, "car_id", None)
+        if car_id is not None and self.trip_recorder.trip_id is None:
+            self._refresh_last_trip_stats(car_id)
+
+    def _refresh_last_trip_stats(self, car_id: int) -> None:
+        """Letzten abgeschlossenen Trip aus DB laden und Dashboard aktualisieren."""
+        try:
+            stats = self.db.get_last_trip_stats(car_id)
+        except Exception:
+            stats = None
+        self.dashboard_canvas.update_last_trip_stats(stats)
 
     def _db_periodic_tick(self) -> bool:
         # WAL-Checkpoint + Idle-Erkennung
