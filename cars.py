@@ -1157,16 +1157,26 @@ def _build_osm_map_widget(
             cr.paint_with_alpha(tile_alpha)
             cr.restore()
 
-        # ── GPS track ─────────────────────────────────────────────────────────
-        speeds = [s for _, _, s in gps_points if s is not None]
-        vmax   = max(speeds) if speeds else 0.0
+        # ── GPS track (metric-colored) ────────────────────────────────────────
+        # Use current chart_state pts for value-based coloring; fall back to speed.
+        _cstate_pts = (chart_state or {}).get("pts") or []
+        if _cstate_pts:
+            _track = [(p[2], p[3], p[1]) for p in _cstate_pts]  # (lat, lon, value|None)
+        else:
+            _track = list(gps_points)  # (lat, lon, speed_kmh)
+        _vals = [v for _, _, v in _track if v is not None]
+        _vmin = min(_vals) if _vals else 0.0
+        _vmax = max(_vals) if _vals else 0.0
+        _vrange = max(1e-6, _vmax - _vmin)
+
         cr.set_line_cap(1)
         cr.set_line_join(1)
 
+        # Shadow / outline stroke
         cr.set_line_width(5.5)
         cr.set_source_rgba(0.0, 0.0, 0.0, 0.55)
         first_pt = True
-        for lat, lon, _spd in gps_points:
+        for lat, lon, _ in _track:
             px, py = proj(lat, lon)
             if first_pt:
                 cr.move_to(px, py)
@@ -1175,12 +1185,13 @@ def _build_osm_map_widget(
                 cr.line_to(px, py)
         cr.stroke()
 
+        # Colored segments: blau (niedrig) → grün → rot (hoch)
         cr.set_line_width(3.0)
         prev: tuple[float, float] | None = None
-        for lat, lon, spd in gps_points:
+        for lat, lon, val in _track:
             px, py = proj(lat, lon)
-            if spd is not None and vmax > 0:
-                t  = min(1.0, spd / vmax)
+            if val is not None:
+                t  = min(1.0, max(0.0, (val - _vmin) / _vrange))
                 rr = 0.2 + 0.7 * t
                 gg = 0.5 + 0.4 * (1 - abs(0.5 - t) * 2)
                 bb = 0.9 - 0.8 * t
