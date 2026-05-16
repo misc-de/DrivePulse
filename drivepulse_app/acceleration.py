@@ -120,6 +120,8 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.maxes_label.add_css_class("title-2")
         self.maxes_label.set_halign(Gtk.Align.CENTER)
         self.maxes_label.set_hexpand(True)
+        self.maxes_label.set_wrap(True)
+        self.maxes_label.set_justify(Gtk.Justification.CENTER)
         self.maxes_label.set_margin_top(24)
 
         intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -176,13 +178,18 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self._threshold_plus.add_css_class("circular")
         self._threshold_plus.connect("clicked", self._on_threshold_plus)
 
-        self._trigger_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._trigger_row.set_halign(Gtk.Align.CENTER)
+        _threshold_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        _threshold_controls.set_halign(Gtk.Align.CENTER)
+        _threshold_controls.append(self._threshold_minus)
+        _threshold_controls.append(self._threshold_label)
+        _threshold_controls.append(self._threshold_plus)
+
+        self._trigger_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._trigger_row.set_halign(Gtk.Align.FILL)
         self._trigger_row.set_margin_top(12)
+        self.gforce_trigger_check.set_halign(Gtk.Align.CENTER)
         self._trigger_row.append(self.gforce_trigger_check)
-        self._trigger_row.append(self._threshold_minus)
-        self._trigger_row.append(self._threshold_label)
-        self._trigger_row.append(self._threshold_plus)
+        self._trigger_row.append(_threshold_controls)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         controls.set_margin_top(8)
@@ -261,11 +268,56 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
     # ------------------------------------------------------------------
 
     def _build_result_rows(self) -> None:
+        # SizeGroups ensure value columns line up across all rows (no Grid needed)
+        self._col_obd_sg = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        self._col_gps_sg = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        self._col_best_sg = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+
+        self.results_box.append(self._make_header_row())
         for target in self.SPEED_TARGETS_KMH:
             self.results_box.append(self._make_result_row(f"0–{target} km/h", target))
         for lo, hi in self.RANGE_TARGETS_KMH:
             self.results_box.append(self._make_result_row(f"{lo}–{hi} km/h", (lo, hi)))
         self.results_box.append(self._make_result_row("Vmax", "vmax"))
+
+    def _make_header_row(self) -> Gtk.Box:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_margin_top(4)
+        row.set_margin_bottom(2)
+        row.set_margin_start(4)
+        row.set_margin_end(4)
+
+        self._header_name_lbl = Gtk.Label()
+        self._header_name_lbl.add_css_class("caption-heading")
+        self._header_name_lbl.add_css_class("dim-label")
+        self._header_name_lbl.set_halign(Gtk.Align.START)
+        self._header_name_lbl.set_hexpand(True)
+
+        self._header_obd_lbl = Gtk.Label()
+        self._header_obd_lbl.add_css_class("caption-heading")
+        self._header_obd_lbl.add_css_class("dim-label")
+        self._header_obd_lbl.set_xalign(1.0)
+        self._header_obd_lbl.set_visible(False)
+        self._col_obd_sg.add_widget(self._header_obd_lbl)
+
+        self._header_gps_lbl = Gtk.Label()
+        self._header_gps_lbl.add_css_class("caption-heading")
+        self._header_gps_lbl.add_css_class("dim-label")
+        self._header_gps_lbl.set_xalign(1.0)
+        self._header_gps_lbl.set_visible(False)
+        self._col_gps_sg.add_widget(self._header_gps_lbl)
+
+        self._header_best_lbl = Gtk.Label()
+        self._header_best_lbl.add_css_class("caption-heading")
+        self._header_best_lbl.add_css_class("dim-label")
+        self._header_best_lbl.set_xalign(1.0)
+        self._col_best_sg.add_widget(self._header_best_lbl)
+
+        row.append(self._header_name_lbl)
+        row.append(self._header_obd_lbl)
+        row.append(self._header_gps_lbl)
+        row.append(self._header_best_lbl)
+        return row
 
     def _make_result_row(self, label_text: str, key: Any) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -282,47 +334,31 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
             name_lbl.set_ellipsize(ellipsize_mode)
         name_lbl.set_max_width_chars(12)
 
-        obd_caption = Gtk.Label()
-        obd_caption.add_css_class("dim-label")
         obd_val = Gtk.Label(label="--")
-        obd_val.set_width_chars(6)
         obd_val.set_xalign(1.0)
-        obd_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        obd_box.append(obd_caption)
-        obd_box.append(obd_val)
-        obd_box.set_visible(False)
+        obd_val.set_visible(False)
+        self._col_obd_sg.add_widget(obd_val)
 
-        gps_caption = Gtk.Label()
-        gps_caption.add_css_class("dim-label")
         gps_val = Gtk.Label(label="--")
-        gps_val.set_width_chars(6)
         gps_val.set_xalign(1.0)
-        gps_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        gps_box.append(gps_caption)
-        gps_box.append(gps_val)
-        gps_box.set_visible(False)
+        gps_val.set_visible(False)
+        self._col_gps_sg.add_widget(gps_val)
 
-        best_caption = Gtk.Label()
-        best_caption.add_css_class("dim-label")
         best_val = Gtk.Label(label="--")
         best_val.add_css_class("title-4")
-        best_val.set_width_chars(7)
         best_val.set_xalign(1.0)
+        self._col_best_sg.add_widget(best_val)
 
         row.append(name_lbl)
-        row.append(obd_box)
-        row.append(gps_box)
-        row.append(best_caption)
+        row.append(obd_val)
+        row.append(gps_val)
         row.append(best_val)
 
         self.result_labels[(key, "obd")] = obd_val
         self.result_labels[(key, "gps")] = gps_val
         self.result_labels[(key, "best")] = best_val
-        self.source_rows[(key, "obd")] = obd_box
-        self.source_rows[(key, "gps")] = gps_box
-        self._obd_captions[key] = obd_caption
-        self._gps_captions[key] = gps_caption
-        self._best_captions[key] = best_caption
+        self.source_rows[(key, "obd")] = obd_val
+        self.source_rows[(key, "gps")] = gps_val
         if key == "vmax":
             self._vmax_name_lbl = name_lbl
         return row
@@ -344,17 +380,14 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
             self.replay_button.set_label(_translate(self.language, "acceleration.replay"))
         if not self.armed and not self.running:
             self.status_label.set_text(_translate(self.language, "acceleration.ready"))
-        obd_text = _translate(self.language, "acceleration.obd")
-        gps_text = _translate(self.language, "acceleration.gps")
-        best_text = _translate(self.language, "acceleration.best")
-        for key in self._all_keys():
-            self._obd_captions[key].set_text(obd_text)
-            self._gps_captions[key].set_text(gps_text)
-            self._best_captions[key].set_text(best_text)
-        if "vmax" in self._obd_captions:
-            self._obd_captions["vmax"].set_text(obd_text)
-            self._gps_captions["vmax"].set_text(gps_text)
-            self._best_captions["vmax"].set_text(best_text)
+        if hasattr(self, "_header_name_lbl"):
+            self._header_name_lbl.set_text(_translate(self.language, "acceleration.title"))
+        if hasattr(self, "_header_obd_lbl"):
+            self._header_obd_lbl.set_text(_translate(self.language, "acceleration.obd"))
+        if hasattr(self, "_header_gps_lbl"):
+            self._header_gps_lbl.set_text(_translate(self.language, "acceleration.gps"))
+        if hasattr(self, "_header_best_lbl"):
+            self._header_best_lbl.set_text(_translate(self.language, "acceleration.best"))
         self._update_best_labels()
         self._update_maxes_label()
 
@@ -448,6 +481,10 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
                 gps_has = self.results[key]["gps"] is not None
             self.source_rows[(key, "obd")].set_visible(obd_available or obd_has)
             self.source_rows[(key, "gps")].set_visible(gps_available or gps_has)
+        if hasattr(self, "_header_obd_lbl"):
+            self._header_obd_lbl.set_visible(obd_available)
+        if hasattr(self, "_header_gps_lbl"):
+            self._header_gps_lbl.set_visible(gps_available)
 
     def _is_active(self) -> bool:
         """Live updates only happen while a measurement is running or armed.
