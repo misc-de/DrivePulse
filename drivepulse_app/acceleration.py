@@ -177,7 +177,7 @@ def _apply_warning_css(button: Gtk.Button) -> None:
 class AccelerationPage(Gtk.Box):
     __gtype_name__ = "AccelerationPage"
 
-    SPEED_TARGETS_KMH = (30, 50, 70, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200)
+    SPEED_TARGETS_KMH = (30, 50, 70, 100, 150, 200)
     RANGE_TARGETS_KMH: tuple[tuple[int, int], ...] = ((100, 200),)
     G_ENGAGE_THRESHOLD   = 0.20   # must sustain for confirm window
     G_PRESTART_THRESHOLD = 0.06   # retroactive start crossover
@@ -208,6 +208,7 @@ class AccelerationPage(Gtk.Box):
         self._saved_vmax_obd_t: float | None = None
         self._saved_vmax_gps: float | None = None
         self._saved_vmax_gps_t: float | None = None
+        self._vmax_name_lbl: Any = None
         self._gforce_trigger: bool = False
         self._raw_g_dev: float = 0.0
         self._engage_since:    float | None = None
@@ -462,6 +463,8 @@ class AccelerationPage(Gtk.Box):
         self._obd_captions[key] = obd_caption
         self._gps_captions[key] = gps_caption
         self._best_captions[key] = best_caption
+        if key == "vmax":
+            self._vmax_name_lbl = name_lbl
         return row
 
     def _all_keys(self) -> list[Any]:
@@ -491,7 +494,7 @@ class AccelerationPage(Gtk.Box):
         if "vmax" in self._obd_captions:
             self._obd_captions["vmax"].set_text(obd_text)
             self._gps_captions["vmax"].set_text(gps_text)
-            self._best_captions["vmax"].set_text(_translate(self.language, "acceleration.vmax.in"))
+            self._best_captions["vmax"].set_text(best_text)
         self._update_best_labels()
         self._update_maxes_label()
 
@@ -524,29 +527,29 @@ class AccelerationPage(Gtk.Box):
         gps_box = self.source_rows.get(("vmax", "gps"))
 
         if obd_box:
-            obd_box.set_visible(self._obd_ever_seen or obd_v is not None)
+            obd_box.set_visible(self._obd_ever_seen or obd_t is not None)
         if gps_box:
-            gps_box.set_visible(self._gps_ever_seen or gps_v is not None)
+            gps_box.set_visible(self._gps_ever_seen or gps_t is not None)
 
-        if obd_lbl:
-            obd_lbl.set_text(f"{obd_v:.0f}" if obd_v is not None else "--")
-        if gps_lbl:
-            gps_lbl.set_text(f"{gps_v:.0f}" if gps_v is not None else "--")
-
-        if best_lbl:
-            # Show the time it took to reach vmax (from whichever source had higher speed)
-            if obd_v is None and gps_v is None:
-                best_lbl.set_text("--")
+        # Name label shows the highest max speed reached so far
+        if self._vmax_name_lbl is not None:
+            speeds = [v for v in [obd_v, gps_v] if v is not None]
+            if speeds:
+                self._vmax_name_lbl.set_text(f"Vmax {max(speeds):.0f} km/h")
             else:
-                if obd_v is None:
-                    t = gps_t
-                elif gps_v is None:
-                    t = obd_t
-                elif gps_v >= obd_v:
-                    t = gps_t
-                else:
-                    t = obd_t
-                best_lbl.set_text(f"{t:.1f} s" if t is not None else "--")
+                self._vmax_name_lbl.set_text("Vmax")
+
+        # OBD/GPS columns show the elapsed time when the peak was hit — same format as other rows
+        if obd_lbl:
+            obd_lbl.set_text(f"{obd_t:.2f} s" if obd_t is not None else "--")
+        if gps_lbl:
+            gps_lbl.set_text(f"{gps_t:.2f} s" if gps_t is not None else "--")
+
+        # Ø = average of available times (same as other rows)
+        if best_lbl:
+            times = [t for t in [obd_t, gps_t] if t is not None]
+            avg = sum(times) / len(times) if times else None
+            best_lbl.set_text(f"{avg:.2f} s" if avg is not None else "--")
 
     def _update_maxes_label(self) -> None:
         vmax = self.max_obd_speed if self.max_obd_speed is not None else self.max_gps_speed
@@ -598,6 +601,8 @@ class AccelerationPage(Gtk.Box):
         for source in ("obd", "gps", "best"):
             if ("vmax", source) in self.result_labels:
                 self.result_labels[("vmax", source)].set_text("--")
+        if self._vmax_name_lbl is not None:
+            self._vmax_name_lbl.set_text("Vmax")
 
     def _show_start(self) -> None:
         self.start_button.set_visible(True)
