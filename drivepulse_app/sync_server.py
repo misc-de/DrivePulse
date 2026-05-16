@@ -7,6 +7,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
+from .diagnostics import get_logger
+
+
+log = get_logger(__name__)
+
 
 class SyncServer:
     PORT = 8765
@@ -48,7 +53,7 @@ class SyncServer:
             try:
                 httpd.serve_forever()
             except Exception:
-                pass
+                log.exception("Sync server loop stopped unexpectedly")
 
         self._thread = threading.Thread(target=_run, name="sync-server", daemon=True)
         self._thread.start()
@@ -58,7 +63,7 @@ class SyncServer:
             try:
                 self._server.shutdown()
             except Exception:
-                pass
+                log.exception("Could not stop sync server")
             self._server = None
 
 
@@ -103,7 +108,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             try:
                 self._srv._on_paired_cb(device_info)
             except Exception:
-                pass
+                log.exception("Sync paired callback failed")
             self._send_json(200, {"session_token": self._srv._session_token, "ok": True})
             return
 
@@ -120,7 +125,9 @@ class _SyncHandler(BaseHTTPRequestHandler):
             try:
                 self._srv._on_import_fn(data)
             except Exception:
-                pass
+                log.exception("Sync import callback failed")
+                self._send_json(500, {"ok": False, "error": "import failed"})
+                return
             self._send_json(200, {"ok": True})
             return
 

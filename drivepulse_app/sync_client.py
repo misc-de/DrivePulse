@@ -6,7 +6,11 @@ import ssl
 import urllib.request
 from typing import Any
 
+from .diagnostics import get_logger
 from .sync_crypto import verify_spki_fingerprint
+
+
+log = get_logger(__name__)
 
 
 class SyncClient:
@@ -37,6 +41,7 @@ class SyncClient:
                 return False
             return verify_spki_fingerprint(cert_der, self._spki_fingerprint)
         except Exception:
+            log.exception("Could not verify sync peer fingerprint for %s:%s", self._host, self._port)
             return False
 
     def pair(self, pairing_token: str) -> bool:
@@ -56,6 +61,7 @@ class SyncClient:
                 return True
             return False
         except Exception:
+            log.exception("Could not pair with sync peer %s:%s", self._host, self._port)
             return False
 
     def _auth_headers(self) -> dict[str, str]:
@@ -74,6 +80,7 @@ class SyncClient:
             with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
                 return json.loads(resp.read())
         except Exception:
+            log.exception("Could not export data from sync peer %s:%s", self._host, self._port)
             return None
 
     def import_to_server(self, data: dict) -> bool:
@@ -94,4 +101,5 @@ class SyncClient:
                 result: dict[str, Any] = json.loads(resp.read())
             return bool(result.get("ok"))
         except Exception:
+            log.exception("Could not import data to sync peer %s:%s", self._host, self._port)
             return False
