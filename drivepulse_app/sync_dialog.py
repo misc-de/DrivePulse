@@ -141,17 +141,16 @@ class SyncDialog(Adw.Dialog):
         return page
 
     def _populate_devices(self) -> None:
-        child = self._devices_group.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self._devices_group.remove(child)
-            child = nxt
+        for row in getattr(self, "_home_device_rows", []):
+            self._devices_group.remove(row)
+        self._home_device_rows: list[Adw.ActionRow] = []
 
         devices = load_paired_devices()
         if not devices:
             empty_row = Adw.ActionRow()
             empty_row.set_title(self._t("sync.devices.empty"))
             self._devices_group.add(empty_row)
+            self._home_device_rows.append(empty_row)
             return
 
         for device in devices:
@@ -187,6 +186,7 @@ class SyncDialog(Adw.Dialog):
             row.add_suffix(del_btn)
 
             self._devices_group.add(row)
+            self._home_device_rows.append(row)
 
     def _delete_device(self, device_id: str) -> None:
         devices = load_paired_devices()
@@ -317,9 +317,10 @@ class SyncDialog(Adw.Dialog):
                         GLib.idle_add(self._on_sync_complete)
                 except Exception as exc:
                     log.exception("Could not import sync data on server side")
+                    _err = str(exc)
                     GLib.idle_add(
                         lambda: self._server_status_label.set_text(
-                            self._t("sync.error", error=str(exc))
+                            self._t("sync.error", error=_err)
                         )
                     )
                     raise
@@ -337,8 +338,9 @@ class SyncDialog(Adw.Dialog):
 
         except Exception as exc:
             log.exception("Could not start sync server mode")
+            _err = str(exc)
             GLib.idle_add(
-                lambda: self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
+                lambda: self._server_status_label.set_text(self._t("sync.error", error=_err))
             )
 
     # ------------------------------------------------------------------ client: known devices
@@ -351,6 +353,10 @@ class SyncDialog(Adw.Dialog):
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.client.title")))
         header.set_show_back_button(True)
+        scan_btn = Gtk.Button(icon_name="camera-photo-symbolic")
+        scan_btn.set_tooltip_text(self._t("sync.client.scan_camera"))
+        scan_btn.connect("clicked", lambda _b: self._push_qr_scan_page("", 0, ""))
+        header.pack_end(scan_btn)
         toolbar_view.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -379,17 +385,16 @@ class SyncDialog(Adw.Dialog):
 
     def _refresh_known_devices_group(self) -> None:
         group = self._known_devices_group
-        child = group.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            group.remove(child)
-            child = nxt
+        for row in getattr(self, "_known_device_rows", []):
+            group.remove(row)
+        self._known_device_rows: list[Adw.ActionRow] = []
 
         devices = load_paired_devices()
         if not devices:
             empty_row = Adw.ActionRow()
             empty_row.set_title(self._t("sync.devices.empty"))
             group.add(empty_row)
+            self._known_device_rows.append(empty_row)
             return
 
         for device in devices:
@@ -425,6 +430,7 @@ class SyncDialog(Adw.Dialog):
             row.add_suffix(del_btn)
 
             group.add(row)
+            self._known_device_rows.append(row)
 
     def _push_qr_scan_page(self, host: str, port: int, spki_fp: str) -> None:
         toolbar_view = Adw.ToolbarView()
