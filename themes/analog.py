@@ -322,8 +322,8 @@ def _voltage_halfmoon_right(
     cr: Any, width: int, height: int, d: Any,
     r: float | None = None, cy: float | None = None,
 ) -> None:
-    """Semicircular battery-voltage gauge on the right edge. 11 V = bottom, 15 V = top."""
-    V_MIN, V_MAX = 11.0, 15.0
+    """Semicircular battery-voltage gauge on the right edge. 12 V = bottom, 16 V = top."""
+    V_MIN, V_MAX = 12.0, 16.0
     a = 1.0 if d.voltage_active else 0.28
     volt_norm = max(0.0, min(1.0, (d.voltage_v - V_MIN) / (V_MAX - V_MIN))) if d.voltage_active else 0.0
 
@@ -337,8 +337,8 @@ def _voltage_halfmoon_right(
         cy = height * 0.72
     cx = float(width)
 
-    ANG_BOT =  math.pi / 2   # 11 V = bottom
-    ANG_TOP = -math.pi / 2   # 15 V = top  (= 3π/2 in increasing direction)
+    ANG_BOT =  math.pi / 2   # 12 V = bottom
+    ANG_TOP = -math.pi / 2   # 16 V = top  (= 3π/2 in increasing direction)
 
     # Face disc — left D-shape, flat side at right screen edge
     cr.set_source_rgb(*face_col)
@@ -347,7 +347,7 @@ def _voltage_halfmoon_right(
     cr.close_path()
     cr.fill()
 
-    # Red warning zone: bottom 1/6 (low-voltage zone fades in as voltage drops below 11.67 V)
+    # Red warning zone: bottom 1/6 (low-voltage zone fades in as voltage drops toward 12 V)
     ANG_WARN = ANG_BOT + math.pi / 6
     if volt_norm < 1 / 6:
         warn_alpha = (1 / 6 - volt_norm) / (1 / 6) * 0.55
@@ -363,41 +363,19 @@ def _voltage_halfmoon_right(
     cr.arc(cx, cy, r, ANG_BOT, ANG_TOP)
     cr.stroke()
 
-    # Tick marks: minor every 0.5 V (8 steps), major every 1 V (4 steps → 5 positions)
+    # 4 tick marks at 25 %, 50 %, 75 %, 100 % — identical pattern to fuel gauge
     tick_outer = r * 0.92
-    tick_major_inner = r * 0.74
-    tick_minor_inner = r * 0.84
-    STEPS_MINOR = 8   # 0.5 V × 8 = 4 V range
-    for i in range(STEPS_MINOR + 1):
-        frac = i / STEPS_MINOR
-        ang = ANG_BOT + math.pi * frac
-        is_major = (i % 2) == 0
-        inner = tick_major_inner if is_major else tick_minor_inner
-        lw    = max(1.5, r * 0.016) if is_major else max(0.8, r * 0.009)
-        alpha = 0.85 if is_major else 0.45
-        cr.set_line_width(lw)
-        cr.set_source_rgba(*text_col, alpha * a)
-        cr.move_to(cx + math.cos(ang) * inner, cy + math.sin(ang) * inner)
+    tick_inner = r * 0.74
+    cr.set_line_width(max(1.5, r * 0.016))
+    for i in range(1, 5):
+        ang = ANG_BOT + math.pi * (i / 4)
+        if i == 1:
+            cr.set_source_rgba(0.90, 0.18, 0.12, 0.90 * a)
+        else:
+            cr.set_source_rgba(*text_col, 0.85 * a)
+        cr.move_to(cx + math.cos(ang) * tick_inner, cy + math.sin(ang) * tick_inner)
         cr.line_to(cx + math.cos(ang) * tick_outer, cy + math.sin(ang) * tick_outer)
         cr.stroke()
-
-    # Scale labels at major ticks (11, 12, 13, 14, 15)
-    lbl_r = r * 0.55
-    lbl_size = max(9.0, r * 0.13)
-    STEPS_MAJOR = 4
-    for i in range(STEPS_MAJOR + 1):
-        frac = i / STEPS_MAJOR
-        ang = ANG_BOT + math.pi * frac
-        lval = V_MIN + (V_MAX - V_MIN) * frac
-        txt = f"{lval:.0f}"
-        cr.select_font_face("Cantarell", 0, 0)
-        cr.set_font_size(lbl_size)
-        ext = cr.text_extents(txt)
-        nx = cx + math.cos(ang) * lbl_r - ext.width / 2 - ext.x_bearing
-        ny = cy + math.sin(ang) * lbl_r - ext.height / 2 - ext.y_bearing
-        cr.set_source_rgba(*dim_col, 0.80 * a)
-        cr.move_to(nx, ny)
-        cr.show_text(txt)
 
     # Battery icon (mirrored position of fuel pump — same isz, same y offset)
     isz = max(12.0, r * 0.22)
