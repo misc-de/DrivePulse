@@ -65,11 +65,20 @@ def _fake_obd_module(connections):
 
 
 def test_response_to_plain_value_handles_null_quantity_and_fallback(drivepulse_module):
-    reader = drivepulse_module.ObdReader(lambda payload: None)
+    from drivepulse_app.obd_polling import response_to_plain_value
 
-    assert reader._response_to_plain_value(_Response(is_null=True)) is None
-    assert reader._response_to_plain_value(_Response(_Quantity())) == {"value": 42.5, "unit": "rpm"}
-    assert reader._response_to_plain_value(_Response("plain")) == "plain"
+    assert response_to_plain_value(_Response(is_null=True)) is None
+    assert response_to_plain_value(_Response(_Quantity())) == {"value": 42.5, "unit": "rpm"}
+    assert response_to_plain_value(_Response("plain")) == "plain"
+
+
+def test_should_query_key_respects_slow_poll_intervals(drivepulse_module):
+    from drivepulse_app.obd_polling import should_query_key
+
+    assert should_query_key("speed", 100.0, {"speed": 99.9}) is True
+    assert should_query_key("fuel_level", 100.0, {}) is True
+    assert should_query_key("fuel_level", 100.0, {"fuel_level": 95.0}) is False
+    assert should_query_key("fuel_level", 106.0, {"fuel_level": 95.0}) is True
 
 
 def test_candidate_ports_prefers_explicit_port(monkeypatch, drivepulse_module):

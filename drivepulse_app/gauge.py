@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -12,7 +13,15 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
-BUILTIN_THEMES_DIR = Path(__file__).parent / "themes"
+BUILTIN_THEMES_DIR = Path(__file__).resolve().parent.parent / "themes"
+
+
+def _install_theme_import_aliases() -> None:
+    """Keep existing theme files compatible after moving app code into a package."""
+    from . import common, draw_helpers
+
+    sys.modules.setdefault("common", common)
+    sys.modules.setdefault("draw_helpers", draw_helpers)
 
 
 def _gauge_apply_rotation(cr: Any, width: int, height: int, angle: int) -> tuple[int, int]:
@@ -47,6 +56,7 @@ def load_builtin_themes() -> None:
     _builtin_dashboard_mods.clear()
     if not BUILTIN_THEMES_DIR.exists():
         return
+    _install_theme_import_aliases()
     for path in sorted(BUILTIN_THEMES_DIR.glob("*.py"), key=lambda p: p.stem.lower()):
         if path.name.startswith("_"):
             continue
@@ -148,6 +158,7 @@ def load_user_themes(themes_dir: Path) -> None:
     """Scan themes_dir for *.py files (no leading underscore) and register them."""
     _init_themes_dir(themes_dir)
     _user_themes.clear()
+    _install_theme_import_aliases()
     for path in sorted(themes_dir.glob("*.py")):
         if path.name.startswith("_"):
             continue

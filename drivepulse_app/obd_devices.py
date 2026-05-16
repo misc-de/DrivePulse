@@ -4,7 +4,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from common import OBD_BT_ADDR, OBD_PORT, OBD_SOCKET_URL
+from .common import OBD_BT_ADDR, OBD_PORT, OBD_SOCKET_URL
 
 
 def candidate_bt_addresses() -> list[tuple[str, int]]:

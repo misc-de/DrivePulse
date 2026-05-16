@@ -39,6 +39,11 @@ def test_dashboard_canvas_batches_multiple_redraws(drivepulse_module):
     assert calls == ["draw"]
 
 
+def test_builtin_themes_still_load_after_package_move(drivepulse_module):
+    assert "cockpit" in drivepulse_module.GAUGE_THEMES
+    assert "modern" in drivepulse_module.DASHBOARD_THEMES
+
+
 def _layout_window(drivepulse_module):
     window = drivepulse_module.DashboardWindow.__new__(drivepulse_module.DashboardWindow)
     window.gauge_box = drivepulse_module.Gtk.Box()
@@ -87,15 +92,20 @@ def test_swipe_changes_pages(drivepulse_module):
 
 
 def test_plain_number_and_speed_conversion(drivepulse_module):
+    from drivepulse_app.telemetry_utils import display_speed, plain_number
+
     window = drivepulse_module.DashboardWindow.__new__(drivepulse_module.DashboardWindow)
     window.units = "metric"
     window.language = "en"
 
+    assert plain_number({"speed": {"value": "100"}}, "speed") == 100.0
+    assert plain_number({"speed": "bad"}, "speed") is None
+    assert display_speed(100, "metric") == 100
     assert window._plain_number({"speed": {"value": "100"}}, "speed") == 100.0
-    assert window._plain_number({"speed": "bad"}, "speed") is None
     assert window._display_speed(100) == 100
 
     window.units = "imperial"
+    assert round(display_speed(100, "imperial"), 3) == 62.137
     assert round(window._display_speed(100), 3) == 62.137
 
 

@@ -72,7 +72,7 @@ def test_acceleration_finishes_when_all_targets_have_a_source(monkeypatch, drive
 
 
 def test_settings_dialog_calls_callbacks(drivepulse_module):
-    from settings_dialog import SettingsDialog
+    from drivepulse_app.settings_dialog import SettingsDialog
 
     unit_calls = []
     language_calls = []

@@ -14,7 +14,7 @@ import gi
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib  # noqa: E402
 
-from common import PROFILES_DIR
+from .common import PROFILES_DIR
 
 
 class ObdScanner:

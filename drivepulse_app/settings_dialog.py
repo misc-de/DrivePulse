@@ -9,9 +9,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: E402
 
-from common import SUPPORTED_LANGUAGES, _normalize_language, _translate
-from gauge import all_theme_options
-from obd_devices import scan_obd_devices
+from .common import SUPPORTED_LANGUAGES, _normalize_language, _translate
+from .gauge import all_theme_options
+from .obd_devices import scan_obd_devices
 
 
 class SettingsDialog(Adw.PreferencesDialog):

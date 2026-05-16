@@ -6,7 +6,7 @@ from typing import Any
 
 import cairo
 
-from common import SOURCE_LANGUAGE, _normalize_language, _translate
+from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 
 _GRAD_STOPS = [
     (0.00, (0.10, 0.92, 0.50)),

@@ -14,7 +14,7 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
-from common import APP_ID
+from .common import APP_ID
 
 
 class GpsReader:

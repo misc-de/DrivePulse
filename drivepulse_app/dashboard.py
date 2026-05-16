@@ -11,9 +11,9 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
-from common import SOURCE_LANGUAGE, _normalize_language, _translate
-from draw_helpers import _cardinal
-from gauge import _builtin_dashboard_mods
+from .common import SOURCE_LANGUAGE, _normalize_language, _translate
+from .draw_helpers import _cardinal
+from .gauge import _builtin_dashboard_mods
 
 # These theme IDs trigger DashboardCanvas instead of the 3-gauge row
 DASHBOARD_THEMES: tuple[str, ...] = tuple(_builtin_dashboard_mods.keys())
