@@ -10,12 +10,12 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 ---
 
 ## Screenshots
-<img width="270" alt="Screenshot from 2026-05-14 20:43:08" src="https://github.com/user-attachments/assets/e9435da4-cbc9-4a1d-85e8-aa5989fda3fd" />
-<img width="270" alt="Screenshot from 2026-05-14 20:44:44" src="https://github.com/user-attachments/assets/9e1c5c0a-825d-4eba-904d-fc0c28693049" />
-<img width="270" alt="Screenshot from 2026-05-14 21:07:24" src="https://github.com/user-attachments/assets/7b47a2ee-e605-456c-860f-c1597f6a2579" />
-<img width="270" alt="Screenshot from 2026-05-14 21:29:28" src="https://github.com/user-attachments/assets/c8f1e41e-425d-41e4-9af0-55adf5fff9a5" />
-<img width="270" alt="Screenshot from 2026-05-14 21:29:38" src="https://github.com/user-attachments/assets/19150641-da5c-4b95-9579-f7fdbf817e25" />
-<img width="270" alt="Screenshot from 2026-05-14 21:29:49" src="https://github.com/user-attachments/assets/4c8b6186-2990-435a-9bce-e5ec1630f962" />
+<img width="270" alt="Screenshot from 2026-05-16 10:24:54" src="https://github.com/user-attachments/assets/0e7ea88b-3281-4073-a7c3-65d9a8e5c39d" />
+<img width="270" alt="Screenshot from 2026-05-16 10:25:28" src="https://github.com/user-attachments/assets/a1651ab5-811c-4952-9659-40f9b69cc513" />
+<img width="270" alt="Screenshot from 2026-05-16 10:26:13" src="https://github.com/user-attachments/assets/bbea574a-7eb5-47ef-8397-38fe56e37c47" />
+<img width="270" alt="Screenshot from 2026-05-16 10:26:23" src="https://github.com/user-attachments/assets/caabff31-6dd5-4549-8be0-e9179ee343b3" />
+<img width="270" alt="Screenshot from 2026-05-16 10:26:32" src="https://github.com/user-attachments/assets/8333b4ce-918b-46cd-85b9-bf4ea4dca611" />
+<img width="270" alt="Screenshot from 2026-05-16 10:26:56" src="https://github.com/user-attachments/assets/bb4c858e-9ab1-4496-99d6-2d87f940eff1" />
 
 ---
 
