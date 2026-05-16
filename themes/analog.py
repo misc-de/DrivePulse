@@ -213,52 +213,71 @@ def _compass_analog(
 
 
 def _fuel_halfmoon_left(cr: Any, width: int, height: int, d: Any) -> None:
-    """Halbkreis-Tankanzeige am linken Rand. 0 % unten → 100 % oben, 4 Striche."""
+    """Semicircular fuel gauge on the left edge. 0% = bottom, 100% = top, 4 tick marks."""
     a = 1.0 if d.fuel_active else 0.28
     fuel_norm = max(0.0, min(1.0, d.fuel_pct / 100.0)) if d.fuel_active else 0.0
 
-    r  = min(height * 0.42, width * 0.11)
-    cx = max(3.0, r * 0.05)
+    face_col = (0.11, 0.12, 0.13)
+    text_col = (0.95, 0.96, 0.98)
+
+    r  = min(height * 0.42, width * 0.12)
+    cx = 0.0
     cy = height / 2.0
-    lw = max(5.0, r * 0.10)
 
-    # 0 % = unten (π/2), 100 % = oben (−π/2), gegen Uhrzeigersinn
-    ANG_0   =  math.pi / 2
-    ANG_100 = -math.pi / 2
-    ang_val = ANG_0 - math.pi * fuel_norm
+    ANG_BOT =  math.pi / 2   # 0%  = bottom
+    ANG_TOP = -math.pi / 2   # 100% = top
 
-    cr.set_line_cap(1)  # ROUND
+    # Face disc (filled right semicircle — flat side at left screen edge)
+    cr.set_source_rgb(*face_col)
+    cr.move_to(cx, cy)
+    cr.arc_negative(cx, cy, r, ANG_BOT, ANG_TOP)
+    cr.close_path()
+    cr.fill()
 
-    # Hintergrund-Bogen
-    cr.set_line_width(lw)
-    cr.set_source_rgba(0.22, 0.24, 0.28, 0.40)
-    cr.arc_negative(cx, cy, r, ANG_0, ANG_100)
+    # Outer border arc (matches _analog_gauge ring)
+    cr.set_line_width(max(2.0, r * 0.025))
+    cr.set_source_rgba(0.35, 0.38, 0.42, 0.70)
+    cr.arc_negative(cx, cy, r, ANG_BOT, ANG_TOP)
     cr.stroke()
 
-    # Füll-Bogen
-    if fuel_norm > 0.005:
-        if fuel_norm < 0.25:
-            fill_col = (0.92, 0.18, 0.12)   # rot  – leer
-        elif fuel_norm < 0.50:
-            fill_col = (0.95, 0.62, 0.08)   # orange
-        else:
-            fill_col = (0.22, 0.80, 0.28)   # grün – voll
-        cr.set_source_rgba(*fill_col, 0.88 * a)
-        cr.arc_negative(cx, cy, r, ANG_0, ang_val)
+    # 4 major tick marks at 25%, 50%, 75%, 100% — same style as _analog_gauge
+    tick_outer = r * 0.92
+    tick_inner = r * 0.74
+    cr.set_line_width(max(1.5, r * 0.016))
+    for i in range(1, 5):
+        ang = ANG_BOT - math.pi * (i / 4)
+        cr.set_source_rgba(*text_col, 0.85 * a)
+        cr.move_to(cx + math.cos(ang) * tick_inner, cy + math.sin(ang) * tick_inner)
+        cr.line_to(cx + math.cos(ang) * tick_outer, cy + math.sin(ang) * tick_outer)
         cr.stroke()
 
-    # 4 Strichmarkierungen bei 25 %, 50 %, 75 %, 100 %
-    tick_in  = r - lw
-    tick_out = r + lw
-    tick_lw  = max(1.5, lw * 0.30)
-    cr.set_line_cap(0)  # BUTT für Striche
-    for i in range(1, 5):
-        ang = ANG_0 - math.pi * (i / 4)
-        cr.set_line_width(tick_lw)
-        cr.set_source_rgba(0.68, 0.70, 0.75, 0.60 * a)
-        cr.move_to(cx + math.cos(ang) * tick_in,  cy + math.sin(ang) * tick_in)
-        cr.line_to(cx + math.cos(ang) * tick_out, cy + math.sin(ang) * tick_out)
-        cr.stroke()
+    # Needle (orange diamond — identical shape to _analog_gauge)
+    needle_angle = ANG_BOT - math.pi * fuel_norm
+    needle_len = r * 0.72
+    tail_len   = r * 0.16
+    perp       = r * 0.028
+    tip_x  = cx + math.cos(needle_angle) * needle_len
+    tip_y  = cy + math.sin(needle_angle) * needle_len
+    tail_x = cx - math.cos(needle_angle) * tail_len
+    tail_y = cy - math.sin(needle_angle) * tail_len
+    p_x = -math.sin(needle_angle) * perp
+    p_y =  math.cos(needle_angle) * perp
+    cr.set_source_rgba(0.95, 0.42, 0.08, a)
+    cr.move_to(tip_x, tip_y)
+    cr.line_to(cx + p_x * 2, cy + p_y * 2)
+    cr.line_to(tail_x, tail_y)
+    cr.line_to(cx - p_x * 2, cy - p_y * 2)
+    cr.close_path()
+    cr.fill()
+
+    # Center hub (face fill + orange ring — matches _analog_gauge hub)
+    cr.set_source_rgb(*face_col)
+    cr.arc(cx, cy, r * 0.072, 0, math.tau)
+    cr.fill()
+    cr.set_line_width(max(1.5, r * 0.018))
+    cr.set_source_rgba(0.95, 0.42, 0.08, a)
+    cr.arc(cx, cy, r * 0.072, 0, math.tau)
+    cr.stroke()
 
 
 def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
