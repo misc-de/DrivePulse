@@ -39,6 +39,13 @@ _KEY_PATH = _SYNC_DIR / "key.pem"
 _QR_TMP = Path("/tmp/drivepulse_pair.png")
 _DEVICE_ID_FILE = _SYNC_DIR / "device_id.txt"
 
+# Sync mode constants
+MODE_MERGE = "merge"
+MODE_REMOTE_WINS = "remote_wins"
+MODE_LOCAL_WINS = "local_wins"
+MODE_REMOTE_WINS_ALL = "remote_wins_all"
+MODE_LOCAL_WINS_ALL = "local_wins_all"
+
 
 def _get_or_create_device_id() -> str:
     try:
@@ -68,22 +75,21 @@ class SyncDialog(Adw.Dialog):
         self._on_sync_complete = on_sync_complete
         self._server: SyncServer | None = None
         self._scanner: WebcamQRScanner | None = None
+        self._sync_mode: str = MODE_MERGE
 
         self.set_title(_translate(language, "sync.title"))
         self.set_content_width(400)
-        self.set_content_height(560)
+        self.set_content_height(600)
 
         self._nav = Adw.NavigationView()
         self.set_child(self._nav)
-
         self._nav.add(self._build_home_page())
-
         self.connect("closed", self._on_closed)
 
     def _t(self, key: str, **kw: Any) -> str:
         return _translate(self._language, key, **kw)
 
-    # ------------------------------------------------------------------ pages
+    # ------------------------------------------------------------------ home
 
     def _build_home_page(self) -> Adw.NavigationPage:
         toolbar_view = Adw.ToolbarView()
@@ -131,7 +137,6 @@ class SyncDialog(Adw.Dialog):
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
         scroll.set_child(box)
-
         toolbar_view.set_content(scroll)
 
         page = Adw.NavigationPage()
@@ -196,9 +201,12 @@ class SyncDialog(Adw.Dialog):
     # ------------------------------------------------------------------ server page
 
     def _push_server_page(self, *_args: Any) -> None:
-        page, self._server_status_label, self._server_qr_picture, self._server_spinner, self._server_instr_label = (
-            self._build_server_page()
-        )
+        result = self._build_server_page()
+        page = result[0]
+        self._server_status_label = result[1]
+        self._server_qr_picture = result[2]
+        self._server_spinner = result[3]
+        self._server_instr_label = result[4]
         self._nav.push(page)
         threading.Thread(target=self._start_server_mode, daemon=True).start()
 
@@ -246,7 +254,6 @@ class SyncDialog(Adw.Dialog):
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
         scroll.set_child(box)
-
         toolbar_view.set_content(scroll)
 
         page = Adw.NavigationPage()
@@ -263,7 +270,7 @@ class SyncDialog(Adw.Dialog):
             session_token = generate_token(32)
             spki_fp = get_spki_fingerprint(_CERT_PATH)
             local_ip = get_local_ip()
-            expiry = int(time.time()) + 300  # 5 minutes
+            expiry = int(time.time()) + 300
             qr_url = (
                 f"drivepulse://pair?v=1&h={local_ip}&p={SyncServer.PORT}"
                 f"&fp={spki_fp}&t={pairing_token}&exp={expiry}"
@@ -295,19 +302,24 @@ class SyncDialog(Adw.Dialog):
                 )
 
             def _on_import(data: dict) -> None:
+                # Client tells server which import mode to apply
+                srv_mode = data.get("import_mode", "merge")
                 try:
-                    result = import_data(self._db, data)
+                    result = import_data(self._db, data, mode=srv_mode)
                     msg = self._t(
                         "sync.complete",
                         cars=result["cars_added"] + result["cars_updated"],
                         trips=result["trips_added"],
+                        samples=result["samples_added"],
                     )
                     GLib.idle_add(lambda: self._server_status_label.set_text(msg))
                     if self._on_sync_complete:
                         GLib.idle_add(self._on_sync_complete)
                 except Exception as exc:
                     GLib.idle_add(
-                        lambda: self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
+                        lambda: self._server_status_label.set_text(
+                            self._t("sync.error", error=str(exc))
+                        )
                     )
 
             server = SyncServer(
@@ -329,9 +341,11 @@ class SyncDialog(Adw.Dialog):
     # ------------------------------------------------------------------ client page
 
     def _push_client_page(self, *_args: Any) -> None:
-        page, self._client_status_label, self._client_entry, self._client_scanner_box = (
-            self._build_client_page()
-        )
+        result = self._build_client_page()
+        page = result[0]
+        self._client_status_label = result[1]
+        self._client_entry = result[2]
+        self._client_scanner_box = result[3]
         self._nav.push(page)
         self._start_qr_scanner()
 
@@ -350,7 +364,7 @@ class SyncDialog(Adw.Dialog):
         box.set_margin_start(16)
         box.set_margin_end(16)
 
-        # Camera scanner widget area
+        # Camera scanner area
         scanner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         scanner_box.set_vexpand(True)
         box.append(scanner_box)
@@ -364,6 +378,79 @@ class SyncDialog(Adw.Dialog):
         entry.set_placeholder_text(self._t("sync.client.url_placeholder"))
         entry.set_hexpand(True)
         box.append(entry)
+
+        # Sync mode picker
+        mode_group = Adw.PreferencesGroup()
+        mode_group.set_title(self._t("sync.mode.label"))
+        box.append(mode_group)
+
+        merge_check = Gtk.CheckButton()
+        merge_check.set_active(True)
+        merge_check.set_valign(Gtk.Align.CENTER)
+        merge_row = Adw.ActionRow()
+        merge_row.set_title(self._t("sync.mode.merge"))
+        merge_row.set_subtitle(self._t("sync.mode.merge.subtitle"))
+        merge_row.add_prefix(merge_check)
+        merge_row.set_activatable_widget(merge_check)
+        mode_group.add(merge_row)
+
+        remote_check = Gtk.CheckButton()
+        remote_check.set_group(merge_check)
+        remote_check.set_valign(Gtk.Align.CENTER)
+        remote_row = Adw.ActionRow()
+        remote_row.set_title(self._t("sync.mode.remote_wins"))
+        remote_row.set_subtitle(self._t("sync.mode.remote_wins.subtitle"))
+        remote_row.add_prefix(remote_check)
+        remote_row.set_activatable_widget(remote_check)
+        mode_group.add(remote_row)
+
+        local_check = Gtk.CheckButton()
+        local_check.set_group(merge_check)
+        local_check.set_valign(Gtk.Align.CENTER)
+        local_row = Adw.ActionRow()
+        local_row.set_title(self._t("sync.mode.local_wins"))
+        local_row.set_subtitle(self._t("sync.mode.local_wins.subtitle"))
+        local_row.add_prefix(local_check)
+        local_row.set_activatable_widget(local_check)
+        mode_group.add(local_row)
+
+        remote_all_check = Gtk.CheckButton()
+        remote_all_check.set_group(merge_check)
+        remote_all_check.set_valign(Gtk.Align.CENTER)
+        remote_all_row = Adw.ActionRow()
+        remote_all_row.set_title(self._t("sync.mode.remote_wins_all"))
+        remote_all_row.set_subtitle(self._t("sync.mode.remote_wins_all.subtitle"))
+        remote_all_row.add_prefix(remote_all_check)
+        remote_all_row.set_activatable_widget(remote_all_check)
+        mode_group.add(remote_all_row)
+
+        local_all_check = Gtk.CheckButton()
+        local_all_check.set_group(merge_check)
+        local_all_check.set_valign(Gtk.Align.CENTER)
+        local_all_row = Adw.ActionRow()
+        local_all_row.set_title(self._t("sync.mode.local_wins_all"))
+        local_all_row.set_subtitle(self._t("sync.mode.local_wins_all.subtitle"))
+        local_all_row.add_prefix(local_all_check)
+        local_all_row.set_activatable_widget(local_all_check)
+        mode_group.add(local_all_row)
+
+        def _on_mode_toggled(*_: Any) -> None:
+            if remote_check.get_active():
+                self._sync_mode = MODE_REMOTE_WINS
+            elif local_check.get_active():
+                self._sync_mode = MODE_LOCAL_WINS
+            elif remote_all_check.get_active():
+                self._sync_mode = MODE_REMOTE_WINS_ALL
+            elif local_all_check.get_active():
+                self._sync_mode = MODE_LOCAL_WINS_ALL
+            else:
+                self._sync_mode = MODE_MERGE
+
+        merge_check.connect("toggled", _on_mode_toggled)
+        remote_check.connect("toggled", _on_mode_toggled)
+        local_check.connect("toggled", _on_mode_toggled)
+        remote_all_check.connect("toggled", _on_mode_toggled)
+        local_all_check.connect("toggled", _on_mode_toggled)
 
         status_label = Gtk.Label(label="")
         status_label.set_wrap(True)
@@ -379,7 +466,6 @@ class SyncDialog(Adw.Dialog):
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
         scroll.set_child(box)
-
         toolbar_view.set_content(scroll)
 
         page = Adw.NavigationPage()
@@ -403,12 +489,8 @@ class SyncDialog(Adw.Dialog):
         def _on_error(msg: str) -> None:
             self._client_status_label.set_text(msg)
 
-        self._scanner = WebcamQRScanner(
-            on_success=_on_success,
-            on_error=_on_error,
-        )
-        widget = self._scanner.build_widget()
-        self._client_scanner_box.append(widget)
+        self._scanner = WebcamQRScanner(on_success=_on_success, on_error=_on_error)
+        self._client_scanner_box.append(self._scanner.build_widget())
         self._scanner.start()
 
     def _on_client_connect(self, entry: Gtk.Entry, status_label: Gtk.Label) -> None:
@@ -420,19 +502,19 @@ class SyncDialog(Adw.Dialog):
         status_label.set_text(self._t("sync.client.connecting"))
         threading.Thread(
             target=self._do_client_connect,
-            args=(url_text, status_label),
+            args=(url_text, status_label, self._sync_mode),
             daemon=True,
         ).start()
 
-    def _do_client_connect(self, url_text: str, status_label: Gtk.Label) -> None:
-        def _set_status(msg: str) -> bool:
+    def _do_client_connect(self, url_text: str, status_label: Gtk.Label, mode: str) -> None:
+        def _set(msg: str) -> bool:
             status_label.set_text(msg)
             return False
 
         try:
             parsed = urlparse(url_text)
             if parsed.scheme != "drivepulse":
-                GLib.idle_add(_set_status, self._t("sync.error", error="Invalid URL scheme"))
+                GLib.idle_add(_set, self._t("sync.error", error="Invalid URL scheme"))
                 return
             params = parse_qs(parsed.query)
             host = (params.get("h") or [""])[0]
@@ -442,65 +524,87 @@ class SyncDialog(Adw.Dialog):
             expiry = int((params.get("exp") or ["0"])[0])
 
             if not host or not spki_fp or not pairing_token:
-                GLib.idle_add(_set_status, self._t("sync.error", error="Invalid QR data"))
+                GLib.idle_add(_set, self._t("sync.error", error="Invalid QR data"))
                 return
-
             if expiry and time.time() > expiry:
-                GLib.idle_add(_set_status, self._t("sync.client.expired"))
+                GLib.idle_add(_set, self._t("sync.client.expired"))
                 return
 
             device_id = _get_or_create_device_id()
             client = SyncClient(host, port, spki_fp, device_id)
 
             if not client.verify_fingerprint():
-                GLib.idle_add(_set_status, self._t("sync.client.fp_error"))
+                GLib.idle_add(_set, self._t("sync.client.fp_error"))
                 return
-
             if not client.pair(pairing_token):
-                GLib.idle_add(_set_status, self._t("sync.error", error="Pairing failed"))
+                GLib.idle_add(_set, self._t("sync.error", error="Pairing failed"))
                 return
 
-            server_data = client.export_from_server()
-            if server_data:
-                import_data(self._db, server_data)
+            # ---- data exchange depends on chosen mode ----
+            cars_imported = 0
+            trips_imported = 0
+            samples_imported = 0
 
-            local_data = export_all(self._db)
-            client.import_to_server(local_data)
+            if mode == MODE_MERGE:
+                server_data = client.export_from_server()
+                if server_data:
+                    r = import_data(self._db, server_data, mode="merge")
+                    cars_imported = r["cars_added"] + r["cars_updated"]
+                    trips_imported = r["trips_added"]
+                    samples_imported = r["samples_added"]
+                local_data = export_all(self._db)
+                local_data["import_mode"] = "merge"
+                client.import_to_server(local_data)
+
+            elif mode == MODE_REMOTE_WINS:
+                server_data = client.export_from_server()
+                if server_data:
+                    r = import_data(self._db, server_data, mode="replace")
+                    cars_imported = r["cars_added"] + r["cars_updated"]
+                    trips_imported = r["trips_added"]
+                    samples_imported = r["samples_added"]
+                # Don't push local data to server
+
+            elif mode == MODE_LOCAL_WINS:
+                local_data = export_all(self._db)
+                local_data["import_mode"] = "replace"
+                client.import_to_server(local_data)
+                # Don't import from server
+
+            elif mode == MODE_REMOTE_WINS_ALL:
+                server_data = client.export_from_server()
+                if server_data:
+                    r = import_data(self._db, server_data, mode="replace_all")
+                    cars_imported = r["cars_added"] + r["cars_updated"]
+                    trips_imported = r["trips_added"]
+                    samples_imported = r["samples_added"]
+
+            elif mode == MODE_LOCAL_WINS_ALL:
+                local_data = export_all(self._db)
+                local_data["import_mode"] = "replace_all"
+                client.import_to_server(local_data)
 
             upsert_paired_device(
-                device_id=host,
-                name=host,
-                spki_fingerprint=spki_fp,
-                host=host,
-                port=port,
+                device_id=host, name=host, spki_fingerprint=spki_fp, host=host, port=port,
             )
 
-            car_count = len((server_data or {}).get("cars", []))
-            trip_count = sum(
-                len(c.get("trips", [])) for c in (server_data or {}).get("cars", [])
+            GLib.idle_add(
+                _set,
+                self._t("sync.complete", cars=cars_imported, trips=trips_imported, samples=samples_imported),
             )
-            GLib.idle_add(_set_status, self._t("sync.complete", cars=car_count, trips=trip_count))
             if self._on_sync_complete:
                 GLib.idle_add(self._on_sync_complete)
 
         except Exception as exc:
-            GLib.idle_add(_set_status, self._t("sync.error", error=str(exc)))
+            GLib.idle_add(_set, self._t("sync.error", error=str(exc)))
 
-    # ------------------------------------------------------------------ known device connect
+    # ------------------------------------------------------------------ known device
 
     def _connect_known(self, host: str, port: int, spki_fp: str, device_id: str) -> None:
-        def _worker() -> None:
-            try:
-                my_id = _get_or_create_device_id()
-                client = SyncClient(host, port, spki_fp, my_id)
-                if not client.verify_fingerprint():
-                    return
-                # Known device requires a fresh QR pairing to get a token;
-                # the server entry in the paired list acts as address book only.
-            except Exception:
-                pass
-
-        threading.Thread(target=_worker, daemon=True).start()
+        threading.Thread(
+            target=lambda: None,  # needs fresh QR pairing token — addressed via client page
+            daemon=True,
+        ).start()
 
     # ------------------------------------------------------------------ cleanup
 
