@@ -294,12 +294,16 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
     # Base: all samples that have GPS coordinates (needed for map cursor sync)
     _base = [s for s in samples if s["lat"] is not None and s["lon"] is not None]
 
-    def _valid(v: Any) -> bool:
-        return v is not None and not (isinstance(v, float) and math.isnan(v))
+    def _finite(v: Any) -> bool:
+        """True only for finite, non-NaN numbers — rejects None, nan, inf, strings."""
+        try:
+            return math.isfinite(float(v))
+        except (TypeError, ValueError):
+            return False
 
     metric_data: dict[str, list] = {}
     for _mk, _ml, _mu, _mc, _mf in _CHART_METRICS:
-        _pts = [(s["ts"], s[_mk] if _valid(s[_mk]) else None, s["lat"], s["lon"])
+        _pts = [(s["ts"], s[_mk] if _finite(s[_mk]) else None, s["lat"], s["lon"])
                 for s in _base]
         if sum(1 for p in _pts if p[1] is not None) >= 2:
             metric_data[_mk] = _pts
@@ -669,7 +673,7 @@ def _build_chart_widget(
         pts = chart_state.get("pts") or []
         if len(pts) < 2:
             return
-        valid_vals = [p[1] for p in pts if p[1] is not None and not math.isnan(p[1])]
+        valid_vals = [p[1] for p in pts if isinstance(p[1], (int, float)) and math.isfinite(p[1])]
         if not valid_vals:
             return
 
@@ -711,7 +715,10 @@ def _build_chart_widget(
         cr.select_font_face("Sans", 0, 0)
         cr.set_font_size(10)
         for frac in (0.0, 0.5, 1.0):
-            lbl = fmt.format(v_lo + frac * v_range)
+            lbl_val = v_lo + frac * v_range
+            if not math.isfinite(lbl_val):
+                continue
+            lbl = fmt.format(lbl_val)
             y = PAD_T + ih * (1.0 - frac) + 4
             cr.move_to(4, y)
             cr.show_text(lbl)
@@ -720,7 +727,7 @@ def _build_chart_widget(
         segments: list[list[tuple[float, float]]] = []
         seg: list[tuple[float, float]] = []
         for ts, v, *_ in pts:
-            if v is None or math.isnan(v):
+            if not (isinstance(v, (int, float)) and math.isfinite(v)):
                 if seg:
                     segments.append(seg)
                     seg = []
