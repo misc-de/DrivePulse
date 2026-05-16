@@ -173,15 +173,14 @@ class CarsLayoutMixin:
         content.append(value_scroll)
 
         # Selection action bar (trips multi-select mode)
-        self._select_count_lbl = Gtk.Label(xalign=0.0)
-        self._select_count_lbl.set_hexpand(True)
-
         self._select_delete_btn = Gtk.Button()
         self._select_delete_btn.add_css_class("destructive-action")
+        self._select_delete_btn.set_hexpand(True)
         self._select_delete_btn.connect("clicked", lambda _b: self._confirm_delete_selected_trips())
 
         _sel_cancel_btn = Gtk.Button(label="")
         _sel_cancel_btn.add_css_class("flat")
+        _sel_cancel_btn.set_hexpand(True)
         _sel_cancel_btn.connect("clicked", lambda _b: self._exit_trip_select_mode())
 
         self._select_cancel_btn = _sel_cancel_btn
@@ -191,7 +190,6 @@ class CarsLayoutMixin:
         sel_bar.set_margin_end(16)
         sel_bar.set_margin_top(8)
         sel_bar.set_margin_bottom(8)
-        sel_bar.append(self._select_count_lbl)
         sel_bar.append(self._select_delete_btn)
         sel_bar.append(_sel_cancel_btn)
 
