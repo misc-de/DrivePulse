@@ -29,12 +29,12 @@ class DashData:
     rpm: float = 0.0
     rpm_label: str = "--"
     rpm_active: bool = False
-    rpm_max: float = 7000.0
+    rpm_max: float = 5000.0
 
     speed: float = 0.0
     speed_label: str = "--"
     speed_unit: str = "km/h"
-    speed_max: float = 240.0
+    speed_max: float = 180.0
     speed_active: bool = False
     speed_source: str = ""
 
@@ -113,7 +113,7 @@ class DashboardCanvas(Gtk.DrawingArea):
         self._rotation = 0  # degrees: 0, 90, 180, 270
         self.data = DashData(
             speed_unit="mph" if units == "imperial" else "km/h",
-            speed_max=80.0 if units == "imperial" else 100.0,
+            speed_max=120.0 if units == "imperial" else 180.0,
         )
         self.data.language = _normalize_language(language)
         self._rpm_seen_max: float = 0.0
@@ -155,7 +155,7 @@ class DashboardCanvas(Gtk.DrawingArea):
     def set_units(self, units: str) -> None:
         self.data.speed_unit = "mph" if units == "imperial" else "km/h"
         self._speed_seen_max = 0.0
-        self.data.speed_max = 80.0 if units == "imperial" else 100.0
+        self.data.speed_max = 120.0 if units == "imperial" else 180.0
         self._queue_draw()
 
     def set_language(self, language: str) -> None:
@@ -173,7 +173,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.rpm_active = True
             if value > self._rpm_seen_max:
                 self._rpm_seen_max = value
-                self.data.rpm_max = math.ceil(value / 1000.0) * 1000.0
+                self.data.rpm_max = max(5000.0, math.ceil(value / 1000.0) * 1000.0)
             self.data.rpm = max(0.0, min(self.data.rpm_max, value))
             self.data.rpm_label = label if label is not None else f"{value:.0f}"
         self._queue_draw()
@@ -186,7 +186,8 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.speed_active = True
             if value > self._speed_seen_max:
                 self._speed_seen_max = value
-                self.data.speed_max = value + 20.0
+                _min_spd = 120.0 if self.data.speed_unit == "mph" else 180.0
+                self.data.speed_max = max(_min_spd, value + 20.0)
             self.data.speed = max(0.0, min(self.data.speed_max, value))
             self.data.speed_label = label if label is not None else f"{value:.0f}"
         self._queue_draw()
