@@ -353,10 +353,6 @@ class SyncDialog(Adw.Dialog):
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.client.title")))
         header.set_show_back_button(True)
-        scan_btn = Gtk.Button(icon_name="camera-photo-symbolic")
-        scan_btn.set_tooltip_text(self._t("sync.client.scan_camera"))
-        scan_btn.connect("clicked", lambda _b: self._push_qr_scan_page("", 0, ""))
-        header.pack_end(scan_btn)
         toolbar_view.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -364,6 +360,12 @@ class SyncDialog(Adw.Dialog):
         box.set_margin_bottom(16)
         box.set_margin_start(16)
         box.set_margin_end(16)
+
+        qr_btn = Gtk.Button(label=self._t("sync.client.scan_camera"))
+        qr_btn.add_css_class("suggested-action")
+        qr_btn.set_hexpand(True)
+        qr_btn.connect("clicked", lambda _b: self._push_qr_scan_page("", 0, ""))
+        box.append(qr_btn)
 
         group = Adw.PreferencesGroup()
         group.set_title(self._t("sync.devices.title"))
