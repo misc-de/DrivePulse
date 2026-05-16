@@ -619,6 +619,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.obd_port: str | None = self.settings.get("obd_port")
         self.gauge_theme: str = self.settings.get("gauge_theme", "cockpit")
         self.auto_rotate: bool = self.settings.get("auto_rotate", True)
+        self.sidebar_side: str = self.settings.get("sidebar_side", "left")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -720,7 +721,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         acceleration_scroller.set_vexpand(True)
         acceleration_scroller.set_child(self.acceleration_page)
 
-        self.cars_page = CarsPage(self.language, db=self.db)
+        self.cars_page = CarsPage(self.language, db=self.db, sidebar_side=self.sidebar_side)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
@@ -778,9 +779,14 @@ class DashboardWindow(Adw.ApplicationWindow):
         self._ctx_trash_btn.set_visible(False)
         self._ctx_trash_handler: int | None = None
 
+        self._sync_btn = Gtk.Button(icon_name="emblem-shared-symbolic")
+        self._sync_btn.set_tooltip_text(_translate(self.language, "sync.tooltip"))
+        self._sync_btn.connect("clicked", self._open_sync)
+
         header.pack_start(self.obd_indicator["box"])
         header.pack_start(self.gps_indicator["box"])
         header.pack_end(settings_button)
+        header.pack_end(self._sync_btn)
         header.pack_end(self._ctx_trash_btn)
 
         self.header = header
@@ -963,6 +969,7 @@ class DashboardWindow(Adw.ApplicationWindow):
                 "obd_port": getattr(self, "obd_port", None),
                 "gauge_theme": getattr(self, "gauge_theme", "cockpit"),
                 "auto_rotate": getattr(self, "auto_rotate", True),
+                "sidebar_side": getattr(self, "sidebar_side", "left"),
                 "engage_threshold": getattr(self, "engage_threshold", 0.20),
             })
         except Exception:
@@ -1003,7 +1010,14 @@ class DashboardWindow(Adw.ApplicationWindow):
             on_gauge_theme_changed=self._set_gauge_theme,
             current_auto_rotate=self.auto_rotate,
             on_auto_rotate_changed=self._set_auto_rotate,
+            current_sidebar_side=self.sidebar_side,
+            on_sidebar_side_changed=self._set_sidebar_side,
         )
+        dialog.present(self)
+
+    def _open_sync(self, *_args: Any) -> None:
+        from .sync_dialog import SyncDialog
+        dialog = SyncDialog(self, self.language, self.db, on_sync_complete=lambda: self.cars_page.refresh_profiles())
         dialog.present(self)
 
     def _set_obd_port(self, port: str | None) -> None:
@@ -1070,6 +1084,13 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.auto_rotate = enabled
         self._save_settings()
         self.orientation_reader.set_enabled(enabled)
+
+    def _set_sidebar_side(self, side: str) -> None:
+        if side == self.sidebar_side:
+            return
+        self.sidebar_side = side
+        self._save_settings()
+        self.cars_page.set_sidebar_side(side)
 
     def _set_language(self, language: str) -> None:
         language = _normalize_language(language)

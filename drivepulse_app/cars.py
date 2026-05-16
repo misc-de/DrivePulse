@@ -49,10 +49,11 @@ class CarsPage(Gtk.Box):
     LIVE_ID = "__live__"
     LIVE_DETAIL_RENDER_INTERVAL_S = 0.25
 
-    def __init__(self, language: str = SOURCE_LANGUAGE, db: DriveDB | None = None) -> None:
+    def __init__(self, language: str = SOURCE_LANGUAGE, db: DriveDB | None = None, sidebar_side: str = "left") -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.language = _normalize_language(language)
         self.db = db
+        self._sidebar_side: str = sidebar_side
         self._latest_live: dict[str, Any] = {}
         self._live_identity: dict[str, str] = {}
         self._obd_connected = False
@@ -108,11 +109,18 @@ class CarsPage(Gtk.Box):
     def _on_drag_update(self, gesture: Gtk.GestureDrag, offset_x: float, offset_y: float) -> None:
         if self._drag_claimed:
             return
+        dist_sq = offset_x * offset_x + offset_y * offset_y
+        if dist_sq < 64:  # weniger als 8 px — Richtung noch unbekannt
+            return
+        # Eindeutig vertikal → ablehnen, damit ScrolledWindow-Kinder scrollen können
+        if abs(offset_y) > abs(offset_x) * 1.5:
+            gesture.set_state(Gtk.EventSequenceState.DENIED)
+            return
         # Wenn Detail offen ist: Adw.NavigationView soll selbst zurückpoppen.
         if self._detail_pushed:
             return
-        # Eindeutig horizontale Geste (mind. 20 px, klar dominanter X-Anteil)
-        if abs(offset_x) > 20 and abs(offset_x) > abs(offset_y) * 1.5:
+        # Eindeutig horizontal (mind. 20 px, klar dominanter X-Anteil)
+        if abs(offset_x) > 20:
             gesture.set_state(Gtk.EventSequenceState.CLAIMED)
             self._drag_claimed = True
 
@@ -201,6 +209,7 @@ class CarsPage(Gtk.Box):
         body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         body.set_hexpand(True)
         body.set_vexpand(True)
+        self._detail_body = body
 
         self._sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._sidebar.set_margin_top(12)
@@ -249,14 +258,15 @@ class CarsPage(Gtk.Box):
         cat_scroll.set_vexpand(True)
         cat_scroll.set_child(self.category_list)
         self._sidebar.append(cat_scroll)
-        body.append(self._sidebar)
-        body.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        self._sidebar_separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
 
         self._apply_narrow_to_sidebar()
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         content.set_hexpand(True)
         content.set_vexpand(True)
+        self._detail_content = content
 
         self.content_title = Gtk.Label(xalign=0.0)
         self.content_title.add_css_class("title-2")
@@ -314,7 +324,8 @@ class CarsPage(Gtk.Box):
         self._select_revealer.set_child(sel_bar)
         content.append(self._select_revealer)
 
-        body.append(content)
+        # Initiale Anordnung gemäß Einstellung
+        self._apply_sidebar_side_to_body()
         outer.append(body)
 
         self._categories_label.set_text(_translate(self.language, "cars.categories"))
@@ -338,6 +349,30 @@ class CarsPage(Gtk.Box):
             return
         self._narrow = narrow
         self._apply_narrow_to_sidebar()
+
+    def _apply_sidebar_side_to_body(self) -> None:
+        """Sidebar links oder rechts vom Content anordnen."""
+        body = self._detail_body
+        sidebar = self._sidebar
+        sep = self._sidebar_separator
+        content = self._detail_content
+        for w in (sidebar, sep, content):
+            if w.get_parent() == body:
+                body.remove(w)
+        if self._sidebar_side == "right":
+            body.append(content)
+            body.append(sep)
+            body.append(sidebar)
+        else:
+            body.append(sidebar)
+            body.append(sep)
+            body.append(content)
+
+    def set_sidebar_side(self, side: str) -> None:
+        if side == self._sidebar_side:
+            return
+        self._sidebar_side = side
+        self._apply_sidebar_side_to_body()
 
     def _apply_narrow_to_sidebar(self) -> None:
         narrow = self._narrow

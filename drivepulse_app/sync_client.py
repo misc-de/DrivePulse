@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import json
+import socket
+import ssl
+import urllib.request
+from typing import Any
+
+from .sync_crypto import verify_spki_fingerprint
+
+
+class SyncClient:
+    def __init__(self, host: str, port: int, spki_fingerprint: str, device_id: str) -> None:
+        self._host = host
+        self._port = port
+        self._spki_fingerprint = spki_fingerprint
+        self._device_id = device_id
+        self._session_token: str | None = None
+
+    def _make_ssl_context(self) -> ssl.SSLContext:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+    def _base_url(self) -> str:
+        return f"https://{self._host}:{self._port}"
+
+    def verify_fingerprint(self) -> bool:
+        try:
+            sock = socket.create_connection((self._host, self._port), timeout=10)
+            ctx = self._make_ssl_context()
+            ssock = ctx.wrap_socket(sock, server_hostname=self._host)
+            cert_der = ssock.getpeercert(binary_form=True)
+            ssock.close()
+            if cert_der is None:
+                return False
+            return verify_spki_fingerprint(cert_der, self._spki_fingerprint)
+        except Exception:
+            return False
+
+    def pair(self, pairing_token: str) -> bool:
+        try:
+            body = json.dumps({"token": pairing_token, "device_id": self._device_id}).encode()
+            req = urllib.request.Request(
+                f"{self._base_url()}/pair",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            ctx = self._make_ssl_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+                data: dict[str, Any] = json.loads(resp.read())
+            if data.get("ok"):
+                self._session_token = data.get("session_token")
+                return True
+            return False
+        except Exception:
+            return False
+
+    def _auth_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._session_token}"}
+
+    def export_from_server(self) -> dict | None:
+        if not self._session_token:
+            return None
+        try:
+            req = urllib.request.Request(
+                f"{self._base_url()}/sync/export",
+                headers=self._auth_headers(),
+                method="GET",
+            )
+            ctx = self._make_ssl_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+                return json.loads(resp.read())
+        except Exception:
+            return None
+
+    def import_to_server(self, data: dict) -> bool:
+        if not self._session_token:
+            return False
+        try:
+            body = json.dumps(data).encode()
+            headers = dict(self._auth_headers())
+            headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(
+                f"{self._base_url()}/sync/import",
+                data=body,
+                headers=headers,
+                method="POST",
+            )
+            ctx = self._make_ssl_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+                result: dict[str, Any] = json.loads(resp.read())
+            return bool(result.get("ok"))
+        except Exception:
+            return False

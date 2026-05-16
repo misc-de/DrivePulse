@@ -32,6 +32,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_gauge_theme_changed: Callable[[str], None] | None = None,
         current_auto_rotate: bool = True,
         on_auto_rotate_changed: Callable[[bool], None] | None = None,
+        current_sidebar_side: str = "left",
+        on_sidebar_side_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -41,6 +43,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.on_obd_port_changed = on_obd_port_changed
         self.on_gauge_theme_changed = on_gauge_theme_changed
         self.on_auto_rotate_changed = on_auto_rotate_changed
+        self.on_sidebar_side_changed = on_sidebar_side_changed
         self.set_title(_translate(self.language, "settings.title"))
 
         page = Adw.PreferencesPage(title=_translate(self.language, "settings.display"))
@@ -95,9 +98,18 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.gauge_theme_row.set_selected(selected_idx)
         self.gauge_theme_row.connect("notify::selected", self._on_gauge_theme_selected)
 
+        sidebar_side_model = Gtk.StringList()
+        sidebar_side_model.append(_translate(self.language, "settings.sidebar_side.left"))
+        sidebar_side_model.append(_translate(self.language, "settings.sidebar_side.right"))
+        self.sidebar_side_row = Adw.ComboRow(title=_translate(self.language, "settings.sidebar_side"))
+        self.sidebar_side_row.set_model(sidebar_side_model)
+        self.sidebar_side_row.set_selected(0 if current_sidebar_side == "left" else 1)
+        self.sidebar_side_row.connect("notify::selected", self._on_sidebar_side_selected)
+
         group.add(self.unit_row)
         group.add(self.language_row)
         group.add(self.gauge_theme_row)
+        group.add(self.sidebar_side_row)
         group.add(self.auto_rotate_row)
         group.add(self.mock_row)
         page.add(group)
@@ -150,3 +162,8 @@ class SettingsDialog(Adw.PreferencesDialog):
             idx = self.gauge_theme_row.get_selected()
             theme = self._theme_options[idx][0] if idx < len(self._theme_options) else "cockpit"
             self.on_gauge_theme_changed(theme)
+
+    def _on_sidebar_side_selected(self, *_args: Any) -> None:
+        if self.on_sidebar_side_changed is not None:
+            side = "left" if self.sidebar_side_row.get_selected() == 0 else "right"
+            self.on_sidebar_side_changed(side)
