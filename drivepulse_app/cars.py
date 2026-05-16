@@ -76,6 +76,7 @@ class CarsPage(Gtk.Box):
         # Wird vom DashboardWindow gesetzt: Callback, wenn der Anwender auf der
         # Wurzel (Auto-Liste) nach rechts wischt, um zum vorherigen Tab zurückzukehren.
         self.on_back_swipe: Callable[[], None] | None = None
+        self.on_forward_swipe: Callable[[], None] | None = None
         self._drag_claimed = False
 
         self.nav_view = Adw.NavigationView()
@@ -119,9 +120,10 @@ class CarsPage(Gtk.Box):
         if not self._drag_claimed:
             return
         self._drag_claimed = False
-        # Nur Wisch nach rechts (offset_x > 0) löst „zurück zum vorherigen Tab" aus.
         if offset_x > 60 and self.on_back_swipe is not None:
             self.on_back_swipe()
+        elif offset_x < -60 and self.on_forward_swipe is not None:
+            self.on_forward_swipe()
 
     # ---------------------------------------------------- List-Aufbau
 
