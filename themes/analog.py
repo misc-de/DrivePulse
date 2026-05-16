@@ -270,10 +270,10 @@ def _fuel_halfmoon_left(
         cr.line_to(cx + math.cos(ang) * tick_outer, cy + math.sin(ang) * tick_outer)
         cr.stroke()
 
-    # Fuel pump icon — centered on the face, below the hub (lower-right quadrant)
+    # Fuel pump icon — one character-width left and one down from default position
     isz = max(12.0, r * 0.22)
-    ix  = cx + r * 0.42
-    iy  = cy + r * 0.28
+    ix  = cx + r * 0.42 - isz
+    iy  = cy + r * 0.28 + isz
     cr.set_source_rgba(*dim_col, 0.55 * a)
     cr.set_line_width(max(1.2, isz * 0.14))
     cr.set_line_cap(1)
@@ -385,9 +385,10 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
                   d.coolant_label, "°C", "",
                   d.coolant_active, 20.0, 10.0)
 
-    # Fuel halfmoon: 2/3 of max size, bottom-left corner
-    r_fuel = min(height * 0.42, width * 0.24) * (2 / 3)
-    _fuel_halfmoon_left(cr, width, height, d, r=r_fuel, cy=height - r_fuel)
+    # Fuel halfmoon: centered in the gap between RPM bottom edge and screen bottom
+    r_fuel  = min(height * 0.42, width * 0.24) * (2 / 3)
+    cy_fuel = (cy_side + r_side + height) / 2
+    _fuel_halfmoon_left(cr, width, height, d, r=r_fuel, cy=cy_fuel)
 
 
 def draw(cr: Any, width: int, height: int, data: Any) -> None:
