@@ -25,14 +25,14 @@ class MockObdSimulator:
     def _accel_g_for_speed(speed_kmh: float) -> float:
         """Target longitudinal acceleration in g for the mock run, by speed."""
         if speed_kmh < 100:
-            # 0→100 km/h: ~0.50g tapering to ~0.30g → ~7 s
-            return 0.50 - 0.002 * speed_kmh
+            # 0→100 km/h: launch at ~1.0g, tapering to ~0.45g
+            return 1.00 - 0.0055 * speed_kmh
         if speed_kmh < 200:
-            # 100→200 km/h: ~0.22g tapering to ~0.09g → ~18 s
-            return 0.22 - 0.0013 * (speed_kmh - 100)
+            # 100→200 km/h: ~0.45g tapering to ~0.10g
+            return 0.45 - 0.0035 * (speed_kmh - 100)
         if speed_kmh < 230:
-            # 200→230 km/h: ~0.09g tapering to ~0.02g
-            return max(0.02, 0.09 - 0.002333 * (speed_kmh - 200))
+            # 200→230 km/h: ~0.10g tapering to ~0.02g
+            return max(0.02, 0.10 - 0.002667 * (speed_kmh - 200))
         return -0.03  # slight engine drag above 230
 
     def read(self) -> dict[str, Any]:
