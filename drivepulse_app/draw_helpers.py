@@ -80,3 +80,53 @@ def _arc_track(
 def _cardinal(deg: float, language: str = SOURCE_LANGUAGE) -> str:
     keys = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     return _translate(language, f"dashboard.cardinal.{keys[int((deg + 22.5) / 45) % 8]}")
+
+
+def _draw_last_trip_strip(
+    cr: Any,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    d: Any,
+    dark: bool = True,
+) -> None:
+    """Zeichnet eine schmale Leiste mit Last-Trip-Stats (RPM-Range + Temp-Range).
+
+    x/y: obere linke Ecke, w/h: Breite/Höhe der Leiste.
+    d: DashData (muss last_trip_available == True sein).
+    """
+    if not getattr(d, "last_trip_available", False):
+        return
+
+    rpm_min = d.last_trip_rpm_min
+    rpm_max = d.last_trip_rpm_max
+    cool_min = d.last_trip_coolant_min
+    cool_max = d.last_trip_coolant_max
+
+    bg_a = 0.45 if dark else 0.15
+    cr.set_source_rgba(0.0, 0.0, 0.0, bg_a)
+    cr.rectangle(x, y, w, h)
+    cr.fill()
+
+    sz_lbl = max(8.0, h * 0.28)
+    sz_val = max(10.0, h * 0.42)
+    col_lbl = (0.55, 0.60, 0.66, 0.65) if dark else (0.35, 0.38, 0.42, 0.75)
+    col_val = (0.90, 0.93, 0.96, 0.88) if dark else (0.10, 0.12, 0.16, 0.90)
+
+    lang = getattr(d, "language", SOURCE_LANGUAGE)
+    label_rpm  = _translate(lang, "dashboard.rpm.unit")
+    label_temp = "°C"
+
+    rpm_str  = f"{rpm_min:.0f} – {rpm_max:.0f}"
+    temp_str = f"{cool_min:.0f} – {cool_max:.0f}"
+
+    half = w / 2
+    cy_lbl = y + h * 0.28
+    cy_val = y + h * 0.72
+
+    _txt(cr, label_rpm,  x + half * 0.50, cy_lbl, sz_lbl, col_lbl)
+    _txt(cr, rpm_str,    x + half * 0.50, cy_val, sz_val, col_val, bold=True, max_w=half * 0.90)
+
+    _txt(cr, label_temp, x + half * 1.50, cy_lbl, sz_lbl, col_lbl)
+    _txt(cr, temp_str,   x + half * 1.50, cy_val, sz_val, col_val, bold=True, max_w=half * 0.90)

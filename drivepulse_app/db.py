@@ -244,6 +244,21 @@ class DriveDB:
                 (car_id,),
             ).fetchall())
 
+    def get_last_trip_stats(self, car_id: int) -> "dict | None":
+        """Min/Max-Werte des letzten abgeschlossenen Trips für car_id."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT t.id, t.started_at, t.ended_at, t.distance_km, t.duration_s,"
+                " t.max_speed_kmh, t.avg_speed_kmh, t.samples_count,"
+                " MIN(s.rpm) AS min_rpm, MAX(s.rpm) AS max_rpm,"
+                " MIN(s.coolant_c) AS min_coolant, MAX(s.coolant_c) AS max_coolant"
+                " FROM trips t JOIN samples s ON s.trip_id = t.id"
+                " WHERE t.car_id = ? AND t.ended_at IS NOT NULL"
+                " GROUP BY t.id ORDER BY t.started_at DESC LIMIT 1",
+                (car_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def delete_trip(self, trip_id: int) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM trips WHERE id=?", (trip_id,))
