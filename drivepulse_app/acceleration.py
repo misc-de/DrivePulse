@@ -177,7 +177,7 @@ def _apply_warning_css(button: Gtk.Button) -> None:
 class AccelerationPage(Gtk.Box):
     __gtype_name__ = "AccelerationPage"
 
-    SPEED_TARGETS_KMH = (30, 50, 70, 100, 150, 200)
+    SPEED_TARGETS_KMH = (30, 50, 70, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200)
     RANGE_TARGETS_KMH: tuple[tuple[int, int], ...] = ((100, 200),)
     G_ENGAGE_THRESHOLD   = 0.20   # must sustain for confirm window
     G_PRESTART_THRESHOLD = 0.06   # retroactive start crossover
@@ -218,6 +218,7 @@ class AccelerationPage(Gtk.Box):
         self._last_heading_time: float | None = None
         self._lateral_g: float = 0.0
         self.on_mock_start: Callable[[], None] | None = None
+        self.on_run_complete: Callable[[dict, list], None] | None = None
         self._run_samples: list[tuple[float, float | None, float]] = []  # (elapsed, active_g, lateral_g)
         self._saved_results: dict | None = None
         self._saved_range_results: dict | None = None
@@ -880,3 +881,13 @@ class AccelerationPage(Gtk.Box):
             self._saved_range_results = {k: dict(v) for k, v in self.range_results.items()}
             self._show_replay()
             self.status_label.set_text(_translate(self.language, "acceleration.done"))
+            if self.on_run_complete is not None:
+                combined = {
+                    "targets": {str(k): dict(v) for k, v in self.results.items()},
+                    "ranges": {str(k): dict(v) for k, v in self.range_results.items()},
+                    "max_obd_kmh": self.max_obd_speed,
+                    "max_gps_kmh": self.max_gps_speed,
+                    "max_g": self.max_g,
+                }
+                samples_list = [list(s) for s in self._run_samples]
+                self.on_run_complete(combined, samples_list)
