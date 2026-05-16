@@ -730,6 +730,8 @@ class DashboardWindow(Adw.ApplicationWindow):
 
         self.acceleration_page = AccelerationPage(self.language)
         self.acceleration_page.set_theme(self.gauge_theme)
+        self.acceleration_page.set_engage_threshold(self.settings.get("engage_threshold", 0.20))
+        self.acceleration_page.on_engage_threshold_changed = self._on_engage_threshold_changed
         acceleration_scroller = Gtk.ScrolledWindow()
         acceleration_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         acceleration_scroller.set_propagate_natural_width(False)
@@ -749,6 +751,12 @@ class DashboardWindow(Adw.ApplicationWindow):
         self.view_stack.set_vhomogeneous(False)
         self.view_stack.set_enable_transitions(True)
         self.view_stack.set_transition_duration(240)
+        self.cars_stack_page = self.view_stack.add_titled_with_icon(
+            self.cars_page,
+            self.PAGE_CARS,
+            _translate(self.language, "nav.cars"),
+            "driving-symbolic",
+        )
         self.dashboard_stack_page = self.view_stack.add_titled_with_icon(
             dashboard_scroller,
             self.PAGE_DASHBOARD,
@@ -760,12 +768,6 @@ class DashboardWindow(Adw.ApplicationWindow):
             self.PAGE_ACCELERATION,
             _translate(self.language, "nav.acceleration"),
             "playback-speed-symbolic",
-        )
-        self.cars_stack_page = self.view_stack.add_titled_with_icon(
-            self.cars_page,
-            self.PAGE_CARS,
-            _translate(self.language, "nav.cars"),
-            "driving-symbolic",
         )
 
         self.view_stack.connect("notify::visible-child-name", self._on_visible_page_changed)
@@ -974,9 +976,14 @@ class DashboardWindow(Adw.ApplicationWindow):
                 "obd_port": getattr(self, "obd_port", None),
                 "gauge_theme": getattr(self, "gauge_theme", "cockpit"),
                 "auto_rotate": getattr(self, "auto_rotate", True),
+                "engage_threshold": getattr(self, "engage_threshold", 0.20),
             })
         except Exception:
             pass
+
+    def _on_engage_threshold_changed(self, value: float) -> None:
+        self.engage_threshold = value
+        self._save_settings()
 
     def _save_units(self) -> None:
         self._save_settings()
@@ -1194,7 +1201,7 @@ class DashboardWindow(Adw.ApplicationWindow):
         # Zurück-Swipe (Detail → Liste). Wir schalten dann nicht zusätzlich den Tab um.
         if current == self.PAGE_CARS and velocity_x > 0 and self.cars_page.is_detail_open():
             return
-        pages = [self.PAGE_DASHBOARD, self.PAGE_ACCELERATION, self.PAGE_CARS]
+        pages = [self.PAGE_CARS, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
         try:
             index = pages.index(current)
         except ValueError:
