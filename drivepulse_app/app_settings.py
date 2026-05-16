@@ -5,6 +5,10 @@ import json
 from typing import Any
 
 from .common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language
+from .diagnostics import get_logger
+
+
+log = get_logger(__name__)
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -22,7 +26,13 @@ def load_settings() -> dict[str, Any]:
     """Read settings.json and normalize invalid or missing values."""
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-    except Exception:
+    except FileNotFoundError:
+        data = {}
+    except json.JSONDecodeError:
+        log.warning("Ignoring invalid settings JSON at %s", SETTINGS_FILE)
+        data = {}
+    except OSError as exc:
+        log.warning("Could not read settings from %s: %s", SETTINGS_FILE, exc)
         data = {}
 
     units = data.get("units")

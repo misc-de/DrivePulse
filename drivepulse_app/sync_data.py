@@ -6,8 +6,10 @@ from typing import Any
 
 from .common import LOG_DIR
 from .db import DriveDB
+from .diagnostics import get_logger
 
 PAIRED_DEVICES_FILE = LOG_DIR / "paired_devices.json"
+log = get_logger(__name__)
 
 _SAMPLE_COLS = (
     "speed_kmh", "obd_speed_kmh", "gps_speed_kmh", "rpm", "coolant_c",
@@ -60,8 +62,12 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
       "replace"     — for each incoming car delete all its local trips first, then insert
       "replace_all" — wipe the entire local DB first, then insert everything fresh
     """
-    if data.get("version") != 1:
+    if not isinstance(data, dict) or data.get("version") != 1:
+        log.warning("Ignoring unsupported sync payload")
         return {"cars_added": 0, "cars_updated": 0, "trips_added": 0, "samples_added": 0}
+    if mode not in {"merge", "replace", "replace_all"}:
+        log.warning("Unknown sync import mode %r; falling back to merge", mode)
+        mode = "merge"
 
     if mode == "replace_all":
         with db._lock:
@@ -74,6 +80,9 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
     samples_added = 0
 
     for car in data.get("cars") or []:
+        if not isinstance(car, dict):
+            log.warning("Skipping malformed car entry in sync payload")
+            continue
         vin = car.get("vin")
         found = None
         if vin and mode != "replace_all":
@@ -104,6 +113,9 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
             existing_started = {t["started_at"] for t in db.list_trips_for_car(car_id)}
 
         for trip in car.get("trips") or []:
+            if not isinstance(trip, dict):
+                log.warning("Skipping malformed trip entry for vin=%s", vin)
+                continue
             started_at = trip.get("started_at")
             if not started_at:
                 continue
@@ -132,6 +144,9 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
             trips_added += 1
 
             for s in trip.get("samples") or []:
+                if not isinstance(s, dict):
+                    log.warning("Skipping malformed sample for trip started_at=%s", started_at)
+                    continue
                 ts = s.get("ts")
                 if ts is None:
                     continue
@@ -142,7 +157,7 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
                     )
                     samples_added += 1
                 except Exception:
-                    pass
+                    log.exception("Could not import sample for trip started_at=%s", started_at)
 
     return {
         "cars_added": cars_added,
@@ -155,7 +170,13 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
 def load_paired_devices() -> list[dict[str, Any]]:
     try:
         return json.loads(PAIRED_DEVICES_FILE.read_text(encoding="utf-8"))
-    except Exception:
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        log.warning("Ignoring invalid paired devices JSON at %s", PAIRED_DEVICES_FILE)
+        return []
+    except OSError as exc:
+        log.warning("Could not read paired devices from %s: %s", PAIRED_DEVICES_FILE, exc)
         return []
 
 
@@ -166,8 +187,8 @@ def save_paired_devices(devices: list[dict[str, Any]]) -> None:
             json.dumps(devices, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-    except Exception:
-        pass
+    except OSError:
+        log.exception("Could not save paired devices to %s", PAIRED_DEVICES_FILE)
 
 
 def upsert_paired_device(

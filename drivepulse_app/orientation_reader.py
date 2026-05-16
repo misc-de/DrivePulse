@@ -12,6 +12,11 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
+from .diagnostics import get_logger
+
+
+log = get_logger(__name__)
+
 
 class OrientationReader:
     """Reads physical device orientation from the accelerometer.
@@ -112,6 +117,7 @@ class OrientationReader:
             )
             return True
         except Exception:
+            log.info("sensorfwd orientation startup failed", exc_info=True)
             return False
 
     def _try_iio_proxy(self) -> None:
@@ -132,7 +138,7 @@ class OrientationReader:
             if v:
                 self._emit(v.get_string())
         except Exception:
-            pass
+            log.info("iio-sensor-proxy orientation startup failed", exc_info=True)
 
     # ── sensorfwd socket data ─────────────────────────────────────────────
 
@@ -161,6 +167,7 @@ class OrientationReader:
         except BlockingIOError:
             pass
         except Exception:
+            log.exception("Orientation sensor socket failed")
             return False
         return True
 
@@ -215,7 +222,7 @@ class OrientationReader:
             try:
                 self._sock.close()
             except Exception:
-                pass
+                log.exception("Could not close orientation sensor socket")
             self._sock = None
         if self._bus is not None and self._session_id >= 0:
             try:
@@ -232,7 +239,7 @@ class OrientationReader:
                     None, Gio.DBusCallFlags.NONE, 1000, None,
                 )
             except Exception:
-                pass
+                log.exception("Could not stop sensorfwd accelerometer session")
             self._bus = None
             self._session_id = -1
         if self._iio_proxy is not None:
@@ -241,5 +248,5 @@ class OrientationReader:
                     "ReleaseAccelerometer", None, Gio.DBusCallFlags.NONE, 1000, None,
                 )
             except Exception:
-                pass
+                log.exception("Could not release iio accelerometer")
             self._iio_proxy = None

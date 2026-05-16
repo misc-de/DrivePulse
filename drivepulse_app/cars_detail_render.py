@@ -1,0 +1,177 @@
+"""Detail data and value rendering for the Cars page."""
+from __future__ import annotations
+
+from typing import Any
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, GLib, Gtk, Pango  # noqa: E402
+
+from .common import _translate
+from .cars_metadata import (
+    CATEGORIES,
+    LIVE_KEY_TO_PID,
+    _SPECIAL_CAL,
+    _SPECIAL_CVN,
+    _SPECIAL_DTC,
+    _SPECIAL_PENDING,
+    _SPECIAL_PROTO,
+    _SPECIAL_SCAN_DATE,
+    _SPECIAL_VIN,
+    _extract_inner_string,
+    _format_value_unit,
+    _parse_profile_pid_key,
+    _wmi_to_brand,
+)
+from .cars_scan_widgets import _format_scan_date
+
+
+class CarsDetailRenderMixin:
+    def _current_data(self) -> tuple[dict[str, Any], str]:
+        if self._selected_source == self.LIVE_ID:
+            d: dict[str, Any] = {}
+            for live_key, pid in LIVE_KEY_TO_PID.items():
+                if live_key in self._latest_live:
+                    d[pid] = self._latest_live[live_key]
+            for special_key, identity_key in (
+                (_SPECIAL_VIN, "VIN"),
+                (_SPECIAL_CAL, "CALIBRATION_ID"),
+                (_SPECIAL_CVN, "CVN"),
+                (_SPECIAL_PROTO, "protocol"),
+            ):
+                if self._live_identity.get(identity_key):
+                    d[special_key] = self._live_identity[identity_key]
+            return d, _translate(self.language, "cars.live.title")
+        for entry in self._profiles:
+            if str(entry["path"]) == self._selected_source:
+                vin = entry.get("vin", "")
+                brand = entry.get("brand") or ""
+                label = brand if brand else _translate(self.language, "cars.unknown")
+                if vin:
+                    label = f"{label} · …{vin[-5:]}"
+                return self._flatten_profile(entry["data"]), label
+        return {}, "—"
+
+    def _flatten_profile(self, data: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for raw_key, raw_val in (data.get("live_data") or {}).items():
+            pid = _parse_profile_pid_key(raw_key)
+            if pid:
+                out[pid] = raw_val
+        info = data.get("vehicle_info") or {}
+        if info.get("VIN"):
+            out[_SPECIAL_VIN] = _extract_inner_string(info["VIN"])
+        if info.get("CALIBRATION_ID"):
+            out[_SPECIAL_CAL] = _extract_inner_string(info["CALIBRATION_ID"])
+        if info.get("CVN"):
+            out[_SPECIAL_CVN] = _extract_inner_string(info["CVN"])
+        if data.get("protocol"):
+            out[_SPECIAL_PROTO] = str(data["protocol"])
+        if data.get("scanned_at"):
+            out[_SPECIAL_SCAN_DATE] = _format_scan_date(data["scanned_at"])
+        dtcs = data.get("dtcs") or []
+        none_text = _translate(self.language, "cars.dtc.none")
+        out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(str(d) for d in dtcs)
+        pending = data.get("pending_dtcs") or []
+        out[_SPECIAL_PENDING] = none_text if not pending else "  ".join(str(d) for d in pending)
+        return out
+
+    def _format_entry(self, pid_key: str, raw: Any) -> tuple[str, bool]:
+        if pid_key == _SPECIAL_VIN and raw:
+            vin = _extract_inner_string(raw)
+            brand = _wmi_to_brand(vin)
+            return (f"{vin}  ({brand})" if brand else vin, False)
+        if pid_key.startswith("__"):
+            if raw is None or raw == "":
+                return ("—", True)
+            return (_extract_inner_string(raw) if isinstance(raw, str) else str(raw), False)
+        if raw is None:
+            return ("—", True)
+        text = _format_value_unit(raw)
+        return (text, text == "—")
+
+    def _render_detail(self) -> None:
+        while True:
+            child = self.value_list.get_first_child()
+            if child is None:
+                break
+            self.value_list.remove(child)
+
+        cat_meta = next((c for c in CATEGORIES if c[0] == self._selected_category), CATEGORIES[0])
+        cat_key, cat_name_key, _icon_name, items = cat_meta
+        self.content_title.set_text(_translate(self.language, cat_name_key))
+
+        data, source_label = self._current_data()
+        self.content_subtitle.set_text("")
+
+        if cat_key == "trips":
+            self._render_trips_into_value_list()
+            return
+
+        if cat_key == "scans":
+            self._render_scans_into_value_list()
+            return
+
+        if cat_key == "acceleration_runs":
+            self._render_accel_runs_into_value_list()
+            return
+
+        for pid_key, label_key in items:
+            raw = data.get(pid_key)
+            value_text, is_unknown = self._format_entry(pid_key, raw)
+            label = _translate(self.language, label_key)
+            self.value_list.append(self._make_stacked_row(label, value_text, is_unknown))
+
+    def _make_inline_row(self, pid_key: str, label: str, value_text: str, is_unknown: bool) -> Adw.ActionRow:
+        row = Adw.ActionRow()
+        row.set_title(GLib.markup_escape_text(label))
+        row.set_subtitle(GLib.markup_escape_text(pid_key) if not pid_key.startswith("__") else "")
+
+        value_label = Gtk.Label(label=value_text, xalign=1.0)
+        value_label.add_css_class("monospace")
+        value_label.set_wrap(True)
+        value_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        value_label.set_max_width_chars(28)
+        if is_unknown:
+            value_label.add_css_class("dim-label")
+        row.add_suffix(value_label)
+        return row
+
+    # ---------------------------------------------------- Fahrten-Rendering
+
+
+    # ---------------------------------------------------- Scan-Liste & Detail
+
+
+    # ------------------------------------------ Beschleunigungsläufe-Liste
+
+    def _make_stacked_row(self, label: str, value_text: str, is_unknown: bool) -> Gtk.ListBoxRow:
+        """Titel oben, Wert rechtsbündig darunter — passend für lange Werte wie VIN."""
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(14)
+        box.set_margin_end(14)
+
+        title_lbl = Gtk.Label(label=label, xalign=0.0)
+        title_lbl.set_halign(Gtk.Align.START)
+        title_lbl.set_hexpand(True)
+        box.append(title_lbl)
+
+        value_lbl = Gtk.Label(label=value_text, xalign=1.0)
+        value_lbl.set_halign(Gtk.Align.END)
+        value_lbl.set_hexpand(True)
+        value_lbl.set_wrap(True)
+        value_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        value_lbl.set_selectable(True)
+        if is_unknown:
+            value_lbl.add_css_class("dim-label")
+        box.append(value_lbl)
+
+        row.set_child(box)
+        return row

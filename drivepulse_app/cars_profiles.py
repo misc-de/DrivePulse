@@ -8,6 +8,10 @@ from typing import Any
 from .common import PROFILES_DIR
 from .db import DriveDB
 from .cars_metadata import _extract_inner_string, _wmi_to_brand
+from .diagnostics import get_logger
+
+
+log = get_logger(__name__)
 
 
 def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
@@ -20,6 +24,7 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except Exception:
+                log.exception("Could not read vehicle profile %s", path)
                 continue
             vin = _extract_inner_string(data.get("vin"))
             brand = _wmi_to_brand(vin)
@@ -27,6 +32,7 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
                 dt = datetime.fromisoformat(str(data.get("scanned_at", "")).replace("Z", "+00:00"))
                 scan_label = dt.strftime("%d.%m.%Y")
             except Exception:
+                log.info("Could not parse scan date in profile %s", path, exc_info=True)
                 scan_label = ""
             entries.append({
                 "path": path,
@@ -45,6 +51,7 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
         try:
             db_cars = db.list_cars()
         except Exception:
+            log.exception("Could not list cars from database while loading profiles")
             db_cars = []
         for entry in entries:
             if not entry["vin"]:

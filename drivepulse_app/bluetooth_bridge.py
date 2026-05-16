@@ -6,6 +6,11 @@ import pty
 import socket
 import threading
 
+from .diagnostics import get_logger
+
+
+log = get_logger(__name__)
+
 
 class BluetoothPtyBridge:
     """Bridges a Bluetooth RFCOMM socket to a PTY so pyserial/python-obd can use it."""
@@ -47,7 +52,8 @@ class BluetoothPtyBridge:
                     if not data:
                         break
                     sock.sendall(data)
-                except OSError:
+                except OSError as exc:
+                    log.info("Bluetooth PTY->socket relay stopped: %s", exc)
                     break
         finally:
             self._stop.set()
@@ -60,7 +66,8 @@ class BluetoothPtyBridge:
                     if not data:
                         break
                     os.write(fd, data)
-                except OSError:
+                except OSError as exc:
+                    log.info("Bluetooth socket->PTY relay stopped: %s", exc)
                     break
         finally:
             self._stop.set()
@@ -70,15 +77,15 @@ class BluetoothPtyBridge:
         if self._sock is not None:
             try:
                 self._sock.close()
-            except OSError:
-                pass
+            except OSError as exc:
+                log.info("Could not close Bluetooth socket: %s", exc)
             self._sock = None
         for fd in (self._master_fd, self._slave_fd):
             if fd >= 0:
                 try:
                     os.close(fd)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    log.info("Could not close Bluetooth PTY fd %s: %s", fd, exc)
         self._master_fd = -1
         self._slave_fd = -1
 

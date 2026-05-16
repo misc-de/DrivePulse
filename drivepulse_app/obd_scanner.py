@@ -15,6 +15,10 @@ gi.require_version("GLib", "2.0")
 from gi.repository import GLib  # noqa: E402
 
 from .common import PROFILES_DIR
+from .diagnostics import get_logger
+
+
+log = get_logger(__name__)
 
 
 class ObdScanner:
@@ -89,7 +93,7 @@ class ObdScanner:
                     protocol=cached.get("protocol"),
                 )
             except Exception:
-                pass
+                log.exception("Could not read cached OBD profile %s", profile_path)
             self._emit("skipped", 1.0)
             return
 
@@ -142,7 +146,7 @@ class ObdScanner:
                 if not r.is_null():
                     vehicle_info[name] = str(r.value)
             except Exception:
-                pass
+                log.exception("Could not query vehicle info command %s", name)
             if self._yield:
                 time.sleep(self._yield)
 
@@ -204,7 +208,7 @@ class ObdScanner:
                 val = str(r.value).strip()
                 return val if val else None
         except Exception:
-            pass
+            log.info("Could not query VIN during OBD scan", exc_info=True)
         return None
 
     def _query_dtc_list(self, cmd: Any) -> list[str]:
@@ -215,13 +219,14 @@ class ObdScanner:
             if not r.is_null() and r.value:
                 return [str(d) for d in r.value]
         except Exception:
-            pass
+            log.info("Could not query DTC command %s", cmd, exc_info=True)
         return []
 
     def _get_protocol(self) -> str:
         try:
             return str(self.connection.protocol_name())
         except Exception:
+            log.info("Could not read OBD protocol name", exc_info=True)
             return "unknown"
 
     def _to_plain(self, response: Any) -> Any:

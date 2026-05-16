@@ -15,6 +15,10 @@ gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
 from .common import APP_ID
+from .diagnostics import get_logger
+
+
+log = get_logger(__name__)
 
 
 class GpsReader:
@@ -51,7 +55,7 @@ class GpsReader:
             try:
                 self._geoclue_client.call_sync("Stop", None, Gio.DBusCallFlags.NONE, 1000, None)
             except Exception:
-                pass
+                log.exception("Could not stop GeoClue client")
 
     # ------------------------------------------------------------------
     # GeoClue2
@@ -86,11 +90,11 @@ class GpsReader:
                         None, Gio.DBusCallFlags.NONE, 3000, None,
                     )
                 except Exception:
-                    pass
+                    log.exception("Could not set GeoClue property %s", name)
             client.connect("g-signal", self._on_geoclue_signal)
             client.call_sync("Start", None, Gio.DBusCallFlags.NONE, 3000, None)
         except Exception:
-            pass
+            log.info("GeoClue startup failed; GPSD fallback remains active", exc_info=True)
         return False
 
     def _on_geoclue_signal(self, _proxy: Any, _sender: str, signal_name: str, params: Any) -> None:
@@ -122,7 +126,7 @@ class GpsReader:
                     gps_payload["gps_altitude"] = {"value": altitude, "unit": "meter"}
                 self.on_update(gps_payload)
         except Exception:
-            pass
+            log.exception("Could not process GeoClue location update")
 
     def _geoclue_double(self, proxy: Any, name: str) -> float | None:
         value = proxy.get_cached_property(name)
@@ -140,7 +144,7 @@ class GpsReader:
             try:
                 self._connect_and_read_gpsd()
             except Exception:
-                pass
+                log.info("GPSD read failed; retrying in %.1fs", self.GPSD_RETRY_INTERVAL, exc_info=True)
             self.stop_event.wait(self.GPSD_RETRY_INTERVAL)
 
     def _connect_and_read_gpsd(self) -> None:

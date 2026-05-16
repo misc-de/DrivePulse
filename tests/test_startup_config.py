@@ -65,3 +65,16 @@ def test_detect_language_uses_supported_language_or_source_fallback(monkeypatch,
 
     monkeypatch.setenv("DRIVEPULSE_LANG", "fr_FR.UTF-8")
     assert drivepulse_module._detect_language() == "en"
+
+
+def test_load_settings_ignores_invalid_json(monkeypatch, tmp_path, drivepulse_module):
+    from drivepulse_app import app_settings
+
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text("{not valid json", encoding="utf-8")
+    monkeypatch.setattr(app_settings, "SETTINGS_FILE", settings_file)
+
+    settings = app_settings.load_settings()
+
+    assert settings["units"] == "metric"
+    assert settings["language"] in {"en", "de"}

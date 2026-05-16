@@ -12,6 +12,11 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 import datetime
 
+from .diagnostics import get_logger
+
+
+log = get_logger(__name__)
+
 
 def generate_tls_keypair(cert_path: Path, key_path: Path) -> None:
     if cert_path.exists() and key_path.exists():
@@ -61,6 +66,7 @@ def verify_spki_fingerprint(cert_der: bytes, expected_fp: str) -> bool:
         actual = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
         return actual == expected_fp
     except Exception:
+        log.exception("Could not verify sync certificate fingerprint")
         return False
 
 
@@ -80,4 +86,5 @@ def get_local_ip() -> str:
         s.close()
         return ip
     except Exception:
+        log.exception("Could not determine local IP address")
         return "127.0.0.1"

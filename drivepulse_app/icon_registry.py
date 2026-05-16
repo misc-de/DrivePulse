@@ -13,8 +13,10 @@ gi.require_version("Gio", "2.0")
 from gi.repository import Gdk, Gio, Gtk  # noqa: E402
 
 from .common import APP_ID
+from .diagnostics import get_logger
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+log = get_logger(__name__)
 
 
 def build_icon_gresource(app_dir: Path | None = None) -> Path | None:
@@ -35,6 +37,7 @@ def build_icon_gresource(app_dir: Path | None = None) -> Path | None:
         )
         return out_bin
     except Exception:
+        log.exception("Could not build icon gresource from %s", src_xml)
         return None
 
 
@@ -51,7 +54,7 @@ def register_local_icon(app_dir: Path | None = None) -> None:
             Gio.resources_register(resource)
             theme.add_resource_path("/de/cais/DrivePulse/icons")
         except Exception:
-            pass
+            log.exception("Could not register icon gresource %s", gresource_bin)
 
     # Fallback: filesystem search path (requires icons/hicolor/index.theme).
     icons_dir = app_dir / "icons"
@@ -78,4 +81,4 @@ def register_local_icon(app_dir: Path | None = None) -> None:
                 )
             theme.add_search_path(str(hicolor_cache.parent))
         except Exception:
-            pass
+            log.exception("Could not register local app icon %s", local_icon)
