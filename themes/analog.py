@@ -212,31 +212,53 @@ def _compass_analog(
          cx, cy + r * 0.30 + sz, sz, (*text_col, 0.80 * a), max_w=r * 1.6)
 
 
-def _analog_info_bar(cr: Any, width: int, height: int, d: Any, bar_y: float) -> None:
-    """Bottom info strip for analog — label above, value below."""
-    items: list = []  # (label, value, active)
-    if d.fuel_active:
-        items.append((_translate(d.language, 'dashboard.fuel'), d.fuel_label, True))
-    if not items or bar_y >= height * 0.96:
-        return
+def _fuel_halfmoon_left(cr: Any, width: int, height: int, d: Any) -> None:
+    """Halbkreis-Tankanzeige am linken Rand. 0 % unten → 100 % oben, 4 Striche."""
+    a = 1.0 if d.fuel_active else 0.28
+    fuel_norm = max(0.0, min(1.0, d.fuel_pct / 100.0)) if d.fuel_active else 0.0
 
-    dim = (0.52, 0.55, 0.60)
-    bright = (0.88, 0.90, 0.94)
-    col_w = width / len(items)
-    lbl_sz = max(9.0, height * 0.042)
-    val_sz = max(11.0, height * 0.058)
+    r  = min(height * 0.42, width * 0.11)
+    cx = max(3.0, r * 0.05)
+    cy = height / 2.0
+    lw = max(5.0, r * 0.10)
 
-    cr.set_source_rgba(0.22, 0.24, 0.28, 0.45)
-    cr.set_line_width(0.5)
-    cr.move_to(width * 0.08, bar_y)
-    cr.line_to(width * 0.92, bar_y)
+    # 0 % = unten (π/2), 100 % = oben (−π/2), gegen Uhrzeigersinn
+    ANG_0   =  math.pi / 2
+    ANG_100 = -math.pi / 2
+    ang_val = ANG_0 - math.pi * fuel_norm
+
+    cr.set_line_cap(1)  # ROUND
+
+    # Hintergrund-Bogen
+    cr.set_line_width(lw)
+    cr.set_source_rgba(0.22, 0.24, 0.28, 0.40)
+    cr.arc_negative(cx, cy, r, ANG_0, ANG_100)
     cr.stroke()
 
-    for i, (lbl, val, act) in enumerate(items):
-        ia = 1.0 if act else 0.28
-        ix = (i + 0.5) * col_w
-        _txt(cr, lbl, ix, bar_y + lbl_sz * 1.1, lbl_sz, (*dim, 0.72 * ia))
-        _txt(cr, val, ix, bar_y + lbl_sz * 1.1 + val_sz * 1.1, val_sz, (*bright, ia), bold=True)
+    # Füll-Bogen
+    if fuel_norm > 0.005:
+        if fuel_norm < 0.25:
+            fill_col = (0.92, 0.18, 0.12)   # rot  – leer
+        elif fuel_norm < 0.50:
+            fill_col = (0.95, 0.62, 0.08)   # orange
+        else:
+            fill_col = (0.22, 0.80, 0.28)   # grün – voll
+        cr.set_source_rgba(*fill_col, 0.88 * a)
+        cr.arc_negative(cx, cy, r, ANG_0, ang_val)
+        cr.stroke()
+
+    # 4 Strichmarkierungen bei 25 %, 50 %, 75 %, 100 %
+    tick_in  = r - lw
+    tick_out = r + lw
+    tick_lw  = max(1.5, lw * 0.30)
+    cr.set_line_cap(0)  # BUTT für Striche
+    for i in range(1, 5):
+        ang = ANG_0 - math.pi * (i / 4)
+        cr.set_line_width(tick_lw)
+        cr.set_source_rgba(0.68, 0.70, 0.75, 0.60 * a)
+        cr.move_to(cx + math.cos(ang) * tick_in,  cy + math.sin(ang) * tick_in)
+        cr.line_to(cx + math.cos(ang) * tick_out, cy + math.sin(ang) * tick_out)
+        cr.stroke()
 
 
 def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
@@ -271,7 +293,7 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
                   d.coolant_label, "°C", "",
                   d.coolant_active, 20.0, 10.0)
 
-    _analog_info_bar(cr, width, height, d, cy_main + r_center + height * 0.045)
+    _fuel_halfmoon_left(cr, width, height, d)
 
 
 def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
@@ -305,7 +327,7 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
                   d.coolant_label, "°C", "",
                   d.coolant_active, 20.0, 10.0)
 
-    _analog_info_bar(cr, width, height, d, cy_side + r_side + height * 0.04)
+    _fuel_halfmoon_left(cr, width, height, d)
 
 
 def draw(cr: Any, width: int, height: int, data: Any) -> None:
