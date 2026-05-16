@@ -304,6 +304,7 @@ class AccelerationPage(Gtk.Box):
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         controls.set_margin_top(8)
+        controls.set_margin_bottom(20)
         controls.set_hexpand(True)
         controls.append(self.start_button)
         controls.append(self.abort_button)
