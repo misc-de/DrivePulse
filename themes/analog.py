@@ -318,6 +318,137 @@ def _fuel_halfmoon_left(
     cr.stroke()
 
 
+def _voltage_halfmoon_right(
+    cr: Any, width: int, height: int, d: Any,
+    r: float | None = None, cy: float | None = None,
+) -> None:
+    """Semicircular battery-voltage gauge on the right edge. 11 V = bottom, 15 V = top."""
+    V_MIN, V_MAX = 11.0, 15.0
+    a = 1.0 if d.voltage_active else 0.28
+    volt_norm = max(0.0, min(1.0, (d.voltage_v - V_MIN) / (V_MAX - V_MIN))) if d.voltage_active else 0.0
+
+    face_col = (0.11, 0.12, 0.13)
+    text_col = (0.95, 0.96, 0.98)
+    dim_col  = (0.55, 0.58, 0.62)
+
+    if r is None:
+        r = min(height * 0.42, width * 0.24)
+    if cy is None:
+        cy = height * 0.72
+    cx = float(width)
+
+    ANG_BOT =  math.pi / 2   # 11 V = bottom
+    ANG_TOP = -math.pi / 2   # 15 V = top  (= 3π/2 in increasing direction)
+
+    # Face disc — left D-shape, flat side at right screen edge
+    cr.set_source_rgb(*face_col)
+    cr.move_to(cx, cy)
+    cr.arc(cx, cy, r, ANG_BOT, ANG_TOP)   # clockwise on screen: bottom → left → top
+    cr.close_path()
+    cr.fill()
+
+    # Red warning zone: bottom 1/6 (low-voltage zone fades in as voltage drops below 11.67 V)
+    ANG_WARN = ANG_BOT + math.pi / 6
+    if volt_norm < 1 / 6:
+        warn_alpha = (1 / 6 - volt_norm) / (1 / 6) * 0.55
+        cr.set_source_rgba(0.92, 0.10, 0.05, warn_alpha * a)
+        cr.move_to(cx, cy)
+        cr.arc(cx, cy, r, ANG_BOT, ANG_WARN)
+        cr.close_path()
+        cr.fill()
+
+    # Outer border arc
+    cr.set_line_width(max(2.0, r * 0.025))
+    cr.set_source_rgba(0.35, 0.38, 0.42, 0.70)
+    cr.arc(cx, cy, r, ANG_BOT, ANG_TOP)
+    cr.stroke()
+
+    # Tick marks: minor every 0.5 V (8 steps), major every 1 V (4 steps → 5 positions)
+    tick_outer = r * 0.92
+    tick_major_inner = r * 0.74
+    tick_minor_inner = r * 0.84
+    STEPS_MINOR = 8   # 0.5 V × 8 = 4 V range
+    for i in range(STEPS_MINOR + 1):
+        frac = i / STEPS_MINOR
+        ang = ANG_BOT + math.pi * frac
+        is_major = (i % 2) == 0
+        inner = tick_major_inner if is_major else tick_minor_inner
+        lw    = max(1.5, r * 0.016) if is_major else max(0.8, r * 0.009)
+        alpha = 0.85 if is_major else 0.45
+        cr.set_line_width(lw)
+        cr.set_source_rgba(*text_col, alpha * a)
+        cr.move_to(cx + math.cos(ang) * inner, cy + math.sin(ang) * inner)
+        cr.line_to(cx + math.cos(ang) * tick_outer, cy + math.sin(ang) * tick_outer)
+        cr.stroke()
+
+    # Scale labels at major ticks (11, 12, 13, 14, 15)
+    lbl_r = r * 0.55
+    lbl_size = max(9.0, r * 0.13)
+    STEPS_MAJOR = 4
+    for i in range(STEPS_MAJOR + 1):
+        frac = i / STEPS_MAJOR
+        ang = ANG_BOT + math.pi * frac
+        lval = V_MIN + (V_MAX - V_MIN) * frac
+        txt = f"{lval:.0f}"
+        cr.select_font_face("Cantarell", 0, 0)
+        cr.set_font_size(lbl_size)
+        ext = cr.text_extents(txt)
+        nx = cx + math.cos(ang) * lbl_r - ext.width / 2 - ext.x_bearing
+        ny = cy + math.sin(ang) * lbl_r - ext.height / 2 - ext.y_bearing
+        cr.set_source_rgba(*dim_col, 0.80 * a)
+        cr.move_to(nx, ny)
+        cr.show_text(txt)
+
+    # Battery icon (mirrored position of fuel pump — same isz, same y offset)
+    isz = max(12.0, r * 0.22)
+    ix  = cx - r * 0.42 + isz   # mirror of fuel: cx + r*0.42 - isz, reflected around cx=width
+    iy  = cy + r * 0.28 + isz
+    cr.set_source_rgba(*dim_col, 0.55 * a)
+    cr.set_line_width(max(1.2, isz * 0.14))
+    cr.set_line_cap(1)
+    # Body (same proportions as fuel tank rectangle)
+    cr.rectangle(ix - isz * 0.30, iy - isz * 0.45, isz * 0.60, isz * 0.90)
+    cr.stroke()
+    # Terminal nub on top
+    cr.rectangle(ix - isz * 0.12, iy - isz * 0.45 - isz * 0.18, isz * 0.24, isz * 0.18)
+    cr.stroke()
+    # Plus sign inside body
+    cr.move_to(ix,            iy - isz * 0.30)
+    cr.line_to(ix,            iy - isz * 0.05)
+    cr.stroke()
+    cr.move_to(ix - isz * 0.15, iy - isz * 0.175)
+    cr.line_to(ix + isz * 0.15, iy - isz * 0.175)
+    cr.stroke()
+
+    # Needle (orange diamond — identical shape to fuel halfmoon)
+    needle_angle = ANG_BOT + math.pi * volt_norm
+    needle_len = r * 0.72
+    tail_len   = r * 0.16
+    perp       = r * 0.028
+    tip_x  = cx + math.cos(needle_angle) * needle_len
+    tip_y  = cy + math.sin(needle_angle) * needle_len
+    tail_x = cx - math.cos(needle_angle) * tail_len
+    tail_y = cy - math.sin(needle_angle) * tail_len
+    p_x = -math.sin(needle_angle) * perp
+    p_y =  math.cos(needle_angle) * perp
+    cr.set_source_rgba(0.95, 0.42, 0.08, a)
+    cr.move_to(tip_x, tip_y)
+    cr.line_to(cx + p_x * 2, cy + p_y * 2)
+    cr.line_to(tail_x, tail_y)
+    cr.line_to(cx - p_x * 2, cy - p_y * 2)
+    cr.close_path()
+    cr.fill()
+
+    # Center hub
+    cr.set_source_rgb(*face_col)
+    cr.arc(cx, cy, r * 0.072, 0, math.tau)
+    cr.fill()
+    cr.set_line_width(max(1.5, r * 0.018))
+    cr.set_source_rgba(0.95, 0.42, 0.08, a)
+    cr.arc(cx, cy, r * 0.072, 0, math.tau)
+    cr.stroke()
+
+
 def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
     r_center = min(height * 0.37, width * 0.22)
     r_right = r_center * 0.58
@@ -350,8 +481,10 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
                   d.coolant_label, "°C", "",
                   d.coolant_active, 20.0, 10.0)
 
-    # Fuel: same radius as coolant gauge, bottom-left corner (arc bottom at screen edge)
+    # Fuel: same radius as coolant gauge, bottom-left corner
     _fuel_halfmoon_left(cr, width, height, d, r=r_left, cy=height - r_left)
+    # Voltage: mirrored, bottom-right corner
+    _voltage_halfmoon_right(cr, width, height, d, r=r_left, cy=height - r_left)
 
 
 def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
@@ -385,10 +518,12 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
                   d.coolant_label, "°C", "",
                   d.coolant_active, 20.0, 10.0)
 
-    # Fuel halfmoon: centered in the gap between RPM bottom edge and screen bottom
+    # Fuel halfmoon: centered in the gap between side gauges and screen bottom
     r_fuel  = min(height * 0.42, width * 0.24) * (2 / 3)
     cy_fuel = (cy_side + r_side + height) / 2
     _fuel_halfmoon_left(cr, width, height, d, r=r_fuel, cy=cy_fuel)
+    # Voltage halfmoon: symmetric, right side
+    _voltage_halfmoon_right(cr, width, height, d, r=r_fuel, cy=cy_fuel)
 
 
 def draw(cr: Any, width: int, height: int, data: Any) -> None:

@@ -8,7 +8,7 @@ from typing import Any, Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Pango  # noqa: E402
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 from common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language, _translate
 
@@ -218,6 +218,13 @@ class AccelerationPage(Gtk.Box):
         self._last_heading_time: float | None = None
         self._lateral_g: float = 0.0
         self.on_mock_start: Callable[[], None] | None = None
+        self._run_samples: list[tuple[float, float | None, float]] = []  # (elapsed, active_g, lateral_g)
+        self._saved_results: dict | None = None
+        self._saved_range_results: dict | None = None
+        self._replay_active: bool = False
+        self._replay_start_mono: float = 0.0
+        self._replay_timer_id: int | None = None
+        self._replay_sample_idx: int = 0
         self.results: dict[int, dict[str, float | None]] = {
             target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
         }
@@ -278,6 +285,13 @@ class AccelerationPage(Gtk.Box):
         self.reset_button.connect("clicked", self.reset_measurement)
         _apply_warning_css(self.reset_button)
 
+        self.replay_button = Gtk.Button()
+        self.replay_button.add_css_class("suggested-action")
+        self.replay_button.add_css_class("pill")
+        self.replay_button.set_hexpand(True)
+        self.replay_button.set_visible(False)
+        self.replay_button.connect("clicked", self.replay_measurement)
+
         self.gforce_trigger_check = Gtk.CheckButton()
         self.gforce_trigger_check.connect("toggled", self._on_gforce_trigger_toggled)
 
@@ -308,6 +322,7 @@ class AccelerationPage(Gtk.Box):
         controls.set_hexpand(True)
         controls.append(self.start_button)
         controls.append(self.abort_button)
+        controls.append(self.replay_button)
         controls.append(self.reset_button)
 
         # G-Force visualization (Sensor-Suite inspired) with Vmax/Gmax line above.
@@ -454,6 +469,8 @@ class AccelerationPage(Gtk.Box):
         self.abort_button.set_label(_translate(self.language, "acceleration.abort"))
         self.reset_button.set_label(_translate(self.language, "acceleration.reset"))
         self.gforce_trigger_check.set_label(_translate(self.language, "acceleration.gforce_trigger"))
+        if self.replay_button.get_visible() and not self._replay_active:
+            self.replay_button.set_label(_translate(self.language, "acceleration.replay"))
         if not self.armed and not self.running:
             self.status_label.set_text(_translate(self.language, "acceleration.ready"))
         obd_text = _translate(self.language, "acceleration.obd")
@@ -534,16 +551,25 @@ class AccelerationPage(Gtk.Box):
     def _show_start(self) -> None:
         self.start_button.set_visible(True)
         self.abort_button.set_visible(False)
+        self.replay_button.set_visible(False)
 
     def _show_abort(self) -> None:
         self.start_button.set_visible(False)
         self.abort_button.set_visible(True)
+        self.replay_button.set_visible(False)
+
+    def _show_replay(self) -> None:
+        self.start_button.set_visible(False)
+        self.abort_button.set_visible(False)
+        self.replay_button.set_label(_translate(self.language, "acceleration.replay"))
+        self.replay_button.set_visible(True)
 
     # ------------------------------------------------------------------
     # Button callbacks
     # ------------------------------------------------------------------
 
     def start_measurement(self, *_args: Any) -> None:
+        self._stop_replay()
         self.armed = True
         self.running = False
         self.start_monotonic = None
@@ -556,6 +582,9 @@ class AccelerationPage(Gtk.Box):
         self._gps_ever_seen = False
         self._engage_since   = None
         self._prestart_since = None
+        self._run_samples = []
+        self._saved_results = None
+        self._saved_range_results = None
         self._reset_labels()
         self._set_source_visibility(False, False)
         self._update_maxes_label()
@@ -571,6 +600,7 @@ class AccelerationPage(Gtk.Box):
         self.status_label.set_text(_translate(self.language, "acceleration.done"))
 
     def reset_measurement(self, *_args: Any) -> None:
+        self._stop_replay()
         self.armed = False
         self.running = False
         self.start_monotonic = None
@@ -587,6 +617,10 @@ class AccelerationPage(Gtk.Box):
         self._lateral_g = 0.0
         self._engage_since   = None
         self._prestart_since = None
+        self._run_samples = []
+        self._saved_results = None
+        self._saved_range_results = None
+        self._replay_sample_idx = 0
         self.gforce_canvas.clear()
         self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
         self.range_results = {r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH}
@@ -601,6 +635,81 @@ class AccelerationPage(Gtk.Box):
         """Compute _raw_g_dev for start-detection. Canvas is driven by update_payload only."""
         mag = math.sqrt(x_g ** 2 + y_g ** 2 + z_g ** 2)
         self._raw_g_dev = abs(mag - 1.0)
+
+    # ------------------------------------------------------------------
+    # Replay
+    # ------------------------------------------------------------------
+
+    def _stop_replay(self) -> None:
+        if self._replay_timer_id is not None:
+            GLib.source_remove(self._replay_timer_id)
+            self._replay_timer_id = None
+        self._replay_active = False
+
+    def replay_measurement(self, *_args: Any) -> None:
+        if self._saved_results is None or not self._run_samples:
+            return
+        self._stop_replay()
+        self._reset_labels()
+        self._set_source_visibility(self._obd_ever_seen, self._gps_ever_seen)
+        self.gforce_canvas.clear()
+        self._set_g_text(None)
+        self._update_maxes_label()
+        self._replay_active = True
+        self._replay_start_mono = time.monotonic()
+        self._replay_sample_idx = 0
+        self.replay_button.set_label(_translate(self.language, "acceleration.replay.running"))
+        self.status_label.set_text(_translate(self.language, "acceleration.running"))
+        self._replay_timer_id = GLib.timeout_add(33, self._replay_tick)
+
+    def _replay_tick(self) -> bool:
+        if not self._replay_active or self._saved_results is None:
+            self._replay_timer_id = None
+            return GLib.SOURCE_REMOVE
+        now_elapsed = time.monotonic() - self._replay_start_mono
+        samples = self._run_samples
+        while self._replay_sample_idx < len(samples):
+            s_elapsed, active_g, lateral_g = samples[self._replay_sample_idx]
+            if s_elapsed > now_elapsed:
+                break
+            if active_g is not None:
+                self.gforce_canvas.update_g(lateral_g, active_g, 1.0)
+                self._set_g_text(active_g)
+            self._replay_sample_idx += 1
+        for target in self.SPEED_TARGETS_KMH:
+            row = self._saved_results[target]
+            for source in ("obd", "gps"):
+                t = row.get(source)
+                if t is not None and t <= now_elapsed:
+                    self.result_labels[(target, source)].set_text(f"{t:.2f} s")
+        for rkey in self.RANGE_TARGETS_KMH:
+            row = self._saved_range_results[rkey]
+            for source in ("obd", "gps"):
+                t = row.get(source)
+                if t is not None and t <= now_elapsed:
+                    self.result_labels[(rkey, source)].set_text(f"{t:.2f} s")
+        self._update_best_labels_from_saved(now_elapsed)
+        max_elapsed = samples[-1][0] if samples else 0.0
+        if now_elapsed >= max_elapsed:
+            self._stop_replay()
+            self._replay_timer_id = None
+            self._update_best_labels()
+            self.status_label.set_text(_translate(self.language, "acceleration.done"))
+            self.replay_button.set_label(_translate(self.language, "acceleration.replay"))
+            return GLib.SOURCE_REMOVE
+        return GLib.SOURCE_CONTINUE
+
+    def _update_best_labels_from_saved(self, up_to_elapsed: float) -> None:
+        for target in self.SPEED_TARGETS_KMH:
+            row = self._saved_results[target]
+            measured = [v for v in row.values() if v is not None and v <= up_to_elapsed]
+            avg = sum(measured) / len(measured) if measured else None
+            self.result_labels[(target, "best")].set_text("--" if avg is None else f"{avg:.2f} s")
+        for rkey in self.RANGE_TARGETS_KMH:
+            row = self._saved_range_results[rkey]
+            measured = [v for v in row.values() if v is not None and v <= up_to_elapsed]
+            avg = sum(measured) / len(measured) if measured else None
+            self.result_labels[(rkey, "best")].set_text("--" if avg is None else f"{avg:.2f} s")
 
     def _on_gforce_trigger_toggled(self, btn: Gtk.CheckButton) -> None:
         self._gforce_trigger = btn.get_active()
@@ -738,6 +847,7 @@ class AccelerationPage(Gtk.Box):
             return
 
         elapsed = now - self.start_monotonic
+        self._run_samples.append((elapsed, active_g, self._lateral_g))
         for target in self.SPEED_TARGETS_KMH:
             row = self.results[target]
             if row["obd"] is None and obd_speed is not None and obd_speed >= target:
@@ -766,5 +876,7 @@ class AccelerationPage(Gtk.Box):
         if all_done:
             self.running = False
             self.armed = False
-            self._show_start()
+            self._saved_results = {k: dict(v) for k, v in self.results.items()}
+            self._saved_range_results = {k: dict(v) for k, v in self.range_results.items()}
+            self._show_replay()
             self.status_label.set_text(_translate(self.language, "acceleration.done"))
