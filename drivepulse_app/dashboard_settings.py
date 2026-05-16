@@ -78,16 +78,16 @@ class DashboardSettingsMixin:
     def _open_sync(self, *_args: Any) -> None:
         import gi
         gi.require_version("Adw", "1")
-        from gi.repository import Adw
+        from gi.repository import Adw, GLib
         from .sync_dialog import SyncDialog
 
-        alert = Adw.AlertDialog(
-            heading=_translate(self.language, "sync.title"),
-            body="",
-        )
-        alert.add_response("client", _translate(self.language, "sync.choose.client"))
-        alert.add_response("server", _translate(self.language, "sync.choose.server"))
+        title = _translate(self.language, "sync.title")
+        alert = Adw.AlertDialog(body="")
+        alert.set_heading_use_markup(True)
+        alert.set_heading(f'<span background="#2ec27e" foreground="white"> {GLib.markup_escape_text(title)} </span>')
         alert.add_response("cancel", _translate(self.language, "sync.choose.cancel"))
+        alert.add_response("server", _translate(self.language, "sync.choose.server"))
+        alert.add_response("client", _translate(self.language, "sync.choose.client"))
         alert.set_response_appearance("cancel", Adw.ResponseAppearance.SUGGESTED)
         alert.set_default_response("cancel")
         alert.set_close_response("cancel")
