@@ -59,10 +59,12 @@ def test_acceleration_finishes_when_all_targets_have_a_source(monkeypatch, drive
 
 
 def test_settings_dialog_calls_callbacks(drivepulse_module):
+    from settings_dialog import SettingsDialog
+
     unit_calls = []
     language_calls = []
     mock_calls = []
-    dialog = drivepulse_module.SettingsDialog(
+    dialog = SettingsDialog(
         None, "metric", "en", unit_calls.append, language_calls.append,
         current_mock_mode=False, on_mock_mode_changed=mock_calls.append,
     )

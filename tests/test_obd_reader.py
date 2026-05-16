@@ -165,6 +165,21 @@ def test_read_obd_reuses_cached_slow_values_between_fast_polls(monkeypatch, driv
     assert second["engine_load"] == first["engine_load"]
 
 
+def test_close_connection_clears_obd_value_cache(drivepulse_module):
+    reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader.connection = _Connection(True)
+    reader.connected_port = "/dev/rfcomm0"
+    reader._obd_value_cache["fuel_level"] = {"value": 50}
+    reader._obd_last_query["fuel_level"] = 123.0
+
+    reader._close_connection()
+
+    assert reader.connection is None
+    assert reader.connected_port is None
+    assert reader._obd_value_cache == {}
+    assert reader._obd_last_query == {}
+
+
 def test_reconnect_after_three_failed_reads(monkeypatch, drivepulse_module):
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.mock = False
