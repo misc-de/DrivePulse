@@ -293,9 +293,14 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
     # --- Build per-metric point lists: (ts, value|None, lat, lon) ---
     # Base: all samples that have GPS coordinates (needed for map cursor sync)
     _base = [s for s in samples if s["lat"] is not None and s["lon"] is not None]
+
+    def _valid(v: Any) -> bool:
+        return v is not None and not (isinstance(v, float) and math.isnan(v))
+
     metric_data: dict[str, list] = {}
     for _mk, _ml, _mu, _mc, _mf in _CHART_METRICS:
-        _pts = [(s["ts"], s[_mk], s["lat"], s["lon"]) for s in _base]
+        _pts = [(s["ts"], s[_mk] if _valid(s[_mk]) else None, s["lat"], s["lon"])
+                for s in _base]
         if sum(1 for p in _pts if p[1] is not None) >= 2:
             metric_data[_mk] = _pts
 
@@ -664,7 +669,7 @@ def _build_chart_widget(
         pts = chart_state.get("pts") or []
         if len(pts) < 2:
             return
-        valid_vals = [p[1] for p in pts if p[1] is not None]
+        valid_vals = [p[1] for p in pts if p[1] is not None and not math.isnan(p[1])]
         if not valid_vals:
             return
 
@@ -711,11 +716,11 @@ def _build_chart_widget(
             cr.move_to(4, y)
             cr.show_text(lbl)
 
-        # Build draw segments (skip None gaps)
+        # Build draw segments (skip None/NaN gaps)
         segments: list[list[tuple[float, float]]] = []
         seg: list[tuple[float, float]] = []
         for ts, v, *_ in pts:
-            if v is None:
+            if v is None or math.isnan(v):
                 if seg:
                     segments.append(seg)
                     seg = []
@@ -1164,7 +1169,7 @@ def _build_osm_map_widget(
             _track = [(p[2], p[3], p[1]) for p in _cstate_pts]  # (lat, lon, value|None)
         else:
             _track = list(gps_points)  # (lat, lon, speed_kmh)
-        _vals = [v for _, _, v in _track if v is not None]
+        _vals = [v for _, _, v in _track if v is not None and not math.isnan(v)]
         _vmin = min(_vals) if _vals else 0.0
         _vmax = max(_vals) if _vals else 0.0
         _vrange = max(1e-6, _vmax - _vmin)
@@ -1190,7 +1195,7 @@ def _build_osm_map_widget(
         prev: tuple[float, float] | None = None
         for lat, lon, val in _track:
             px, py = proj(lat, lon)
-            if val is not None:
+            if val is not None and not math.isnan(val):
                 t  = min(1.0, max(0.0, (val - _vmin) / _vrange))
                 rr = 0.2 + 0.7 * t
                 gg = 0.5 + 0.4 * (1 - abs(0.5 - t) * 2)
