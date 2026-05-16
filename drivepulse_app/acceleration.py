@@ -281,7 +281,7 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.results_box.append(self._make_result_row("Vmax", "vmax"))
 
     def _make_header_row(self) -> Gtk.Box:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         row.set_margin_top(4)
         row.set_margin_bottom(2)
         row.set_margin_start(4)
@@ -320,7 +320,7 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         return row
 
     def _make_result_row(self, label_text: str, key: Any) -> Gtk.Box:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         row.add_css_class("card")
         row.set_margin_top(2)
         row.set_margin_bottom(2)
@@ -332,20 +332,26 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         ellipsize_mode = getattr(getattr(Pango, "EllipsizeMode", None), "END", None)
         if ellipsize_mode is not None:
             name_lbl.set_ellipsize(ellipsize_mode)
-        name_lbl.set_max_width_chars(12)
+        name_lbl.set_max_width_chars(10)
 
         obd_val = Gtk.Label(label="--")
+        obd_val.add_css_class("monospace")
+        obd_val.set_width_chars(6)
         obd_val.set_xalign(1.0)
         obd_val.set_visible(False)
         self._col_obd_sg.add_widget(obd_val)
 
         gps_val = Gtk.Label(label="--")
+        gps_val.add_css_class("monospace")
+        gps_val.set_width_chars(6)
         gps_val.set_xalign(1.0)
         gps_val.set_visible(False)
         self._col_gps_sg.add_widget(gps_val)
 
         best_val = Gtk.Label(label="--")
-        best_val.add_css_class("title-4")
+        best_val.add_css_class("monospace")
+        best_val.add_css_class("heading")
+        best_val.set_width_chars(6)
         best_val.set_xalign(1.0)
         self._col_best_sg.add_widget(best_val)
 
