@@ -377,6 +377,23 @@ def _voltage_halfmoon_right(
         cr.line_to(cx + math.cos(ang) * tick_outer, cy + math.sin(ang) * tick_outer)
         cr.stroke()
 
+    # Scale labels at all 5 positions (12, 13, 14, 15, 16)
+    lbl_r = r * 0.55
+    lbl_size = max(9.0, r * 0.13)
+    cr.select_font_face("Cantarell", 0, 0)
+    cr.set_font_size(lbl_size)
+    for i in range(5):
+        frac = i / 4
+        ang = ANG_BOT + math.pi * frac
+        lval = V_MIN + (V_MAX - V_MIN) * frac
+        txt = f"{lval:.0f}"
+        ext = cr.text_extents(txt)
+        nx = cx + math.cos(ang) * lbl_r - ext.width / 2 - ext.x_bearing
+        ny = cy + math.sin(ang) * lbl_r - ext.height / 2 - ext.y_bearing
+        cr.set_source_rgba(*dim_col, 0.80 * a)
+        cr.move_to(nx, ny)
+        cr.show_text(txt)
+
     # Battery icon (mirrored position of fuel pump — same isz, same y offset)
     isz = max(12.0, r * 0.22)
     ix  = cx - r * 0.42 + isz   # mirror of fuel: cx + r*0.42 - isz, reflected around cx=width
