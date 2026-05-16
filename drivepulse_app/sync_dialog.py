@@ -1,0 +1,519 @@
+from __future__ import annotations
+
+import subprocess
+import threading
+import time
+from pathlib import Path
+from typing import Any, Callable
+from urllib.parse import parse_qs, urlparse
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, GLib, GdkPixbuf, Gtk
+
+from .common import LOG_DIR, _translate
+from .db import DriveDB
+from .sync_crypto import (
+    generate_device_id,
+    generate_tls_keypair,
+    generate_token,
+    get_local_ip,
+    get_spki_fingerprint,
+)
+from .sync_data import (
+    export_all,
+    import_data,
+    load_paired_devices,
+    save_paired_devices,
+    upsert_paired_device,
+)
+from .sync_qr_scanner import WebcamQRScanner, scan_supported
+from .sync_server import SyncServer
+from .sync_client import SyncClient
+
+_SYNC_DIR = LOG_DIR / "sync"
+_CERT_PATH = _SYNC_DIR / "cert.pem"
+_KEY_PATH = _SYNC_DIR / "key.pem"
+_QR_TMP = Path("/tmp/drivepulse_pair.png")
+_DEVICE_ID_FILE = _SYNC_DIR / "device_id.txt"
+
+
+def _get_or_create_device_id() -> str:
+    try:
+        _SYNC_DIR.mkdir(parents=True, exist_ok=True)
+        if _DEVICE_ID_FILE.exists():
+            return _DEVICE_ID_FILE.read_text().strip()
+        did = generate_device_id()
+        _DEVICE_ID_FILE.write_text(did)
+        return did
+    except Exception:
+        return generate_device_id()
+
+
+class SyncDialog(Adw.Dialog):
+    __gtype_name__ = "SyncDialog"
+
+    def __init__(
+        self,
+        parent: Any,
+        language: str,
+        db: DriveDB,
+        on_sync_complete: Callable[[], None] | None = None,
+    ) -> None:
+        super().__init__()
+        self._language = language
+        self._db = db
+        self._on_sync_complete = on_sync_complete
+        self._server: SyncServer | None = None
+        self._scanner: WebcamQRScanner | None = None
+
+        self.set_title(_translate(language, "sync.title"))
+        self.set_content_width(400)
+        self.set_content_height(560)
+
+        self._nav = Adw.NavigationView()
+        self.set_child(self._nav)
+
+        self._nav.add(self._build_home_page())
+
+        self.connect("closed", self._on_closed)
+
+    def _t(self, key: str, **kw: Any) -> str:
+        return _translate(self._language, key, **kw)
+
+    # ------------------------------------------------------------------ pages
+
+    def _build_home_page(self) -> Adw.NavigationPage:
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Gtk.Label(label=self._t("sync.title")))
+        toolbar_view.add_top_bar(header)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(16)
+        box.set_margin_bottom(16)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+
+        start_group = Adw.PreferencesGroup()
+        start_group.set_title(self._t("sync.title"))
+
+        server_row = Adw.ActionRow()
+        server_row.set_title(self._t("sync.server.row_title"))
+        server_row.set_subtitle(self._t("sync.server.row_subtitle"))
+        server_btn = Gtk.Button(label="→")
+        server_btn.set_valign(Gtk.Align.CENTER)
+        server_btn.connect("clicked", self._push_server_page)
+        server_row.add_suffix(server_btn)
+        server_row.set_activatable_widget(server_btn)
+        start_group.add(server_row)
+
+        client_row = Adw.ActionRow()
+        client_row.set_title(self._t("sync.client.row_title"))
+        client_row.set_subtitle(self._t("sync.client.row_subtitle"))
+        client_btn = Gtk.Button(label="→")
+        client_btn.set_valign(Gtk.Align.CENTER)
+        client_btn.connect("clicked", self._push_client_page)
+        client_row.add_suffix(client_btn)
+        client_row.set_activatable_widget(client_btn)
+        start_group.add(client_row)
+
+        box.append(start_group)
+
+        self._devices_group = Adw.PreferencesGroup()
+        self._devices_group.set_title(self._t("sync.devices.title"))
+        box.append(self._devices_group)
+        self._populate_devices()
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_child(box)
+
+        toolbar_view.set_content(scroll)
+
+        page = Adw.NavigationPage()
+        page.set_tag("home")
+        page.set_title(self._t("sync.title"))
+        page.set_child(toolbar_view)
+        return page
+
+    def _populate_devices(self) -> None:
+        child = self._devices_group.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self._devices_group.remove(child)
+            child = nxt
+
+        devices = load_paired_devices()
+        if not devices:
+            empty_row = Adw.ActionRow()
+            empty_row.set_title(self._t("sync.devices.empty"))
+            self._devices_group.add(empty_row)
+            return
+
+        for device in devices:
+            did = device.get("device_id", "")
+            name = device.get("name") or did[:12] or "Device"
+            host = device.get("host", "")
+            port = device.get("port", SyncServer.PORT)
+            last_seen = device.get("last_seen", "")
+            spki_fp = device.get("spki_fingerprint", "")
+            subtitle = f"{host}:{port}"
+            if last_seen:
+                subtitle += f" · {self._t('sync.device.last_seen', ts=last_seen[:16])}"
+
+            row = Adw.ActionRow()
+            row.set_title(name)
+            row.set_subtitle(subtitle)
+
+            connect_btn = Gtk.Button(label=self._t("sync.device.connect"))
+            connect_btn.set_valign(Gtk.Align.CENTER)
+            connect_btn.add_css_class("suggested-action")
+            connect_btn.connect(
+                "clicked",
+                lambda _b, h=host, p=port, fp=spki_fp, di=did: self._connect_known(h, p, fp, di),
+            )
+            row.add_suffix(connect_btn)
+
+            del_btn = Gtk.Button(label="×")
+            del_btn.set_valign(Gtk.Align.CENTER)
+            del_btn.add_css_class("destructive-action")
+            del_btn.set_tooltip_text(self._t("sync.device.remove"))
+            del_btn.connect("clicked", lambda _b, d_id=did: self._delete_device(d_id))
+            row.add_suffix(del_btn)
+
+            self._devices_group.add(row)
+
+    def _delete_device(self, device_id: str) -> None:
+        devices = load_paired_devices()
+        devices = [d for d in devices if d.get("device_id") != device_id]
+        save_paired_devices(devices)
+        self._populate_devices()
+
+    # ------------------------------------------------------------------ server page
+
+    def _push_server_page(self, *_args: Any) -> None:
+        page, self._server_status_label, self._server_qr_picture, self._server_spinner, self._server_instr_label = (
+            self._build_server_page()
+        )
+        self._nav.push(page)
+        threading.Thread(target=self._start_server_mode, daemon=True).start()
+
+    def _build_server_page(self) -> tuple[Adw.NavigationPage, Gtk.Label, Gtk.Picture, Gtk.Spinner, Gtk.Label]:
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Gtk.Label(label=self._t("sync.server.title")))
+        header.set_show_back_button(True)
+        toolbar_view.add_top_bar(header)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        box.set_halign(Gtk.Align.CENTER)
+        box.set_valign(Gtk.Align.START)
+
+        status_label = Gtk.Label(label=self._t("sync.server.generating"))
+        status_label.set_wrap(True)
+        status_label.set_justify(Gtk.Justification.CENTER)
+        status_label.set_halign(Gtk.Align.CENTER)
+        box.append(status_label)
+
+        qr_picture = Gtk.Picture()
+        qr_picture.set_size_request(280, 280)
+        qr_picture.set_halign(Gtk.Align.CENTER)
+        qr_picture.set_visible(False)
+        box.append(qr_picture)
+
+        spinner = Gtk.Spinner()
+        spinner.start()
+        spinner.set_halign(Gtk.Align.CENTER)
+        box.append(spinner)
+
+        instr_label = Gtk.Label(label=self._t("sync.server.instructions"))
+        instr_label.set_wrap(True)
+        instr_label.set_justify(Gtk.Justification.CENTER)
+        instr_label.set_halign(Gtk.Align.CENTER)
+        instr_label.add_css_class("dim-label")
+        instr_label.set_visible(False)
+        box.append(instr_label)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_child(box)
+
+        toolbar_view.set_content(scroll)
+
+        page = Adw.NavigationPage()
+        page.set_tag("server")
+        page.set_title(self._t("sync.server.title"))
+        page.set_child(toolbar_view)
+        return page, status_label, qr_picture, spinner, instr_label
+
+    def _start_server_mode(self) -> None:
+        try:
+            _SYNC_DIR.mkdir(parents=True, exist_ok=True)
+            generate_tls_keypair(_CERT_PATH, _KEY_PATH)
+            pairing_token = generate_token(32)
+            session_token = generate_token(32)
+            spki_fp = get_spki_fingerprint(_CERT_PATH)
+            local_ip = get_local_ip()
+            expiry = int(time.time()) + 300  # 5 minutes
+            qr_url = (
+                f"drivepulse://pair?v=1&h={local_ip}&p={SyncServer.PORT}"
+                f"&fp={spki_fp}&t={pairing_token}&exp={expiry}"
+            )
+
+            subprocess.run(
+                ["/usr/bin/qrencode", "-s", "8", "-m", "2", "-o", str(_QR_TMP), qr_url],
+                check=True, timeout=10,
+            )
+
+            def _show_qr() -> bool:
+                try:
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file(str(_QR_TMP))
+                    self._server_qr_picture.set_pixbuf(pixbuf)
+                    self._server_qr_picture.set_visible(True)
+                    self._server_spinner.stop()
+                    self._server_spinner.set_visible(False)
+                    self._server_instr_label.set_visible(True)
+                    self._server_status_label.set_text(self._t("sync.server.waiting"))
+                except Exception as exc:
+                    self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
+                return False
+
+            GLib.idle_add(_show_qr)
+
+            def _on_paired(device_info: dict) -> None:
+                GLib.idle_add(
+                    lambda: self._server_status_label.set_text(self._t("sync.server.connected"))
+                )
+
+            def _on_import(data: dict) -> None:
+                try:
+                    result = import_data(self._db, data)
+                    msg = self._t(
+                        "sync.complete",
+                        cars=result["cars_added"] + result["cars_updated"],
+                        trips=result["trips_added"],
+                    )
+                    GLib.idle_add(lambda: self._server_status_label.set_text(msg))
+                    if self._on_sync_complete:
+                        GLib.idle_add(self._on_sync_complete)
+                except Exception as exc:
+                    GLib.idle_add(
+                        lambda: self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
+                    )
+
+            server = SyncServer(
+                _CERT_PATH, _KEY_PATH,
+                pairing_token=pairing_token,
+                session_token=session_token,
+                on_paired_cb=_on_paired,
+                get_export_fn=lambda: export_all(self._db),
+                on_import_fn=_on_import,
+            )
+            self._server = server
+            server.start()
+
+        except Exception as exc:
+            GLib.idle_add(
+                lambda: self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
+            )
+
+    # ------------------------------------------------------------------ client page
+
+    def _push_client_page(self, *_args: Any) -> None:
+        page, self._client_status_label, self._client_entry, self._client_scanner_box = (
+            self._build_client_page()
+        )
+        self._nav.push(page)
+        self._start_qr_scanner()
+
+    def _build_client_page(
+        self,
+    ) -> tuple[Adw.NavigationPage, Gtk.Label, Gtk.Entry, Gtk.Box]:
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Gtk.Label(label=self._t("sync.client.title")))
+        header.set_show_back_button(True)
+        toolbar_view.add_top_bar(header)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(16)
+        box.set_margin_bottom(16)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+
+        # Camera scanner widget area
+        scanner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        scanner_box.set_vexpand(True)
+        box.append(scanner_box)
+
+        paste_label = Gtk.Label(label=self._t("sync.client.paste_label"))
+        paste_label.set_halign(Gtk.Align.START)
+        paste_label.add_css_class("dim-label")
+        box.append(paste_label)
+
+        entry = Gtk.Entry()
+        entry.set_placeholder_text(self._t("sync.client.url_placeholder"))
+        entry.set_hexpand(True)
+        box.append(entry)
+
+        status_label = Gtk.Label(label="")
+        status_label.set_wrap(True)
+        status_label.set_halign(Gtk.Align.START)
+        box.append(status_label)
+
+        connect_btn = Gtk.Button(label=self._t("sync.client.connect_btn"))
+        connect_btn.add_css_class("suggested-action")
+        connect_btn.connect("clicked", lambda _b: self._on_client_connect(entry, status_label))
+        box.append(connect_btn)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_child(box)
+
+        toolbar_view.set_content(scroll)
+
+        page = Adw.NavigationPage()
+        page.set_tag("client")
+        page.set_title(self._t("sync.client.title"))
+        page.set_child(toolbar_view)
+        return page, status_label, entry, scanner_box
+
+    def _start_qr_scanner(self) -> None:
+        if not scan_supported():
+            fallback = Gtk.Label(label=self._t("sync.client.no_camera"))
+            fallback.set_halign(Gtk.Align.CENTER)
+            fallback.add_css_class("dim-label")
+            self._client_scanner_box.append(fallback)
+            return
+
+        def _on_success(text: str) -> None:
+            self._client_entry.set_text(text)
+            self._on_client_connect(self._client_entry, self._client_status_label)
+
+        def _on_error(msg: str) -> None:
+            self._client_status_label.set_text(msg)
+
+        self._scanner = WebcamQRScanner(
+            on_success=_on_success,
+            on_error=_on_error,
+        )
+        widget = self._scanner.build_widget()
+        self._client_scanner_box.append(widget)
+        self._scanner.start()
+
+    def _on_client_connect(self, entry: Gtk.Entry, status_label: Gtk.Label) -> None:
+        url_text = entry.get_text().strip()
+        if not url_text:
+            return
+        if self._scanner is not None:
+            self._scanner.cancel()
+        status_label.set_text(self._t("sync.client.connecting"))
+        threading.Thread(
+            target=self._do_client_connect,
+            args=(url_text, status_label),
+            daemon=True,
+        ).start()
+
+    def _do_client_connect(self, url_text: str, status_label: Gtk.Label) -> None:
+        def _set_status(msg: str) -> bool:
+            status_label.set_text(msg)
+            return False
+
+        try:
+            parsed = urlparse(url_text)
+            if parsed.scheme != "drivepulse":
+                GLib.idle_add(_set_status, self._t("sync.error", error="Invalid URL scheme"))
+                return
+            params = parse_qs(parsed.query)
+            host = (params.get("h") or [""])[0]
+            port = int((params.get("p") or [str(SyncServer.PORT)])[0])
+            spki_fp = (params.get("fp") or [""])[0]
+            pairing_token = (params.get("t") or [""])[0]
+            expiry = int((params.get("exp") or ["0"])[0])
+
+            if not host or not spki_fp or not pairing_token:
+                GLib.idle_add(_set_status, self._t("sync.error", error="Invalid QR data"))
+                return
+
+            if expiry and time.time() > expiry:
+                GLib.idle_add(_set_status, self._t("sync.client.expired"))
+                return
+
+            device_id = _get_or_create_device_id()
+            client = SyncClient(host, port, spki_fp, device_id)
+
+            if not client.verify_fingerprint():
+                GLib.idle_add(_set_status, self._t("sync.client.fp_error"))
+                return
+
+            if not client.pair(pairing_token):
+                GLib.idle_add(_set_status, self._t("sync.error", error="Pairing failed"))
+                return
+
+            server_data = client.export_from_server()
+            if server_data:
+                import_data(self._db, server_data)
+
+            local_data = export_all(self._db)
+            client.import_to_server(local_data)
+
+            upsert_paired_device(
+                device_id=host,
+                name=host,
+                spki_fingerprint=spki_fp,
+                host=host,
+                port=port,
+            )
+
+            car_count = len((server_data or {}).get("cars", []))
+            trip_count = sum(
+                len(c.get("trips", [])) for c in (server_data or {}).get("cars", [])
+            )
+            GLib.idle_add(_set_status, self._t("sync.complete", cars=car_count, trips=trip_count))
+            if self._on_sync_complete:
+                GLib.idle_add(self._on_sync_complete)
+
+        except Exception as exc:
+            GLib.idle_add(_set_status, self._t("sync.error", error=str(exc)))
+
+    # ------------------------------------------------------------------ known device connect
+
+    def _connect_known(self, host: str, port: int, spki_fp: str, device_id: str) -> None:
+        def _worker() -> None:
+            try:
+                my_id = _get_or_create_device_id()
+                client = SyncClient(host, port, spki_fp, my_id)
+                if not client.verify_fingerprint():
+                    return
+                # Known device requires a fresh QR pairing to get a token;
+                # the server entry in the paired list acts as address book only.
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    # ------------------------------------------------------------------ cleanup
+
+    def _on_closed(self, *_args: Any) -> None:
+        if self._server is not None:
+            try:
+                self._server.stop()
+            except Exception:
+                pass
+            self._server = None
+        if self._scanner is not None:
+            try:
+                self._scanner.cancel()
+            except Exception:
+                pass
+            self._scanner = None
