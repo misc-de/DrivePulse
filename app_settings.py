@@ -14,6 +14,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "obd_port": None,
     "gauge_theme": "cockpit",
     "auto_rotate": True,
+    "engage_threshold": 0.20,
 }
 
 
@@ -26,6 +27,11 @@ def load_settings() -> dict[str, Any]:
 
     units = data.get("units")
     language = data.get("language") or _detect_language()
+    raw_thresh = data.get("engage_threshold", DEFAULT_SETTINGS["engage_threshold"])
+    try:
+        engage_threshold = max(0.05, min(1.50, round(float(raw_thresh), 2)))
+    except (TypeError, ValueError):
+        engage_threshold = DEFAULT_SETTINGS["engage_threshold"]
     return {
         "units": units if units in {"metric", "imperial"} else "metric",
         "language": _normalize_language(language),
@@ -33,6 +39,7 @@ def load_settings() -> dict[str, Any]:
         "obd_port": data.get("obd_port") or None,
         "gauge_theme": data.get("gauge_theme", DEFAULT_SETTINGS["gauge_theme"]) or "cockpit",
         "auto_rotate": bool(data.get("auto_rotate", DEFAULT_SETTINGS["auto_rotate"])),
+        "engage_threshold": engage_threshold,
     }
 
 
@@ -48,6 +55,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "obd_port": settings.get("obd_port") or None,
                 "gauge_theme": settings.get("gauge_theme", "cockpit") or "cockpit",
                 "auto_rotate": bool(settings.get("auto_rotate", True)),
+                "engage_threshold": float(settings.get("engage_threshold", DEFAULT_SETTINGS["engage_threshold"])),
             },
             indent=2,
         ),

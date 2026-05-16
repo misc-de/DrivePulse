@@ -221,9 +221,10 @@ def _fuel_halfmoon_left(cr: Any, width: int, height: int, d: Any) -> None:
     text_col = (0.95, 0.96, 0.98)
     dim_col  = (0.55, 0.58, 0.62)
 
-    r  = min(height * 0.42, width * 0.12)
+    # Double the radius relative to before; cy in lower portion of screen
+    r  = min(height * 0.42, width * 0.24)
     cx = 0.0
-    cy = height / 2.0
+    cy = height * 0.72
 
     ANG_BOT =  math.pi / 2   # 0%  = bottom
     ANG_TOP = -math.pi / 2   # 100% = top
@@ -235,14 +236,15 @@ def _fuel_halfmoon_left(cr: Any, width: int, height: int, d: Any) -> None:
     cr.close_path()
     cr.fill()
 
-    # Red warning zone: bottom 1/6 of arc, fades in as fuel drops below 1/6
+    # Red warning zone: bottom 1/6 of arc — invisible above threshold, fades in as fuel drops
     ANG_WARN = ANG_BOT - math.pi / 6
-    warn_alpha = 0.08 + max(0.0, (1/6 - fuel_norm) / (1/6)) * 0.32
-    cr.set_source_rgba(0.88, 0.12, 0.08, warn_alpha * a)
-    cr.move_to(cx, cy)
-    cr.arc_negative(cx, cy, r * 0.90, ANG_BOT, ANG_WARN)
-    cr.close_path()
-    cr.fill()
+    if fuel_norm < 1 / 6:
+        warn_alpha = (1 / 6 - fuel_norm) / (1 / 6) * 0.55
+        cr.set_source_rgba(0.92, 0.10, 0.05, warn_alpha * a)
+        cr.move_to(cx, cy)
+        cr.arc_negative(cx, cy, r, ANG_BOT, ANG_WARN)
+        cr.close_path()
+        cr.fill()
 
     # Outer border arc (matches _analog_gauge ring)
     cr.set_line_width(max(2.0, r * 0.025))
@@ -264,12 +266,12 @@ def _fuel_halfmoon_left(cr: Any, width: int, height: int, d: Any) -> None:
         cr.line_to(cx + math.cos(ang) * tick_outer, cy + math.sin(ang) * tick_outer)
         cr.stroke()
 
-    # Fuel pump icon in the lower face area (below needle center)
-    isz = max(5.0, r * 0.10)
-    ix  = cx + r * 0.40
-    iy  = cy + r * 0.30
+    # Fuel pump icon — centered on the face, below the hub (lower-right quadrant)
+    isz = max(6.0, r * 0.11)
+    ix  = cx + r * 0.42
+    iy  = cy + r * 0.28
     cr.set_source_rgba(*dim_col, 0.55 * a)
-    cr.set_line_width(max(1.0, isz * 0.14))
+    cr.set_line_width(max(1.2, isz * 0.14))
     cr.set_line_cap(1)
     # Tank body
     cr.rectangle(ix - isz*0.30, iy - isz*0.45, isz*0.60, isz*0.90)

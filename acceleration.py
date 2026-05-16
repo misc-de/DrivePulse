@@ -179,8 +179,10 @@ class AccelerationPage(Gtk.Box):
 
     SPEED_TARGETS_KMH = (30, 50, 70, 100, 150, 200)
     RANGE_TARGETS_KMH: tuple[tuple[int, int], ...] = ((100, 200),)
-    G_FORCE_START_THRESHOLD = 0.1
-    G_FORCE_TRIGGER_THRESHOLD = 0.2
+    G_ENGAGE_THRESHOLD   = 0.20   # must sustain for confirm window
+    G_PRESTART_THRESHOLD = 0.06   # retroactive start crossover
+    G_CONFIRM_WINDOW     = 0.150  # seconds the engage threshold must be held
+    G_MIN_SPEED_KMH      = 1.0   # speed gate to confirm real start
 
     def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -202,6 +204,10 @@ class AccelerationPage(Gtk.Box):
         self.max_g: float | None = None
         self._gforce_trigger: bool = False
         self._raw_g_dev: float = 0.0
+        self._engage_since:    float | None = None
+        self._prestart_since:  float | None = None
+        self._engage_threshold: float = self.G_ENGAGE_THRESHOLD
+        self.on_engage_threshold_changed: Callable[[float], None] | None = None
         # Sticky availability flags — once seen during this measurement cycle,
         # the corresponding OBD/GPS column stays visible until reset to prevent
         # the row from flickering between sources on alternating payloads.
@@ -236,11 +242,10 @@ class AccelerationPage(Gtk.Box):
         self.status_label.set_halign(Gtk.Align.START)
 
         self.maxes_label = Gtk.Label()
-        self.maxes_label.add_css_class("dim-label")
+        self.maxes_label.add_css_class("title-2")
         self.maxes_label.set_halign(Gtk.Align.CENTER)
         self.maxes_label.set_hexpand(True)
-        # Sit ~30 px below the time list (above the G-Force ball)
-        self.maxes_label.set_margin_top(30)
+        self.maxes_label.set_margin_top(24)
 
         intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         intro.set_margin_bottom(22)
@@ -274,9 +279,28 @@ class AccelerationPage(Gtk.Box):
         _apply_warning_css(self.reset_button)
 
         self.gforce_trigger_check = Gtk.CheckButton()
-        self.gforce_trigger_check.set_halign(Gtk.Align.CENTER)
-        self.gforce_trigger_check.set_margin_top(12)
         self.gforce_trigger_check.connect("toggled", self._on_gforce_trigger_toggled)
+
+        self._threshold_minus = Gtk.Button(label="−")
+        self._threshold_minus.add_css_class("flat")
+        self._threshold_minus.add_css_class("circular")
+        self._threshold_minus.connect("clicked", self._on_threshold_minus)
+
+        self._threshold_label = Gtk.Label(label=f"{self._engage_threshold:.2f} g")
+        self._threshold_label.set_width_chars(6)
+
+        self._threshold_plus = Gtk.Button(label="+")
+        self._threshold_plus.add_css_class("flat")
+        self._threshold_plus.add_css_class("circular")
+        self._threshold_plus.connect("clicked", self._on_threshold_plus)
+
+        self._trigger_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._trigger_row.set_halign(Gtk.Align.CENTER)
+        self._trigger_row.set_margin_top(12)
+        self._trigger_row.append(self.gforce_trigger_check)
+        self._trigger_row.append(self._threshold_minus)
+        self._trigger_row.append(self._threshold_label)
+        self._trigger_row.append(self._threshold_plus)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         controls.set_margin_top(8)
@@ -325,7 +349,7 @@ class AccelerationPage(Gtk.Box):
 
         self.append(intro)
         self.append(self.content_box)
-        self.append(self.gforce_trigger_check)
+        self.append(self._trigger_row)
         self.append(controls)
 
         self._current_layout = "portrait"
@@ -481,15 +505,13 @@ class AccelerationPage(Gtk.Box):
 
     def _update_best_labels(self) -> None:
         for target in self.SPEED_TARGETS_KMH:
-            values = self.results[target]
-            measured = [v for v in values.values() if v is not None]
-            best = min(measured) if measured else None
-            self.result_labels[(target, "best")].set_text("--" if best is None else f"{best:.2f} s")
+            measured = [v for v in self.results[target].values() if v is not None]
+            avg = sum(measured) / len(measured) if measured else None
+            self.result_labels[(target, "best")].set_text("--" if avg is None else f"{avg:.2f} s")
         for rkey in self.RANGE_TARGETS_KMH:
-            values = self.range_results[rkey]
-            measured = [v for v in values.values() if v is not None]
-            best = min(measured) if measured else None
-            self.result_labels[(rkey, "best")].set_text("--" if best is None else f"{best:.2f} s")
+            measured = [v for v in self.range_results[rkey].values() if v is not None]
+            avg = sum(measured) / len(measured) if measured else None
+            self.result_labels[(rkey, "best")].set_text("--" if avg is None else f"{avg:.2f} s")
 
     def _set_source_visibility(self, obd_available: bool, gps_available: bool) -> None:
         for key in self._all_keys():
@@ -535,6 +557,8 @@ class AccelerationPage(Gtk.Box):
         self.max_g = None
         self._obd_ever_seen = False
         self._gps_ever_seen = False
+        self._engage_since   = None
+        self._prestart_since = None
         self._reset_labels()
         self._set_source_visibility(False, False)
         self._update_maxes_label()
@@ -564,6 +588,8 @@ class AccelerationPage(Gtk.Box):
         self._last_heading_deg = None
         self._last_heading_time = None
         self._lateral_g = 0.0
+        self._engage_since   = None
+        self._prestart_since = None
         self.gforce_canvas.clear()
         self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
         self.range_results = {r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH}
@@ -582,6 +608,22 @@ class AccelerationPage(Gtk.Box):
 
     def _on_gforce_trigger_toggled(self, btn: Gtk.CheckButton) -> None:
         self._gforce_trigger = btn.get_active()
+
+    def _on_threshold_minus(self, *_: Any) -> None:
+        self._engage_threshold = max(0.05, round(self._engage_threshold - 0.05, 2))
+        self._threshold_label.set_text(f"{self._engage_threshold:.2f} g")
+        if self.on_engage_threshold_changed:
+            self.on_engage_threshold_changed(self._engage_threshold)
+
+    def _on_threshold_plus(self, *_: Any) -> None:
+        self._engage_threshold = min(1.50, round(self._engage_threshold + 0.05, 2))
+        self._threshold_label.set_text(f"{self._engage_threshold:.2f} g")
+        if self.on_engage_threshold_changed:
+            self.on_engage_threshold_changed(self._engage_threshold)
+
+    def set_engage_threshold(self, value: float) -> None:
+        self._engage_threshold = max(0.05, min(1.50, round(float(value), 2)))
+        self._threshold_label.set_text(f"{self._engage_threshold:.2f} g")
 
     # ------------------------------------------------------------------
     # Data processing
@@ -667,15 +709,33 @@ class AccelerationPage(Gtk.Box):
         self._update_maxes_label()
 
         if self.armed and not self.running:
-            if self._gforce_trigger:
-                triggered = self._raw_g_dev > self.G_FORCE_TRIGGER_THRESHOLD
-            else:
-                speed_rising = self.computed_acceleration_g is not None and self.computed_acceleration_g > self.G_FORCE_START_THRESHOLD
-                g_rising = active_g is not None and active_g > self.G_FORCE_START_THRESHOLD
-                triggered = speed_rising or g_rising
-            if triggered:
+            trig_g: float | None = self._raw_g_dev if self._gforce_trigger else active_g
+
+            if trig_g is not None:
+                if trig_g >= self._engage_threshold:
+                    if self._engage_since is None:
+                        self._engage_since = now
+                else:
+                    self._engage_since = None  # dropped below — reset confirm window
+
+                if trig_g >= self.G_PRESTART_THRESHOLD:
+                    if self._prestart_since is None:
+                        self._prestart_since = now
+                else:
+                    self._prestart_since = None  # gap in gentle push — reset retroactive marker
+
+            speed_ok = (
+                (obd_speed is not None and obd_speed >= self.G_MIN_SPEED_KMH)
+                or (gps_speed is not None and gps_speed >= self.G_MIN_SPEED_KMH)
+            )
+            sustained = (
+                self._engage_since is not None
+                and (now - self._engage_since) >= self.G_CONFIRM_WINDOW
+            )
+            if sustained and speed_ok:
                 self.running = True
-                self.start_monotonic = now
+                # Set start time retroactively to when the gentle push began
+                self.start_monotonic = self._prestart_since if self._prestart_since is not None else now
                 self.status_label.set_text(_translate(self.language, "acceleration.running"))
 
         if not self.running or self.start_monotonic is None:

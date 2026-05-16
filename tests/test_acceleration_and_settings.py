@@ -13,7 +13,11 @@ def _payload(speed: float | None = None, gps_speed: float | None = None, g: floa
 
 
 def test_acceleration_start_reset_and_target_capture(monkeypatch, drivepulse_module):
-    times = iter([0.0, 0.5, 1.75])
+    # t=0.0: speed=0, no g  → armed, no trigger (no data)
+    # t=0.5: speed=2, g=0.25 → _engage_since=0.5, _prestart_since=0.5; sustained=0 s → no trigger
+    # t=0.8: speed=8, g=0.25 → sustained=0.3 s ≥ 0.15, speed=8 ≥ 1 → TRIGGER; start_monotonic=0.5
+    # t=1.75: speed=50 → elapsed=1.25 s → records 30/50 km/h targets
+    times = iter([0.0, 0.5, 0.8, 1.75])
     monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
     page = drivepulse_module.AccelerationPage()
 
@@ -22,11 +26,14 @@ def test_acceleration_start_reset_and_target_capture(monkeypatch, drivepulse_mod
     assert page.running is False
     assert page.status_label.get_text() == "Armed. Timing starts when acceleration is detected."
 
-    page.update_payload(_payload(speed=0), lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key))
-    page.update_payload(_payload(speed=8, g=0.1), lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key))
-    page.update_payload(_payload(speed=50, gps_speed=50, g=0.1), lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key))
+    rn = lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key)
+    page.update_payload(_payload(speed=0), rn)
+    page.update_payload(_payload(speed=2, g=0.25), rn)
+    assert page.running is False  # sustained only 0 s so far
+    page.update_payload(_payload(speed=8, g=0.25), rn)
+    assert page.running is True   # 0.3 s sustained ≥ 0.15 s, speed gate passed
+    page.update_payload(_payload(speed=50, gps_speed=50, g=0.25), rn)
 
-    assert page.running is True
     assert page.results[30]["obd"] == 1.25
     assert page.results[50]["gps"] == 1.25
     assert page.result_labels[(30, "obd")].get_text() == "1.25 s"
@@ -44,14 +51,20 @@ def test_acceleration_start_reset_and_target_capture(monkeypatch, drivepulse_mod
 
 
 def test_acceleration_finishes_when_all_targets_have_a_source(monkeypatch, drivepulse_module):
-    times = iter([0.0, 0.5, 2.0])
+    # t=0.0: speed=0           → armed, no g data
+    # t=0.5: speed=5, g=0.25  → engage starts, not sustained yet
+    # t=0.8: speed=10, g=0.25 → sustained 0.3 s, speed gate → TRIGGER; start_monotonic=0.5
+    # t=2.0: speed=220, gps=220 → all targets hit → done
+    times = iter([0.0, 0.5, 0.8, 2.0])
     monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
     page = drivepulse_module.AccelerationPage()
     page.start_measurement()
 
-    page.update_payload(_payload(speed=0), lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key))
-    page.update_payload(_payload(speed=5, g=0.1), lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key))
-    page.update_payload(_payload(speed=220, gps_speed=220), lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key))
+    rn = lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key)
+    page.update_payload(_payload(speed=0), rn)
+    page.update_payload(_payload(speed=5, g=0.25), rn)
+    page.update_payload(_payload(speed=10, g=0.25), rn)
+    page.update_payload(_payload(speed=220, gps_speed=220), rn)
 
     assert page.running is False
     assert page.armed is False
