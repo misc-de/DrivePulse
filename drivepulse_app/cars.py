@@ -187,8 +187,14 @@ class CarsPage(Gtk.Box):
         self._detail_title.add_css_class("title-3")
         self._detail_title.set_hexpand(True)
 
+        self._rename_btn = Gtk.Button(icon_name="document-edit-symbolic")
+        self._rename_btn.add_css_class("flat")
+        self._rename_btn.set_visible(False)
+        self._rename_btn.connect("clicked", lambda _b: self._open_rename_dialog())
+
         head.append(self._detail_back_btn)
         head.append(self._detail_title)
+        head.append(self._rename_btn)
         outer.append(head)
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
@@ -420,8 +426,9 @@ class CarsPage(Gtk.Box):
         for entry in self._profiles:
             row = Adw.ActionRow()
             vin = entry.get("vin", "")
+            label = entry.get("label") or ""
             brand = entry.get("brand") or ""
-            title = brand if brand else (f"VIN …{vin[-5:]}" if vin else _translate(self.language, "cars.unknown"))
+            title = label or brand or (f"VIN …{vin[-5:]}" if vin else _translate(self.language, "cars.unknown"))
             row.set_title(GLib.markup_escape_text(title))
             sub_parts: list[str] = []
             if vin:
@@ -467,20 +474,22 @@ class CarsPage(Gtk.Box):
             entry = next((e for e in self._profiles if str(e.get("path")) == source), None)
             if entry:
                 vin = entry.get("vin", "")
+                label = entry.get("label") or ""
                 brand = entry.get("brand") or ""
-                title = brand if brand else _translate(self.language, "cars.unknown")
-                if vin:
-                    title = f"{title} · …{vin[-5:]}"
+                base = label or brand or _translate(self.language, "cars.unknown")
+                title = base if (label or not vin) else f"{base} · …{vin[-5:]}"
                 self._selected_car_id = entry.get("car_id")
             else:
                 title = _translate(self.language, "cars.unknown")
         self._detail_page.set_title(title)
         self._detail_title.set_text(title)
+        is_real_car = source != self.LIVE_ID and self._selected_car_id is not None
         # Show trash only for real vehicles, not the live view
-        if source != self.LIVE_ID and self._selected_car_id is not None:
+        if is_real_car:
             self._set_trash(self._confirm_delete_vehicle)
         else:
             self._set_trash(None)
+        self._rename_btn.set_visible(is_real_car)
         self._render_detail()
         if not self._detail_pushed:
             self.nav_view.push(self._detail_page)
@@ -493,6 +502,7 @@ class CarsPage(Gtk.Box):
             self._trip_selected_ids = set()
             self._select_revealer.set_reveal_child(False)
             self._set_trash(None)
+            self._rename_btn.set_visible(False)
         if page is self._trip_detail_page:
             self._trip_detail_pushed = False
             self._trip_detail_page = None
@@ -800,6 +810,64 @@ class CarsPage(Gtk.Box):
         self._render_detail()
 
     # ---------------------------------------------------- Fahrzeug löschen
+
+    def _open_rename_dialog(self) -> None:
+        car_id = self._selected_car_id
+        if car_id is None:
+            return
+        entry_widget = Gtk.Entry()
+        entry_widget.set_hexpand(True)
+        entry_widget.set_margin_top(8)
+        current_label = self._detail_title.get_text()
+        entry_widget.set_text(current_label)
+        entry_widget.set_placeholder_text(_translate(self.language, "cars.vehicle.rename_placeholder"))
+        entry_widget.select_region(0, -1)
+
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "cars.vehicle.rename_title"),
+        )
+        dialog.set_extra_child(entry_widget)
+        dialog.add_response("cancel", _translate(self.language, "cars.vehicle.rename_cancel"))
+        dialog.add_response("save", _translate(self.language, "cars.vehicle.rename_confirm"))
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+
+        entry_widget.connect(
+            "activate",
+            lambda _e: dialog.response("save"),
+        )
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "save":
+                return
+            new_name = entry_widget.get_text().strip()
+            if self.db is None:
+                return
+            try:
+                self.db.rename_car(car_id, new_name)
+            except Exception:
+                return
+            # Update entry in profile list so the title stays current
+            for e in self._profiles:
+                if e.get("car_id") == car_id:
+                    e["label"] = new_name
+            # Rebuild display title the same way _open_detail does
+            entry = next((e for e in self._profiles if e.get("car_id") == car_id), None)
+            if entry:
+                vin = entry.get("vin", "")
+                label = new_name
+                brand = entry.get("brand") or ""
+                base = label or brand or _translate(self.language, "cars.unknown")
+                title = base if (label or not vin) else f"{base} · …{vin[-5:]}"
+            else:
+                title = new_name or _translate(self.language, "cars.unknown")
+            self._detail_title.set_text(title)
+            self._detail_page.set_title(title)
+            GLib.idle_add(self._rebuild_list)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
 
     def _confirm_delete_vehicle(self) -> None:
         dialog = self._make_delete_dialog("cars.vehicle.delete_title", "cars.vehicle.delete_body")
