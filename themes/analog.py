@@ -271,7 +271,7 @@ def _fuel_halfmoon_left(
         cr.stroke()
 
     # Fuel pump icon — centered on the face, below the hub (lower-right quadrant)
-    isz = max(6.0, r * 0.11)
+    isz = max(12.0, r * 0.22)
     ix  = cx + r * 0.42
     iy  = cy + r * 0.28
     cr.set_source_rgba(*dim_col, 0.55 * a)
@@ -350,19 +350,20 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
                   d.coolant_label, "°C", "",
                   d.coolant_active, 20.0, 10.0)
 
-    r_fuel = min(height * 0.42, width * 0.24) * 0.50
-    _fuel_halfmoon_left(cr, width, height, d, r=r_fuel, cy=height * 0.72)
+    # Fuel: same radius as coolant gauge, bottom-left corner (arc bottom at screen edge)
+    _fuel_halfmoon_left(cr, width, height, d, r=r_left, cy=height - r_left)
 
 
 def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
-    """Speed top-center (large), RPM center, Coolant right, Fuel halfmoon bottom-left."""
+    """Speed top-center (large), RPM + Coolant below side by side, Fuel halfmoon bottom-left."""
     r_center = min(width * 0.38, height * 0.22)
     r_side = r_center * 0.56
 
-    cx_mid = width * 0.50
-    cy_main = r_center + height * 0.04
-    cy_side = cy_main + r_center + r_side + height * 0.06
+    cx_mid   = width * 0.50
+    cx_left  = width * 0.28
     cx_right = width * 0.72
+    cy_main  = r_center + height * 0.04
+    cy_side  = cy_main + r_center + r_side + height * 0.06
 
     speed_step_maj = 30.0 if d.speed_unit == "km/h" else 20.0
     speed_step_min = 10.0 if d.speed_unit == "km/h" else 10.0
@@ -373,8 +374,7 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
                   d.speed_active, speed_step_maj, speed_step_min,
                   source=d.speed_source)
 
-    # RPM centered below speed
-    _analog_gauge(cr, cx_mid, cy_side, r_side,
+    _analog_gauge(cr, cx_left, cy_side, r_side,
                   d.rpm, 0, d.rpm_max,
                   d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), "",
                   d.rpm_active, 1000.0, 500.0,
@@ -385,9 +385,9 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
                   d.coolant_label, "°C", "",
                   d.coolant_active, 20.0, 10.0)
 
-    # Fuel halfmoon: 2/3 of max size, near bottom navigation area
+    # Fuel halfmoon: 2/3 of max size, bottom-left corner
     r_fuel = min(height * 0.42, width * 0.24) * (2 / 3)
-    _fuel_halfmoon_left(cr, width, height, d, r=r_fuel, cy=height * 0.90)
+    _fuel_halfmoon_left(cr, width, height, d, r=r_fuel, cy=height - r_fuel)
 
 
 def draw(cr: Any, width: int, height: int, data: Any) -> None:

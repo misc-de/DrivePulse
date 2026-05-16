@@ -333,12 +333,9 @@ class AccelerationPage(Gtk.Box):
         self.gforce_box.set_valign(Gtk.Align.FILL)
         self.gforce_box.append(self.maxes_label)
         self.gforce_box.append(self.gforce_canvas)
+        # G-Force trigger checkbox + threshold controls sit between canvas and buttons
+        self.gforce_box.append(self._trigger_row)
 
-        # Container that switches orientation between portrait (canvas below results)
-        # and landscape (canvas next to results). results_box keeps its natural
-        # height so the gforce group is free to centre in whatever is left.
-        # Spacing 0 — the 30 px gap between list and Vmax/Gmax is enforced by
-        # maxes_label's own margin_top.
         self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.content_box.set_hexpand(True)
         self.content_box.set_vexpand(True)
@@ -350,7 +347,6 @@ class AccelerationPage(Gtk.Box):
 
         self.append(intro)
         self.append(self.content_box)
-        self.append(self._trigger_row)
         self.append(controls)
 
         self._current_layout = "portrait"
@@ -602,10 +598,9 @@ class AccelerationPage(Gtk.Box):
         self.status_label.set_text(_translate(self.language, "acceleration.ready"))
 
     def update_gforce_raw(self, x_g: float, y_g: float, z_g: float) -> None:
-        """Feed raw physical accelerometer values (in g) to the G-Force canvas."""
+        """Compute _raw_g_dev for start-detection. Canvas is driven by update_payload only."""
         mag = math.sqrt(x_g ** 2 + y_g ** 2 + z_g ** 2)
         self._raw_g_dev = abs(mag - 1.0)
-        self.gforce_canvas.update_g(x_g, y_g, z_g)
 
     def _on_gforce_trigger_toggled(self, btn: Gtk.CheckButton) -> None:
         self._gforce_trigger = btn.get_active()
