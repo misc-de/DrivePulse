@@ -330,9 +330,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.footer.set_visible(visible)
 
     def _on_visible_page_changed(self, _stack: Adw.ViewStack, _pspec: Any) -> None:
-        # Beim Wechsel auf Autos die Navigation erzwungen einblenden.
-        if self.view_stack.get_visible_child_name() == self.PAGE_CARS and not self._nav_visible:
-            self._set_nav_visible(True)
+        page = self.view_stack.get_visible_child_name()
+        if page == self.PAGE_CARS:
+            if not self._nav_visible:
+                self._set_nav_visible(True)
+        else:
+            self.set_ctx_trash(None)
 
     def _on_cars_back_swipe(self) -> None:
         """Vom Autos-Tab (Liste) per Wisch nach rechts zurück zur Beschleunigung."""
