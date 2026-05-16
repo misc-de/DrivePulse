@@ -12,12 +12,14 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("Gio", "2.0")
 from gi.repository import Gdk, Gio, Gtk  # noqa: E402
 
-from common import APP_ID
+from .common import APP_ID
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def build_icon_gresource(app_dir: Path | None = None) -> Path | None:
     """Compile icons.gresource.xml → icons.gresource if the source is newer."""
-    app_dir = app_dir or Path(__file__).parent
+    app_dir = app_dir or PROJECT_ROOT
     src_xml = app_dir / "icons.gresource.xml"
     out_bin = app_dir / "icons.gresource"
     if not src_xml.exists():
@@ -38,7 +40,7 @@ def build_icon_gresource(app_dir: Path | None = None) -> Path | None:
 
 def register_local_icon(app_dir: Path | None = None) -> None:
     """Register bundled SVG icons via GResource + app PNG icon for window/taskbar."""
-    app_dir = app_dir or Path(__file__).parent
+    app_dir = app_dir or PROJECT_ROOT
     theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
 
     # Primary: GResource — icons compiled into a binary bundle at build/run time.

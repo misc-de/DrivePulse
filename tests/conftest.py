@@ -309,19 +309,21 @@ def drivepulse_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
     monkeypatch.setitem(sys.modules, "obd", None)
-    for _mod in ("drivepulse", "common", "gauge", "acceleration", "app_settings", "gps_reader", "orientation_reader", "obd_devices", "settings_dialog", "icon_registry", "bluetooth_bridge", "obd_scanner", "startup_info", "mock_obd"):
-        sys.modules.pop(_mod, None)
+    for _mod in list(sys.modules):
+        if _mod == "drivepulse" or _mod.startswith("drivepulse_app"):
+            sys.modules.pop(_mod, None)
 
     import drivepulse
 
     yield drivepulse
-    for _mod in ("drivepulse", "common", "gauge", "acceleration", "app_settings", "gps_reader", "orientation_reader", "obd_devices", "settings_dialog", "icon_registry", "bluetooth_bridge", "obd_scanner", "startup_info", "mock_obd"):
-        sys.modules.pop(_mod, None)
+    for _mod in list(sys.modules):
+        if _mod == "drivepulse" or _mod.startswith("drivepulse_app"):
+            sys.modules.pop(_mod, None)
 
 
 @pytest.fixture
 def tmp_log_paths(monkeypatch, drivepulse_module, tmp_path: Path):
-    import app_settings
+    from drivepulse_app import app_settings
 
     log_dir = tmp_path / "state"
     monkeypatch.setattr(drivepulse_module, "LOG_DIR", log_dir)
