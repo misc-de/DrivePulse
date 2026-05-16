@@ -50,18 +50,18 @@ _SPECIAL_DTC = "__DTC__"
 _SPECIAL_PENDING = "__PENDING_DTC__"
 _SPECIAL_ADAPTER_V = "__ATRV__"
 
-# (db_key, display_label, unit, line_color_rgb, value_fmt)
+# (db_key, i18n_key, unit, line_color_rgb, value_fmt)
 _CHART_METRICS: tuple[tuple, ...] = (
-    ("speed_kmh",    "Geschwindigkeit", "km/h", (0.34, 0.62, 0.86), "{:.0f}"),
-    ("rpm",          "Drehzahl",        "RPM",  (0.95, 0.60, 0.20), "{:.0f}"),
-    ("coolant_c",    "Kühlmitteltemp.", "°C",   (0.90, 0.30, 0.30), "{:.0f}"),
-    ("intake_c",     "Ansauglufttemp.", "°C",   (0.95, 0.50, 0.20), "{:.0f}"),
-    ("throttle_pct", "Drosselklappe",   "%",    (0.30, 0.80, 0.40), "{:.0f}"),
-    ("engine_load",  "Motorlast",       "%",    (0.60, 0.85, 0.30), "{:.0f}"),
-    ("maf_gps",      "Luftmasse",       "g/s",  (0.70, 0.40, 0.90), "{:.1f}"),
-    ("voltage_v",    "Spannung",        "V",    (0.95, 0.75, 0.10), "{:.2f}"),
-    ("accel_g",      "Beschleunigung",  "g",    (0.90, 0.40, 0.20), "{:.2f}"),
-    ("fuel_pct",     "Kraftstoff",      "%",    (0.95, 0.80, 0.10), "{:.0f}"),
+    ("speed_kmh",    "cars.metric.speed_kmh",    "km/h", (0.34, 0.62, 0.86), "{:.0f}"),
+    ("rpm",          "cars.metric.rpm",           "RPM",  (0.95, 0.60, 0.20), "{:.0f}"),
+    ("coolant_c",    "cars.metric.coolant_c",     "°C",   (0.90, 0.30, 0.30), "{:.0f}"),
+    ("intake_c",     "cars.metric.intake_c",      "°C",   (0.95, 0.50, 0.20), "{:.0f}"),
+    ("throttle_pct", "cars.metric.throttle_pct",  "%",    (0.30, 0.80, 0.40), "{:.0f}"),
+    ("engine_load",  "cars.metric.engine_load",   "%",    (0.60, 0.85, 0.30), "{:.0f}"),
+    ("maf_gps",      "cars.metric.maf_gps",       "g/s",  (0.70, 0.40, 0.90), "{:.1f}"),
+    ("voltage_v",    "cars.metric.voltage_v",     "V",    (0.95, 0.75, 0.10), "{:.2f}"),
+    ("accel_g",      "cars.metric.accel_g",       "g",    (0.90, 0.40, 0.20), "{:.2f}"),
+    ("fuel_pct",     "cars.metric.fuel_pct",      "%",    (0.95, 0.80, 0.10), "{:.0f}"),
 )
 
 CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
@@ -308,7 +308,7 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         if sum(1 for p in _pts if p[1] is not None) >= _min_valid:
             metric_data[_mk] = _pts
 
-    _avail = [(k, l, u, c, f) for k, l, u, c, f in _CHART_METRICS if k in metric_data]
+    _avail = [(k, _translate(language, l), u, c, f) for k, l, u, c, f in _CHART_METRICS if k in metric_data]
 
     _def_key = "speed_kmh" if "speed_kmh" in metric_data else (
         _avail[0][0] if _avail else None
