@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
-from common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language, _translate
+from .common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language, _translate
 
 _WARNING_CSS = (
     b"button.warning-reset{background:rgba(229,165,10,0.85);color:#1c1c1c;}"

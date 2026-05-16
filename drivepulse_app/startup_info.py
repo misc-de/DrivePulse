@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from importlib import metadata, util
 
-from common import OBD_BAUDRATE, OBD_FAST, OBD_PORT, OBD_TIMEOUT_SECONDS
+from .common import OBD_BAUDRATE, OBD_FAST, OBD_PORT, OBD_TIMEOUT_SECONDS
 
 
 REQUIRED_PYTHON_PACKAGES = (

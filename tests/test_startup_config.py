@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def test_python_package_status_reports_missing(monkeypatch, drivepulse_module):
-    import startup_info
+    from drivepulse_app import startup_info
 
     monkeypatch.setattr(startup_info.util, "find_spec", lambda module_name: None)
 
@@ -10,7 +10,7 @@ def test_python_package_status_reports_missing(monkeypatch, drivepulse_module):
 
 
 def test_python_package_status_reports_installed_without_metadata(monkeypatch, drivepulse_module):
-    import startup_info
+    from drivepulse_app import startup_info
 
     monkeypatch.setattr(startup_info.util, "find_spec", lambda module_name: object())
 
@@ -23,7 +23,7 @@ def test_python_package_status_reports_installed_without_metadata(monkeypatch, d
 
 
 def test_python_package_status_reports_version(monkeypatch, drivepulse_module):
-    import startup_info
+    from drivepulse_app import startup_info
 
     monkeypatch.setattr(startup_info.util, "find_spec", lambda module_name: object())
     monkeypatch.setattr(startup_info.metadata, "version", lambda package_name: "1.2.3")
@@ -32,7 +32,7 @@ def test_python_package_status_reports_version(monkeypatch, drivepulse_module):
 
 
 def test_print_required_python_packages_includes_obd_config(monkeypatch, capsys, drivepulse_module):
-    import startup_info
+    from drivepulse_app import startup_info
 
     monkeypatch.setattr(startup_info, "python_package_status", lambda package, module: "installiert")
     monkeypatch.setattr(startup_info, "OBD_PORT", "/dev/rfcomm0")

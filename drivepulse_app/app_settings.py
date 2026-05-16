@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language
+from .common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
