@@ -82,7 +82,9 @@ def test_should_query_key_respects_slow_poll_intervals(drivepulse_module):
 
 
 def test_candidate_ports_prefers_explicit_port(monkeypatch, drivepulse_module):
-    monkeypatch.setattr(drivepulse_module, "OBD_PORT", "/dev/rfcomm0")
+    from drivepulse_app import obd_reader
+
+    monkeypatch.setattr(obd_reader, "OBD_PORT", "/dev/rfcomm0")
 
     reader = drivepulse_module.ObdReader(lambda payload: None)
 
@@ -90,7 +92,9 @@ def test_candidate_ports_prefers_explicit_port(monkeypatch, drivepulse_module):
 
 
 def test_candidate_ports_discovers_bluetooth_usb_and_auto(monkeypatch, drivepulse_module):
-    monkeypatch.setattr(drivepulse_module, "OBD_PORT", None)
+    from drivepulse_app import obd_reader
+
+    monkeypatch.setattr(obd_reader, "OBD_PORT", None)
 
     def fake_glob(self: Path, pattern: str):
         return {
@@ -100,7 +104,7 @@ def test_candidate_ports_discovers_bluetooth_usb_and_auto(monkeypatch, drivepuls
             "dev/serial/by-id/*": [Path("/dev/serial/by-id/elm327")],
         }[pattern]
 
-    monkeypatch.setattr(drivepulse_module.Path, "glob", fake_glob)
+    monkeypatch.setattr(obd_reader.Path, "glob", fake_glob)
     reader = drivepulse_module.ObdReader(lambda payload: None)
 
     assert reader._candidate_ports() == [
@@ -112,12 +116,14 @@ def test_candidate_ports_discovers_bluetooth_usb_and_auto(monkeypatch, drivepuls
 
 
 def test_connect_uses_configured_obd_parameters(monkeypatch, drivepulse_module, tmp_log_paths):
+    from drivepulse_app import obd_reader
+
     connection = _Connection(True)
-    monkeypatch.setattr(drivepulse_module, "obd", _fake_obd_module([connection]))
-    monkeypatch.setattr(drivepulse_module, "OBD_PORT", "/dev/rfcomm0")
-    monkeypatch.setattr(drivepulse_module, "OBD_BAUDRATE", 38400)
-    monkeypatch.setattr(drivepulse_module, "OBD_TIMEOUT_SECONDS", 3.0)
-    monkeypatch.setattr(drivepulse_module, "OBD_FAST", False)
+    monkeypatch.setattr(obd_reader, "obd", _fake_obd_module([connection]))
+    monkeypatch.setattr(obd_reader, "OBD_PORT", "/dev/rfcomm0")
+    monkeypatch.setattr(obd_reader, "OBD_BAUDRATE", 38400)
+    monkeypatch.setattr(obd_reader, "OBD_TIMEOUT_SECONDS", 3.0)
+    monkeypatch.setattr(obd_reader, "OBD_FAST", False)
 
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader._connect()
@@ -128,8 +134,10 @@ def test_connect_uses_configured_obd_parameters(monkeypatch, drivepulse_module, 
 
 
 def test_connect_falls_back_to_mock_when_no_connection(monkeypatch, drivepulse_module):
-    monkeypatch.setattr(drivepulse_module, "obd", _fake_obd_module([_Connection(False)]))
-    monkeypatch.setattr(drivepulse_module, "OBD_PORT", "/dev/rfcomm0")
+    from drivepulse_app import obd_reader
+
+    monkeypatch.setattr(obd_reader, "obd", _fake_obd_module([_Connection(False)]))
+    monkeypatch.setattr(obd_reader, "OBD_PORT", "/dev/rfcomm0")
     monkeypatch.setattr(drivepulse_module.ObdReader, "_connection_log", lambda *args, **kwargs: None)
 
     reader = drivepulse_module.ObdReader(lambda payload: None)
@@ -141,9 +149,11 @@ def test_connect_falls_back_to_mock_when_no_connection(monkeypatch, drivepulse_m
 
 
 def test_read_obd_collects_values_and_error_counts(monkeypatch, drivepulse_module):
+    from drivepulse_app import obd_reader
+
     fake_obd = _fake_obd_module([])
     fake_obd.commands.SPEED = "bad"
-    monkeypatch.setattr(drivepulse_module, "obd", fake_obd)
+    monkeypatch.setattr(obd_reader, "obd", fake_obd)
 
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.connection = _Connection(True)
@@ -157,10 +167,12 @@ def test_read_obd_collects_values_and_error_counts(monkeypatch, drivepulse_modul
 
 
 def test_read_obd_reuses_cached_slow_values_between_fast_polls(monkeypatch, drivepulse_module):
+    from drivepulse_app import obd_reader
+
     fake_obd = _fake_obd_module([])
-    monkeypatch.setattr(drivepulse_module, "obd", fake_obd)
+    monkeypatch.setattr(obd_reader, "obd", fake_obd)
     times = iter([100.0, 100.5])
-    monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
+    monkeypatch.setattr(obd_reader.time, "monotonic", lambda: next(times))
 
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.connection = _Connection(True)
@@ -205,12 +217,14 @@ def test_reconnect_after_three_failed_reads(monkeypatch, drivepulse_module):
 
 
 def test_mock_reconnect_probe_is_throttled(monkeypatch, drivepulse_module):
-    monkeypatch.setattr(drivepulse_module, "obd", object())
+    from drivepulse_app import obd_reader
+
+    monkeypatch.setattr(obd_reader, "obd", object())
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.mock = True
     calls = []
     monkeypatch.setattr(reader, "_connect", lambda: calls.append("connect"))
-    monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(obd_reader.time, "monotonic", lambda: 100.0)
 
     reader._maybe_reconnect_from_mock()
     reader._maybe_reconnect_from_mock()
@@ -220,9 +234,11 @@ def test_mock_reconnect_probe_is_throttled(monkeypatch, drivepulse_module):
 
 
 def test_write_log_writes_jsonl(drivepulse_module, tmp_log_paths):
+    from drivepulse_app import obd_reader
+
     reader = drivepulse_module.ObdReader(lambda payload: None)
 
     reader._write_log({"speed": {"value": 12}})
 
-    lines = drivepulse_module.LOG_FILE.read_text(encoding="utf-8").splitlines()
+    lines = obd_reader.LOG_FILE.read_text(encoding="utf-8").splitlines()
     assert json.loads(lines[0]) == {"speed": {"value": 12}}

@@ -3,9 +3,7 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
-from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlparse
 
 import gi
 
@@ -13,15 +11,16 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, GdkPixbuf, Gtk
 
-from .common import LOG_DIR, _translate
+from .common import _translate
 from .db import DriveDB
+from .diagnostics import get_logger
 from .sync_crypto import (
-    generate_device_id,
     generate_tls_keypair,
     generate_token,
     get_local_ip,
     get_spki_fingerprint,
 )
+from .sync_identity import CERT_PATH, KEY_PATH, QR_TMP, SYNC_DIR, get_or_create_device_id
 from .sync_data import (
     export_all,
     import_data,
@@ -32,12 +31,7 @@ from .sync_data import (
 from .sync_qr_scanner import WebcamQRScanner, scan_supported
 from .sync_server import SyncServer
 from .sync_client import SyncClient
-
-_SYNC_DIR = LOG_DIR / "sync"
-_CERT_PATH = _SYNC_DIR / "cert.pem"
-_KEY_PATH = _SYNC_DIR / "key.pem"
-_QR_TMP = Path("/tmp/drivepulse_pair.png")
-_DEVICE_ID_FILE = _SYNC_DIR / "device_id.txt"
+from .sync_flow import parse_pairing_url, perform_sync
 
 # Sync mode constants
 MODE_MERGE = "merge"
@@ -45,20 +39,7 @@ MODE_REMOTE_WINS = "remote_wins"
 MODE_LOCAL_WINS = "local_wins"
 MODE_REMOTE_WINS_ALL = "remote_wins_all"
 MODE_LOCAL_WINS_ALL = "local_wins_all"
-
-
-def _get_or_create_device_id() -> str:
-    try:
-        _SYNC_DIR.mkdir(parents=True, exist_ok=True)
-        if _DEVICE_ID_FILE.exists():
-            return _DEVICE_ID_FILE.read_text().strip()
-        did = generate_device_id()
-        _DEVICE_ID_FILE.write_text(did)
-        return did
-    except Exception:
-        return generate_device_id()
-
-
+log = get_logger(__name__)
 class SyncDialog(Adw.Dialog):
     __gtype_name__ = "SyncDialog"
 
@@ -173,6 +154,7 @@ class SyncDialog(Adw.Dialog):
             row = Adw.ActionRow()
             row.set_title(name)
             row.set_subtitle(subtitle)
+            row.set_subtitle_lines(0)
 
             connect_btn = Gtk.Button(label=self._t("sync.device.connect"))
             connect_btn.set_valign(Gtk.Align.CENTER)
@@ -264,11 +246,11 @@ class SyncDialog(Adw.Dialog):
 
     def _start_server_mode(self) -> None:
         try:
-            _SYNC_DIR.mkdir(parents=True, exist_ok=True)
-            generate_tls_keypair(_CERT_PATH, _KEY_PATH)
+            SYNC_DIR.mkdir(parents=True, exist_ok=True)
+            generate_tls_keypair(CERT_PATH, KEY_PATH)
             pairing_token = generate_token(32)
             session_token = generate_token(32)
-            spki_fp = get_spki_fingerprint(_CERT_PATH)
+            spki_fp = get_spki_fingerprint(CERT_PATH)
             local_ip = get_local_ip()
             expiry = int(time.time()) + 300
             qr_url = (
@@ -277,13 +259,13 @@ class SyncDialog(Adw.Dialog):
             )
 
             subprocess.run(
-                ["/usr/bin/qrencode", "-s", "8", "-m", "2", "-o", str(_QR_TMP), qr_url],
+                ["/usr/bin/qrencode", "-s", "8", "-m", "2", "-o", str(QR_TMP), qr_url],
                 check=True, timeout=10,
             )
 
             def _show_qr() -> bool:
                 try:
-                    pixbuf = GdkPixbuf.Pixbuf.new_from_file(str(_QR_TMP))
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file(str(QR_TMP))
                     self._server_qr_picture.set_pixbuf(pixbuf)
                     self._server_qr_picture.set_visible(True)
                     self._server_spinner.stop()
@@ -291,6 +273,7 @@ class SyncDialog(Adw.Dialog):
                     self._server_instr_label.set_visible(True)
                     self._server_status_label.set_text(self._t("sync.server.waiting"))
                 except Exception as exc:
+                    log.exception("Could not show sync QR image %s", QR_TMP)
                     self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
                 return False
 
@@ -316,14 +299,16 @@ class SyncDialog(Adw.Dialog):
                     if self._on_sync_complete:
                         GLib.idle_add(self._on_sync_complete)
                 except Exception as exc:
+                    log.exception("Could not import sync data on server side")
                     GLib.idle_add(
                         lambda: self._server_status_label.set_text(
                             self._t("sync.error", error=str(exc))
                         )
                     )
+                    raise
 
             server = SyncServer(
-                _CERT_PATH, _KEY_PATH,
+                CERT_PATH, KEY_PATH,
                 pairing_token=pairing_token,
                 session_token=session_token,
                 on_paired_cb=_on_paired,
@@ -334,11 +319,12 @@ class SyncDialog(Adw.Dialog):
             server.start()
 
         except Exception as exc:
+            log.exception("Could not start sync server mode")
             GLib.idle_add(
                 lambda: self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
             )
 
-    # ------------------------------------------------------------------ client page
+    # ------------------------------------------------------------------ client page (step 1: scan)
 
     def _push_client_page(self, *_args: Any) -> None:
         result = self._build_client_page()
@@ -349,9 +335,7 @@ class SyncDialog(Adw.Dialog):
         self._nav.push(page)
         self._start_qr_scanner()
 
-    def _build_client_page(
-        self,
-    ) -> tuple[Adw.NavigationPage, Gtk.Label, Gtk.Entry, Gtk.Box]:
+    def _build_client_page(self) -> tuple[Adw.NavigationPage, Gtk.Label, Gtk.Entry, Gtk.Box]:
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.client.title")))
@@ -364,7 +348,6 @@ class SyncDialog(Adw.Dialog):
         box.set_margin_start(16)
         box.set_margin_end(16)
 
-        # Camera scanner area
         scanner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         scanner_box.set_vexpand(True)
         box.append(scanner_box)
@@ -379,79 +362,6 @@ class SyncDialog(Adw.Dialog):
         entry.set_hexpand(True)
         box.append(entry)
 
-        # Sync mode picker
-        mode_group = Adw.PreferencesGroup()
-        mode_group.set_title(self._t("sync.mode.label"))
-        box.append(mode_group)
-
-        merge_check = Gtk.CheckButton()
-        merge_check.set_active(True)
-        merge_check.set_valign(Gtk.Align.CENTER)
-        merge_row = Adw.ActionRow()
-        merge_row.set_title(self._t("sync.mode.merge"))
-        merge_row.set_subtitle(self._t("sync.mode.merge.subtitle"))
-        merge_row.add_prefix(merge_check)
-        merge_row.set_activatable_widget(merge_check)
-        mode_group.add(merge_row)
-
-        remote_check = Gtk.CheckButton()
-        remote_check.set_group(merge_check)
-        remote_check.set_valign(Gtk.Align.CENTER)
-        remote_row = Adw.ActionRow()
-        remote_row.set_title(self._t("sync.mode.remote_wins"))
-        remote_row.set_subtitle(self._t("sync.mode.remote_wins.subtitle"))
-        remote_row.add_prefix(remote_check)
-        remote_row.set_activatable_widget(remote_check)
-        mode_group.add(remote_row)
-
-        local_check = Gtk.CheckButton()
-        local_check.set_group(merge_check)
-        local_check.set_valign(Gtk.Align.CENTER)
-        local_row = Adw.ActionRow()
-        local_row.set_title(self._t("sync.mode.local_wins"))
-        local_row.set_subtitle(self._t("sync.mode.local_wins.subtitle"))
-        local_row.add_prefix(local_check)
-        local_row.set_activatable_widget(local_check)
-        mode_group.add(local_row)
-
-        remote_all_check = Gtk.CheckButton()
-        remote_all_check.set_group(merge_check)
-        remote_all_check.set_valign(Gtk.Align.CENTER)
-        remote_all_row = Adw.ActionRow()
-        remote_all_row.set_title(self._t("sync.mode.remote_wins_all"))
-        remote_all_row.set_subtitle(self._t("sync.mode.remote_wins_all.subtitle"))
-        remote_all_row.add_prefix(remote_all_check)
-        remote_all_row.set_activatable_widget(remote_all_check)
-        mode_group.add(remote_all_row)
-
-        local_all_check = Gtk.CheckButton()
-        local_all_check.set_group(merge_check)
-        local_all_check.set_valign(Gtk.Align.CENTER)
-        local_all_row = Adw.ActionRow()
-        local_all_row.set_title(self._t("sync.mode.local_wins_all"))
-        local_all_row.set_subtitle(self._t("sync.mode.local_wins_all.subtitle"))
-        local_all_row.add_prefix(local_all_check)
-        local_all_row.set_activatable_widget(local_all_check)
-        mode_group.add(local_all_row)
-
-        def _on_mode_toggled(*_: Any) -> None:
-            if remote_check.get_active():
-                self._sync_mode = MODE_REMOTE_WINS
-            elif local_check.get_active():
-                self._sync_mode = MODE_LOCAL_WINS
-            elif remote_all_check.get_active():
-                self._sync_mode = MODE_REMOTE_WINS_ALL
-            elif local_all_check.get_active():
-                self._sync_mode = MODE_LOCAL_WINS_ALL
-            else:
-                self._sync_mode = MODE_MERGE
-
-        merge_check.connect("toggled", _on_mode_toggled)
-        remote_check.connect("toggled", _on_mode_toggled)
-        local_check.connect("toggled", _on_mode_toggled)
-        remote_all_check.connect("toggled", _on_mode_toggled)
-        local_all_check.connect("toggled", _on_mode_toggled)
-
         status_label = Gtk.Label(label="")
         status_label.set_wrap(True)
         status_label.set_halign(Gtk.Align.START)
@@ -459,7 +369,7 @@ class SyncDialog(Adw.Dialog):
 
         connect_btn = Gtk.Button(label=self._t("sync.client.connect_btn"))
         connect_btn.add_css_class("suggested-action")
-        connect_btn.connect("clicked", lambda _b: self._on_client_connect(entry, status_label))
+        connect_btn.connect("clicked", lambda _b: self._on_client_pair(entry, status_label))
         box.append(connect_btn)
 
         scroll = Gtk.ScrolledWindow()
@@ -484,7 +394,7 @@ class SyncDialog(Adw.Dialog):
 
         def _on_success(text: str) -> None:
             self._client_entry.set_text(text)
-            self._on_client_connect(self._client_entry, self._client_status_label)
+            self._on_client_pair(self._client_entry, self._client_status_label)
 
         def _on_error(msg: str) -> None:
             self._client_status_label.set_text(msg)
@@ -493,110 +403,228 @@ class SyncDialog(Adw.Dialog):
         self._client_scanner_box.append(self._scanner.build_widget())
         self._scanner.start()
 
-    def _on_client_connect(self, entry: Gtk.Entry, status_label: Gtk.Label) -> None:
+    def _on_client_pair(self, entry: Gtk.Entry, status_label: Gtk.Label) -> None:
         url_text = entry.get_text().strip()
         if not url_text:
             return
         if self._scanner is not None:
             self._scanner.cancel()
-        status_label.set_text(self._t("sync.client.connecting"))
+        status_label.set_text(self._t("sync.client.pairing"))
         threading.Thread(
-            target=self._do_client_connect,
-            args=(url_text, status_label, self._sync_mode),
+            target=self._do_pair,
+            args=(url_text, status_label),
             daemon=True,
         ).start()
 
-    def _do_client_connect(self, url_text: str, status_label: Gtk.Label, mode: str) -> None:
+    def _do_pair(self, url_text: str, status_label: Gtk.Label) -> None:
         def _set(msg: str) -> bool:
             status_label.set_text(msg)
             return False
 
         try:
-            parsed = urlparse(url_text)
-            if parsed.scheme != "drivepulse":
-                GLib.idle_add(_set, self._t("sync.error", error="Invalid URL scheme"))
-                return
-            params = parse_qs(parsed.query)
-            host = (params.get("h") or [""])[0]
-            port = int((params.get("p") or [str(SyncServer.PORT)])[0])
-            spki_fp = (params.get("fp") or [""])[0]
-            pairing_token = (params.get("t") or [""])[0]
-            expiry = int((params.get("exp") or ["0"])[0])
-
-            if not host or not spki_fp or not pairing_token:
-                GLib.idle_add(_set, self._t("sync.error", error="Invalid QR data"))
-                return
-            if expiry and time.time() > expiry:
+            try:
+                pairing = parse_pairing_url(url_text, SyncServer.PORT)
+            except TimeoutError:
                 GLib.idle_add(_set, self._t("sync.client.expired"))
                 return
+            except ValueError as exc:
+                GLib.idle_add(_set, self._t("sync.error", error=str(exc)))
+                return
 
-            device_id = _get_or_create_device_id()
-            client = SyncClient(host, port, spki_fp, device_id)
+            device_id = get_or_create_device_id()
+            client = SyncClient(pairing.host, pairing.port, pairing.spki_fingerprint, device_id)
 
             if not client.verify_fingerprint():
                 GLib.idle_add(_set, self._t("sync.client.fp_error"))
                 return
-            if not client.pair(pairing_token):
+            if not client.pair(pairing.pairing_token):
                 GLib.idle_add(_set, self._t("sync.error", error="Pairing failed"))
                 return
 
-            # ---- data exchange depends on chosen mode ----
-            cars_imported = 0
-            trips_imported = 0
-            samples_imported = 0
+            # Pairing succeeded — hand off to the UI thread to show step 2
+            self._active_client = client
+            self._active_host = pairing.host
+            self._active_port = pairing.port
+            self._active_spki_fp = pairing.spki_fingerprint
+            GLib.idle_add(self._push_paired_page)
 
-            if mode == MODE_MERGE:
-                server_data = client.export_from_server()
-                if server_data:
-                    r = import_data(self._db, server_data, mode="merge")
-                    cars_imported = r["cars_added"] + r["cars_updated"]
-                    trips_imported = r["trips_added"]
-                    samples_imported = r["samples_added"]
-                local_data = export_all(self._db)
-                local_data["import_mode"] = "merge"
-                client.import_to_server(local_data)
+        except Exception as exc:
+            log.exception("Could not pair with sync URL")
+            GLib.idle_add(_set, self._t("sync.error", error=str(exc)))
 
-            elif mode == MODE_REMOTE_WINS:
-                server_data = client.export_from_server()
-                if server_data:
-                    r = import_data(self._db, server_data, mode="replace")
-                    cars_imported = r["cars_added"] + r["cars_updated"]
-                    trips_imported = r["trips_added"]
-                    samples_imported = r["samples_added"]
-                # Don't push local data to server
+    # ------------------------------------------------------------------ paired page (step 2: mode + sync)
 
-            elif mode == MODE_LOCAL_WINS:
-                local_data = export_all(self._db)
-                local_data["import_mode"] = "replace"
-                client.import_to_server(local_data)
-                # Don't import from server
+    def _push_paired_page(self) -> bool:
+        page, self._paired_status_label = self._build_paired_page(self._active_host)
+        self._nav.push(page)
+        return False
 
-            elif mode == MODE_REMOTE_WINS_ALL:
-                server_data = client.export_from_server()
-                if server_data:
-                    r = import_data(self._db, server_data, mode="replace_all")
-                    cars_imported = r["cars_added"] + r["cars_updated"]
-                    trips_imported = r["trips_added"]
-                    samples_imported = r["samples_added"]
+    def _build_paired_page(self, host: str) -> tuple[Adw.NavigationPage, Gtk.Label]:
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Gtk.Label(label=self._t("sync.paired.title")))
+        header.set_show_back_button(True)
+        toolbar_view.add_top_bar(header)
 
-            elif mode == MODE_LOCAL_WINS_ALL:
-                local_data = export_all(self._db)
-                local_data["import_mode"] = "replace_all"
-                client.import_to_server(local_data)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+
+        # Success indicator
+        ok_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+        ok_icon.set_pixel_size(48)
+        ok_icon.add_css_class("success")
+        ok_icon.set_halign(Gtk.Align.CENTER)
+        box.append(ok_icon)
+
+        connected_label = Gtk.Label(label=self._t("sync.paired.connected_to", host=host))
+        connected_label.add_css_class("title-2")
+        connected_label.set_halign(Gtk.Align.CENTER)
+        connected_label.set_wrap(True)
+        connected_label.set_justify(Gtk.Justification.CENTER)
+        box.append(connected_label)
+
+        hint_label = Gtk.Label(label=self._t("sync.paired.hint"))
+        hint_label.add_css_class("dim-label")
+        hint_label.set_halign(Gtk.Align.CENTER)
+        hint_label.set_wrap(True)
+        box.append(hint_label)
+
+        # Mode picker
+        mode_group = Adw.PreferencesGroup()
+        mode_group.set_title(self._t("sync.mode.label"))
+        box.append(mode_group)
+
+        self._sync_mode = MODE_MERGE
+        merge_check = Gtk.CheckButton()
+        merge_check.set_active(True)
+        merge_check.set_valign(Gtk.Align.CENTER)
+
+        def _make_mode_row(check: Gtk.CheckButton, title_key: str, sub_key: str) -> Adw.ActionRow:
+            row = Adw.ActionRow()
+            row.set_title(self._t(title_key))
+            row.set_subtitle(self._t(sub_key))
+            row.set_subtitle_lines(0)
+            row.add_prefix(check)
+            row.set_activatable_widget(check)
+            return row
+
+        mode_group.add(_make_mode_row(merge_check, "sync.mode.merge", "sync.mode.merge.subtitle"))
+
+        remote_check = Gtk.CheckButton()
+        remote_check.set_group(merge_check)
+        remote_check.set_valign(Gtk.Align.CENTER)
+        mode_group.add(_make_mode_row(remote_check, "sync.mode.remote_wins", "sync.mode.remote_wins.subtitle"))
+
+        local_check = Gtk.CheckButton()
+        local_check.set_group(merge_check)
+        local_check.set_valign(Gtk.Align.CENTER)
+        mode_group.add(_make_mode_row(local_check, "sync.mode.local_wins", "sync.mode.local_wins.subtitle"))
+
+        remote_all_check = Gtk.CheckButton()
+        remote_all_check.set_group(merge_check)
+        remote_all_check.set_valign(Gtk.Align.CENTER)
+        mode_group.add(_make_mode_row(remote_all_check, "sync.mode.remote_wins_all", "sync.mode.remote_wins_all.subtitle"))
+
+        local_all_check = Gtk.CheckButton()
+        local_all_check.set_group(merge_check)
+        local_all_check.set_valign(Gtk.Align.CENTER)
+        mode_group.add(_make_mode_row(local_all_check, "sync.mode.local_wins_all", "sync.mode.local_wins_all.subtitle"))
+
+        def _on_mode_toggled(*_: Any) -> None:
+            if remote_check.get_active():
+                self._sync_mode = MODE_REMOTE_WINS
+            elif local_check.get_active():
+                self._sync_mode = MODE_LOCAL_WINS
+            elif remote_all_check.get_active():
+                self._sync_mode = MODE_REMOTE_WINS_ALL
+            elif local_all_check.get_active():
+                self._sync_mode = MODE_LOCAL_WINS_ALL
+            else:
+                self._sync_mode = MODE_MERGE
+
+        for chk in (merge_check, remote_check, local_check, remote_all_check, local_all_check):
+            chk.connect("toggled", _on_mode_toggled)
+
+        # Status + sync button
+        status_label = Gtk.Label(label="")
+        status_label.set_wrap(True)
+        status_label.set_halign(Gtk.Align.CENTER)
+        status_label.set_justify(Gtk.Justification.CENTER)
+        box.append(status_label)
+
+        sync_btn = Gtk.Button(label=self._t("sync.paired.sync_btn"))
+        sync_btn.add_css_class("suggested-action")
+        sync_btn.set_halign(Gtk.Align.FILL)
+        sync_btn.connect(
+            "clicked",
+            lambda _b: self._on_sync_start(sync_btn, status_label),
+        )
+        box.append(sync_btn)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_child(box)
+        toolbar_view.set_content(scroll)
+
+        page = Adw.NavigationPage()
+        page.set_tag("paired")
+        page.set_title(self._t("sync.paired.title"))
+        page.set_child(toolbar_view)
+        return page, status_label
+
+    def _on_sync_start(self, sync_btn: Gtk.Button, status_label: Gtk.Label) -> None:
+        sync_btn.set_sensitive(False)
+        status_label.set_text(self._t("sync.client.connecting"))
+        threading.Thread(
+            target=self._do_sync,
+            args=(self._active_client, self._sync_mode, status_label, sync_btn),
+            daemon=True,
+        ).start()
+
+    def _do_sync(
+        self,
+        client: SyncClient,
+        mode: str,
+        status_label: Gtk.Label,
+        sync_btn: Gtk.Button,
+    ) -> None:
+        def _set(msg: str) -> bool:
+            status_label.set_text(msg)
+            return False
+
+        def _done(msg: str) -> bool:
+            status_label.set_text(msg)
+            sync_btn.set_sensitive(True)
+            return False
+
+        try:
+            result = perform_sync(self._db, client, mode)
 
             upsert_paired_device(
-                device_id=host, name=host, spki_fingerprint=spki_fp, host=host, port=port,
+                device_id=self._active_host,
+                name=self._active_host,
+                spki_fingerprint=self._active_spki_fp,
+                host=self._active_host,
+                port=self._active_port,
             )
 
-            GLib.idle_add(
-                _set,
-                self._t("sync.complete", cars=cars_imported, trips=trips_imported, samples=samples_imported),
+            msg = self._t(
+                "sync.complete",
+                cars=result["cars"],
+                trips=result["trips"],
+                samples=result["samples"],
             )
+            GLib.idle_add(_done, msg)
             if self._on_sync_complete:
                 GLib.idle_add(self._on_sync_complete)
 
         except Exception as exc:
-            GLib.idle_add(_set, self._t("sync.error", error=str(exc)))
+            log.exception("Sync operation failed")
+            GLib.idle_add(_done, self._t("sync.error", error=str(exc)))
 
     # ------------------------------------------------------------------ known device
 
@@ -613,11 +641,11 @@ class SyncDialog(Adw.Dialog):
             try:
                 self._server.stop()
             except Exception:
-                pass
+                log.exception("Could not stop sync server while closing dialog")
             self._server = None
         if self._scanner is not None:
             try:
                 self._scanner.cancel()
             except Exception:
-                pass
+                log.exception("Could not cancel sync QR scanner while closing dialog")
             self._scanner = None

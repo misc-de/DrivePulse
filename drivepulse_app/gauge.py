@@ -13,7 +13,10 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
+from .diagnostics import get_logger
+
 BUILTIN_THEMES_DIR = Path(__file__).resolve().parent.parent / "themes"
+log = get_logger(__name__)
 
 
 def _install_theme_import_aliases() -> None:
@@ -73,7 +76,7 @@ def load_builtin_themes() -> None:
             else:
                 _builtin_gauge_mods[stem] = mod
         except Exception:
-            pass
+            log.exception("Could not load built-in theme %s", path)
 
 
 load_builtin_themes()
@@ -151,7 +154,7 @@ def _init_themes_dir(themes_dir: Path) -> None:
         try:
             sample.write_text(_EXAMPLE_THEME, encoding="utf-8")
         except Exception:
-            pass
+            log.exception("Could not write sample theme file %s", sample)
 
 
 def load_user_themes(themes_dir: Path) -> None:
@@ -176,7 +179,7 @@ def load_user_themes(themes_dir: Path) -> None:
             if callable(draw_fn) or accel_css:
                 _user_themes[stem] = (label, draw_fn if callable(draw_fn) else None, accel_css)
         except Exception:
-            pass  # silently skip broken theme files
+            log.exception("Could not load user theme %s", path)
 
 
 def _resolve_label(mod: Any, language: str) -> str:
@@ -359,7 +362,7 @@ class Gauge(Gtk.DrawingArea):
                         draw_fn(cr, w, h, self)
                         drew_theme = True
                     except Exception:
-                        pass  # fall through to default on error
+                        log.exception("Could not draw user gauge theme %s", self.theme)
         if not drew_theme:
             mod = _builtin_gauge_mods.get(self.theme) or _builtin_gauge_mods.get("cockpit")
             if mod:
