@@ -301,7 +301,7 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         except (TypeError, ValueError):
             return False
 
-    _min_valid = max(2, len(_base) // 10)  # mindestens 10 % der GPS-Samples
+    _min_valid = max(2, int(len(_base) * 0.30))  # mindestens 30 % der GPS-Samples
     metric_data: dict[str, list] = {}
     for _mk, _ml, _mu, _mc, _mf in _CHART_METRICS:
         _pts = [(s["ts"], s[_mk] if _finite(s[_mk]) else None, s["lat"], s["lon"])
