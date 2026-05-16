@@ -48,6 +48,7 @@ class SyncDialog(Adw.Dialog):
         parent: Any,
         language: str,
         db: DriveDB,
+        initial_mode: str | None = None,
         on_sync_complete: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
@@ -64,7 +65,20 @@ class SyncDialog(Adw.Dialog):
 
         self._nav = Adw.NavigationView()
         self.set_child(self._nav)
-        self._nav.add(self._build_home_page())
+
+        if initial_mode == "server":
+            result = self._build_server_page()
+            self._server_status_label = result[1]
+            self._server_qr_picture = result[2]
+            self._server_spinner = result[3]
+            self._server_instr_label = result[4]
+            self._nav.add(result[0])
+            self.connect("map", lambda _: threading.Thread(target=self._start_server_mode, daemon=True).start())
+        elif initial_mode == "client":
+            self._nav.add(self._build_known_devices_page())
+        else:
+            self._nav.add(self._build_home_page())
+
         self.connect("closed", self._on_closed)
 
     def _t(self, key: str, **kw: Any) -> str:
@@ -161,7 +175,7 @@ class SyncDialog(Adw.Dialog):
             connect_btn.add_css_class("suggested-action")
             connect_btn.connect(
                 "clicked",
-                lambda _b, h=host, p=port, fp=spki_fp, di=did: self._connect_known(h, p, fp, di),
+                lambda _b, h=host, p=port, fp=spki_fp: self._push_qr_scan_page(h, p, fp),
             )
             row.add_suffix(connect_btn)
 
@@ -178,7 +192,10 @@ class SyncDialog(Adw.Dialog):
         devices = load_paired_devices()
         devices = [d for d in devices if d.get("device_id") != device_id]
         save_paired_devices(devices)
-        self._populate_devices()
+        if hasattr(self, "_devices_group"):
+            self._populate_devices()
+        if hasattr(self, "_known_devices_group"):
+            self._refresh_known_devices_group()
 
     # ------------------------------------------------------------------ server page
 
@@ -324,18 +341,92 @@ class SyncDialog(Adw.Dialog):
                 lambda: self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
             )
 
-    # ------------------------------------------------------------------ client page (step 1: scan)
+    # ------------------------------------------------------------------ client: known devices
 
     def _push_client_page(self, *_args: Any) -> None:
-        result = self._build_client_page()
-        page = result[0]
-        self._client_status_label = result[1]
-        self._client_entry = result[2]
-        self._client_scanner_box = result[3]
-        self._nav.push(page)
-        self._start_qr_scanner()
+        self._nav.push(self._build_known_devices_page())
 
-    def _build_client_page(self) -> tuple[Adw.NavigationPage, Gtk.Label, Gtk.Entry, Gtk.Box]:
+    def _build_known_devices_page(self) -> Adw.NavigationPage:
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Gtk.Label(label=self._t("sync.client.title")))
+        header.set_show_back_button(True)
+        toolbar_view.add_top_bar(header)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(16)
+        box.set_margin_bottom(16)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+
+        group = Adw.PreferencesGroup()
+        group.set_title(self._t("sync.devices.title"))
+        box.append(group)
+        self._known_devices_group = group
+        self._refresh_known_devices_group()
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_child(box)
+        toolbar_view.set_content(scroll)
+
+        page = Adw.NavigationPage()
+        page.set_tag("known-devices")
+        page.set_title(self._t("sync.client.title"))
+        page.set_child(toolbar_view)
+        return page
+
+    def _refresh_known_devices_group(self) -> None:
+        group = self._known_devices_group
+        child = group.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            group.remove(child)
+            child = nxt
+
+        devices = load_paired_devices()
+        if not devices:
+            empty_row = Adw.ActionRow()
+            empty_row.set_title(self._t("sync.devices.empty"))
+            group.add(empty_row)
+            return
+
+        for device in devices:
+            did = device.get("device_id", "")
+            name = device.get("name") or did[:12] or "Device"
+            host = device.get("host", "")
+            port = device.get("port", SyncServer.PORT)
+            last_seen = device.get("last_seen", "")
+            spki_fp = device.get("spki_fingerprint", "")
+            subtitle = f"{host}:{port}"
+            if last_seen:
+                subtitle += f" · {self._t('sync.device.last_seen', ts=last_seen[:16])}"
+
+            row = Adw.ActionRow()
+            row.set_title(GLib.markup_escape_text(name))
+            row.set_subtitle(GLib.markup_escape_text(subtitle))
+            row.set_subtitle_lines(0)
+
+            connect_btn = Gtk.Button(label=self._t("sync.device.connect"))
+            connect_btn.set_valign(Gtk.Align.CENTER)
+            connect_btn.add_css_class("suggested-action")
+            connect_btn.connect(
+                "clicked",
+                lambda _b, h=host, p=port, fp=spki_fp: self._push_qr_scan_page(h, p, fp),
+            )
+            row.add_suffix(connect_btn)
+
+            del_btn = Gtk.Button(label="×")
+            del_btn.set_valign(Gtk.Align.CENTER)
+            del_btn.add_css_class("destructive-action")
+            del_btn.set_tooltip_text(self._t("sync.device.remove"))
+            del_btn.connect("clicked", lambda _b, d_id=did: self._delete_device(d_id))
+            row.add_suffix(del_btn)
+
+            group.add(row)
+
+    def _push_qr_scan_page(self, host: str, port: int, spki_fp: str) -> None:
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.client.title")))
@@ -352,25 +443,10 @@ class SyncDialog(Adw.Dialog):
         scanner_box.set_vexpand(True)
         box.append(scanner_box)
 
-        paste_label = Gtk.Label(label=self._t("sync.client.paste_label"))
-        paste_label.set_halign(Gtk.Align.START)
-        paste_label.add_css_class("dim-label")
-        box.append(paste_label)
-
-        entry = Gtk.Entry()
-        entry.set_placeholder_text(self._t("sync.client.url_placeholder"))
-        entry.set_hexpand(True)
-        box.append(entry)
-
         status_label = Gtk.Label(label="")
         status_label.set_wrap(True)
-        status_label.set_halign(Gtk.Align.START)
+        status_label.set_halign(Gtk.Align.CENTER)
         box.append(status_label)
-
-        connect_btn = Gtk.Button(label=self._t("sync.client.connect_btn"))
-        connect_btn.add_css_class("suggested-action")
-        connect_btn.connect("clicked", lambda _b: self._on_client_pair(entry, status_label))
-        box.append(connect_btn)
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -379,42 +455,30 @@ class SyncDialog(Adw.Dialog):
         toolbar_view.set_content(scroll)
 
         page = Adw.NavigationPage()
-        page.set_tag("client")
+        page.set_tag("qr-scan")
         page.set_title(self._t("sync.client.title"))
         page.set_child(toolbar_view)
-        return page, status_label, entry, scanner_box
+        self._nav.push(page)
 
-    def _start_qr_scanner(self) -> None:
         if not scan_supported():
             fallback = Gtk.Label(label=self._t("sync.client.no_camera"))
             fallback.set_halign(Gtk.Align.CENTER)
             fallback.add_css_class("dim-label")
-            self._client_scanner_box.append(fallback)
+            scanner_box.append(fallback)
             return
 
         def _on_success(text: str) -> None:
-            self._client_entry.set_text(text)
-            self._on_client_pair(self._client_entry, self._client_status_label)
+            if self._scanner is not None:
+                self._scanner.cancel()
+            status_label.set_text(self._t("sync.client.pairing"))
+            threading.Thread(target=self._do_pair, args=(text, status_label), daemon=True).start()
 
         def _on_error(msg: str) -> None:
-            self._client_status_label.set_text(msg)
+            status_label.set_text(msg)
 
         self._scanner = WebcamQRScanner(on_success=_on_success, on_error=_on_error)
-        self._client_scanner_box.append(self._scanner.build_widget())
+        scanner_box.append(self._scanner.build_widget())
         self._scanner.start()
-
-    def _on_client_pair(self, entry: Gtk.Entry, status_label: Gtk.Label) -> None:
-        url_text = entry.get_text().strip()
-        if not url_text:
-            return
-        if self._scanner is not None:
-            self._scanner.cancel()
-        status_label.set_text(self._t("sync.client.pairing"))
-        threading.Thread(
-            target=self._do_pair,
-            args=(url_text, status_label),
-            daemon=True,
-        ).start()
 
     def _do_pair(self, url_text: str, status_label: Gtk.Label) -> None:
         def _set(msg: str) -> bool:
@@ -625,14 +689,6 @@ class SyncDialog(Adw.Dialog):
         except Exception as exc:
             log.exception("Sync operation failed")
             GLib.idle_add(_done, self._t("sync.error", error=str(exc)))
-
-    # ------------------------------------------------------------------ known device
-
-    def _connect_known(self, host: str, port: int, spki_fp: str, device_id: str) -> None:
-        threading.Thread(
-            target=lambda: None,  # needs fresh QR pairing token — addressed via client page
-            daemon=True,
-        ).start()
 
     # ------------------------------------------------------------------ cleanup
 

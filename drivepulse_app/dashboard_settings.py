@@ -76,9 +76,32 @@ class DashboardSettingsMixin:
         dialog.present(self)
 
     def _open_sync(self, *_args: Any) -> None:
+        import gi
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw
         from .sync_dialog import SyncDialog
-        dialog = SyncDialog(self, self.language, self.db, on_sync_complete=lambda: self.cars_page.refresh_profiles())
-        dialog.present(self)
+
+        alert = Adw.AlertDialog(
+            heading=_translate(self.language, "sync.title"),
+            body="",
+        )
+        alert.add_response("server", _translate(self.language, "sync.choose.server"))
+        alert.add_response("client", _translate(self.language, "sync.choose.client"))
+        alert.add_response("cancel", _translate(self.language, "sync.choose.cancel"))
+        alert.set_response_appearance("server", Adw.ResponseAppearance.SUGGESTED)
+        alert.set_default_response("cancel")
+        alert.set_close_response("cancel")
+
+        def _on_response(_dlg: Any, response: str) -> None:
+            if response in ("server", "client"):
+                SyncDialog(
+                    self, self.language, self.db,
+                    initial_mode=response,
+                    on_sync_complete=lambda: self.cars_page.refresh_profiles(),
+                ).present(self)
+
+        alert.connect("response", _on_response)
+        alert.present(self)
 
     def _set_obd_port(self, port: str | None) -> None:
         if port == self.obd_port:
