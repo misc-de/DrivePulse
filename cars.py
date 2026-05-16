@@ -327,9 +327,17 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
     # Shared cursor state: idx = index into chart_state["pts"], -1 = none
     cursor_state: dict[str, Any] = {"idx": -1}
     map_widget_ref: list[Any] = [None]
+    map_center_ref: list[Any] = [None]
     chart_area_ref: list[Any] = [None]
 
     def _on_cursor_change() -> None:
+        if map_center_ref[0] is not None and chart_state:
+            idx = cursor_state.get("idx", -1)
+            pts = chart_state.get("pts") or []
+            if 0 <= idx < len(pts):
+                clat, clon = pts[idx][2], pts[idx][3]
+                if clat is not None and clon is not None:
+                    map_center_ref[0](clat, clon)
         if map_widget_ref[0]:
             map_widget_ref[0].queue_draw()
         if chart_area_ref[0]:
@@ -342,13 +350,15 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         gps_title = Gtk.Label(label=_translate(language, "cars.trip.route"), xalign=0.0)
         gps_title.add_css_class("heading")
         outer.append(gps_title)
-        map_widget = _build_osm_map_widget(
+        map_result = _build_osm_map_widget(
             gps_points,
             chart_state=chart_state if chart_state else None,
             cursor_state=cursor_state,
         )
-        if map_widget is not None:
+        if map_result is not None:
+            map_widget, map_center_fn = map_result
             map_widget_ref[0] = map_widget
+            map_center_ref[0] = map_center_fn
             outer.append(map_widget)
         else:
             gps_area = Gtk.DrawingArea()
@@ -1416,8 +1426,22 @@ def _build_osm_map_widget(
     tap_gest.connect("pressed", _on_tap)
     area.add_controller(tap_gest)
 
+    def center_on(lat: float, lon: float) -> None:
+        """Shift the map center to (lat, lon) without changing the zoom level."""
+        base_lat = (lat_min + lat_max) / 2
+        base_lon = (lon_min + lon_max) / 2
+        state["geo_pan_lat"] = lat - base_lat
+        state["geo_pan_lon"] = lon - base_lon
+        state["pan_x"] = 0.0
+        state["pan_y"] = 0.0
+        z = state["zoom"]
+        state["cx"] = _lon_to_tx(lon, z) + 0.5
+        state["cy"] = _lat_to_ty(lat, z) + 0.5
+        if area_holder:
+            area_holder[0].queue_draw()
+
     threading.Thread(target=_start_fetch, args=(dict(state),), daemon=True).start()
-    return area
+    return area, center_on
 
 
 def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
