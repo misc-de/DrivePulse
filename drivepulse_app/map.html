@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
+    #map { position: absolute; inset: 0; }
+    .maplibregl-ctrl-bottom-left,
+    .maplibregl-ctrl-bottom-right { display: none; }
+    .car-icon {
+      width: 44px; height: 44px;
+      transform-origin: 50% 50%;
+      filter: drop-shadow(0 2px 5px rgba(0,0,0,0.55));
+      pointer-events: none;
+    }
+    #error {
+      display: none; position: absolute; inset: 0;
+      background: #1a1a2e; color: rgba(255,255,255,0.7);
+      font-family: sans-serif; font-size: 14px;
+      flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    }
+    #error.visible { display: flex; }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<div id="error">
+  <span style="font-size:2.5em">⚠</span>
+  <span>Map konnte nicht geladen werden.</span>
+  <span style="font-size:0.85em;opacity:0.6">Internetverbindung prüfen.</span>
+</div>
+<script>
+  window.addEventListener('error', (e) => {
+    if (e.target && e.target.tagName === 'SCRIPT')
+      document.getElementById('error').classList.add('visible');
+  }, true);
+</script>
+<script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+<script>
+'use strict';
+
+// ── Map styles ────────────────────────────────────────────────────────────────
+const STYLES = {
+  street:    'https://tiles.openfreemap.org/styles/liberty',
+  dark:      'https://tiles.openfreemap.org/styles/dark',
+  satellite: {
+    version: 8,
+    sources: {
+      esri: {
+        type: 'raster',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256, attribution: '© Esri', maxzoom: 18,
+      }
+    },
+    layers: [{ id: 'esri', type: 'raster', source: 'esri' }]
+  },
+};
+
+// ── Persistent state (survives style changes) ─────────────────────────────────
+let map = null;
+let carMarker = null;
+let carEl = null;
+let followMode = true;
+let initialized = false;
+
+let _routeCoords    = [];
+let _wpStart        = null;   // [lat, lon]
+let _wpEnd          = null;
+let _trafficItems   = [];
+let _trafficVisible = false;
+
+// ── Python bridge ─────────────────────────────────────────────────────────────
+function postToPython(data) {
+  try { window.webkit.messageHandlers.drivepulse.postMessage(data); } catch (_) {}
+}
+
+// ── GeoJSON helpers ───────────────────────────────────────────────────────────
+function lineGJ(coords) {
+  return {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coords.length >= 2 ? coords : [[0,0],[0.001,0.001]] }
+  };
+}
+function fcGJ(features) { return { type: 'FeatureCollection', features }; }
+function wpFeat(latlon, role) {
+  if (!latlon) return null;
+  return {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [latlon[1], latlon[0]] },
+    properties: { role }
+  };
+}
+
+// ── Custom data layers (re-created after every style.load) ────────────────────
+function addDataLayers() {
+  // Route
+  if (!map.getSource('route')) {
+    map.addSource('route', { type: 'geojson', data: lineGJ(_routeCoords) });
+    map.addLayer({ id: 'route-case', type: 'line', source: 'route',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#1a6fa8', 'line-width': 10, 'line-opacity': 0.5 } });
+    map.addLayer({ id: 'route-line', type: 'line', source: 'route',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#3daee9', 'line-width': 5, 'line-opacity': 0.9 } });
+  }
+
+  // Waypoints
+  const wpFeats = [wpFeat(_wpStart, 'start'), wpFeat(_wpEnd, 'end')].filter(Boolean);
+  if (!map.getSource('waypoints')) {
+    map.addSource('waypoints', { type: 'geojson', data: fcGJ(wpFeats) });
+    map.addLayer({ id: 'waypoints', type: 'circle', source: 'waypoints',
+      paint: {
+        'circle-radius': 9,
+        'circle-color': ['match', ['get', 'role'], 'start', '#2ec06e', '#e53030'],
+        'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
+      }
+    });
+  }
+
+  // Traffic
+  const trafficFeats = _trafficItems.map(item => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
+    properties: { kind: item.kind, title: item.title }
+  }));
+  const vis = _trafficVisible ? 'visible' : 'none';
+  if (!map.getSource('traffic')) {
+    map.addSource('traffic', { type: 'geojson', data: fcGJ(trafficFeats) });
+    map.addLayer({ id: 'traffic-rw', type: 'circle', source: 'traffic',
+      filter: ['==', ['get', 'kind'], 'roadworks'],
+      paint: { 'circle-radius': 7, 'circle-color': '#F5990A',
+               'circle-stroke-color': '#B36000', 'circle-stroke-width': 2 },
+      layout: { visibility: vis } });
+    map.addLayer({ id: 'traffic-inc', type: 'circle', source: 'traffic',
+      filter: ['==', ['get', 'kind'], 'incidents'],
+      paint: { 'circle-radius': 7, 'circle-color': '#E53030',
+               'circle-stroke-color': '#9A1A1A', 'circle-stroke-width': 2 },
+      layout: { visibility: vis } });
+  }
+}
+
+// ── Init (triggered by first GPS fix or explicit call) ────────────────────────
+function initMap(lat, lon) {
+  if (initialized) return;
+  initialized = true;
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style: STYLES.street,
+    center: [lon, lat],
+    zoom: 15,
+    pitch: 60,
+    bearing: 0,
+    antialias: true,
+  });
+
+  // Car marker (SVG arrow)
+  carEl = document.createElement('div');
+  carEl.className = 'car-icon';
+  carEl.innerHTML = `<svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="22" cy="26" rx="13" ry="5" fill="rgba(0,0,0,0.28)"/>
+    <path d="M22 4 L34 40 L22 33 L10 40 Z"
+          fill="#2980B9" stroke="#1a5a8a" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="22" cy="20" r="3" fill="rgba(255,255,255,0.55)"/>
+  </svg>`;
+
+  carMarker = new maplibregl.Marker({ element: carEl, anchor: 'center' })
+    .setLngLat([lon, lat])
+    .addTo(map);
+
+  map.on('style.load', addDataLayers);
+
+  map.on('dragstart', () => {
+    if (followMode) {
+      followMode = false;
+      postToPython({ action: 'follow_off' });
+    }
+  });
+}
+
+// ── Public API (called from Python) ──────────────────────────────────────────
+function mapSetCar(lat, lon, heading) {
+  if (!initialized) initMap(lat, lon);
+  if (!map) return;
+  if (carMarker) carMarker.setLngLat([lon, lat]);
+  if (followMode) {
+    map.easeTo({ center: [lon, lat], bearing: heading, pitch: 60, duration: 350 });
+    // Map rotates to face direction of travel — car icon stays pointing "up"
+    if (carEl) carEl.style.transform = 'rotate(0deg)';
+  } else {
+    // North-up map — rotate icon to show absolute heading
+    const rot = heading - (map.getBearing() || 0);
+    if (carEl) carEl.style.transform = `rotate(${rot}deg)`;
+  }
+}
+
+function mapSetFollow(active) {
+  followMode = active;
+}
+
+function mapSetRoute(coords) {
+  _routeCoords = coords;
+  if (map && map.getSource('route'))
+    map.getSource('route').setData(lineGJ(coords));
+}
+
+function mapSetWaypoints(start, end) {
+  _wpStart = start;
+  _wpEnd   = end;
+  if (map && map.getSource('waypoints')) {
+    const feats = [wpFeat(start, 'start'), wpFeat(end, 'end')].filter(Boolean);
+    map.getSource('waypoints').setData(fcGJ(feats));
+  }
+}
+
+function mapClearRoute() {
+  _routeCoords = []; _wpStart = null; _wpEnd = null;
+  if (map) {
+    if (map.getSource('route'))     map.getSource('route').setData(lineGJ([]));
+    if (map.getSource('waypoints')) map.getSource('waypoints').setData(fcGJ([]));
+  }
+}
+
+function mapGoTo(lat, lon, zoom) {
+  if (!map) return;
+  map.flyTo({ center: [lon, lat], zoom: zoom, pitch: 60, duration: 900 });
+}
+
+function mapSetStyle(key) {
+  if (!map) return;
+  const style = STYLES[key] || STYLES.street;
+  map.setStyle(style);
+}
+
+function mapSetTraffic(items) {
+  _trafficItems = items;
+  if (map && map.getSource('traffic')) {
+    map.getSource('traffic').setData(fcGJ(items.map(item => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
+      properties: { kind: item.kind, title: item.title }
+    }))));
+  }
+}
+
+function mapSetTrafficVisible(visible) {
+  _trafficVisible = visible;
+  if (!map) return;
+  ['traffic-rw', 'traffic-inc'].forEach(id => {
+    if (map.getLayer(id))
+      map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+  });
+}
+</script>
+</body>
+</html>
