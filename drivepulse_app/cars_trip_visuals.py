@@ -879,8 +879,8 @@ def _build_osm_map_widget(
     drag_gest.connect("drag-begin",  _on_drag_begin)
     drag_gest.connect("drag-update", _on_drag_update)
     drag_gest.connect("drag-end",    _on_drag_end)
-    drag_gest.group(zoom_gest)   # cooperate: 2-finger zoom cancels 1-finger pan
     area.add_controller(drag_gest)
+    drag_gest.group(zoom_gest)   # cooperate: 2-finger zoom cancels 1-finger pan
 
     def _on_tap(gest: Any, n_press: int, x: float, y: float) -> None:
         if n_press == 2:
