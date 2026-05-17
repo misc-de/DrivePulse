@@ -202,7 +202,9 @@ class DashboardSettingsMixin:
         self.dashboard_stack_page.set_title(_translate(self.language, "nav.gauges"))
         self.acceleration_stack_page.set_title(_translate(self.language, "nav.acceleration"))
         self.cars_stack_page.set_title(_translate(self.language, "nav.cars"))
+        self.map_stack_page.set_title(_translate(self.language, "nav.map"))
         self.acceleration_page.set_language(self.language)
+        self.map_page.set_language(self.language)
         self.dashboard_canvas.set_language(self.language)
         self.cars_page.set_language(self.language)
         if self.last_payload is not None:

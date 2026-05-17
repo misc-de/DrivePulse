@@ -23,6 +23,7 @@ from .dashboard import DashboardCanvas, DASHBOARD_THEMES
 from .dashboard_layout import DashboardLayoutMixin
 from .acceleration import AccelerationPage
 from .cars import CarsPage
+from .map_page import MapPage
 from .dashboard_telemetry import DashboardTelemetryMixin
 from .db import DriveDB
 from .dashboard_settings import DashboardSettingsMixin
@@ -38,6 +39,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     PAGE_DASHBOARD = "dashboard"
     PAGE_ACCELERATION = "acceleration"
     PAGE_CARS = "cars"
+    PAGE_MAP = "map"
 
     # Fensterbreite, unterhalb derer die Autos-Detailansicht ihre Kategorienleiste
     # auf Icon-only umschaltet (Phosh/Mobian-typische Portrait-Breiten 360–540 px).
@@ -162,6 +164,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
 
+        self.map_page = MapPage(self.language)
+
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
         self.view_stack.set_hexpand(True)
@@ -174,6 +178,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.PAGE_CARS,
             _translate(self.language, "nav.cars"),
             "driving-symbolic",
+        )
+        self.map_stack_page = self.view_stack.add_titled_with_icon(
+            self.map_page,
+            self.PAGE_MAP,
+            _translate(self.language, "nav.map"),
+            "map-symbolic",
         )
         self.dashboard_stack_page = self.view_stack.add_titled_with_icon(
             dashboard_scroller,
@@ -336,15 +346,13 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.set_ctx_trash(None)
 
     def _on_cars_back_swipe(self) -> None:
-        """Vom Autos-Tab (Liste) per Wisch nach rechts zurück zur Beschleunigung."""
-        if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
-            self.view_stack.set_visible_child_name(self.PAGE_ACCELERATION)
-            self._last_swipe_time = time.monotonic()
+        """Vom Autos-Tab (Liste) per Wisch nach rechts — kein Tab (Cars ist erster Tab)."""
+        pass
 
     def _on_cars_forward_swipe(self) -> None:
-        """Vom Autos-Tab (Liste) per Wisch nach links zum Tacho."""
+        """Vom Autos-Tab (Liste) per Wisch nach links zur Karte."""
         if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
-            self.view_stack.set_visible_child_name(self.PAGE_DASHBOARD)
+            self.view_stack.set_visible_child_name(self.PAGE_MAP)
             self._last_swipe_time = time.monotonic()
 
     def _on_realize_install_css(self, *_args: Any) -> None:
@@ -400,7 +408,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # Zurück-Swipe (Detail → Liste). Wir schalten dann nicht zusätzlich den Tab um.
         if current == self.PAGE_CARS and velocity_x > 0 and self.cars_page.is_detail_open():
             return
-        pages = [self.PAGE_CARS, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
+        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
         try:
             index = pages.index(current)
         except ValueError:
