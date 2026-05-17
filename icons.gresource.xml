@@ -11,5 +11,6 @@
     <file alias="stopwatch-symbolic.svg">icons/hicolor/symbolic/actions/stopwatch-symbolic.svg</file>
     <file alias="share-alt-symbolic.svg">icons/hicolor/symbolic/actions/share-alt-symbolic.svg</file>
     <file alias="navigate-north-symbolic.svg">icons/hicolor/symbolic/actions/navigate-north-symbolic.svg</file>
+    <file alias="xsi-search.svg">icons/hicolor/symbolic/actions/xsi-search.svg</file>
   </gresource>
 </gresources>
