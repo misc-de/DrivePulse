@@ -496,7 +496,6 @@ class MapPage(Gtk.Box):
         self._shumate_map.set_map_source(self._sources["map"])
 
         self._shumate_map.get_scale().set_margin_bottom(24)
-        self._shumate_map.get_license().set_margin_bottom(24)
 
         self._inner_map = (
             self._shumate_map.get_map()
