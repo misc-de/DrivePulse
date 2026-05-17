@@ -405,8 +405,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             index = pages.index(current)
         except ValueError:
             index = 0
-        if velocity_x < 0 and index < len(pages) - 1:
-            self.view_stack.set_visible_child_name(pages[index + 1])
+        if velocity_x < 0:
+            self.view_stack.set_visible_child_name(pages[(index + 1) % len(pages)])
         elif velocity_x > 0 and index > 0:
             self.view_stack.set_visible_child_name(pages[index - 1])
 
