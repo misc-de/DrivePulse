@@ -166,6 +166,15 @@ class MapPage(Gtk.Box):
         # Prevent search entries from auto-grabbing focus when the tab becomes visible
         self.connect("map", self._on_mapped)
 
+    def _on_mapped(self, _widget: Any) -> None:
+        GLib.idle_add(self._drop_focus)
+
+    def _drop_focus(self) -> bool:
+        root = self.get_root()
+        if root is not None:
+            root.set_focus(None)
+        return False
+
     # ── Search / route bar ────────────────────────────────────────────────────
 
     def _build_search_bar(self) -> None:
@@ -231,15 +240,6 @@ class MapPage(Gtk.Box):
 
     # ── Shumate map ───────────────────────────────────────────────────────────
 
-    def _make_tile_source(self, url: str) -> Any:
-        # Shumate >= 1.1 has TileDownloader + RasterRenderer; 1.0.x only has the registry
-        if hasattr(Shumate, "RasterRenderer") and hasattr(Shumate, "TileDownloader"):
-            return Shumate.RasterRenderer.new(Shumate.TileDownloader.new(url))
-        # Fallback: built-in OSM source from registry (1.0.x)
-        registry = Shumate.MapSourceRegistry.new_with_defaults()
-        osm_id = getattr(Shumate, "MAP_SOURCE_OSM_MAPNIK", "osm-mapnik")
-        return registry.get_by_id(osm_id)
-
     def _build_map(self) -> None:
         if not _SHUMATE_OK:
             placeholder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -268,8 +268,24 @@ class MapPage(Gtk.Box):
         viewport.set_zoom_level(13.0)
         viewport.set_location(48.137, 11.576)
 
-        for key, url in _TILE_URLS.items():
-            self._sources[key] = self._make_tile_source(url)
+        # Tile sources — Shumate >= 1.1 has RasterRenderer/TileDownloader;
+        # older 1.0.x (Debian Bookworm) only has the built-in registry.
+        if hasattr(Shumate, "RasterRenderer") and hasattr(Shumate, "TileDownloader"):
+            for key, url in _TILE_URLS.items():
+                try:
+                    self._sources[key] = Shumate.RasterRenderer.new(
+                        Shumate.TileDownloader.new(url)
+                    )
+                except Exception:
+                    log.warning("Could not create tile source for %s", key)
+        if not self._sources:
+            # Fallback: built-in OSM source (covers all keys, satellite/dark stay on OSM)
+            registry = Shumate.MapSourceRegistry.new_with_defaults()
+            osm_id = getattr(Shumate, "MAP_SOURCE_OSM_MAPNIK", "osm-mapnik")
+            osm = registry.get_by_id(osm_id)
+            for key in _TILE_URLS:
+                self._sources[key] = osm
+
         self._shumate_map.set_map_source(self._sources["map"])
 
         # Route polyline layer
