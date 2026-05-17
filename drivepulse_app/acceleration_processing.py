@@ -79,11 +79,11 @@ class AccelerationProcessingMixin:
             self._gps_ever_seen = True
         self._set_source_visibility(self._obd_ever_seen, self._gps_ever_seen)
 
-        # Maxima fortschreiben — nur während laufender / scharfer Messung
-        if obd_speed is not None and (self.max_obd_speed is None or obd_speed > self.max_obd_speed):
-            self.max_obd_speed = obd_speed
-        if gps_speed is not None and (self.max_gps_speed is None or gps_speed > self.max_gps_speed):
-            self.max_gps_speed = gps_speed
+        # Max-G während der gesamten scharfen / laufenden Messung fortschreiben.
+        # Max-Speed nur im laufenden Block (unten), damit elapsed-Zeit korrekt
+        # mitgespeichert werden kann — würde man den Speed hier vorweg setzen,
+        # wäre die Bedingung im laufenden Block stets False und _max_*_speed_t
+        # bliebe dauerhaft None.
         if active_g is not None and (self.max_g is None or active_g > self.max_g):
             self.max_g = active_g
         self._update_maxes_label()
