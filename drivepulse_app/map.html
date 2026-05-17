@@ -80,6 +80,8 @@ let _wpEnd          = null;
 let _trafficItems   = [];
 let _trafficVisible = false;
 let _gpsLon = null, _gpsLat = null;
+let _poiVisible     = false;
+let _poiLoading     = false;
 
 const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
 
@@ -160,6 +162,39 @@ function addDataLayers() {
                'circle-stroke-color': '#9A1A1A', 'circle-stroke-width': 2 },
       layout: { visibility: vis } });
   }
+
+  // POI
+  const poiVis = _poiVisible ? 'visible' : 'none';
+  if (!map.getSource('poi')) {
+    map.addSource('poi', { type: 'geojson', data: fcGJ([]) });
+    map.addLayer({ id: 'poi-circle', type: 'circle', source: 'poi',
+      paint: {
+        'circle-radius': 6,
+        'circle-color': ['match', ['get', 'cat'],
+          'fuel',    '#2ecc71',
+          'parking', '#3498db',
+          'food',    '#e67e22',
+          'shop',    '#f1c40f',
+          'medical', '#e74c3c',
+          'tourism', '#9b59b6',
+          '#95a5a6'
+        ],
+        'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5,
+      },
+      layout: { visibility: poiVis }
+    });
+    map.addLayer({ id: 'poi-label', type: 'symbol', source: 'poi',
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-size': 10,
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-optional': true,
+        visibility: poiVis,
+      },
+      paint: { 'text-color': '#333', 'text-halo-color': '#fff', 'text-halo-width': 1 }
+    });
+  }
 }
 
 // ── Init (triggered by first GPS fix or explicit call) ────────────────────────
@@ -200,6 +235,45 @@ function initMap(lat, lon) {
       postToPython({ action: 'follow_off' });
     }
   });
+
+  let _poiMoveTimer = null;
+  map.on('moveend', () => {
+    if (!_poiVisible) return;
+    clearTimeout(_poiMoveTimer);
+    _poiMoveTimer = setTimeout(_fetchPoi, 800);
+  });
+}
+
+// ── POI helpers ───────────────────────────────────────────────────────────────
+function _poiCat(tags) {
+  const a = tags.amenity || '';
+  if (a === 'fuel')     return 'fuel';
+  if (a === 'parking')  return 'parking';
+  if (['restaurant','fast_food','cafe'].includes(a)) return 'food';
+  if (a === 'supermarket' || tags.shop) return 'shop';
+  if (['hospital','pharmacy'].includes(a)) return 'medical';
+  if (tags.tourism) return 'tourism';
+  return 'other';
+}
+
+function _fetchPoi() {
+  if (!map || _poiLoading) return;
+  const b = map.getBounds();
+  const bbox = `${b.getSouth().toFixed(5)},${b.getWest().toFixed(5)},${b.getNorth().toFixed(5)},${b.getEast().toFixed(5)}`;
+  const q = `[out:json][timeout:15][bbox:${bbox}];(node["amenity"~"fuel|parking|hospital|pharmacy|restaurant|fast_food|cafe|supermarket"];node["tourism"~"attraction|viewpoint"];node["shop"="convenience"];);out body;`;
+  _poiLoading = true;
+  fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`)
+    .then(r => r.json())
+    .then(data => {
+      const feats = (data.elements || []).map(el => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [el.lon, el.lat] },
+        properties: { name: el.tags.name || '', cat: _poiCat(el.tags) }
+      }));
+      if (map.getSource('poi')) map.getSource('poi').setData(fcGJ(feats));
+    })
+    .catch(() => {})
+    .finally(() => { _poiLoading = false; });
 }
 
 // ── Public API (called from Python) ──────────────────────────────────────────
@@ -302,6 +376,16 @@ function mapSetTrafficVisible(visible) {
     if (map.getLayer(id))
       map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
   });
+}
+
+function mapSetPoiVisible(visible) {
+  _poiVisible = visible;
+  if (!map) return;
+  ['poi-circle', 'poi-label'].forEach(id => {
+    if (map.getLayer(id))
+      map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+  });
+  if (visible) _fetchPoi();
 }
 
 window.addEventListener('DOMContentLoaded', () => {

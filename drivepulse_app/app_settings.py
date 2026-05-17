@@ -18,6 +18,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "obd_port": None,
     "gauge_theme": "cockpit",
     "engage_threshold": 0.20,
+    "theme_mode": "auto",
 }
 
 
@@ -48,6 +49,9 @@ def load_settings() -> dict[str, Any]:
         "obd_port": data.get("obd_port") or None,
         "gauge_theme": data.get("gauge_theme", DEFAULT_SETTINGS["gauge_theme"]) or "cockpit",
         "engage_threshold": engage_threshold,
+        "theme_mode": data.get("theme_mode", "auto") if data.get("theme_mode") in {"auto", "dark", "light"} else "auto",
+        "sidebar_side": data.get("sidebar_side", "left") if data.get("sidebar_side") in {"left", "right"} else "left",
+        "last_update_check": data.get("last_update_check") or None,
     }
 
 
@@ -63,6 +67,9 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "obd_port": settings.get("obd_port") or None,
                 "gauge_theme": settings.get("gauge_theme", "cockpit") or "cockpit",
                 "engage_threshold": float(settings.get("engage_threshold", DEFAULT_SETTINGS["engage_threshold"])),
+                "theme_mode": settings.get("theme_mode", "auto") if settings.get("theme_mode") in {"auto", "dark", "light"} else "auto",
+                "sidebar_side": settings.get("sidebar_side", "left") if settings.get("sidebar_side") in {"left", "right"} else "left",
+                "last_update_check": settings.get("last_update_check") or None,
             },
             indent=2,
         ),

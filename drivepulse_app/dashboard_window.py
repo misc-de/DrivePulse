@@ -58,6 +58,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.obd_port: str | None = self.settings.get("obd_port")
         self.gauge_theme: str = self.settings.get("gauge_theme", "cockpit")
         self.sidebar_side: str = self.settings.get("sidebar_side", "left")
+        self.theme_mode: str = self.settings.get("theme_mode", "auto")
+        self.last_update_check: str | None = self.settings.get("last_update_check")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -363,7 +365,18 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.get_display(), self._theme_css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
+        self._apply_theme_mode(self.theme_mode)
         self._apply_window_theme(self.gauge_theme)
+
+    def _apply_theme_mode(self, mode: str) -> None:
+        from gi.repository import Adw
+        manager = Adw.StyleManager.get_default()
+        if mode == "dark":
+            manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        elif mode == "light":
+            manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
+        else:
+            manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
 
     def _apply_window_theme(self, theme: str) -> None:
         for cls in list(self.get_css_classes()):
