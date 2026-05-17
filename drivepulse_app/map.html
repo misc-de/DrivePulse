@@ -123,7 +123,7 @@ function addDataLayers() {
     map.addLayer({ id: 'waypoints', type: 'circle', source: 'waypoints',
       paint: {
         'circle-radius': 9,
-        'circle-color': ['match', ['get', 'role'], 'start', '#2ec06e', '#e53030'],
+        'circle-color': ['match', ['get', 'role'], 'start', '#2ec06e', 'via', '#F29A0A', '#e53030'],
         'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
       }
     });
@@ -220,11 +220,15 @@ function mapSetRoute(coords) {
     map.getSource('route').setData(lineGJ(coords));
 }
 
-function mapSetWaypoints(start, end) {
-  _wpStart = start;
-  _wpEnd   = end;
+function mapSetWaypoints(points) {
+  // points = [[lat,lon], ...] — first=start, last=end, middle=via
+  _wpStart = points.length > 0 ? points[0] : null;
+  _wpEnd   = points.length > 1 ? points[points.length - 1] : null;
   if (map && map.getSource('waypoints')) {
-    const feats = [wpFeat(start, 'start'), wpFeat(end, 'end')].filter(Boolean);
+    const feats = points.map((pt, i) => {
+      const role = i === 0 ? 'start' : (i === points.length - 1 ? 'end' : 'via');
+      return wpFeat(pt, role);
+    }).filter(Boolean);
     map.getSource('waypoints').setData(fcGJ(feats));
   }
 }
