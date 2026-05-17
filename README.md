@@ -25,9 +25,10 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 
 - Multiple dashboard themes (Analog, Cockpit, Digital, Modern, Neon, Racing, Sport)
 - **Acceleration measurement**
-  - 0–30 / 0–50 / 0–70 / 0–100 / … / 0–200 km/h and 100–200 km/h from OBD and GPS
   - G-force ball display with real-time longitudinal and lateral G
-  - Vmax elapsed times (OBD / GPS / average) shown at end of run; replay completed runs with real-time animation
+  - 0–30 / 0–50 / 0–70 / 0–100 / … / 0–200 km/h and 100–200 km/h from OBD and GPS
+  - Vmax elapsed times (OBD / GPS / average) shown at end of run
+  - replay completed runs with real-time animation
 - **Cars / Trips page**
   - lists all vehicles seen, with recorded trips
   - OBD scan history and acceleration runs per vehicle
