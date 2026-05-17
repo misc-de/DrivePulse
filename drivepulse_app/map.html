@@ -154,7 +154,7 @@ function initMap(lat, lon) {
     style: STYLES.street,
     center: [lon, lat],
     zoom: 15,
-    pitch: 60,
+    pitch: 0,
     bearing: 0,
     antialias: true,
   });
@@ -188,12 +188,14 @@ function mapSetCar(lat, lon, heading) {
   if (!initialized) initMap(lat, lon);
   if (!map) return;
   if (carMarker) carMarker.setLngLat([lon, lat]);
+  // 3D nav mode only when following AND a route is active
+  const navMode = followMode && _routeCoords.length >= 2;
   if (followMode) {
-    map.easeTo({ center: [lon, lat], bearing: heading, pitch: 60, duration: 350 });
-    // Map rotates to face direction of travel — car icon stays pointing "up"
-    if (carEl) carEl.style.transform = 'rotate(0deg)';
+    const pitch   = navMode ? 60 : 0;
+    const bearing = navMode ? heading : 0;
+    map.easeTo({ center: [lon, lat], bearing, pitch, duration: 350 });
+    if (carEl) carEl.style.transform = navMode ? 'rotate(0deg)' : `rotate(${heading}deg)`;
   } else {
-    // North-up map — rotate icon to show absolute heading
     const rot = heading - (map.getBearing() || 0);
     if (carEl) carEl.style.transform = `rotate(${rot}deg)`;
   }
@@ -223,13 +225,15 @@ function mapClearRoute() {
   if (map) {
     if (map.getSource('route'))     map.getSource('route').setData(lineGJ([]));
     if (map.getSource('waypoints')) map.getSource('waypoints').setData(fcGJ([]));
+    // Leave 3D nav mode → back to flat 2D
+    map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
   }
 }
 
 function mapGoTo(lat, lon, zoom) {
   if (!initialized) initMap(lat, lon);
   if (!map) return;
-  map.flyTo({ center: [lon, lat], zoom: zoom, pitch: 60, duration: 900 });
+  map.flyTo({ center: [lon, lat], zoom: zoom, pitch: 0, duration: 900 });
 }
 
 function mapSetStyle(key) {

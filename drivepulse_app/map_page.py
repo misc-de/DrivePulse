@@ -359,7 +359,7 @@ class MapPage(Gtk.Box):
         self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS["map"]))
         self._layer_btn.connect("clicked", self._on_layer_clicked)
 
-        self._follow_btn = Gtk.ToggleButton(icon_name="find-location-symbolic")
+        self._follow_btn = Gtk.ToggleButton(icon_name="kstars_satellites-symbolic")
         self._follow_btn.add_css_class("circular")
         self._follow_btn.add_css_class("osd")
         self._follow_btn.set_active(True)
