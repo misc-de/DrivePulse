@@ -238,6 +238,7 @@ class MapPage(Gtk.Box):
         # Entry rows: flat list of (row_box, entry, remove_btn)
         self._entry_rows: list[tuple[Gtk.Box, Gtk.Entry, Gtk.Button]] = []
         self._entries_container: Gtk.Box | None = None
+        self._search_bar: Gtk.Box | None = None
 
         self._build_search_bar()
         self._build_map()
@@ -257,6 +258,7 @@ class MapPage(Gtk.Box):
 
     def _build_search_bar(self) -> None:
         bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._search_bar = bar
         bar.set_margin_top(8)
         bar.set_margin_bottom(4)
         bar.set_margin_start(8)
@@ -793,7 +795,9 @@ class MapPage(Gtk.Box):
             if self._wp_layer is not None:
                 self._wp_layer.remove_all()
 
-    def set_route_visible(self, visible: bool) -> None:
+    def set_nav_visible(self, visible: bool) -> None:
+        if self._search_bar is not None:
+            self._search_bar.set_visible(visible)
         if self._backend == "webkit":
             v = "true" if visible else "false"
             self._js(f"mapSetRouteVisible({v})")
