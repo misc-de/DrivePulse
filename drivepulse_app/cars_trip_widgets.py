@@ -78,14 +78,41 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         if sum(1 for p in _pts if p[1] is not None) >= _min_valid:
             metric_data[_mk] = _pts
 
+    # Computed: cumulative Haversine distance along GPS track
+    if len(_base) >= 2:
+        _cum_km = 0.0
+        _elapsed_pts = []
+        _prev_s = None
+        for s in _base:
+            if _prev_s is not None:
+                _dlat = math.radians(s["lat"] - _prev_s["lat"])
+                _dlon = math.radians(s["lon"] - _prev_s["lon"])
+                _a = (math.sin(_dlat / 2) ** 2 +
+                      math.cos(math.radians(_prev_s["lat"])) *
+                      math.cos(math.radians(s["lat"])) *
+                      math.sin(_dlon / 2) ** 2)
+                _cum_km += 6371.0 * 2 * math.atan2(math.sqrt(_a), math.sqrt(1 - _a))
+            _elapsed_pts.append((s["ts"], _cum_km, s["lat"], s["lon"]))
+            _prev_s = s
+        if _cum_km > 0.01:
+            metric_data["elapsed_km"] = _elapsed_pts
+
     _avail = [(k, _translate(language, l), u, c, f) for k, l, u, c, f in _CHART_METRICS if k in metric_data]
+    if "elapsed_km" in metric_data:
+        _avail.append((
+            "elapsed_km",
+            _translate(language, "cars.metric.elapsed_km"),
+            "km",
+            (0.20, 0.75, 0.60),
+            "{:.2f}",
+        ))
 
     _def_key = "speed_kmh" if "speed_kmh" in metric_data else (
         _avail[0][0] if _avail else None
     )
     chart_state: dict[str, Any] = {}
     if _def_key:
-        _dm = next(m for m in _CHART_METRICS if m[0] == _def_key)
+        _dm = next(m for m in _avail if m[0] == _def_key)
         chart_state = {
             "pts": metric_data[_def_key],
             "unit": _dm[2],
