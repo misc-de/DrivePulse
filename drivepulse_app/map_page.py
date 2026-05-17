@@ -225,20 +225,6 @@ class MapPage(Gtk.Box):
 
         row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
 
-        self._mode_btns: dict[str, Gtk.ToggleButton] = {}
-        first: Gtk.ToggleButton | None = None
-        for mode in _ROUTING_MODES:
-            btn = Gtk.ToggleButton(label=_translate(self.language, f"map.routing.{mode}"))
-            btn.add_css_class("flat")
-            if first is None:
-                btn.set_active(True)
-                first = btn
-            else:
-                btn.set_group(first)
-            btn.connect("toggled", self._on_mode_toggled, mode)
-            self._mode_btns[mode] = btn
-            row2.append(btn)
-
         self._status_lbl = Gtk.Label(label="")
         self._status_lbl.add_css_class("dim-label")
         self._status_lbl.set_hexpand(True)
@@ -476,12 +462,6 @@ class MapPage(Gtk.Box):
 
     # ── Mode toggle ───────────────────────────────────────────────────────────
 
-    def _on_mode_toggled(self, btn: Gtk.ToggleButton, mode: str) -> None:
-        if btn.get_active():
-            self._routing_mode = mode
-            if self._end_entry.get_text().strip():
-                self._on_route_clicked(None)
-
     # ── Route ─────────────────────────────────────────────────────────────────
 
     def _on_route_clicked(self, _widget: Any) -> None:
@@ -619,5 +599,3 @@ class MapPage(Gtk.Box):
             if self._layer_btn is not None:
                 layer = _MAP_TYPES[self._map_type_idx]
                 self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
-        for mode, btn in self._mode_btns.items():
-            btn.set_label(_translate(self.language, f"map.routing.{mode}"))
