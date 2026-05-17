@@ -305,12 +305,12 @@ class MapPage(Gtk.Box):
         overlay.set_hexpand(True)
         overlay.set_vexpand(True)
 
-        if _WEBKIT_OK:
-            self._backend = "webkit"
-            content = self._setup_webview()
-        elif _SHUMATE_OK:
+        if _SHUMATE_OK:
             self._backend = "shumate"
             content = self._setup_shumate()
+        elif _WEBKIT_OK:
+            self._backend = "webkit"
+            content = self._setup_webview()
         else:
             self._backend = "none"
             content = self._build_placeholder()
