@@ -270,23 +270,18 @@ def _fuel_halfmoon_left(
         cr.line_to(cx + math.cos(ang) * tick_outer, cy + math.sin(ang) * tick_outer)
         cr.stroke()
 
-    # Fuel pump icon — one character-width left and one down from default position
+    # Lightning bolt icon
     isz = max(12.0, r * 0.22)
     ix  = cx + r * 0.42 - isz
     iy  = cy + r * 0.28 + isz
-    cr.set_source_rgba(*dim_col, 0.55 * a)
-    cr.set_line_width(max(1.2, isz * 0.14))
-    cr.set_line_cap(1)
-    # Tank body
-    cr.rectangle(ix - isz*0.30, iy - isz*0.45, isz*0.60, isz*0.90)
-    cr.stroke()
-    # Pipe from top-right of body
-    cr.move_to(ix + isz*0.30, iy - isz*0.28)
-    cr.line_to(ix + isz*0.58, iy - isz*0.28)
-    cr.line_to(ix + isz*0.58, iy - isz*0.62)
-    cr.stroke()
-    # Nozzle cap dot
-    cr.arc(ix + isz*0.58, iy - isz*0.62, isz*0.11, 0, math.tau)
+    cr.set_source_rgba(*dim_col, 0.70 * a)
+    cr.move_to(ix + isz*0.18,  iy - isz*0.80)  # top-right tip
+    cr.line_to(ix - isz*0.18,  iy + isz*0.06)  # mid-left
+    cr.line_to(ix + isz*0.08,  iy + isz*0.06)  # mid inner-right
+    cr.line_to(ix - isz*0.18,  iy + isz*0.80)  # bottom-left tip
+    cr.line_to(ix + isz*0.18,  iy - isz*0.06)  # mid-right
+    cr.line_to(ix - isz*0.08,  iy - isz*0.06)  # mid inner-left
+    cr.close_path()
     cr.fill()
 
     # Needle (orange diamond — identical shape to _analog_gauge)
