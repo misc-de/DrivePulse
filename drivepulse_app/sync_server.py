@@ -67,9 +67,22 @@ class SyncServer:
         self._thread = threading.Thread(target=_run, name="sync-server", daemon=True)
         self._thread.start()
 
+        self._start_pairing_timeout()
+
+    def _start_pairing_timeout(self) -> None:
+        self._cancel_timeout()
         self._timeout_timer = threading.Timer(PAIRING_TIMEOUT_S, self._on_timeout)
         self._timeout_timer.daemon = True
         self._timeout_timer.start()
+
+    def _cancel_timeout(self) -> None:
+        if self._timeout_timer is not None:
+            self._timeout_timer.cancel()
+            self._timeout_timer = None
+
+    def mark_paired(self) -> None:
+        self._paired = True
+        self._cancel_timeout()
 
     def _on_timeout(self) -> None:
         if not self._paired:
@@ -80,9 +93,7 @@ class SyncServer:
 
     def stop(self) -> None:
         self._cancelled = True
-        if self._timeout_timer is not None:
-            self._timeout_timer.cancel()
-            self._timeout_timer = None
+        self._cancel_timeout()
         if self._server is not None:
             try:
                 self._server.shutdown()
@@ -128,7 +139,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             if token != self._srv._pairing_token:
                 self._send_json(403, {"ok": False, "error": "invalid token"})
                 return
-            self._srv._paired = True
+            self._srv.mark_paired()
             device_info = {"device_id": data.get("device_id", "")}
             try:
                 self._srv._on_paired_cb(device_info)
