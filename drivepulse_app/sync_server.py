@@ -13,6 +13,9 @@ from .diagnostics import get_logger
 log = get_logger(__name__)
 
 
+PAIRING_TIMEOUT_S = 60
+
+
 class SyncServer:
     PORT = 8765
 
@@ -25,6 +28,7 @@ class SyncServer:
         on_paired_cb: Callable[[dict], None],
         get_export_fn: Callable[[], dict],
         on_import_fn: Callable[[dict], None],
+        on_timeout_cb: Callable[[], None] | None = None,
     ) -> None:
         self._cert_path = cert_path
         self._key_path = key_path
@@ -33,8 +37,10 @@ class SyncServer:
         self._on_paired_cb = on_paired_cb
         self._get_export_fn = get_export_fn
         self._on_import_fn = on_import_fn
+        self._on_timeout_cb = on_timeout_cb
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._timeout_timer: threading.Timer | None = None
         self._paired = False
 
     def start(self) -> None:
@@ -58,10 +64,25 @@ class SyncServer:
         self._thread = threading.Thread(target=_run, name="sync-server", daemon=True)
         self._thread.start()
 
+        self._timeout_timer = threading.Timer(PAIRING_TIMEOUT_S, self._on_timeout)
+        self._timeout_timer.daemon = True
+        self._timeout_timer.start()
+
+    def _on_timeout(self) -> None:
+        if not self._paired:
+            log.info("Sync server: no pairing within %ds — stopping", PAIRING_TIMEOUT_S)
+            self.stop()
+            if self._on_timeout_cb:
+                self._on_timeout_cb()
+
     def stop(self) -> None:
+        if self._timeout_timer is not None:
+            self._timeout_timer.cancel()
+            self._timeout_timer = None
         if self._server is not None:
             try:
                 self._server.shutdown()
+                self._server.server_close()
             except Exception:
                 log.exception("Could not stop sync server")
             self._server = None

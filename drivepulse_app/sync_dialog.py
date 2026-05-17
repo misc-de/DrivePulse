@@ -261,6 +261,13 @@ class SyncDialog(Adw.Dialog):
         return page, status_label, qr_picture, spinner, instr_label
 
     def _start_server_mode(self) -> None:
+        if self._server is not None:
+            try:
+                self._server.stop()
+            except Exception:
+                log.exception("Could not stop previous sync server before restart")
+            self._server = None
+
         try:
             SYNC_DIR.mkdir(parents=True, exist_ok=True)
             generate_tls_keypair(CERT_PATH, KEY_PATH)
@@ -321,6 +328,13 @@ class SyncDialog(Adw.Dialog):
                     )
                     raise
 
+            def _on_timeout() -> None:
+                GLib.idle_add(
+                    lambda: self._server_status_label.set_text(
+                        self._t("sync.server.timeout")
+                    )
+                )
+
             server = SyncServer(
                 CERT_PATH, KEY_PATH,
                 pairing_token=pairing_token,
@@ -328,6 +342,7 @@ class SyncDialog(Adw.Dialog):
                 on_paired_cb=_on_paired,
                 get_export_fn=lambda: export_all(self._db),
                 on_import_fn=_on_import,
+                on_timeout_cb=_on_timeout,
             )
             self._server = server
             server.start()
