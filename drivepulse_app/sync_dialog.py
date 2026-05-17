@@ -8,7 +8,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, GdkPixbuf, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from .common import _translate
 from .db import DriveDB
@@ -55,6 +55,7 @@ class SyncDialog(Adw.Dialog):
         self._db = db
         self._on_sync_complete = on_sync_complete
         self._server: SyncServer | None = None
+        self._server_start_requested = False
         self._scanner: WebcamQRScanner | None = None
         self._sync_mode: str = MODE_MERGE
 
@@ -65,20 +66,7 @@ class SyncDialog(Adw.Dialog):
         self._nav = Adw.NavigationView()
         self.set_child(self._nav)
 
-        if initial_mode == "server":
-            result = self._build_server_page()
-            self._server_status_label = result[1]
-            self._server_qr_picture = result[2]
-            self._server_spinner = result[3]
-            self._server_instr_label = result[4]
-            self._nav.add(result[0])
-            _started = [False]
-            def _on_map_once(_self: Any) -> None:
-                if not _started[0]:
-                    _started[0] = True
-                    threading.Thread(target=self._start_server_mode, daemon=True).start()
-            self.connect("map", _on_map_once)
-        elif initial_mode == "client":
+        if initial_mode == "client":
             self._nav.add(self._build_known_devices_page())
         else:
             self._nav.add(self._build_home_page())
@@ -213,6 +201,9 @@ class SyncDialog(Adw.Dialog):
 
     # ------------------------------------------------------------------ server page
 
+    def start_server_from_user_action(self) -> None:
+        self._push_server_page()
+
     def _push_server_page(self, *_args: Any) -> None:
         result = self._build_server_page()
         page = result[0]
@@ -231,6 +222,7 @@ class SyncDialog(Adw.Dialog):
                     _pop_handler[0] = None
         _pop_handler[0] = self._nav.connect("popped", _on_popped)
 
+        self._server_start_requested = True
         threading.Thread(target=self._start_server_mode, daemon=True).start()
 
     def _build_server_page(self) -> tuple[Adw.NavigationPage, Gtk.Label, Gtk.Picture, Gtk.Spinner, Gtk.Label]:
@@ -286,6 +278,10 @@ class SyncDialog(Adw.Dialog):
         return page, status_label, qr_picture, spinner, instr_label
 
     def _start_server_mode(self) -> None:
+        if not self._server_start_requested:
+            log.warning("Blocked sync server start without explicit user request")
+            return
+        self._server_start_requested = False
         self._stop_server()
 
         try:
