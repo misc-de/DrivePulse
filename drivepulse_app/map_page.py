@@ -1,9 +1,16 @@
-"""Map page — OpenStreetMap navigation with GPS tracking and routing."""
+"""Map page — OpenStreetMap navigation with GPS tracking and routing.
+
+Backend priority:
+  1. WebKit (MapLibre GL JS) — 3D vector tiles, pitch, bearing-follow
+  2. Shumate (native GTK4)  — 2D raster tiles, offline-friendly
+  3. Placeholder             — neither library available
+"""
 from __future__ import annotations
 
 import concurrent.futures
 import json
 import math
+import os
 import threading
 import urllib.parse
 import urllib.request
@@ -14,6 +21,22 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+# ── Optional backends ─────────────────────────────────────────────────────────
+
+_WEBKIT_OK = False
+_WebKit: Any = None
+try:
+    gi.require_version("WebKit", "6.0")
+    from gi.repository import WebKit as _WebKit  # type: ignore[attr-defined]
+    _WEBKIT_OK = True
+except (ValueError, ImportError):
+    try:
+        gi.require_version("WebKit2", "4.1")
+        from gi.repository import WebKit2 as _WebKit  # type: ignore[attr-defined]
+        _WEBKIT_OK = True
+    except (ValueError, ImportError):
+        pass
 
 _SHUMATE_OK = False
 try:
@@ -27,6 +50,8 @@ from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 from .diagnostics import get_logger
 
 log = get_logger(__name__)
+
+_HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "map.html")
 
 # ── Map type cycle ────────────────────────────────────────────────────────────
 
@@ -81,10 +106,9 @@ def _bab_fetch_all() -> list[dict]:
 
 # ── Routing modes ─────────────────────────────────────────────────────────────
 
-_ROUTING_MODES = ["car", "bicycle", "motorcycle"]
 _OSRM_PROFILE = {"car": "driving", "bicycle": "cycling", "motorcycle": "driving"}
 
-# ── Network helpers (background threads) ──────────────────────────────────────
+# ── Network helpers ───────────────────────────────────────────────────────────
 
 _UA = {"User-Agent": "DrivePulse/1.0"}
 
@@ -137,7 +161,7 @@ def _format_duration(seconds: float) -> str:
     return f"{m}min"
 
 
-# ── Cairo helpers ─────────────────────────────────────────────────────────────
+# ── Cairo helpers (Shumate backend only) ──────────────────────────────────────
 
 def _rounded_rect(cr: Any, x: float, y: float, w: float, h: float, r: float) -> None:
     cr.new_sub_path()
@@ -164,13 +188,13 @@ def _zoom_for_bbox(
     dlon = max(abs(lon2 - lon1) / 360.0, 1e-9)
     z_lat = math.floor(math.log2(px_h / TILE / dlat))
     z_lon = math.floor(math.log2(px_w / TILE / dlon))
-    return float(max(1, min(ZOOM_MAX, z_lat, z_lon) - 1))  # -1 padding
+    return float(max(1, min(ZOOM_MAX, z_lat, z_lon) - 1))
 
 
 # ── MapPage widget ────────────────────────────────────────────────────────────
 
 class MapPage(Gtk.Box):
-    """OpenStreetMap navigation page with GPS tracking and routing."""
+    """OpenStreetMap navigation page — WebKit/MapLibre (3D) or Shumate (2D)."""
     __gtype_name__ = "MapPage"
 
     def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
@@ -186,28 +210,35 @@ class MapPage(Gtk.Box):
         self._start_coord: tuple[float, float] | None = None
         self._end_coord: tuple[float, float] | None = None
 
+        # Backend: "webkit" | "shumate" | "none"
+        self._backend: str = "none"
+
+        # WebKit state
+        self._webview: Any = None
+
         # Shumate state
         self._shumate_map: Any = None
-        self._inner_map: Any = None   # underlying ShumateMap inside SimpleMap
+        self._inner_map: Any = None
         self._car_marker: Any = None
         self._marker_layer: Any = None
         self._path_layer: Any = None
         self._wp_layer: Any = None
         self._sources: dict[str, Any] = {}
-        self._setting_pos: bool = False  # suppress follow-disable on programmatic moves
+        self._setting_pos: bool = False
 
-        # FAB buttons (None when Shumate unavailable)
+        # FAB buttons (None when backend unavailable)
         self._follow_btn: Gtk.ToggleButton | None = None
         self._center_btn: Gtk.Button | None = None
         self._layer_btn: Gtk.Button | None = None
         self._traffic_btn: Gtk.ToggleButton | None = None
+
+        # Traffic layer (Shumate only)
         self._traffic_layer: Any = None
         self._traffic_loaded: bool = False
 
         self._build_search_bar()
         self._build_map()
 
-        # Prevent search entries from auto-grabbing focus when the tab becomes visible
         self.connect("map", self._on_mapped)
 
     def _on_mapped(self, _widget: Any) -> None:
@@ -257,7 +288,6 @@ class MapPage(Gtk.Box):
             row1.append(w)
 
         row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-
         self._status_lbl = Gtk.Label(label="")
         self._status_lbl.add_css_class("dim-label")
         self._status_lbl.set_hexpand(True)
@@ -268,30 +298,143 @@ class MapPage(Gtk.Box):
         bar.append(row2)
         self.append(bar)
 
-    # ── Shumate map ───────────────────────────────────────────────────────────
+    # ── Map area ──────────────────────────────────────────────────────────────
 
     def _build_map(self) -> None:
-        if not _SHUMATE_OK:
-            placeholder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            placeholder.set_hexpand(True)
-            placeholder.set_vexpand(True)
-            placeholder.set_halign(Gtk.Align.CENTER)
-            placeholder.set_valign(Gtk.Align.CENTER)
-            icon = Gtk.Image.new_from_icon_name("map-symbolic")
-            icon.set_pixel_size(64)
-            icon.add_css_class("dim-label")
-            label = Gtk.Label(
-                label="Map not available.\nInstall gir1.2-shumate-1.0 to enable."
-            )
-            label.set_justify(Gtk.Justification.CENTER)
-            label.add_css_class("dim-label")
-            placeholder.append(icon)
-            placeholder.append(label)
-            self.append(placeholder)
-            return
+        overlay = Gtk.Overlay()
+        overlay.set_hexpand(True)
+        overlay.set_vexpand(True)
 
-        # SimpleMap handles tile loading, caching and network setup automatically —
-        # unlike bare Shumate.Map which needs explicit ShumateFileTileSource wiring.
+        if _WEBKIT_OK:
+            self._backend = "webkit"
+            content = self._setup_webview()
+        elif _SHUMATE_OK:
+            self._backend = "shumate"
+            content = self._setup_shumate()
+        else:
+            self._backend = "none"
+            content = self._build_placeholder()
+
+        overlay.set_child(content)
+
+        if self._backend != "none":
+            overlay.add_overlay(self._build_fab())
+
+        self.append(overlay)
+
+    def _build_placeholder(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_hexpand(True)
+        box.set_vexpand(True)
+        box.set_halign(Gtk.Align.CENTER)
+        box.set_valign(Gtk.Align.CENTER)
+        icon = Gtk.Image.new_from_icon_name("map-symbolic")
+        icon.set_pixel_size(64)
+        icon.add_css_class("dim-label")
+        label = Gtk.Label(
+            label="Map not available.\nInstall gir1.2-shumate-1.0 or webkit2gtk to enable."
+        )
+        label.set_justify(Gtk.Justification.CENTER)
+        label.add_css_class("dim-label")
+        box.append(icon)
+        box.append(label)
+        return box
+
+    def _build_fab(self) -> Gtk.Box:
+        fab = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        fab.set_halign(Gtk.Align.END)
+        fab.set_valign(Gtk.Align.END)
+        fab.set_margin_end(12)
+        fab.set_margin_bottom(12)
+
+        self._traffic_btn = Gtk.ToggleButton(icon_name="emblem-important-symbolic")
+        self._traffic_btn.add_css_class("circular")
+        self._traffic_btn.add_css_class("osd")
+        self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
+        self._traffic_btn.connect("toggled", self._on_traffic_toggled)
+
+        self._layer_btn = Gtk.Button(icon_name="dialog-layers-symbolic")
+        self._layer_btn.add_css_class("circular")
+        self._layer_btn.add_css_class("osd")
+        self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS["map"]))
+        self._layer_btn.connect("clicked", self._on_layer_clicked)
+
+        self._follow_btn = Gtk.ToggleButton(icon_name="find-location-symbolic")
+        self._follow_btn.add_css_class("circular")
+        self._follow_btn.add_css_class("osd")
+        self._follow_btn.set_active(True)
+        self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
+        self._follow_btn.connect("toggled", self._on_follow_toggled)
+
+        self._center_btn = Gtk.Button(icon_name="find-location-symbolic")
+        self._center_btn.add_css_class("circular")
+        self._center_btn.add_css_class("osd")
+        self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
+        self._center_btn.connect("clicked", self._on_center_clicked)
+
+        fab.append(self._traffic_btn)
+        fab.append(self._layer_btn)
+        fab.append(self._follow_btn)
+        fab.append(self._center_btn)
+        return fab
+
+    # ── WebKit backend ────────────────────────────────────────────────────────
+
+    def _setup_webview(self) -> Gtk.Widget:
+        self._webview = _WebKit.WebView()
+        self._webview.set_hexpand(True)
+        self._webview.set_vexpand(True)
+
+        settings = self._webview.get_settings()
+        for prop in ("allow-file-access-from-file-urls", "allow-universal-access-from-file-urls"):
+            try:
+                settings.set_property(prop, True)
+            except Exception:
+                pass
+
+        ucm = self._webview.get_user_content_manager()
+        try:
+            ucm.register_script_message_handler("drivepulse")
+        except TypeError:
+            try:
+                ucm.register_script_message_handler("drivepulse", None)
+            except Exception:
+                pass
+        ucm.connect("script-message-received::drivepulse", self._on_js_message)
+
+        try:
+            with open(_HTML_PATH, encoding="utf-8") as fh:
+                html = fh.read()
+            self._webview.load_html(html, "file:///")
+        except OSError as exc:
+            log.error("Could not load map.html: %s", exc)
+
+        return self._webview
+
+    def _js(self, code: str) -> None:
+        if self._webview is None:
+            return
+        try:
+            if hasattr(self._webview, "evaluate_javascript"):
+                self._webview.evaluate_javascript(code, -1, None, None, None, None, None)
+            else:
+                self._webview.run_javascript(code, None, None, None)
+        except Exception as exc:
+            log.debug("JS call failed: %s", exc)
+
+    def _on_js_message(self, _ucm: Any, *args: Any) -> None:
+        try:
+            msg = args[-1]
+            js_val = msg.get_js_value()
+            data = json.loads(js_val.to_json(0))
+            if data.get("action") == "follow_off":
+                GLib.idle_add(self._set_follow, False)
+        except Exception as exc:
+            log.debug("JS message error: %s", exc)
+
+    # ── Shumate backend ───────────────────────────────────────────────────────
+
+    def _setup_shumate(self) -> Gtk.Widget:
         self._shumate_map = Shumate.SimpleMap()
         self._shumate_map.set_hexpand(True)
         self._shumate_map.set_vexpand(True)
@@ -300,14 +443,12 @@ class MapPage(Gtk.Box):
         viewport.set_zoom_level(13.0)
         viewport.set_location(48.137, 11.576)
 
-        # Street map: always use the built-in registry source — same one GNOME Maps uses.
         registry = Shumate.MapSourceRegistry.new_with_defaults()
         osm_id = getattr(Shumate, "MAP_SOURCE_OSM_MAPNIK", "osm-mapnik")
         osm_source = registry.get_by_id(osm_id)
         for key in _TILE_URLS:
-            self._sources[key] = osm_source  # default fallback for all layers
+            self._sources[key] = osm_source
 
-        # Satellite + dark: RasterRenderer/TileDownloader available on Shumate >= 1.1.
         if hasattr(Shumate, "RasterRenderer") and hasattr(Shumate, "TileDownloader"):
             for key, url in (("satellite", _TILE_URLS["satellite"]), ("dark", _TILE_URLS["dark"])):
                 try:
@@ -319,8 +460,11 @@ class MapPage(Gtk.Box):
 
         self._shumate_map.set_map_source(self._sources["map"])
 
-        # Layers are added to the underlying ShumateMap inside SimpleMap.
-        self._inner_map = self._shumate_map.get_map() if hasattr(self._shumate_map, "get_map") else self._shumate_map
+        self._inner_map = (
+            self._shumate_map.get_map()
+            if hasattr(self._shumate_map, "get_map")
+            else self._shumate_map
+        )
         _inner = self._inner_map
 
         self._path_layer = Shumate.PathLayer.new(viewport)
@@ -342,52 +486,8 @@ class MapPage(Gtk.Box):
         self._traffic_layer.set_visible(False)
         _inner.add_layer(self._traffic_layer)
 
-        # Detect manual pan → disable follow
         viewport.connect("notify::latitude", self._on_viewport_moved)
-
-        # Floating action buttons
-        fab = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        fab.set_halign(Gtk.Align.END)
-        fab.set_valign(Gtk.Align.END)
-        fab.set_margin_end(12)
-        fab.set_margin_bottom(12)
-
-        self._follow_btn = Gtk.ToggleButton(icon_name="find-location-symbolic")
-        self._follow_btn.add_css_class("circular")
-        self._follow_btn.add_css_class("osd")
-        self._follow_btn.set_active(True)
-        self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
-        self._follow_btn.connect("toggled", self._on_follow_toggled)
-
-        self._center_btn = Gtk.Button(icon_name="find-location-symbolic")
-        self._center_btn.add_css_class("circular")
-        self._center_btn.add_css_class("osd")
-        self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
-        self._center_btn.connect("clicked", self._on_center_clicked)
-
-        self._layer_btn = Gtk.Button(icon_name="dialog-layers-symbolic")
-        self._layer_btn.add_css_class("circular")
-        self._layer_btn.add_css_class("osd")
-        self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS["map"]))
-        self._layer_btn.connect("clicked", self._on_layer_clicked)
-
-        self._traffic_btn = Gtk.ToggleButton(icon_name="emblem-important-symbolic")
-        self._traffic_btn.add_css_class("circular")
-        self._traffic_btn.add_css_class("osd")
-        self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
-        self._traffic_btn.connect("toggled", self._on_traffic_toggled)
-
-        fab.append(self._traffic_btn)
-        fab.append(self._layer_btn)
-        fab.append(self._follow_btn)
-        fab.append(self._center_btn)
-
-        overlay = Gtk.Overlay()
-        overlay.set_hexpand(True)
-        overlay.set_vexpand(True)
-        overlay.set_child(self._shumate_map)
-        overlay.add_overlay(fab)
-        self.append(overlay)
+        return self._shumate_map
 
     # ── GPS position updates ──────────────────────────────────────────────────
 
@@ -397,38 +497,40 @@ class MapPage(Gtk.Box):
         lon: float | None,
         heading: float | None,
     ) -> None:
-        if not _SHUMATE_OK or self._shumate_map is None:
-            return
         if lat is None or lon is None:
             return
         self._gps_lat = lat
         self._gps_lon = lon
         self._gps_heading = heading or 0.0
 
-        if self._car_marker is None:
-            drawing = Gtk.DrawingArea()
-            drawing.set_size_request(40, 40)
-            drawing.set_draw_func(self._draw_car, None)
-            self._car_marker = Shumate.Marker.new()
-            self._car_marker.set_child(drawing)
-            self._car_marker.set_location(lat, lon)
-            self._marker_layer.add_marker(self._car_marker)
-        else:
-            self._car_marker.set_location(lat, lon)
-            child = self._car_marker.get_child()
-            if child is not None:
-                child.queue_draw()
-
-        if self._follow_gps:
-            self._goto(lat, lon)
+        if self._backend == "webkit":
+            self._js(f"mapSetCar({lat}, {lon}, {self._gps_heading})")
+        elif self._backend == "shumate" and self._shumate_map is not None:
+            if self._car_marker is None:
+                drawing = Gtk.DrawingArea()
+                drawing.set_size_request(40, 40)
+                drawing.set_draw_func(self._draw_car, None)
+                self._car_marker = Shumate.Marker.new()
+                self._car_marker.set_child(drawing)
+                self._car_marker.set_location(lat, lon)
+                self._marker_layer.add_marker(self._car_marker)
+            else:
+                self._car_marker.set_location(lat, lon)
+                child = self._car_marker.get_child()
+                if child is not None:
+                    child.queue_draw()
+            if self._follow_gps:
+                self._goto(lat, lon)
 
     def _goto(self, lat: float, lon: float) -> None:
-        self._setting_pos = True
-        viewport = self._shumate_map.get_viewport()
-        viewport.set_location(lat, lon)
-        self._setting_pos = False
+        if self._backend == "webkit":
+            self._js(f"mapSetCar({lat}, {lon}, {self._gps_heading})")
+        elif self._shumate_map is not None:
+            self._setting_pos = True
+            self._shumate_map.get_viewport().set_location(lat, lon)
+            self._setting_pos = False
 
-    # ── Car Cairo drawing ─────────────────────────────────────────────────────
+    # ── Car Cairo drawing (Shumate only) ──────────────────────────────────────
 
     def _draw_car(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
         cx, cy = width / 2.0, height / 2.0
@@ -437,29 +539,24 @@ class MapPage(Gtk.Box):
         cr.rotate(math.radians(self._gps_heading))
         cr.translate(-cx, -cy)
 
-        # Shadow
         cr.set_source_rgba(0, 0, 0, 0.20)
         cr.arc(cx, cy + 2, 13, 0, 2 * math.pi)
         cr.fill()
 
-        # Body (front = top when heading = 0 = north)
         cr.set_source_rgb(0.16, 0.50, 0.73)
         _rounded_rect(cr, cx - 11, cy - 17, 22, 34, 6)
         cr.fill()
 
-        # Roof / windows
         cr.set_source_rgb(0.53, 0.81, 0.98)
         _rounded_rect(cr, cx - 7, cy - 11, 14, 20, 4)
         cr.fill()
 
-        # Front headlights
         cr.set_source_rgb(0.99, 0.91, 0.28)
         cr.rectangle(cx - 10, cy - 19, 4, 3)
         cr.fill()
         cr.rectangle(cx + 6,  cy - 19, 4, 3)
         cr.fill()
 
-        # Rear lights
         cr.set_source_rgb(0.90, 0.30, 0.24)
         cr.rectangle(cx - 10, cy + 16, 4, 3)
         cr.fill()
@@ -474,32 +571,42 @@ class MapPage(Gtk.Box):
         if not self._setting_pos and self._follow_gps:
             self._set_follow(False)
 
-    def _set_follow(self, active: bool) -> None:
+    def _set_follow(self, active: bool) -> bool:
         self._follow_gps = active
         if self._follow_btn is not None:
             self._follow_btn.handler_block_by_func(self._on_follow_toggled)
             self._follow_btn.set_active(active)
             self._follow_btn.handler_unblock_by_func(self._on_follow_toggled)
+        return False
 
     def _on_follow_toggled(self, btn: Gtk.ToggleButton) -> None:
         self._follow_gps = btn.get_active()
+        if self._backend == "webkit":
+            val = "true" if self._follow_gps else "false"
+            self._js(f"mapSetFollow({val})")
         if self._follow_gps and self._gps_lat is not None and self._gps_lon is not None:
             self._goto(self._gps_lat, self._gps_lon)
 
     def _on_center_clicked(self, _btn: Gtk.Button) -> None:
-        if self._gps_lat is None or self._shumate_map is None:
+        if self._gps_lat is None:
             return
-        viewport = self._shumate_map.get_viewport()
-        self._setting_pos = True
-        viewport.set_location(self._gps_lat, self._gps_lon)  # type: ignore[arg-type]
-        if viewport.get_zoom_level() < 15.0:
-            viewport.set_zoom_level(15.0)
-        self._setting_pos = False
+        if self._backend == "webkit":
+            self._js(f"mapGoTo({self._gps_lat}, {self._gps_lon}, 15)")
+        elif self._shumate_map is not None:
+            viewport = self._shumate_map.get_viewport()
+            self._setting_pos = True
+            viewport.set_location(self._gps_lat, self._gps_lon)
+            if viewport.get_zoom_level() < 15.0:
+                viewport.set_zoom_level(15.0)
+            self._setting_pos = False
 
     def _on_layer_clicked(self, _btn: Gtk.Button) -> None:
         self._map_type_idx = (self._map_type_idx + 1) % len(_MAP_TYPES)
         layer = _MAP_TYPES[self._map_type_idx]
-        self._shumate_map.set_map_source(self._sources[layer])
+        if self._backend == "webkit":
+            self._js(f"mapSetStyle('{layer}')")
+        elif self._shumate_map is not None:
+            self._shumate_map.set_map_source(self._sources[layer])
         if self._layer_btn is not None:
             self._layer_btn.set_icon_name(_MAP_ICONS.get(layer, "map-symbolic"))
             self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
@@ -508,7 +615,10 @@ class MapPage(Gtk.Box):
 
     def _on_traffic_toggled(self, btn: Gtk.ToggleButton) -> None:
         visible = btn.get_active()
-        if self._traffic_layer is not None:
+        if self._backend == "webkit":
+            val = "true" if visible else "false"
+            self._js(f"mapSetTrafficVisible({val})")
+        elif self._traffic_layer is not None:
             self._traffic_layer.set_visible(visible)
         if visible and not self._traffic_loaded:
             self._traffic_loaded = True
@@ -519,11 +629,10 @@ class MapPage(Gtk.Box):
         items = _bab_fetch_all()
         GLib.idle_add(self._show_traffic, items)
 
-    def _show_traffic(self, items: list[dict]) -> bool:
-        if self._traffic_layer is None:
-            return False
-        self._traffic_layer.remove_all()
-        count = 0
+    def _parse_traffic_items(
+        self, items: list[dict]
+    ) -> list[tuple[float, float, str, str]]:
+        result = []
         for item in items:
             coord = item.get("coordinate") or {}
             try:
@@ -540,9 +649,27 @@ class MapPage(Gtk.Box):
                 title = desc[0] if desc else kind
             road = item.get("_road", "")
             tooltip = f"{road}: {title}" if road else title
-            m = self._make_traffic_marker(kind, tooltip, lat, lon)
-            self._traffic_layer.add_marker(m)
-            count += 1
+            result.append((lat, lon, kind, tooltip))
+        return result
+
+    def _show_traffic(self, items: list[dict]) -> bool:
+        parsed = self._parse_traffic_items(items)
+        count = len(parsed)
+
+        if self._backend == "webkit":
+            js_items = [
+                {"lat": lat, "lon": lon, "kind": kind, "title": title}
+                for lat, lon, kind, title in parsed
+            ]
+            self._js(f"mapSetTraffic({json.dumps(js_items)})")
+            if self._traffic_btn is not None and self._traffic_btn.get_active():
+                self._js("mapSetTrafficVisible(true)")
+        elif self._traffic_layer is not None:
+            self._traffic_layer.remove_all()
+            for lat, lon, kind, tooltip in parsed:
+                m = self._make_traffic_marker(kind, tooltip, lat, lon)
+                self._traffic_layer.add_marker(m)
+
         if self._traffic_btn is not None and self._traffic_btn.get_active():
             self._status_lbl.set_text(
                 _translate(self.language, "map.traffic.count").format(count=count)
@@ -564,8 +691,6 @@ class MapPage(Gtk.Box):
         m.set_child(da)
         m.set_location(lat, lon)
         return m
-
-    # ── Mode toggle ───────────────────────────────────────────────────────────
 
     # ── Route ─────────────────────────────────────────────────────────────────
 
@@ -589,10 +714,13 @@ class MapPage(Gtk.Box):
         self._end_coord = None
         self._clear_btn.set_visible(False)
         self._status_lbl.set_text("")
-        if self._path_layer is not None:
-            self._path_layer.remove_all()
-        if self._wp_layer is not None:
-            self._wp_layer.remove_all()
+        if self._backend == "webkit":
+            self._js("mapClearRoute()")
+        else:
+            if self._path_layer is not None:
+                self._path_layer.remove_all()
+            if self._wp_layer is not None:
+                self._wp_layer.remove_all()
 
     def _compute_route(self, start_text: str, end_text: str) -> None:
         if start_text:
@@ -633,39 +761,53 @@ class MapPage(Gtk.Box):
         self._clear_btn.set_visible(True)
         self._status_lbl.set_text(_format_duration(duration_s))
 
-        if self._path_layer is not None:
-            self._path_layer.remove_all()
-            for lon, lat in coords:  # OSRM returns [lon, lat]
-                self._path_layer.add_node(Shumate.Coordinate.new_full(lat, lon))
+        if self._backend == "webkit":
+            self._js(f"mapSetRoute({json.dumps(coords)})")
+            self._js(f"mapSetWaypoints({json.dumps(list(start))}, {json.dumps(list(end))})")
+            if coords:
+                lats = [c[1] for c in coords]
+                lons = [c[0] for c in coords]
+                clat = (min(lats) + max(lats)) / 2.0
+                clon = (min(lons) + max(lons)) / 2.0
+                alloc = self._webview.get_allocation()
+                px_w = alloc.width  if alloc.width  > 100 else 400
+                px_h = alloc.height if alloc.height > 100 else 600
+                zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
+                self._set_follow(False)
+                self._js(f"mapGoTo({clat}, {clon}, {zoom})")
+        elif self._shumate_map is not None:
+            if self._path_layer is not None:
+                self._path_layer.remove_all()
+                for lon, lat in coords:
+                    self._path_layer.add_node(Shumate.Coordinate.new_full(lat, lon))
 
-        if self._wp_layer is not None:
-            self._wp_layer.remove_all()
-            self._wp_layer.add_marker(self._make_wp_marker(start[0], start[1], True))
-            self._wp_layer.add_marker(self._make_wp_marker(end[0], end[1], False))
+            if self._wp_layer is not None:
+                self._wp_layer.remove_all()
+                self._wp_layer.add_marker(self._make_wp_marker(start[0], start[1], True))
+                self._wp_layer.add_marker(self._make_wp_marker(end[0], end[1], False))
 
-        if self._shumate_map is not None and coords:
-            lats = [c[1] for c in coords]
-            lons = [c[0] for c in coords]
-            clat = (min(lats) + max(lats)) / 2.0
-            clon = (min(lons) + max(lons)) / 2.0
-
-            alloc = self._shumate_map.get_allocation()
-            px_w = alloc.width  if alloc.width  > 100 else 400
-            px_h = alloc.height if alloc.height > 100 else 600
-            zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
-
-            self._set_follow(False)
-            # go_to_full animates pan + zoom smoothly; fall back to instant viewport set
-            target = self._inner_map if self._inner_map is not None else self._shumate_map
-            if hasattr(target, "go_to_full"):
-                target.go_to_full(clat, clon, zoom)
-            else:
-                self._setting_pos = True
-                self._shumate_map.get_viewport().set_location(clat, clon)
-                self._shumate_map.get_viewport().set_zoom_level(zoom)
-                self._setting_pos = False
+            if coords:
+                lats = [c[1] for c in coords]
+                lons = [c[0] for c in coords]
+                clat = (min(lats) + max(lats)) / 2.0
+                clon = (min(lons) + max(lons)) / 2.0
+                alloc = self._shumate_map.get_allocation()
+                px_w = alloc.width  if alloc.width  > 100 else 400
+                px_h = alloc.height if alloc.height > 100 else 600
+                zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
+                self._set_follow(False)
+                target = self._inner_map if self._inner_map is not None else self._shumate_map
+                if hasattr(target, "go_to_full"):
+                    target.go_to_full(clat, clon, zoom)
+                else:
+                    self._setting_pos = True
+                    self._shumate_map.get_viewport().set_location(clat, clon)
+                    self._shumate_map.get_viewport().set_zoom_level(zoom)
+                    self._setting_pos = False
 
         return False
+
+    # ── Waypoint markers (Shumate only) ───────────────────────────────────────
 
     def _make_wp_marker(self, lat: float, lon: float, is_start: bool) -> Any:
         da = Gtk.DrawingArea()
@@ -699,10 +841,9 @@ class MapPage(Gtk.Box):
         layer = _MAP_TYPES[self._map_type_idx]
         if self._layer_btn is not None:
             self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
-        if self._shumate_map is not None:
-            if self._center_btn is not None:
-                self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
-            if self._follow_btn is not None:
-                self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
-            if self._traffic_btn is not None:
-                self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
+        if self._follow_btn is not None:
+            self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
+        if self._center_btn is not None:
+            self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
+        if self._traffic_btn is not None:
+            self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
