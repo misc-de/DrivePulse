@@ -274,7 +274,7 @@ class MapPage(Gtk.Box):
         self._end_entry.set_hexpand(True)
         self._end_entry.connect("activate", self._on_route_clicked)
 
-        self._route_btn = Gtk.Button(icon_name="map-symbolic")
+        self._route_btn = Gtk.Button(icon_name="xsi-search")
         self._route_btn.add_css_class("suggested-action")
         self._route_btn.set_tooltip_text(_translate(self.language, "map.route"))
         self._route_btn.connect("clicked", self._on_route_clicked)
