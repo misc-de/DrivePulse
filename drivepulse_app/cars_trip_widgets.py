@@ -110,6 +110,9 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
     _def_key = "speed_kmh" if "speed_kmh" in metric_data else (
         _avail[0][0] if _avail else None
     )
+    def _elapsed_time_label(ts: float) -> str:
+        return datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+
     chart_state: dict[str, Any] = {}
     if _def_key:
         _dm = next(m for m in _avail if m[0] == _def_key)
@@ -120,6 +123,8 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
             "fmt": _dm[4],
             "key": _def_key,
         }
+        if _def_key == "elapsed_km":
+            chart_state["cursor_extra_fn"] = _elapsed_time_label
 
     # Shared cursor state: idx = index into chart_state["pts"], -1 = none
     cursor_state: dict[str, Any] = {"idx": -1}
@@ -193,6 +198,10 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
                     chart_state["color"] = color
                     chart_state["fmt"] = fmt
                     chart_state["key"] = key
+                    if key == "elapsed_km":
+                        chart_state["cursor_extra_fn"] = _elapsed_time_label
+                    else:
+                        chart_state.pop("cursor_extra_fn", None)
                     chart_title_lbl.set_label(lbl)
                     cursor_state["idx"] = -1
                     if chart_area_ref[0]:

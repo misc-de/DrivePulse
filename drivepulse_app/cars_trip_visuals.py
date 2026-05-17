@@ -250,18 +250,27 @@ def _build_chart_widget(
                 cr.fill()
 
                 cursor_lbl = fmt.format(v_c) + (" " + unit if unit else "")
+                extra_fn = chart_state.get("cursor_extra_fn")
+                extra_lbl = extra_fn(ts_c) if extra_fn else None
                 cr.set_font_size(11)
                 te = cr.text_extents(cursor_lbl)
-                lx = min(cx + 6, w - te.width - 6)
+                te2 = cr.text_extents(extra_lbl) if extra_lbl else None
+                box_w = (max(te.width, te2.width) if te2 else te.width) + 6
+                line_h = te.height + 4
+                box_h = line_h + (te2.height + 3 if te2 else 0) + 1
+                lx = min(cx + 6, w - box_w - 3)
                 ly = max(PAD_T + te.height + 4, cy_dot - 4)
                 bg = (0.0, 0.0, 0.0, 0.6) if dark else (1.0, 1.0, 1.0, 0.82)
                 cr.set_source_rgba(*bg)
-                cr.rectangle(lx - 3, ly - te.height - 1, te.width + 6, te.height + 4)
+                cr.rectangle(lx - 3, ly - te.height - 1, box_w, box_h)
                 cr.fill()
                 fg = (1.0, 1.0, 1.0) if dark else (0.0, 0.0, 0.0)
                 cr.set_source_rgb(*fg)
                 cr.move_to(lx, ly)
                 cr.show_text(cursor_lbl)
+                if extra_lbl:
+                    cr.move_to(lx, ly + line_h)
+                    cr.show_text(extra_lbl)
 
     area.set_draw_func(draw_cb)
 
