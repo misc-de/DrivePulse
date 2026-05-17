@@ -234,20 +234,26 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.results_scroll.set_valign(Gtk.Align.START)
         self.results_scroll.set_child(self.results_box)
 
-        # content_box: left = results, right = gforce (landscape) / top+bottom (portrait).
+        # left_col: intro + table + trigger + controls stacked — the full left
+        # column in landscape; sits above the gforce canvas in portrait.
+        self.left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.left_col.set_hexpand(True)
+        self.left_col.set_vexpand(False)
+        self.left_col.set_valign(Gtk.Align.START)
+        self._trigger_row.set_margin_top(8)
+        self.left_col.append(intro)
+        self.left_col.append(self.results_scroll)
+        self.left_col.append(self._trigger_row)
+        self.left_col.append(controls)
+
+        # content_box switches between HORIZONTAL (landscape) and VERTICAL (portrait).
         self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.content_box.set_hexpand(True)
         self.content_box.set_vexpand(True)
-        self.content_box.append(self.results_scroll)
+        self.content_box.append(self.left_col)
         self.content_box.append(self.gforce_box)
 
-        # _trigger_row and controls always span the full width below content_box.
-        self._trigger_row.set_margin_top(8)
-
-        self.append(intro)
         self.append(self.content_box)
-        self.append(self._trigger_row)
-        self.append(controls)
 
         self._current_layout = "portrait"
         self._device_rotation = 0
@@ -282,7 +288,10 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
             self.content_box.set_orientation(Gtk.Orientation.HORIZONTAL)
             self.content_box.set_spacing(12)
             self.content_box.set_homogeneous(True)
-            # Left column: table scrolls vertically, fills its half
+            # left_col fills its half vertically so gforce_box aligns with the title
+            self.left_col.set_vexpand(True)
+            self.left_col.set_valign(Gtk.Align.FILL)
+            # results_scroll expands between intro and controls
             self.results_scroll.set_vexpand(True)
             self.results_scroll.set_valign(Gtk.Align.FILL)
             self.results_scroll.set_propagate_natural_height(False)
@@ -291,7 +300,10 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
             self.content_box.set_orientation(Gtk.Orientation.VERTICAL)
             self.content_box.set_spacing(0)
             self.content_box.set_homogeneous(False)
-            # Table sits compactly at top, canvas expands below
+            # left_col takes natural height; gforce_box expands below
+            self.left_col.set_vexpand(False)
+            self.left_col.set_valign(Gtk.Align.START)
+            # table sits compactly, canvas expands below
             self.results_scroll.set_vexpand(False)
             self.results_scroll.set_valign(Gtk.Align.START)
             self.results_scroll.set_propagate_natural_height(True)

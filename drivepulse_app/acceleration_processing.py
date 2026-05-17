@@ -131,10 +131,6 @@ class AccelerationProcessingMixin:
         if gps_speed is not None and (self.max_gps_speed is None or gps_speed > self.max_gps_speed):
             self.max_gps_speed = gps_speed
             self._max_gps_speed_t = elapsed
-        self._update_vmax_row(
-            obd_v=self.max_obd_speed, obd_t=self._max_obd_speed_t,
-            gps_v=self.max_gps_speed, gps_t=self._max_gps_speed_t,
-        )
 
         for target in self.SPEED_TARGETS_KMH:
             row = self.results[target]
@@ -170,6 +166,10 @@ class AccelerationProcessingMixin:
             self._saved_vmax_obd_t = self._max_obd_speed_t
             self._saved_vmax_gps = self.max_gps_speed
             self._saved_vmax_gps_t = self._max_gps_speed_t
+            self._update_vmax_row(
+                obd_v=self.max_obd_speed, obd_t=self._max_obd_speed_t,
+                gps_v=self.max_gps_speed, gps_t=self._max_gps_speed_t,
+            )
             self._show_replay()
             self.status_label.set_text(_translate(self.language, "acceleration.done"))
             if self.on_run_complete is not None:
