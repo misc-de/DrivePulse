@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import threading
 import time
 from typing import Any, Callable
@@ -275,21 +274,11 @@ class SyncDialog(Adw.Dialog):
                 f"&fp={spki_fp}&t={pairing_token}&exp={expiry}"
             )
 
-            import qrcode
-            qr = qrcode.QRCode(box_size=8, border=2)
-            qr.add_data(qr_url)
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            png_bytes = buf.getvalue()
+            from .sync_qrgen import make_pixbuf as _make_qr_pixbuf
+            pixbuf = _make_qr_pixbuf(qr_url)
 
             def _show_qr() -> bool:
                 try:
-                    loader = GdkPixbuf.PixbufLoader.new_with_type("png")
-                    loader.write(png_bytes)
-                    loader.close()
-                    pixbuf = loader.get_pixbuf()
                     self._server_qr_picture.set_pixbuf(pixbuf)
                     self._server_qr_picture.set_visible(True)
                     self._server_spinner.stop()
@@ -297,7 +286,7 @@ class SyncDialog(Adw.Dialog):
                     self._server_instr_label.set_visible(True)
                     self._server_status_label.set_text(self._t("sync.server.waiting"))
                 except Exception as exc:
-                    log.exception("Could not render sync QR image")
+                    log.exception("Could not display sync QR image")
                     self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
                 return False
 
