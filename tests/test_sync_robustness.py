@@ -98,3 +98,71 @@ def test_perform_sync_reports_server_import_failure(tmp_path):
             raise AssertionError("failed server import should raise RuntimeError")
     finally:
         db.close()
+
+
+def test_sync_server_stops_after_pairing_timeout(monkeypatch, tmp_path):
+    import threading
+
+    from drivepulse_app.sync_server import SyncServer
+    import drivepulse_app.sync_server as sync_server
+
+    monkeypatch.setattr(sync_server, "PAIRING_TIMEOUT_S", 0.05)
+    timed_out = threading.Event()
+
+    class FakeServer:
+        def __init__(self):
+            self.shutdown_called = False
+            self.close_called = False
+
+        def shutdown(self):
+            self.shutdown_called = True
+
+        def server_close(self):
+            self.close_called = True
+
+    server = SyncServer(
+        tmp_path / "cert.pem",
+        tmp_path / "key.pem",
+        pairing_token="pair",
+        session_token="session",
+        on_paired_cb=lambda _info: None,
+        get_export_fn=lambda: {"version": 1, "cars": []},
+        on_import_fn=lambda _data: None,
+        on_timeout_cb=timed_out.set,
+    )
+    fake = FakeServer()
+    server._server = fake
+
+    server._start_pairing_timeout()
+
+    assert timed_out.wait(1.0)
+    assert server._server is None
+    assert fake.shutdown_called is True
+    assert fake.close_called is True
+
+
+def test_sync_server_pairing_cancels_timeout(monkeypatch, tmp_path):
+    import threading
+
+    from drivepulse_app.sync_server import SyncServer
+    import drivepulse_app.sync_server as sync_server
+
+    monkeypatch.setattr(sync_server, "PAIRING_TIMEOUT_S", 0.05)
+    timed_out = threading.Event()
+
+    server = SyncServer(
+        tmp_path / "cert.pem",
+        tmp_path / "key.pem",
+        pairing_token="pair",
+        session_token="session",
+        on_paired_cb=lambda _info: None,
+        get_export_fn=lambda: {"version": 1, "cars": []},
+        on_import_fn=lambda _data: None,
+        on_timeout_cb=timed_out.set,
+    )
+
+    server._start_pairing_timeout()
+    server.mark_paired()
+
+    assert not timed_out.wait(0.15)
+    server.stop()
