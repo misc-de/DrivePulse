@@ -260,25 +260,24 @@ class MapPage(Gtk.Box):
             self.append(placeholder)
             return
 
-        self._shumate_map = Shumate.Map()
+        # SimpleMap handles tile loading, caching and network setup automatically —
+        # unlike bare Shumate.Map which needs explicit ShumateFileTileSource wiring.
+        self._shumate_map = Shumate.SimpleMap()
         self._shumate_map.set_hexpand(True)
         self._shumate_map.set_vexpand(True)
-        # Explicit light background so empty tile slots don't appear pitch-black in dark mode
-        self._shumate_map.add_css_class("view")
 
         viewport = self._shumate_map.get_viewport()
         viewport.set_zoom_level(13.0)
         viewport.set_location(48.137, 11.576)
 
-        # Street map: always use the built-in registry source — same one GNOME Maps uses,
-        # proven reliable across all Shumate 1.x versions.
+        # Street map: always use the built-in registry source — same one GNOME Maps uses.
         registry = Shumate.MapSourceRegistry.new_with_defaults()
         osm_id = getattr(Shumate, "MAP_SOURCE_OSM_MAPNIK", "osm-mapnik")
         osm_source = registry.get_by_id(osm_id)
         for key in _TILE_URLS:
             self._sources[key] = osm_source  # default fallback for all layers
 
-        # Satellite + dark: use RasterRenderer/TileDownloader when available (Shumate >= 1.1).
+        # Satellite + dark: RasterRenderer/TileDownloader available on Shumate >= 1.1.
         if hasattr(Shumate, "RasterRenderer") and hasattr(Shumate, "TileDownloader"):
             for key, url in (("satellite", _TILE_URLS["satellite"]), ("dark", _TILE_URLS["dark"])):
                 try:
@@ -290,7 +289,9 @@ class MapPage(Gtk.Box):
 
         self._shumate_map.set_map_source(self._sources["map"])
 
-        # Route polyline layer
+        # Layers are added to the underlying ShumateMap inside SimpleMap.
+        _inner = self._shumate_map.get_map() if hasattr(self._shumate_map, "get_map") else self._shumate_map
+
         self._path_layer = Shumate.PathLayer.new(viewport)
         route_color = Gdk.RGBA()
         route_color.red, route_color.green, route_color.blue, route_color.alpha = (
@@ -298,15 +299,13 @@ class MapPage(Gtk.Box):
         )
         self._path_layer.set_stroke_color(route_color)
         self._path_layer.set_stroke_width(5.0)
-        self._shumate_map.add_layer(self._path_layer)
+        _inner.add_layer(self._path_layer)
 
-        # Waypoint markers (above route)
         self._wp_layer = Shumate.MarkerLayer.new(viewport)
-        self._shumate_map.add_layer(self._wp_layer)
+        _inner.add_layer(self._wp_layer)
 
-        # Car marker (topmost)
         self._marker_layer = Shumate.MarkerLayer.new(viewport)
-        self._shumate_map.add_layer(self._marker_layer)
+        _inner.add_layer(self._marker_layer)
 
         # Detect manual pan → disable follow
         viewport.connect("notify::latitude", self._on_viewport_moved)
