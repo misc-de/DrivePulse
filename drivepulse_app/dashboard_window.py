@@ -55,7 +55,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.mock_mode = self.settings["mock_mode"]
         self.obd_port: str | None = self.settings.get("obd_port")
         self.gauge_theme: str = self.settings.get("gauge_theme", "cockpit")
-        self.auto_rotate: bool = self.settings.get("auto_rotate", True)
         self.sidebar_side: str = self.settings.get("sidebar_side", "left")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
@@ -252,7 +251,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.connect("realize", self._on_realize_install_css)
 
         self._obd_active = False
-        self._device_rotation = 0
 
         GLib.idle_add(self._load_initial_scan_data)
 
@@ -262,7 +260,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
-        self.orientation_reader = OrientationReader(self._on_orientation_changed, enabled=self.auto_rotate)
+        self.orientation_reader = OrientationReader(lambda *_: None)
         self.orientation_reader.on_gforce = self.acceleration_page.update_gforce_raw
 
         # Idle-Erkennung + WAL-Checkpoint alle 30 s
@@ -348,19 +346,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
             self.view_stack.set_visible_child_name(self.PAGE_DASHBOARD)
             self._last_swipe_time = time.monotonic()
-
-    def _on_orientation_changed(self, orientation: str, angle: int, is_landscape: bool) -> None:
-        """Called by OrientationReader when the physical device orientation changes."""
-        self._device_rotation = angle
-        # Rotate gauge drawings
-        for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
-            gauge.set_rotation(angle)
-        # Rotate full-screen dashboard canvas
-        self.dashboard_canvas.set_rotation(angle)
-        # Notify acceleration page so its layout switch uses physical proportions
-        self.acceleration_page.set_device_rotation(angle)
-        # Re-evaluate portrait/landscape layout immediately
-        self._on_size_changed()
 
     def _on_realize_install_css(self, *_args: Any) -> None:
         Gtk.StyleContext.add_provider_for_display(
