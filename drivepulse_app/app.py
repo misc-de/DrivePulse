@@ -28,8 +28,10 @@ Bluetooth-ELM327:
 
 from __future__ import annotations
 
+import fcntl
 import os
 import signal
+import sys
 import time
 from pathlib import Path
 
@@ -80,8 +82,30 @@ class ObdDashboardApp(Adw.Application):
         self.window.present()
 
 
+_lock_fh: "object | None" = None
+
+
+def _acquire_lock() -> bool:
+    """Returns True if this is the only running instance, False otherwise."""
+    global _lock_fh
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    lock_path = Path(runtime_dir) / "drivepulse.lock"
+    try:
+        fh = lock_path.open("w")
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fh.write(str(os.getpid()))
+        fh.flush()
+        _lock_fh = fh  # keep reference so lock lives as long as this process
+        return True
+    except (BlockingIOError, OSError):
+        return False
+
+
 def main() -> int:
     print_required_python_packages()
+    if not _acquire_lock():
+        print("DrivePulse is already running.", file=sys.stderr)
+        return 1
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     app = ObdDashboardApp()
     return app.run(None)
