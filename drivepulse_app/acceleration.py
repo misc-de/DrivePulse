@@ -186,7 +186,6 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
 
         self._trigger_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._trigger_row.set_halign(Gtk.Align.FILL)
-        self._trigger_row.set_margin_top(12)
         self.gforce_trigger_check.set_halign(Gtk.Align.CENTER)
         self._trigger_row.append(self.gforce_trigger_check)
         self._trigger_row.append(_threshold_controls)
@@ -200,16 +199,13 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         controls.append(self.replay_button)
         controls.append(self.reset_button)
 
-        # G-Force visualization (Sensor-Suite inspired) with Vmax/Gmax line above.
-        # The canvas expands within its centred parent so it fills the available
-        # space below the results list, while the inner draw routine still keeps
-        # the circle square (uses min(width, height) for the radius).
+        # GForce canvas — fills right column (landscape) or lower half (portrait).
         self.gforce_canvas = GForceCanvas()
         self.gforce_canvas.set_hexpand(True)
         self.gforce_canvas.set_vexpand(True)
         self.gforce_canvas.set_halign(Gtk.Align.FILL)
         self.gforce_canvas.set_valign(Gtk.Align.FILL)
-        self.gforce_canvas.set_size_request(-1, 220)
+        self.gforce_canvas.set_size_request(-1, 200)
 
         self.gforce_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.gforce_box.set_hexpand(True)
@@ -218,20 +214,32 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.gforce_box.set_valign(Gtk.Align.FILL)
         self.gforce_box.append(self.maxes_label)
         self.gforce_box.append(self.gforce_canvas)
-        # G-Force trigger checkbox + threshold controls sit between canvas and buttons
-        self.gforce_box.append(self._trigger_row)
 
-        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.content_box.set_hexpand(True)
-        self.content_box.set_vexpand(True)
+        # Results table in a scroll window so it never overflows in landscape.
         self.results_box.set_hexpand(True)
         self.results_box.set_vexpand(False)
         self.results_box.set_valign(Gtk.Align.START)
-        self.content_box.append(self.results_box)
+        self.results_scroll = Gtk.ScrolledWindow()
+        self.results_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.results_scroll.set_propagate_natural_height(True)
+        self.results_scroll.set_hexpand(True)
+        self.results_scroll.set_vexpand(False)
+        self.results_scroll.set_valign(Gtk.Align.START)
+        self.results_scroll.set_child(self.results_box)
+
+        # content_box: left = results, right = gforce (landscape) / top+bottom (portrait).
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.content_box.set_hexpand(True)
+        self.content_box.set_vexpand(True)
+        self.content_box.append(self.results_scroll)
         self.content_box.append(self.gforce_box)
+
+        # _trigger_row and controls always span the full width below content_box.
+        self._trigger_row.set_margin_top(8)
 
         self.append(intro)
         self.append(self.content_box)
+        self.append(self._trigger_row)
         self.append(controls)
 
         self._current_layout = "portrait"
@@ -239,24 +247,34 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self._refresh_texts()
 
     # ------------------------------------------------------------------
-    # Responsive layout — switch canvas position based on widget size
+    # Responsive layout — 50/50 split in landscape, stacked in portrait
     # ------------------------------------------------------------------
 
     def do_size_allocate(self, width: int, height: int, baseline: int) -> None:  # type: ignore[override]
         Gtk.Box.do_size_allocate(self, width, height, baseline)
-        # Landscape: canvas right of results. Portrait: canvas below results.
-        # Threshold leaves a comfortable margin around square aspect.
-        wants_landscape = width > height * 1.15 and width >= 560
+        wants_landscape = width > height * 1.15 and width >= 480
         target = "landscape" if wants_landscape else "portrait"
         if target == self._current_layout:
             return
         self._current_layout = target
         if target == "landscape":
             self.content_box.set_orientation(Gtk.Orientation.HORIZONTAL)
-            self.content_box.set_spacing(16)
+            self.content_box.set_spacing(12)
+            self.content_box.set_homogeneous(True)
+            # Left column: table scrolls vertically, fills its half
+            self.results_scroll.set_vexpand(True)
+            self.results_scroll.set_valign(Gtk.Align.FILL)
+            self.results_scroll.set_propagate_natural_height(False)
+            self.maxes_label.set_margin_top(8)
         else:
             self.content_box.set_orientation(Gtk.Orientation.VERTICAL)
-            self.content_box.set_spacing(8)
+            self.content_box.set_spacing(0)
+            self.content_box.set_homogeneous(False)
+            # Table sits compactly at top, canvas expands below
+            self.results_scroll.set_vexpand(False)
+            self.results_scroll.set_valign(Gtk.Align.START)
+            self.results_scroll.set_propagate_natural_height(True)
+            self.maxes_label.set_margin_top(24)
 
     # ------------------------------------------------------------------
     # Layout helpers
