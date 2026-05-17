@@ -2,6 +2,8 @@
 
 <img src="icon.png" alt="DrivePulse" width="128"/>
 
+
+⚠️ **AI-assisted project**
 > **⚠ Under active development — not ready for production use.**
 > Features, configuration and data formats may change at any time without notice.
 
@@ -11,7 +13,7 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 
 ## Screenshots
 <img width="270" alt="Screenshot from 2026-05-17 11:36:19" src="https://github.com/user-attachments/assets/456afc1d-a73f-4cc7-bc72-8de18db14cbe" />
-<img width="270" alt="Screenshot from 2026-05-16 10:25:28" src="https://github.com/user-attachments/assets/a1651ab5-811c-4952-9659-40f9b69cc513" />
+<img width="270" alt="Screenshot from 2026-05-17 16:32:54" src="https://github.com/user-attachments/assets/6c06466f-e208-4a08-b0f7-fea7056010fb" />
 <img width="270" alt="Screenshot from 2026-05-16 10:26:13" src="https://github.com/user-attachments/assets/bbea574a-7eb5-47ef-8397-38fe56e37c47" />
 <img width="270" alt="Screenshot from 2026-05-16 10:26:23" src="https://github.com/user-attachments/assets/caabff31-6dd5-4549-8be0-e9179ee343b3" />
 <img width="270" alt="Screenshot from 2026-05-16 10:26:32" src="https://github.com/user-attachments/assets/8333b4ce-918b-46cd-85b9-bf4ea4dca611" />
@@ -20,8 +22,6 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 ---
 
 ## Features
-
-⚠️ **AI-assisted project**
 
 - Multiple dashboard themes (Analog, Cockpit, Digital, Modern, Neon, Racing, Sport)
 - Circular and halfmoon gauges for RPM, speed, coolant temperature, fuel level, battery voltage
