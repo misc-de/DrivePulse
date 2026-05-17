@@ -263,28 +263,30 @@ class MapPage(Gtk.Box):
         self._shumate_map = Shumate.Map()
         self._shumate_map.set_hexpand(True)
         self._shumate_map.set_vexpand(True)
+        # Explicit light background so empty tile slots don't appear pitch-black in dark mode
+        self._shumate_map.add_css_class("view")
 
         viewport = self._shumate_map.get_viewport()
         viewport.set_zoom_level(13.0)
         viewport.set_location(48.137, 11.576)
 
-        # Tile sources — Shumate >= 1.1 has RasterRenderer/TileDownloader;
-        # older 1.0.x (Debian Bookworm) only has the built-in registry.
+        # Street map: always use the built-in registry source — same one GNOME Maps uses,
+        # proven reliable across all Shumate 1.x versions.
+        registry = Shumate.MapSourceRegistry.new_with_defaults()
+        osm_id = getattr(Shumate, "MAP_SOURCE_OSM_MAPNIK", "osm-mapnik")
+        osm_source = registry.get_by_id(osm_id)
+        for key in _TILE_URLS:
+            self._sources[key] = osm_source  # default fallback for all layers
+
+        # Satellite + dark: use RasterRenderer/TileDownloader when available (Shumate >= 1.1).
         if hasattr(Shumate, "RasterRenderer") and hasattr(Shumate, "TileDownloader"):
-            for key, url in _TILE_URLS.items():
+            for key, url in (("satellite", _TILE_URLS["satellite"]), ("dark", _TILE_URLS["dark"])):
                 try:
                     self._sources[key] = Shumate.RasterRenderer.new(
                         Shumate.TileDownloader.new(url)
                     )
                 except Exception:
-                    log.warning("Could not create tile source for %s", key)
-        if not self._sources:
-            # Fallback: built-in OSM source (covers all keys, satellite/dark stay on OSM)
-            registry = Shumate.MapSourceRegistry.new_with_defaults()
-            osm_id = getattr(Shumate, "MAP_SOURCE_OSM_MAPNIK", "osm-mapnik")
-            osm = registry.get_by_id(osm_id)
-            for key in _TILE_URLS:
-                self._sources[key] = osm
+                    log.warning("Could not create tile source for %s — using OSM fallback", key)
 
         self._shumate_map.set_map_source(self._sources["map"])
 
