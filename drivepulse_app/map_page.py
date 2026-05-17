@@ -230,6 +230,7 @@ class MapPage(Gtk.Box):
         self._center_btn: Gtk.Button | None = None
         self._layer_btn: Gtk.Button | None = None
         self._traffic_btn: Gtk.ToggleButton | None = None
+        self._tour_start_btn: Gtk.Button | None = None
 
         # Traffic layer (Shumate only)
         self._traffic_layer: Any = None
@@ -374,6 +375,7 @@ class MapPage(Gtk.Box):
 
         if self._backend != "none":
             overlay.add_overlay(self._build_fab())
+            overlay.add_overlay(self._build_tour_start_btn())
 
         self.append(overlay)
 
@@ -432,6 +434,33 @@ class MapPage(Gtk.Box):
         fab.append(self._follow_btn)
         fab.append(self._center_btn)
         return fab
+
+    def _build_tour_start_btn(self) -> Gtk.Widget:
+        self._tour_start_btn = Gtk.Button(icon_name="media-playback-start-symbolic")
+        self._tour_start_btn.add_css_class("circular")
+        self._tour_start_btn.add_css_class("osd")
+        self._tour_start_btn.set_halign(Gtk.Align.START)
+        self._tour_start_btn.set_valign(Gtk.Align.START)
+        self._tour_start_btn.set_margin_start(12)
+        self._tour_start_btn.set_margin_top(12)
+        self._tour_start_btn.set_tooltip_text(_translate(self.language, "map.tour_start"))
+        self._tour_start_btn.set_visible(False)
+        self._tour_start_btn.connect("clicked", self._on_tour_start_clicked)
+        return self._tour_start_btn
+
+    def _on_tour_start_clicked(self, _btn: Gtk.Button) -> None:
+        if self._start_coord is None:
+            return
+        lat, lon = self._start_coord
+        self._set_follow(False)
+        if self._backend == "webkit":
+            self._js(f"mapGoTo({lat}, {lon}, 15)")
+        elif self._shumate_map is not None:
+            viewport = self._shumate_map.get_viewport()
+            self._setting_pos = True
+            viewport.set_zoom_level(15.0)
+            viewport.set_location(lat, lon)
+            self._setting_pos = False
 
     # ── WebKit backend ────────────────────────────────────────────────────────
 
@@ -781,6 +810,10 @@ class MapPage(Gtk.Box):
         self._update_placeholders()
         self._update_remove_sensitivity()
         self._status_lbl.set_text("")
+        self._start_coord = None
+        self._end_coord = None
+        if self._tour_start_btn is not None:
+            self._tour_start_btn.set_visible(False)
         if self._backend == "webkit":
             self._js("mapClearRoute()")
         else:
@@ -850,6 +883,8 @@ class MapPage(Gtk.Box):
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
         self._status_lbl.set_text(_format_duration(duration_s))
+        if self._tour_start_btn is not None:
+            self._tour_start_btn.set_visible(True)
 
         if coords:
             lats = [c[1] for c in coords]
