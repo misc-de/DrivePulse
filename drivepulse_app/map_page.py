@@ -84,7 +84,7 @@ def _osrm_route(
     start: tuple[float, float],
     end: tuple[float, float],
     mode: str,
-) -> list[list[float]] | None:
+) -> tuple[list[list[float]], float] | None:
     profile = _OSRM_PROFILE.get(mode, "driving")
     coords = f"{start[1]},{start[0]};{end[1]},{end[0]}"
     url = (
@@ -93,8 +93,18 @@ def _osrm_route(
     )
     data = _http_get(url)
     if data and data.get("code") == "Ok" and data.get("routes"):
-        return data["routes"][0]["geometry"]["coordinates"]  # [[lon, lat], …]
+        route = data["routes"][0]
+        return route["geometry"]["coordinates"], float(route.get("duration", 0))
     return None
+
+
+def _format_duration(seconds: float) -> str:
+    total = int(seconds)
+    h = total // 3600
+    m = (total % 3600) // 60
+    if h > 0:
+        return f"{h}h {m}min"
+    return f"{m}min"
 
 
 # ── Cairo helpers ─────────────────────────────────────────────────────────────
@@ -467,6 +477,8 @@ class MapPage(Gtk.Box):
     def _on_mode_toggled(self, btn: Gtk.ToggleButton, mode: str) -> None:
         if btn.get_active():
             self._routing_mode = mode
+            if self._end_entry.get_text().strip():
+                self._on_route_clicked(None)
 
     # ── Route ─────────────────────────────────────────────────────────────────
 
@@ -509,8 +521,8 @@ class MapPage(Gtk.Box):
             GLib.idle_add(self._route_error)
             return
 
-        coords = _osrm_route(start, end, self._routing_mode)
-        GLib.idle_add(self._route_result, start, end, coords)
+        result = _osrm_route(start, end, self._routing_mode)
+        GLib.idle_add(self._route_result, start, end, result)
 
     def _route_error(self) -> bool:
         self._status_lbl.set_text(_translate(self.language, "map.routing.error"))
@@ -521,17 +533,18 @@ class MapPage(Gtk.Box):
         self,
         start: tuple[float, float],
         end: tuple[float, float],
-        coords: list[list[float]] | None,
+        result: tuple[list[list[float]], float] | None,
     ) -> bool:
         self._route_btn.set_sensitive(True)
-        if coords is None:
+        if result is None:
             self._status_lbl.set_text(_translate(self.language, "map.routing.error"))
             return False
 
+        coords, duration_s = result
         self._start_coord = start
         self._end_coord = end
         self._clear_btn.set_visible(True)
-        self._status_lbl.set_text("")
+        self._status_lbl.set_text(_format_duration(duration_s))
 
         if self._path_layer is not None:
             self._path_layer.remove_all()
