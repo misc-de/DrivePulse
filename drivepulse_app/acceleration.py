@@ -243,6 +243,7 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.append(controls)
 
         self._current_layout = "portrait"
+        self._device_rotation = 0
 
         self._refresh_texts()
 
@@ -250,9 +251,21 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
     # Responsive layout — 50/50 split in landscape, stacked in portrait
     # ------------------------------------------------------------------
 
+    def set_device_rotation(self, angle: int) -> None:
+        """Called by the window when the physical device orientation changes."""
+        self._device_rotation = angle % 360
+        self.queue_allocate()
+
     def do_size_allocate(self, width: int, height: int, baseline: int) -> None:  # type: ignore[override]
         Gtk.Box.do_size_allocate(self, width, height, baseline)
-        wants_landscape = width > height * 1.15 and width >= 480
+        # On Phosh the compositor rotates the output while the GTK window stays
+        # in portrait (e.g. 360×800). Swap dimensions so the layout decision is
+        # based on physical proportions, not GTK-window proportions.
+        if self._device_rotation in (90, 270) and width < height:
+            eff_w, eff_h = height, width
+        else:
+            eff_w, eff_h = width, height
+        wants_landscape = eff_w > eff_h * 1.15 and eff_w >= 480
         target = "landscape" if wants_landscape else "portrait"
         if target == self._current_layout:
             return
