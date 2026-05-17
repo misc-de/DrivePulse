@@ -17,7 +17,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "mock_mode": False,
     "obd_port": None,
     "gauge_theme": "cockpit",
-    "auto_rotate": True,
     "engage_threshold": 0.20,
 }
 
@@ -48,7 +47,6 @@ def load_settings() -> dict[str, Any]:
         "mock_mode": bool(data.get("mock_mode", DEFAULT_SETTINGS["mock_mode"])),
         "obd_port": data.get("obd_port") or None,
         "gauge_theme": data.get("gauge_theme", DEFAULT_SETTINGS["gauge_theme"]) or "cockpit",
-        "auto_rotate": bool(data.get("auto_rotate", DEFAULT_SETTINGS["auto_rotate"])),
         "engage_threshold": engage_threshold,
     }
 
@@ -64,7 +62,6 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "mock_mode": bool(settings.get("mock_mode", False)),
                 "obd_port": settings.get("obd_port") or None,
                 "gauge_theme": settings.get("gauge_theme", "cockpit") or "cockpit",
-                "auto_rotate": bool(settings.get("auto_rotate", True)),
                 "engage_threshold": float(settings.get("engage_threshold", DEFAULT_SETTINGS["engage_threshold"])),
             },
             indent=2,

@@ -18,26 +18,16 @@ class DashboardLayoutMixin:
         if width <= 0 or height <= 0:
             return False
 
-        # On Phosh with system rotation lock: GTK window stays portrait (e.g. 360×800)
-        # even when the device is physically landscape. Use physical dimensions for all
-        # layout decisions so every page adapts correctly.
-        device_rotation = getattr(self, "_device_rotation", 0)
-        is_physically_landscape = device_rotation in (90, 270) and width < height
-        phys_width = max(width, height) if is_physically_landscape else width
-
         if hasattr(self, "cars_page"):
-            self.cars_page.set_narrow(phys_width < self.CARS_NARROW_BREAKPOINT)
+            # Use the shorter dimension so phones in landscape stay narrow
+            self.cars_page.set_narrow(min(width, height) < self.CARS_NARROW_BREAKPOINT)
 
         if hasattr(self, "acceleration_page"):
             self.acceleration_page._apply_layout(width, height)
 
         gauge_box_visible = self.gauge_box.get_visible()
         if gauge_box_visible is not False:
-            if is_physically_landscape:
-                # VERTICAL GTK layout appears HORIZONTAL after compositor rotation.
-                # Pass swapped dims so gauge sizing uses physical proportions.
-                self._set_portrait_layout(min(width, height), max(width, height))
-            elif width >= height:
+            if width >= height:
                 self._set_landscape_layout(width, height)
             else:
                 self._set_portrait_layout(width, height)

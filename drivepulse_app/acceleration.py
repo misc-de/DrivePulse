@@ -234,17 +234,21 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.results_scroll.set_valign(Gtk.Align.START)
         self.results_scroll.set_child(self.results_box)
 
-        # left_col: intro + table + trigger + controls stacked — the full left
-        # column in landscape; sits above the gforce canvas in portrait.
+        # Wrap trigger + controls into a box that gets reparented by _apply_layout:
+        # inside left_col in landscape, directly on AccelerationPage in portrait.
+        self._trigger_row.set_margin_top(8)
+        self._bottom_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self._bottom_box.set_hexpand(True)
+        self._bottom_box.append(self._trigger_row)
+        self._bottom_box.append(controls)
+
+        # left_col: intro + table only; _bottom_box is added by _apply_layout.
         self.left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.left_col.set_hexpand(True)
         self.left_col.set_vexpand(False)
         self.left_col.set_valign(Gtk.Align.START)
-        self._trigger_row.set_margin_top(8)
         self.left_col.append(intro)
         self.left_col.append(self.results_scroll)
-        self.left_col.append(self._trigger_row)
-        self.left_col.append(controls)
 
         # content_box switches between HORIZONTAL (landscape) and VERTICAL (portrait).
         self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -253,10 +257,11 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.content_box.append(self.left_col)
         self.content_box.append(self.gforce_box)
 
+        # Portrait initial placement: content above, options at very bottom.
         self.append(self.content_box)
+        self.append(self._bottom_box)
 
         self._current_layout = "portrait"
-        self._device_rotation = 0
 
         self._refresh_texts()
 
@@ -264,17 +269,7 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
     # Responsive layout — 50/50 split in landscape, stacked in portrait
     # ------------------------------------------------------------------
 
-    def set_device_rotation(self, angle: int) -> None:
-        """Called by the window when the physical device orientation changes."""
-        self._device_rotation = angle % 360
-
     def _layout_target_for_size(self, width: int, height: int) -> str:
-        # On Phosh/compositor-side rotation the GTK surface stays portrait while
-        # the compositor rotates it physically; a portrait GTK layout appears
-        # landscape on the device.  Only switch the GTK layout when the window
-        # has actually been resized to landscape (width >= height).
-        if self._device_rotation in (90, 270) and width < height:
-            return "portrait"
         return "landscape" if width >= height else "portrait"
 
     def _apply_layout(self, width: int, height: int) -> None:
@@ -296,6 +291,9 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
             self.results_scroll.set_valign(Gtk.Align.FILL)
             self.results_scroll.set_propagate_natural_height(False)
             self.maxes_label.set_margin_top(8)
+            # Move options into left_col (below results table)
+            self.remove(self._bottom_box)
+            self.left_col.append(self._bottom_box)
         else:
             self.content_box.set_orientation(Gtk.Orientation.VERTICAL)
             self.content_box.set_spacing(0)
@@ -308,6 +306,9 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
             self.results_scroll.set_valign(Gtk.Align.START)
             self.results_scroll.set_propagate_natural_height(True)
             self.maxes_label.set_margin_top(24)
+            # Move options to very bottom of the page (below gforce canvas)
+            self.left_col.remove(self._bottom_box)
+            self.append(self._bottom_box)
 
     def do_size_allocate(self, width: int, height: int, baseline: int) -> None:  # type: ignore[override]
         # Apply layout BEFORE the parent allocates children so they are

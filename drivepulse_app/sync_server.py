@@ -43,6 +43,7 @@ class SyncServer:
         self._timeout_timer: threading.Timer | None = None
         self._paired = False
         self._cancelled = False
+        self.actual_port: int = self.PORT
 
     def start(self) -> None:
         if self._cancelled:
@@ -52,7 +53,18 @@ class SyncServer:
         def make_handler(*args: Any, **kwargs: Any) -> _SyncHandler:
             return _SyncHandler(server, *args, **kwargs)
 
-        httpd = HTTPServer(("0.0.0.0", self.PORT), make_handler)
+        port = self.PORT
+        httpd: HTTPServer | None = None
+        for _ in range(10):
+            try:
+                httpd = HTTPServer(("0.0.0.0", port), make_handler)
+                break
+            except OSError:
+                port += 1
+        if httpd is None:
+            raise OSError(f"No free port found in range {self.PORT}–{self.PORT + 9}")
+        self.actual_port = port
+
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(str(self._cert_path), str(self._key_path))
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)

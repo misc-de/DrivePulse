@@ -292,26 +292,6 @@ class SyncDialog(Adw.Dialog):
             spki_fp = get_spki_fingerprint(CERT_PATH)
             local_ip = get_local_ip()
             expiry = int(time.time()) + 300
-            qr_url = (
-                f"drivepulse://pair?v=1&h={local_ip}&p={SyncServer.PORT}"
-                f"&fp={spki_fp}&t={pairing_token}&exp={expiry}"
-            )
-
-            from .sync_qrgen import make_pixbuf as _make_qr_pixbuf
-            pixbuf = _make_qr_pixbuf(qr_url)
-
-            def _show_qr() -> bool:
-                try:
-                    self._server_qr_picture.set_pixbuf(pixbuf)
-                    self._server_qr_picture.set_visible(True)
-                    self._server_spinner.stop()
-                    self._server_spinner.set_visible(False)
-                    self._server_instr_label.set_visible(True)
-                    self._server_status_label.set_text(self._t("sync.server.waiting"))
-                except Exception as exc:
-                    log.exception("Could not display sync QR image")
-                    self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
-                return False
 
             def _on_paired(device_info: dict) -> None:
                 GLib.idle_add(
@@ -351,8 +331,8 @@ class SyncDialog(Adw.Dialog):
                     )
                 )
 
-            # Register the server object BEFORE starting so _on_closed can cancel
-            # it even if the dialog is closed while this thread is still running.
+            # Start server first so we know which port it bound to (may differ
+            # from PORT if 8765 is occupied by another service).
             server = SyncServer(
                 CERT_PATH, KEY_PATH,
                 pairing_token=pairing_token,
@@ -363,9 +343,30 @@ class SyncDialog(Adw.Dialog):
                 on_timeout_cb=_on_timeout,
             )
             self._server = server
+            server.start()  # binds port synchronously; sets server.actual_port
+
+            qr_url = (
+                f"drivepulse://pair?v=1&h={local_ip}&p={server.actual_port}"
+                f"&fp={spki_fp}&t={pairing_token}&exp={expiry}"
+            )
+
+            from .sync_qrgen import make_pixbuf as _make_qr_pixbuf
+            pixbuf = _make_qr_pixbuf(qr_url)
+
+            def _show_qr() -> bool:
+                try:
+                    self._server_qr_picture.set_pixbuf(pixbuf)
+                    self._server_qr_picture.set_visible(True)
+                    self._server_spinner.stop()
+                    self._server_spinner.set_visible(False)
+                    self._server_instr_label.set_visible(True)
+                    self._server_status_label.set_text(self._t("sync.server.waiting"))
+                except Exception as exc:
+                    log.exception("Could not display sync QR image")
+                    self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
+                return False
 
             GLib.idle_add(_show_qr)
-            server.start()
 
         except Exception as exc:
             log.exception("Could not start sync server mode")
