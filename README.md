@@ -10,7 +10,7 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 ---
 
 ## Screenshots
-<img width="270" alt="Screenshot from 2026-05-16 10:24:54" src="https://github.com/user-attachments/assets/0e7ea88b-3281-4073-a7c3-65d9a8e5c39d" />
+<img width="270" alt="Screenshot from 2026-05-17 11:36:19" src="https://github.com/user-attachments/assets/456afc1d-a73f-4cc7-bc72-8de18db14cbe" />
 <img width="270" alt="Screenshot from 2026-05-16 10:25:28" src="https://github.com/user-attachments/assets/a1651ab5-811c-4952-9659-40f9b69cc513" />
 <img width="270" alt="Screenshot from 2026-05-16 10:26:13" src="https://github.com/user-attachments/assets/bbea574a-7eb5-47ef-8397-38fe56e37c47" />
 <img width="270" alt="Screenshot from 2026-05-16 10:26:23" src="https://github.com/user-attachments/assets/caabff31-6dd5-4549-8be0-e9179ee343b3" />
