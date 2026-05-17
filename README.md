@@ -24,15 +24,18 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 ## Features
 
 - Multiple dashboard themes (Analog, Cockpit, Digital, Modern, Neon, Racing, Sport)
-- Circular and halfmoon gauges for RPM, speed, coolant temperature, fuel level, battery voltage
-- Analog theme: halfmoon fuel gauge (left edge) and battery voltage gauge (right edge) with color-coded danger zones
-- Automatic landscape / portrait layout switching based on window dimensions
-- **Acceleration measurement** — 0–30 / 0–50 / 0–70 / 0–100 / … / 0–200 km/h and 100–200 km/h from OBD and GPS; G-force ball display with real-time longitudinal and lateral G; Vmax elapsed times (OBD / GPS / average) shown at end of run; replay completed runs with real-time animation
-- GPS integration via GeoClue2 (D-Bus) and GPSD; indicator turns green on active fix
-- **Cars / Trips page** — lists all vehicles seen, with recorded trips, OBD scan history and acceleration runs per vehicle; trip detail includes speed/RPM/G chart + map track; sidebar collapses to icon-only on narrow screens (phones), shows labels on wide screens (tablets/desktop)
-- OBD scan history with DTC fault codes, supported PIDs and trend comparison between scans
-- Acceleration runs stored per vehicle (date, GPS location, all split times, G-force peaks)
-- **Device sync** — transfer the full database between two devices over a local Wi-Fi connection; server generates a QR code, client scans it; TLS-encrypted; auto-selects a free port if 8765 is occupied
+- **Acceleration measurement**
+  - 0–30 / 0–50 / 0–70 / 0–100 / … / 0–200 km/h and 100–200 km/h from OBD and GPS
+  - G-force ball display with real-time longitudinal and lateral G
+  - Vmax elapsed times (OBD / GPS / average) shown at end of run; replay completed runs with real-time animation
+- **Cars / Trips page**
+  - lists all vehicles seen, with recorded trips
+  - OBD scan history and acceleration runs per vehicle
+  - trip detail includes speed/RPM/G chart + map track
+  - Acceleration runs stored per vehicle (date, GPS location, all split times, G-force peaks)
+- **Device sync**
+  - transfer the full database between two devices over a local Wi-Fi connection
+  - server generates a QR code, client scans it in local networks; TLS-encrypted
 - Settings: units (km/h / mph), language (English / German), gauge theme, mock mode toggle
 
 ---
