@@ -1,6 +1,7 @@
 """Map page — OpenStreetMap navigation with GPS tracking and routing."""
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import math
 import threading
@@ -48,6 +49,35 @@ _TILE_URLS = {
     ),
     "dark": "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png",
 }
+
+# ── Bundesautobahn API ────────────────────────────────────────────────────────
+
+_BAB_BASE = "https://autobahn.api.bund.dev/v0/details"
+
+
+def _bab_fetch_road(road: str) -> list[dict]:
+    items: list[dict] = []
+    for kind in ("roadworks", "incidents"):
+        data = _http_get(f"{_BAB_BASE}/{kind}/{urllib.parse.quote(road, safe='')}")
+        if data:
+            for entry in data.get(kind, []):
+                entry["_kind"] = kind
+                entry["_road"] = road
+                items.append(entry)
+    return items
+
+
+def _bab_fetch_all() -> list[dict]:
+    roads_resp = _http_get(f"{_BAB_BASE}/roads")
+    if not roads_resp:
+        return []
+    roads: list[str] = roads_resp.get("roads", [])
+    all_items: list[dict] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        for result in pool.map(_bab_fetch_road, roads):
+            all_items.extend(result)
+    return all_items
+
 
 # ── Routing modes ─────────────────────────────────────────────────────────────
 
@@ -170,6 +200,9 @@ class MapPage(Gtk.Box):
         self._follow_btn: Gtk.ToggleButton | None = None
         self._center_btn: Gtk.Button | None = None
         self._layer_btn: Gtk.Button | None = None
+        self._traffic_btn: Gtk.ToggleButton | None = None
+        self._traffic_layer: Any = None
+        self._traffic_loaded: bool = False
 
         self._build_search_bar()
         self._build_map()
@@ -305,6 +338,10 @@ class MapPage(Gtk.Box):
         self._marker_layer = Shumate.MarkerLayer.new(viewport)
         _inner.add_layer(self._marker_layer)
 
+        self._traffic_layer = Shumate.MarkerLayer.new(viewport)
+        self._traffic_layer.set_visible(False)
+        _inner.add_layer(self._traffic_layer)
+
         # Detect manual pan → disable follow
         viewport.connect("notify::latitude", self._on_viewport_moved)
 
@@ -334,6 +371,13 @@ class MapPage(Gtk.Box):
         self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS["map"]))
         self._layer_btn.connect("clicked", self._on_layer_clicked)
 
+        self._traffic_btn = Gtk.ToggleButton(icon_name="emblem-important-symbolic")
+        self._traffic_btn.add_css_class("circular")
+        self._traffic_btn.add_css_class("osd")
+        self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
+        self._traffic_btn.connect("toggled", self._on_traffic_toggled)
+
+        fab.append(self._traffic_btn)
         fab.append(self._layer_btn)
         fab.append(self._follow_btn)
         fab.append(self._center_btn)
@@ -459,6 +503,67 @@ class MapPage(Gtk.Box):
         if self._layer_btn is not None:
             self._layer_btn.set_icon_name(_MAP_ICONS.get(layer, "map-symbolic"))
             self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
+
+    # ── Traffic layer (Bundesautobahn API) ────────────────────────────────────
+
+    def _on_traffic_toggled(self, btn: Gtk.ToggleButton) -> None:
+        visible = btn.get_active()
+        if self._traffic_layer is not None:
+            self._traffic_layer.set_visible(visible)
+        if visible and not self._traffic_loaded:
+            self._traffic_loaded = True
+            self._status_lbl.set_text(_translate(self.language, "map.traffic.loading"))
+            threading.Thread(target=self._load_traffic_thread, daemon=True).start()
+
+    def _load_traffic_thread(self) -> None:
+        items = _bab_fetch_all()
+        GLib.idle_add(self._show_traffic, items)
+
+    def _show_traffic(self, items: list[dict]) -> bool:
+        if self._traffic_layer is None:
+            return False
+        self._traffic_layer.remove_all()
+        count = 0
+        for item in items:
+            coord = item.get("coordinate") or {}
+            try:
+                lat = float(str(coord.get("lat", "0")).replace(",", "."))
+                lon = float(str(coord.get("long", "0")).replace(",", "."))
+            except (ValueError, TypeError):
+                continue
+            if lat == 0.0 and lon == 0.0:
+                continue
+            kind = item.get("_kind", "incidents")
+            title = item.get("title") or ""
+            if not title:
+                desc = item.get("description") or []
+                title = desc[0] if desc else kind
+            road = item.get("_road", "")
+            tooltip = f"{road}: {title}" if road else title
+            m = self._make_traffic_marker(kind, tooltip, lat, lon)
+            self._traffic_layer.add_marker(m)
+            count += 1
+        if self._traffic_btn is not None and self._traffic_btn.get_active():
+            self._status_lbl.set_text(
+                _translate(self.language, "map.traffic.count").format(count=count)
+            )
+        return False
+
+    def _make_traffic_marker(self, kind: str, tooltip: str, lat: float, lon: float) -> Any:
+        if kind == "roadworks":
+            fill   = (0.95, 0.60, 0.0,  1.0)
+            border = (0.70, 0.40, 0.0,  1.0)
+        else:
+            fill   = (0.90, 0.20, 0.20, 1.0)
+            border = (0.60, 0.10, 0.10, 1.0)
+        da = Gtk.DrawingArea()
+        da.set_size_request(14, 14)
+        da.set_draw_func(self._draw_dot, (fill, border))
+        da.set_tooltip_text(tooltip)
+        m = Shumate.Marker.new()
+        m.set_child(da)
+        m.set_location(lat, lon)
+        return m
 
     # ── Mode toggle ───────────────────────────────────────────────────────────
 
@@ -599,3 +704,5 @@ class MapPage(Gtk.Box):
                 self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
             if self._follow_btn is not None:
                 self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
+            if self._traffic_btn is not None:
+                self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
