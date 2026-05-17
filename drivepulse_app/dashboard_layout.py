@@ -28,6 +28,9 @@ class DashboardLayoutMixin:
         if hasattr(self, "cars_page"):
             self.cars_page.set_narrow(phys_width < self.CARS_NARROW_BREAKPOINT)
 
+        if hasattr(self, "acceleration_page"):
+            self.acceleration_page._apply_layout(width, height)
+
         gauge_box_visible = self.gauge_box.get_visible()
         if gauge_box_visible is not False:
             if is_physically_landscape:
