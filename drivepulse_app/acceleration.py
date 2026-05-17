@@ -468,29 +468,21 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         gps_box = self.source_rows.get(("vmax", "gps"))
 
         if obd_box:
-            obd_box.set_visible(self._obd_ever_seen or obd_t is not None)
+            obd_box.set_visible(self._obd_ever_seen or obd_v is not None)
         if gps_box:
-            gps_box.set_visible(self._gps_ever_seen or gps_t is not None)
+            gps_box.set_visible(self._gps_ever_seen or gps_v is not None)
 
-        # Name label shows the highest max speed reached so far
         if self._vmax_name_lbl is not None:
-            speeds = [v for v in [obd_v, gps_v] if v is not None]
-            if speeds:
-                self._vmax_name_lbl.set_text(f"Vmax {max(speeds):.0f} km/h")
-            else:
-                self._vmax_name_lbl.set_text("Vmax")
+            self._vmax_name_lbl.set_text("Vmax")
 
-        # OBD/GPS columns show the elapsed time when the peak was hit — same format as other rows
         if obd_lbl:
-            obd_lbl.set_text(f"{obd_t:.2f} s" if obd_t is not None else "--")
+            obd_lbl.set_text(f"{obd_v:.0f}" if obd_v is not None else "--")
         if gps_lbl:
-            gps_lbl.set_text(f"{gps_t:.2f} s" if gps_t is not None else "--")
+            gps_lbl.set_text(f"{gps_v:.0f}" if gps_v is not None else "--")
 
-        # Ø = average of available times (same as other rows)
         if best_lbl:
-            times = [t for t in [obd_t, gps_t] if t is not None]
-            avg = sum(times) / len(times) if times else None
-            best_lbl.set_text(f"{avg:.2f} s" if avg is not None else "--")
+            speeds = [v for v in [obd_v, gps_v] if v is not None]
+            best_lbl.set_text(f"{max(speeds):.0f}" if speeds else "--")
 
     def _update_maxes_label(self) -> None:
         vmax = self.max_obd_speed if self.max_obd_speed is not None else self.max_gps_speed
