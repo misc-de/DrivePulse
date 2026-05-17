@@ -185,9 +185,9 @@ def _zoom_for_bbox(
 
     dlat = max(abs(lat_rad(lat2) - lat_rad(lat1)) / math.pi, 1e-9)
     dlon = max(abs(lon2 - lon1) / 360.0, 1e-9)
-    z_lat = math.floor(math.log2(px_h / TILE / dlat))
-    z_lon = math.floor(math.log2(px_w / TILE / dlon))
-    return float(max(1, min(ZOOM_MAX, z_lat, z_lon) - 1))
+    z_lat = math.floor(math.log2(px_h * 0.88 / TILE / dlat))
+    z_lon = math.floor(math.log2(px_w * 0.88 / TILE / dlon))
+    return float(max(1, min(ZOOM_MAX, z_lat, z_lon)))
 
 
 # ── MapPage widget ────────────────────────────────────────────────────────────
@@ -847,16 +847,13 @@ class MapPage(Gtk.Box):
                 clat = (min(lats) + max(lats)) / 2.0
                 clon = (min(lons) + max(lons)) / 2.0
                 alloc = self._shumate_map.get_allocation()
-                px_w = alloc.width  if alloc.width  > 100 else 400
-                px_h = alloc.height if alloc.height > 100 else 600
+                px_w = max(alloc.width,  400)
+                px_h = max(alloc.height, 600)
                 zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
-                target = self._inner_map if self._inner_map is not None else self._shumate_map
+                viewport = self._shumate_map.get_viewport()
                 self._setting_pos = True
-                if hasattr(target, "go_to_full"):
-                    target.go_to_full(clat, clon, zoom)
-                else:
-                    self._shumate_map.get_viewport().set_location(clat, clon)
-                    self._shumate_map.get_viewport().set_zoom_level(zoom)
+                viewport.set_zoom_level(zoom)
+                viewport.set_location(clat, clon)
                 self._setting_pos = False
 
         return False
