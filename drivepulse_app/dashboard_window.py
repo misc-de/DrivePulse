@@ -357,6 +357,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             gauge.set_rotation(angle)
         # Rotate full-screen dashboard canvas
         self.dashboard_canvas.set_rotation(angle)
+        # Notify acceleration page so its layout switch uses physical proportions
+        self.acceleration_page.set_device_rotation(angle)
         # Re-evaluate portrait/landscape layout immediately
         self._on_size_changed()
 
