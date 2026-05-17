@@ -88,6 +88,16 @@ class SyncDialog(Adw.Dialog):
     def _t(self, key: str, **kw: Any) -> str:
         return _translate(self._language, key, **kw)
 
+    def _stop_server(self) -> None:
+        server = self._server
+        self._server = None
+        if server is None:
+            return
+        try:
+            server.stop()
+        except Exception:
+            log.exception("Could not stop sync server")
+
     # ------------------------------------------------------------------ home
 
     def _build_home_page(self) -> Adw.NavigationPage:
@@ -215,9 +225,7 @@ class SyncDialog(Adw.Dialog):
         _pop_handler: list[int | None] = [None]
         def _on_popped(_nav: Any, popped_page: Any) -> None:
             if popped_page is page:
-                if self._server is not None:
-                    self._server.stop()
-                    self._server = None
+                self._stop_server()
                 if _pop_handler[0] is not None:
                     _nav.disconnect(_pop_handler[0])
                     _pop_handler[0] = None
@@ -278,12 +286,7 @@ class SyncDialog(Adw.Dialog):
         return page, status_label, qr_picture, spinner, instr_label
 
     def _start_server_mode(self) -> None:
-        if self._server is not None:
-            try:
-                self._server.stop()
-            except Exception:
-                log.exception("Could not stop previous sync server before restart")
-            self._server = None
+        self._stop_server()
 
         try:
             SYNC_DIR.mkdir(parents=True, exist_ok=True)
@@ -333,6 +336,7 @@ class SyncDialog(Adw.Dialog):
                     GLib.idle_add(lambda: self._server_status_label.set_text(msg))
                     if self._on_sync_complete:
                         GLib.idle_add(self._on_sync_complete)
+                    GLib.idle_add(lambda: (self._stop_server(), False)[1])
                 except Exception as exc:
                     log.exception("Could not import sync data on server side")
                     _err = str(exc)
@@ -344,6 +348,7 @@ class SyncDialog(Adw.Dialog):
                     raise
 
             def _on_timeout() -> None:
+                self._server = None
                 GLib.idle_add(
                     lambda: self._server_status_label.set_text(
                         self._t("sync.server.timeout")
@@ -733,12 +738,7 @@ class SyncDialog(Adw.Dialog):
     # ------------------------------------------------------------------ cleanup
 
     def _on_closed(self, *_args: Any) -> None:
-        if self._server is not None:
-            try:
-                self._server.stop()
-            except Exception:
-                log.exception("Could not stop sync server while closing dialog")
-            self._server = None
+        self._stop_server()
         if self._scanner is not None:
             try:
                 self._scanner.cancel()

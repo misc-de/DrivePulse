@@ -20,6 +20,11 @@ _WARNING_CSS = (
 )
 
 
+class _NoopSizeGroup:
+    def add_widget(self, _widget: Gtk.Widget) -> None:
+        pass
+
+
 def _apply_warning_css(button: Gtk.Button) -> None:
     """Apply amber/yellow styling to a button via the display CSS provider."""
     provider = Gtk.CssProvider()
@@ -121,7 +126,9 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.maxes_label.set_halign(Gtk.Align.CENTER)
         self.maxes_label.set_hexpand(True)
         self.maxes_label.set_wrap(True)
-        self.maxes_label.set_justify(Gtk.Justification.CENTER)
+        justification = getattr(getattr(Gtk, "Justification", None), "CENTER", None)
+        if justification is not None:
+            self.maxes_label.set_justify(justification)
         self.maxes_label.set_margin_top(24)
 
         intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -254,19 +261,21 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
     def set_device_rotation(self, angle: int) -> None:
         """Called by the window when the physical device orientation changes."""
         self._device_rotation = angle % 360
-        self.queue_allocate()
+        queue_allocate = getattr(self, "queue_allocate", None)
+        if callable(queue_allocate):
+            queue_allocate()
+
+    def _layout_target_for_size(self, width: int, height: int) -> str:
+        # Match DashboardLayoutMixin: on Phosh/compositor-side rotation the GTK
+        # surface often stays portrait while the compositor rotates it physically.
+        # In that case the GTK portrait layout appears landscape on the device.
+        if self._device_rotation in (90, 270) and width < height:
+            return "portrait"
+        return "landscape" if width >= height else "portrait"
 
     def do_size_allocate(self, width: int, height: int, baseline: int) -> None:  # type: ignore[override]
         Gtk.Box.do_size_allocate(self, width, height, baseline)
-        # On Phosh the compositor rotates the output while the GTK window stays
-        # in portrait (e.g. 360×800). Swap dimensions so the layout decision is
-        # based on physical proportions, not GTK-window proportions.
-        if self._device_rotation in (90, 270) and width < height:
-            eff_w, eff_h = height, width
-        else:
-            eff_w, eff_h = width, height
-        wants_landscape = eff_w > eff_h * 1.15 and eff_w >= 480
-        target = "landscape" if wants_landscape else "portrait"
+        target = self._layout_target_for_size(width, height)
         if target == self._current_layout:
             return
         self._current_layout = target
@@ -295,9 +304,9 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
 
     def _build_result_rows(self) -> None:
         # SizeGroups ensure value columns line up across all rows (no Grid needed)
-        self._col_obd_sg = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
-        self._col_gps_sg = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
-        self._col_best_sg = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        self._col_obd_sg = self._make_size_group()
+        self._col_gps_sg = self._make_size_group()
+        self._col_best_sg = self._make_size_group()
 
         self.results_box.append(self._make_header_row())
         for target in self.SPEED_TARGETS_KMH:
@@ -305,6 +314,13 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         for lo, hi in self.RANGE_TARGETS_KMH:
             self.results_box.append(self._make_result_row(f"{lo}–{hi} km/h", (lo, hi)))
         self.results_box.append(self._make_result_row("Vmax", "vmax"))
+
+    def _make_size_group(self) -> Any:
+        size_group = getattr(Gtk, "SizeGroup", None)
+        size_group_mode = getattr(getattr(Gtk, "SizeGroupMode", None), "HORIZONTAL", None)
+        if size_group is None or size_group_mode is None:
+            return _NoopSizeGroup()
+        return size_group(mode=size_group_mode)
 
     def _make_header_row(self) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)

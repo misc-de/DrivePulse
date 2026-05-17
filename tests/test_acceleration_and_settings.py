@@ -71,6 +71,15 @@ def test_acceleration_finishes_when_all_targets_have_a_source(monkeypatch, drive
     assert page.status_label.get_text() == "Measurement complete."
 
 
+def test_acceleration_rotation_uses_dashboard_layout_decision(drivepulse_module):
+    page = drivepulse_module.AccelerationPage()
+
+    page.set_device_rotation(90)
+
+    assert page._layout_target_for_size(360, 780) == "portrait"
+    assert page._layout_target_for_size(780, 360) == "landscape"
+
+
 def test_settings_dialog_calls_callbacks(drivepulse_module):
     from drivepulse_app.settings_dialog import SettingsDialog
 
