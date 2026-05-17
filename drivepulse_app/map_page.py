@@ -13,8 +13,15 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-gi.require_version("WebKit", "6.0")
-from gi.repository import GLib, Gtk, WebKit  # noqa: E402
+from gi.repository import GLib, Gtk  # noqa: E402
+
+_WEBKIT_OK = False
+try:
+    gi.require_version("WebKit", "6.0")
+    from gi.repository import WebKit  # type: ignore[attr-defined]
+    _WEBKIT_OK = True
+except (ValueError, ImportError):
+    WebKit = None  # type: ignore[assignment]
 
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 from .diagnostics import get_logger
@@ -320,6 +327,24 @@ class MapPage(Gtk.Box):
     # ── Map WebView + floating buttons ────────────────────────────────────────
 
     def _build_map_overlay(self) -> None:
+        if not _WEBKIT_OK:
+            self._webview = None
+            placeholder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            placeholder.set_hexpand(True)
+            placeholder.set_vexpand(True)
+            placeholder.set_halign(Gtk.Align.CENTER)
+            placeholder.set_valign(Gtk.Align.CENTER)
+            icon = Gtk.Image.new_from_icon_name("map-symbolic")
+            icon.set_pixel_size(64)
+            icon.add_css_class("dim-label")
+            label = Gtk.Label(label="Map not available.\nInstall webkitgtk-6.0 to enable.")
+            label.set_justify(Gtk.Justification.CENTER)
+            label.add_css_class("dim-label")
+            placeholder.append(icon)
+            placeholder.append(label)
+            self.append(placeholder)
+            return
+
         ctx = WebKit.WebContext.get_default()
         self._webview = WebKit.WebView.new_with_context(ctx)
 
@@ -390,7 +415,7 @@ class MapPage(Gtk.Box):
         lon: float | None,
         heading: float | None,
     ) -> None:
-        if lat is None or lon is None:
+        if self._webview is None or lat is None or lon is None:
             return
         self._gps_lat = lat
         self._gps_lon = lon
@@ -401,6 +426,8 @@ class MapPage(Gtk.Box):
     # ── JS bridge ─────────────────────────────────────────────────────────────
 
     def _js(self, script: str) -> None:
+        if self._webview is None:
+            return
         self._webview.evaluate_javascript(script, -1, None, None, None, None, None)
 
     def _on_js_message(self, _mgr: Any, result: Any) -> None:
@@ -518,10 +545,11 @@ class MapPage(Gtk.Box):
         self._end_entry.set_placeholder_text(_translate(self.language, "map.search.end"))
         self._route_btn.set_tooltip_text(_translate(self.language, "map.route"))
         self._clear_btn.set_tooltip_text(_translate(self.language, "map.clear"))
-        self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
-        self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
-        layer = _MAP_TYPES[self._map_type_idx]
-        self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
+        if self._webview is not None:
+            self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
+            self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
+            layer = _MAP_TYPES[self._map_type_idx]
+            self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
         for mode, btn in self._mode_btns.items():
             btn.set_label(_translate(self.language, f"map.routing.{mode}"))
 
