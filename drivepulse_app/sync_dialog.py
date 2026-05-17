@@ -297,8 +297,6 @@ class SyncDialog(Adw.Dialog):
                     self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
                 return False
 
-            GLib.idle_add(_show_qr)
-
             def _on_paired(device_info: dict) -> None:
                 GLib.idle_add(
                     lambda: self._server_status_label.set_text(self._t("sync.server.connected"))
@@ -335,6 +333,8 @@ class SyncDialog(Adw.Dialog):
                     )
                 )
 
+            # Register the server object BEFORE starting so _on_closed can cancel
+            # it even if the dialog is closed while this thread is still running.
             server = SyncServer(
                 CERT_PATH, KEY_PATH,
                 pairing_token=pairing_token,
@@ -345,6 +345,8 @@ class SyncDialog(Adw.Dialog):
                 on_timeout_cb=_on_timeout,
             )
             self._server = server
+
+            GLib.idle_add(_show_qr)
             server.start()
 
         except Exception as exc:
