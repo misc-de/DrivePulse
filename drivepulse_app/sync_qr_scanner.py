@@ -1,14 +1,19 @@
-"""GStreamer-based QR code scanner — adapted from Yaga (https://github.com/misc-de/Yaga)."""
+"""GStreamer-based webcam QR scanner — based on HA-Matter/qr_tools.py."""
 from __future__ import annotations
 
 from typing import Any, Callable
+
+from .common import _translate
+from .diagnostics import get_logger
+
+log = get_logger(__name__)
 
 
 class QRScanError(RuntimeError):
     pass
 
 
-def _gst() -> Any:
+def _import_gstreamer() -> Any:
     try:
         import gi
         gi.require_version("Gst", "1.0")
@@ -21,7 +26,7 @@ def _gst() -> Any:
 
 def scan_supported() -> bool:
     try:
-        Gst = _gst()
+        Gst = _import_gstreamer()
     except QRScanError:
         return False
     return (
@@ -30,18 +35,27 @@ def scan_supported() -> bool:
     )
 
 
-class WebcamQRScanner:
-    """
-    Live QR code scanner using GStreamer + the zxing element.
-    Call build_widget() to get the GTK widget to embed, then start().
-    on_success(text) is called on the GLib main loop when a code is found.
-    on_error(message) is called on timeout or pipeline error.
-    """
+def _barcode_text_candidates(barcode: Any) -> list[str]:
+    candidates: list[str] = []
+    for attr in ("text", "bytes", "data", "content"):
+        value = getattr(barcode, attr, None)
+        if value is None:
+            continue
+        if isinstance(value, bytes):
+            decoded = value.decode("utf-8", errors="ignore").strip()
+        else:
+            decoded = str(value).strip()
+        if decoded:
+            candidates.append(decoded)
+    return candidates
 
+
+class WebcamQRScanner:
     def __init__(
         self,
         on_success: Callable[[str], None],
         on_error: Callable[[str], None],
+        language: str = "de",
         timeout_seconds: int = 120,
     ) -> None:
         import gi
@@ -49,7 +63,8 @@ class WebcamQRScanner:
         from gi.repository import GLib, Gtk
         self._GLib = GLib
         self._Gtk = Gtk
-        self._Gst = _gst()
+        self._Gst = _import_gstreamer()
+        self._language = language
         self.on_success = on_success
         self.on_error = on_error
         self.timeout_seconds = timeout_seconds
@@ -67,12 +82,11 @@ class WebcamQRScanner:
         self._status = Gtk.Label(label="", wrap=True, xalign=0.5)
         self._status.add_css_class("dim-label")
 
+    def _t(self, key: str, **kw: Any) -> str:
+        return _translate(self._language, key, **kw)
+
     def build_widget(self) -> Any:
         box = self._Gtk.Box(orientation=self._Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(8)
-        box.set_margin_bottom(8)
-        box.set_margin_start(8)
-        box.set_margin_end(8)
         box.append(self._picture)
         box.append(self._status)
         return box
@@ -80,12 +94,16 @@ class WebcamQRScanner:
     def start(self) -> None:
         self._finished = False
         self._stop_pipeline()
-        self._build_pipeline()
+        try:
+            self._build_pipeline()
+        except QRScanError as exc:
+            self._fail(str(exc))
+            return
         if self._pipeline is None:
             return
         result = self._pipeline.set_state(self._Gst.State.PLAYING)
         if result == self._Gst.StateChangeReturn.FAILURE:
-            self._fail("Kamera konnte nicht gestartet werden")
+            self._fail(self._t("sync.scanner.start_failed"))
             return
         if self._timeout_id is not None:
             self._GLib.source_remove(self._timeout_id)
@@ -94,20 +112,17 @@ class WebcamQRScanner:
         )
 
     def cancel(self) -> None:
+        if self._finished:
+            return
         self._finished = True
         self._stop_pipeline()
 
     def _build_pipeline(self) -> None:
         Gst = self._Gst
         if Gst.ElementFactory.find("autovideosrc") is None:
-            self._fail("Keine Kamera gefunden (autovideosrc fehlt)")
-            return
+            raise QRScanError(self._t("sync.scanner.no_camera"))
         if Gst.ElementFactory.find("zxing") is None:
-            self._fail(
-                "GStreamer zxing-Element fehlt.\n"
-                "Installation: apt install gstreamer1.0-plugins-bad"
-            )
-            return
+            raise QRScanError(self._t("sync.scanner.no_zxing"))
 
         has_preview = Gst.ElementFactory.find("gtk4paintablesink") is not None
         if has_preview:
@@ -124,8 +139,7 @@ class WebcamQRScanner:
         try:
             self._pipeline = Gst.parse_launch(desc)
         except Exception as exc:
-            self._fail(f"Pipeline-Fehler: {exc}")
-            return
+            raise QRScanError(self._t("sync.scanner.pipeline_failed", error=str(exc))) from exc
 
         self._bus = self._pipeline.get_bus()
         if self._bus is not None:
@@ -139,21 +153,22 @@ class WebcamQRScanner:
                     paintable = sink.get_property("paintable")
                     if paintable is not None:
                         self._picture.set_paintable(paintable)
-                        self._status.set_text("QR-Code vor die Kamera halten")
+                        self._status.set_text(self._t("sync.scanner.hold_qr"))
                     else:
-                        self._status.set_text("Kamera aktiv — kein Vorschau-Stream")
+                        self._status.set_text(self._t("sync.scanner.active_no_preview"))
                 except Exception:
-                    self._status.set_text("Kamera aktiv")
+                    self._status.set_text(self._t("sync.scanner.active"))
         else:
-            self._status.set_text("Kamera aktiv — QR-Code scannen…")
+            self._status.set_text(self._t("sync.scanner.active"))
 
     def _on_message(self, _bus: Any, message: Any) -> None:
         if self._finished:
             return
         Gst = self._Gst
         if message.type == Gst.MessageType.ERROR:
-            err, _dbg = message.parse_error()
-            self._fail(f"Kamerafehler: {err}")
+            err, debug = message.parse_error()
+            log.error("GStreamer webcam error: %s — %s", err, debug)
+            self._fail(self._t("sync.scanner.camera_error", error=err))
             return
         if message.type == Gst.MessageType.ELEMENT:
             structure = message.get_structure()
@@ -162,16 +177,18 @@ class WebcamQRScanner:
             symbol = structure.get_value("symbol")
             if not symbol:
                 return
-            text = str(symbol).strip()
+            candidates = _barcode_text_candidates(symbol) or [str(symbol).strip()]
+            text = candidates[0] if candidates else ""
             if not text:
                 return
+            log.info("QR code scanned: %s…", text[:40])
             self._finished = True
             self._stop_pipeline()
             self.on_success(text)
 
     def _on_timeout(self) -> bool:
         if not self._finished:
-            self._fail("Timeout — kein QR-Code erkannt")
+            self._fail(self._t("sync.scanner.timeout"))
         return False
 
     def _fail(self, message: str) -> None:

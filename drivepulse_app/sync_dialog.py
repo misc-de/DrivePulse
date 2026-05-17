@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import subprocess
+import io
 import threading
 import time
 from typing import Any, Callable
@@ -20,7 +20,7 @@ from .sync_crypto import (
     get_local_ip,
     get_spki_fingerprint,
 )
-from .sync_identity import CERT_PATH, KEY_PATH, QR_TMP, SYNC_DIR, get_or_create_device_id
+from .sync_identity import CERT_PATH, KEY_PATH, SYNC_DIR, get_or_create_device_id
 from .sync_data import (
     export_all,
     import_data,
@@ -275,14 +275,21 @@ class SyncDialog(Adw.Dialog):
                 f"&fp={spki_fp}&t={pairing_token}&exp={expiry}"
             )
 
-            subprocess.run(
-                ["/usr/bin/qrencode", "-s", "8", "-m", "2", "-o", str(QR_TMP), qr_url],
-                check=True, timeout=10,
-            )
+            import qrcode
+            qr = qrcode.QRCode(box_size=8, border=2)
+            qr.add_data(qr_url)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            png_bytes = buf.getvalue()
 
             def _show_qr() -> bool:
                 try:
-                    pixbuf = GdkPixbuf.Pixbuf.new_from_file(str(QR_TMP))
+                    loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+                    loader.write(png_bytes)
+                    loader.close()
+                    pixbuf = loader.get_pixbuf()
                     self._server_qr_picture.set_pixbuf(pixbuf)
                     self._server_qr_picture.set_visible(True)
                     self._server_spinner.stop()
@@ -290,7 +297,7 @@ class SyncDialog(Adw.Dialog):
                     self._server_instr_label.set_visible(True)
                     self._server_status_label.set_text(self._t("sync.server.waiting"))
                 except Exception as exc:
-                    log.exception("Could not show sync QR image %s", QR_TMP)
+                    log.exception("Could not render sync QR image")
                     self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
                 return False
 
@@ -484,7 +491,9 @@ class SyncDialog(Adw.Dialog):
         def _on_error(msg: str) -> None:
             status_label.set_text(msg)
 
-        self._scanner = WebcamQRScanner(on_success=_on_success, on_error=_on_error)
+        self._scanner = WebcamQRScanner(
+            on_success=_on_success, on_error=_on_error, language=self._language
+        )
         scanner_box.append(self._scanner.build_widget())
         self._scanner.start()
 
