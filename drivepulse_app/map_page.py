@@ -163,6 +163,9 @@ class MapPage(Gtk.Box):
         self._build_search_bar()
         self._build_map()
 
+        # Prevent search entries from auto-grabbing focus when the tab becomes visible
+        self.connect("map", self._on_mapped)
+
     # ── Search / route bar ────────────────────────────────────────────────────
 
     def _build_search_bar(self) -> None:
@@ -229,8 +232,13 @@ class MapPage(Gtk.Box):
     # ── Shumate map ───────────────────────────────────────────────────────────
 
     def _make_tile_source(self, url: str) -> Any:
-        downloader = Shumate.TileDownloader.new(url)
-        return Shumate.RasterRenderer.new(downloader)
+        # Shumate >= 1.1 has TileDownloader + RasterRenderer; 1.0.x only has the registry
+        if hasattr(Shumate, "RasterRenderer") and hasattr(Shumate, "TileDownloader"):
+            return Shumate.RasterRenderer.new(Shumate.TileDownloader.new(url))
+        # Fallback: built-in OSM source from registry (1.0.x)
+        registry = Shumate.MapSourceRegistry.new_with_defaults()
+        osm_id = getattr(Shumate, "MAP_SOURCE_OSM_MAPNIK", "osm-mapnik")
+        return registry.get_by_id(osm_id)
 
     def _build_map(self) -> None:
         if not _SHUMATE_OK:
