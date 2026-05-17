@@ -39,6 +39,8 @@ MODE_LOCAL_WINS = "local_wins"
 MODE_REMOTE_WINS_ALL = "remote_wins_all"
 MODE_LOCAL_WINS_ALL = "local_wins_all"
 log = get_logger(__name__)
+
+
 class SyncDialog(Adw.Dialog):
     __gtype_name__ = "SyncDialog"
 
@@ -55,7 +57,10 @@ class SyncDialog(Adw.Dialog):
         self._db = db
         self._on_sync_complete = on_sync_complete
         self._server: SyncServer | None = None
+        self._server_lock = threading.RLock()
         self._server_start_requested = False
+        self._server_start_generation = 0
+        self._closed = False
         self._scanner: WebcamQRScanner | None = None
         self._sync_mode: str = MODE_MERGE
 
@@ -77,14 +82,21 @@ class SyncDialog(Adw.Dialog):
         return _translate(self._language, key, **kw)
 
     def _stop_server(self) -> None:
-        server = self._server
-        self._server = None
+        with self._server_lock:
+            self._server_start_requested = False
+            self._server_start_generation += 1
+            server = self._server
+            self._server = None
         if server is None:
             return
         try:
             server.stop()
         except Exception:
             log.exception("Could not stop sync server")
+
+    def _server_start_is_current(self, generation: int) -> bool:
+        with self._server_lock:
+            return not self._closed and self._server_start_generation == generation
 
     # ------------------------------------------------------------------ home
 
@@ -205,6 +217,7 @@ class SyncDialog(Adw.Dialog):
         self._push_server_page()
 
     def _push_server_page(self, *_args: Any) -> None:
+        self._stop_server()
         result = self._build_server_page()
         page = result[0]
         self._server_status_label = result[1]
@@ -222,8 +235,13 @@ class SyncDialog(Adw.Dialog):
                     _pop_handler[0] = None
         _pop_handler[0] = self._nav.connect("popped", _on_popped)
 
-        self._server_start_requested = True
-        threading.Thread(target=self._start_server_mode, daemon=True).start()
+        with self._server_lock:
+            if self._closed:
+                return
+            self._server_start_generation += 1
+            generation = self._server_start_generation
+            self._server_start_requested = True
+        threading.Thread(target=self._start_server_mode, args=(generation,), daemon=True).start()
 
     def _build_server_page(self) -> tuple[Adw.NavigationPage, Gtk.Label, Gtk.Picture, Gtk.Spinner, Gtk.Label]:
         toolbar_view = Adw.ToolbarView()
@@ -277,12 +295,18 @@ class SyncDialog(Adw.Dialog):
         page.set_child(toolbar_view)
         return page, status_label, qr_picture, spinner, instr_label
 
-    def _start_server_mode(self) -> None:
-        if not self._server_start_requested:
+    def _start_server_mode(self, generation: int | None = None) -> None:
+        with self._server_lock:
+            is_requested = (
+                not self._closed
+                and self._server_start_requested
+                and (generation is None or generation == self._server_start_generation)
+            )
+            if is_requested:
+                self._server_start_requested = False
+        if not is_requested:
             log.warning("Blocked sync server start without explicit user request")
             return
-        self._server_start_requested = False
-        self._stop_server()
 
         try:
             SYNC_DIR.mkdir(parents=True, exist_ok=True)
@@ -292,6 +316,8 @@ class SyncDialog(Adw.Dialog):
             spki_fp = get_spki_fingerprint(CERT_PATH)
             local_ip = get_local_ip()
             expiry = int(time.time()) + 300
+            if generation is not None and not self._server_start_is_current(generation):
+                return
 
             def _on_paired(device_info: dict) -> None:
                 GLib.idle_add(
@@ -324,7 +350,8 @@ class SyncDialog(Adw.Dialog):
                     raise
 
             def _on_timeout() -> None:
-                self._server = None
+                with self._server_lock:
+                    self._server = None
                 GLib.idle_add(
                     lambda: self._server_status_label.set_text(
                         self._t("sync.server.timeout")
@@ -342,8 +369,22 @@ class SyncDialog(Adw.Dialog):
                 on_import_fn=_on_import,
                 on_timeout_cb=_on_timeout,
             )
-            self._server = server
+            with self._server_lock:
+                if self._closed or (
+                    generation is not None and generation != self._server_start_generation
+                ):
+                    return
+                self._server = server
             server.start()  # binds port synchronously; sets server.actual_port
+            with self._server_lock:
+                should_stop = self._closed or (
+                    generation is not None and generation != self._server_start_generation
+                )
+                if should_stop and self._server is server:
+                    self._server = None
+            if should_stop:
+                server.stop()
+                return
 
             qr_url = (
                 f"drivepulse://pair?v=1&h={local_ip}&p={server.actual_port}"
@@ -735,6 +776,8 @@ class SyncDialog(Adw.Dialog):
     # ------------------------------------------------------------------ cleanup
 
     def _on_closed(self, *_args: Any) -> None:
+        with self._server_lock:
+            self._closed = True
         self._stop_server()
         if self._scanner is not None:
             try:

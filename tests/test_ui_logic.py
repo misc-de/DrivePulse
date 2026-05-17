@@ -167,3 +167,109 @@ def test_obd_indicator_spins_while_connecting(drivepulse_module):
     assert window.obd_indicator["spinner"].props["visible"] is True
     assert window.obd_indicator["spinner"].props["spinning"] is True
     assert window.obd_indicator["image"].props["visible"] is False
+
+
+def test_scan_identity_does_not_auto_register_unknown_vehicle(tmp_path, drivepulse_module):
+    from drivepulse_app.db import DriveDB
+
+    window = drivepulse_module.DashboardWindow.__new__(drivepulse_module.DashboardWindow)
+    window.db = DriveDB(tmp_path / "drivepulse.sqlite3")
+    calls = []
+    window.trip_recorder = type("TripSpy", (), {
+        "car_id": None,
+        "trip_id": None,
+        "set_car": lambda self, **kw: calls.append(kw) or 1,
+    })()
+    identities = []
+    window.cars_page = type("CarsSpy", (), {
+        "set_live_identity": lambda self, identity: identities.append(identity),
+    })()
+    window.dashboard_canvas = type("CanvasSpy", (), {
+        "update_last_trip_stats": lambda self, stats: None,
+    })()
+
+    try:
+        window._handle_scan_identity({
+            "source": "obd_scan_identity",
+            "vin": "WVWZZZ1JZXW000001",
+            "cal_id": "CAL",
+            "cvn": "CVN",
+            "protocol": "6",
+            "profile_path": "/tmp/profile.json",
+        })
+
+        assert window.db.list_cars() == []
+        assert calls == []
+        assert identities[-1]["VIN"] == "WVWZZZ1JZXW000001"
+        assert identities[-1]["profile_path"] == "/tmp/profile.json"
+    finally:
+        window.db.close()
+
+
+def test_scan_identity_selects_known_vehicle(tmp_path, drivepulse_module):
+    from drivepulse_app.db import DriveDB
+
+    window = drivepulse_module.DashboardWindow.__new__(drivepulse_module.DashboardWindow)
+    window.db = DriveDB(tmp_path / "drivepulse.sqlite3")
+    vin = "WVWZZZ1JZXW000001"
+    window.db.upsert_car(vin=vin)
+    calls = []
+    window.trip_recorder = type("TripSpy", (), {
+        "car_id": None,
+        "trip_id": None,
+        "set_car": lambda self, **kw: calls.append(kw) or 1,
+    })()
+    window.cars_page = type("CarsSpy", (), {
+        "set_live_identity": lambda self, identity: None,
+    })()
+    window.dashboard_canvas = type("CanvasSpy", (), {
+        "update_last_trip_stats": lambda self, stats: None,
+    })()
+
+    try:
+        window._handle_scan_identity({"source": "obd_scan_identity", "vin": vin})
+
+        assert calls and calls[0]["vin"] == vin
+    finally:
+        window.db.close()
+
+
+def test_live_vehicle_add_button_hidden_for_known_vehicle(drivepulse_module):
+    from drivepulse_app.cars import CarsPage
+
+    page = CarsPage.__new__(CarsPage)
+    page.LIVE_ID = CarsPage.LIVE_ID
+    page._selected_source = CarsPage.LIVE_ID
+    page._live_identity = {"VIN": "WVWZZZ1JZXW000001"}
+    page._profiles = []
+    page._add_live_vehicle_btn = drivepulse_module.Gtk.Button()
+
+    CarsPage._update_live_add_button(page)
+    assert page._add_live_vehicle_btn.get_visible() is True
+
+    page._profiles = [{"vin": "WVWZZZ1JZXW000001", "car_id": 1}]
+    CarsPage._update_live_add_button(page)
+    assert page._add_live_vehicle_btn.get_visible() is False
+
+
+def test_live_vehicle_add_uses_callback_and_refreshes(drivepulse_module):
+    from drivepulse_app.cars import CarsPage
+
+    page = CarsPage.__new__(CarsPage)
+    page._live_identity = {"VIN": "WVWZZZ1JZXW000001", "CALIBRATION_ID": "CAL"}
+    page._selected_car_id = None
+    page._add_live_vehicle_btn = drivepulse_module.Gtk.Button()
+    page._profiles = []
+    page._selected_source = CarsPage.LIVE_ID
+    page.LIVE_ID = CarsPage.LIVE_ID
+    page.db = None
+    refreshed = []
+    calls = []
+    page.refresh_profiles = lambda: refreshed.append(True)
+    page.on_live_vehicle_add = lambda identity: calls.append(identity) or 42
+
+    CarsPage._add_live_vehicle(page)
+
+    assert calls == [{"VIN": "WVWZZZ1JZXW000001", "CALIBRATION_ID": "CAL"}]
+    assert refreshed == [True]
+    assert page._selected_car_id == 42
