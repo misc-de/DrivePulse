@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS trips (
     max_speed_kmh   REAL,
     avg_speed_kmh   REAL,
     samples_count   INTEGER NOT NULL DEFAULT 0,
-    notes           TEXT
+    notes           TEXT,
+    label           TEXT
 );
 
 CREATE TABLE IF NOT EXISTS samples (
@@ -123,7 +124,11 @@ class DriveDB:
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(_SCHEMA)
-            self._conn.commit()
+            try:
+                self._conn.execute("ALTER TABLE trips ADD COLUMN label TEXT")
+                self._conn.commit()
+            except Exception:
+                pass  # column already exists in older databases
 
     @property
     def path(self) -> Path:
@@ -267,6 +272,14 @@ class DriveDB:
     def delete_trip(self, trip_id: int) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM trips WHERE id=?", (trip_id,))
+            self._conn.commit()
+
+    def rename_trip(self, trip_id: int, label: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE trips SET label=? WHERE id=?",
+                (label or None, trip_id),
+            )
             self._conn.commit()
 
     def rename_car(self, car_id: int, label: str) -> None:

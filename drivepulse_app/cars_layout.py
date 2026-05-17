@@ -214,7 +214,12 @@ class CarsLayoutMixin:
 
     # ---------------------------------------------------- Sub-page back button
 
-    def _wrap_sub_page(self, content: Gtk.Widget, title: str) -> Gtk.Widget:
+    def _wrap_sub_page(
+        self,
+        content: Gtk.Widget,
+        title: str,
+        on_rename: "Callable[[Gtk.Label], None] | None" = None,
+    ) -> Gtk.Widget:
         """Wrap content with a title + back-button header for sub-pages (trip, scan, accel run)."""
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -230,6 +235,11 @@ class CarsLayoutMixin:
         title_lbl.set_hexpand(True)
         head.append(back_btn)
         head.append(title_lbl)
+        if on_rename is not None:
+            rename_btn = Gtk.Button(icon_name="document-edit-symbolic")
+            rename_btn.add_css_class("flat")
+            rename_btn.connect("clicked", lambda _b: on_rename(title_lbl))
+            head.append(rename_btn)
         outer.append(head)
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
         outer.append(content)
