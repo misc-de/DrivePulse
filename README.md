@@ -7,7 +7,7 @@
 > **⚠ Under active development — not ready for production use.**
 > Features, configuration and data formats may change at any time without notice.
 
-OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and reads vehicle data via the OBD-II interface. GPS speed is read in parallel via GeoClue2 or GPSD.
+OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Dongle and reads vehicle data via the OBD-II interface. GPS speed is read in parallel via GeoClue2 or GPSD.
 
 ---
 
