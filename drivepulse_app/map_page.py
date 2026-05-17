@@ -614,6 +614,9 @@ class MapPage(Gtk.Box):
             self._follow_btn.handler_block_by_func(self._on_follow_toggled)
             self._follow_btn.set_active(active)
             self._follow_btn.handler_unblock_by_func(self._on_follow_toggled)
+        if self._backend == "webkit":
+            val = "true" if active else "false"
+            self._js(f"mapSetFollow({val})")
         return False
 
     def _on_follow_toggled(self, btn: Gtk.ToggleButton) -> None:
@@ -815,21 +818,19 @@ class MapPage(Gtk.Box):
         self._clear_btn.set_visible(True)
         self._status_lbl.set_text(_format_duration(duration_s))
 
+        if coords:
+            lats = [c[1] for c in coords]
+            lons = [c[0] for c in coords]
+            self._set_follow(False)
+
         if self._backend == "webkit":
             self._js(f"mapSetRoute({json.dumps(coords)})")
             pts_js = json.dumps([[p[0], p[1]] for p in all_points])
             self._js(f"mapSetWaypoints({pts_js})")
             if coords:
-                lats = [c[1] for c in coords]
-                lons = [c[0] for c in coords]
-                clat = (min(lats) + max(lats)) / 2.0
-                clon = (min(lons) + max(lons)) / 2.0
-                alloc = self._webview.get_allocation()
-                px_w = alloc.width  if alloc.width  > 100 else 400
-                px_h = alloc.height if alloc.height > 100 else 600
-                zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
-                self._set_follow(False)
-                self._js(f"mapGoTo({clat}, {clon}, {zoom})")
+                min_lat, max_lat = min(lats), max(lats)
+                min_lon, max_lon = min(lons), max(lons)
+                self._js(f"mapFitBounds({min_lat},{min_lon},{max_lat},{max_lon})")
         elif self._shumate_map is not None:
             if self._path_layer is not None:
                 self._path_layer.remove_all()
@@ -843,23 +844,20 @@ class MapPage(Gtk.Box):
                     self._wp_layer.add_marker(self._make_wp_marker(pt[0], pt[1], role))
 
             if coords:
-                lats = [c[1] for c in coords]
-                lons = [c[0] for c in coords]
                 clat = (min(lats) + max(lats)) / 2.0
                 clon = (min(lons) + max(lons)) / 2.0
                 alloc = self._shumate_map.get_allocation()
                 px_w = alloc.width  if alloc.width  > 100 else 400
                 px_h = alloc.height if alloc.height > 100 else 600
                 zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
-                self._set_follow(False)
                 target = self._inner_map if self._inner_map is not None else self._shumate_map
+                self._setting_pos = True
                 if hasattr(target, "go_to_full"):
                     target.go_to_full(clat, clon, zoom)
                 else:
-                    self._setting_pos = True
                     self._shumate_map.get_viewport().set_location(clat, clon)
                     self._shumate_map.get_viewport().set_zoom_level(zoom)
-                    self._setting_pos = False
+                self._setting_pos = False
 
         return False
 

@@ -249,6 +249,12 @@ function mapGoTo(lat, lon, zoom) {
   map.flyTo({ center: [lon, lat], zoom: zoom, pitch: 0, duration: 900 });
 }
 
+function mapFitBounds(minLat, minLon, maxLat, maxLon) {
+  if (!initialized) return;
+  if (!map) return;
+  map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 48, pitch: 0, duration: 900 });
+}
+
 function mapSetStyle(key) {
   if (!map) return;
   const style = STYLES[key] || STYLES.street;
