@@ -126,8 +126,10 @@ class CarsDetailRenderMixin:
 
     def _make_inline_row(self, pid_key: str, label: str, value_text: str, is_unknown: bool) -> Adw.ActionRow:
         row = Adw.ActionRow()
-        row.set_title(GLib.markup_escape_text(label))
-        row.set_subtitle(GLib.markup_escape_text(pid_key) if not pid_key.startswith("__") else "")
+        row.set_use_markup(True)
+        row.set_title(f'<span alpha="55%">{GLib.markup_escape_text(label)}</span>')
+        if not pid_key.startswith("__"):
+            row.set_subtitle(f'<span alpha="40%">{GLib.markup_escape_text(pid_key)}</span>')
 
         value_label = Gtk.Label(label=value_text, xalign=1.0)
         value_label.add_css_class("monospace")
@@ -161,6 +163,8 @@ class CarsDetailRenderMixin:
         title_lbl = Gtk.Label(label=label, xalign=0.0)
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_hexpand(True)
+        title_lbl.add_css_class("dim-label")
+        title_lbl.add_css_class("caption")
         box.append(title_lbl)
 
         value_lbl = Gtk.Label(label=value_text, xalign=1.0)
