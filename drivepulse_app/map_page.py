@@ -793,6 +793,16 @@ class MapPage(Gtk.Box):
             if self._wp_layer is not None:
                 self._wp_layer.remove_all()
 
+    def set_route_visible(self, visible: bool) -> None:
+        if self._backend == "webkit":
+            v = "true" if visible else "false"
+            self._js(f"mapSetRouteVisible({v})")
+        else:
+            if self._path_layer is not None:
+                self._path_layer.set_visible(visible)
+            if self._wp_layer is not None:
+                self._wp_layer.set_visible(visible)
+
     def _compute_route(self, start_text: str, wp_texts: list[str], end_text: str) -> None:
         if start_text:
             start = _geocode(start_text)

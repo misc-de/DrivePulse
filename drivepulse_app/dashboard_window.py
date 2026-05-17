@@ -337,6 +337,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.header.set_visible(visible)
         self.switcher_bar.set_visible(visible)
         self.footer.set_visible(visible)
+        if self.view_stack.get_visible_child_name() == self.PAGE_MAP:
+            self.map_page.set_route_visible(visible)
 
     def _on_visible_page_changed(self, _stack: Adw.ViewStack, _pspec: Any) -> None:
         page = self.view_stack.get_visible_child_name()
