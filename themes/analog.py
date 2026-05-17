@@ -388,9 +388,11 @@ def _voltage_halfmoon_right(
         nx = cx + math.cos(ang) * lbl_r - ext.width / 2 - ext.x_bearing
         ny = cy + math.sin(ang) * lbl_r - ext.height / 2 - ext.y_bearing
         if lval <= 11.0:
-            cr.set_source_rgba(0.90, 0.18, 0.12, 0.90 * a)
+            continue  # 11 V ausblenden
         elif lval <= 12.0:
-            cr.set_source_rgba(0.95, 0.52, 0.08, 0.90 * a)
+            cr.set_source_rgba(0.90, 0.18, 0.12, 0.90 * a)  # rot
+        elif lval <= 13.0:
+            cr.set_source_rgba(0.95, 0.52, 0.08, 0.90 * a)  # orange
         else:
             cr.set_source_rgba(*dim_col, 0.80 * a)
         cr.move_to(nx, ny)
