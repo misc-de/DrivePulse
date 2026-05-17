@@ -171,6 +171,23 @@ def _rounded_rect(cr: Any, x: float, y: float, w: float, h: float, r: float) -> 
     cr.close_path()
 
 
+def _poi_category(tags: dict) -> str:
+    amenity = tags.get("amenity", "")
+    if amenity == "fuel":
+        return "fuel"
+    if amenity == "parking":
+        return "parking"
+    if amenity in {"restaurant", "fast_food", "cafe"}:
+        return "food"
+    if amenity in {"supermarket"} or tags.get("shop"):
+        return "shop"
+    if amenity in {"hospital", "pharmacy"}:
+        return "medical"
+    if tags.get("tourism"):
+        return "tourism"
+    return "other"
+
+
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6_371_000.0
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
@@ -250,6 +267,11 @@ class MapPage(Gtk.Box):
         self._traffic_layer: Any = None
         self._traffic_loaded: bool = False
 
+        # POI layer
+        self._poi_btn: Gtk.ToggleButton | None = None
+        self._poi_layer: Any = None
+        self._poi_visible: bool = False
+
         # Entry rows: flat list of (row_box, entry, remove_btn)
         self._entry_rows: list[tuple[Gtk.Box, Gtk.Entry, Gtk.Button]] = []
         self._entries_container: Gtk.Box | None = None
@@ -293,7 +315,7 @@ class MapPage(Gtk.Box):
         action = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
         btn_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        btn_inner.append(Gtk.Image.new_from_icon_name("xsi-search"))
+        btn_inner.append(Gtk.Image.new_from_icon_name("system-search-symbolic"))
         btn_inner.append(Gtk.Label(label=_translate(self.language, "map.route")))
         self._route_btn = Gtk.Button()
         self._route_btn.set_child(btn_inner)
@@ -305,7 +327,7 @@ class MapPage(Gtk.Box):
         self._status_lbl.set_hexpand(True)
         self._status_lbl.set_halign(Gtk.Align.START)
 
-        for w in (self._route_btn, self._status_lbl):
+        for w in (self._status_lbl, self._route_btn):
             action.append(w)
         bar.append(action)
         self.append(bar)
@@ -479,6 +501,12 @@ class MapPage(Gtk.Box):
         fab.set_margin_end(12)
         fab.set_margin_bottom(36)
 
+        self._poi_btn = Gtk.ToggleButton(icon_name="mark-location-symbolic")
+        self._poi_btn.add_css_class("circular")
+        self._poi_btn.add_css_class("osd")
+        self._poi_btn.set_tooltip_text(_translate(self.language, "map.poi"))
+        self._poi_btn.connect("toggled", self._on_poi_toggled)
+
         self._traffic_btn = Gtk.ToggleButton(icon_name="emblem-important-symbolic")
         self._traffic_btn.add_css_class("circular")
         self._traffic_btn.add_css_class("osd")
@@ -504,6 +532,7 @@ class MapPage(Gtk.Box):
         self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
         self._center_btn.connect("clicked", self._on_center_clicked)
 
+        fab.append(self._poi_btn)
         fab.append(self._traffic_btn)
         fab.append(self._layer_btn)
         fab.append(self._follow_btn)
@@ -707,6 +736,10 @@ class MapPage(Gtk.Box):
         self._traffic_layer.set_visible(False)
         _inner.add_layer(self._traffic_layer)
 
+        self._poi_layer = Shumate.MarkerLayer.new(viewport)
+        self._poi_layer.set_visible(False)
+        _inner.add_layer(self._poi_layer)
+
         viewport.connect("notify::latitude", self._on_viewport_moved)
         return self._shumate_map
 
@@ -897,6 +930,71 @@ class MapPage(Gtk.Box):
         m.set_child(da)
         m.set_location(lat, lon)
         return m
+
+    # ── POI layer (Overpass API) ──────────────────────────────────────────────
+
+    _POI_CAT_COLORS: dict[str, tuple[float, float, float, float]] = {
+        "fuel":    (0.18, 0.80, 0.44, 1.0),
+        "parking": (0.20, 0.52, 0.86, 1.0),
+        "food":    (0.95, 0.50, 0.10, 1.0),
+        "shop":    (0.95, 0.80, 0.10, 1.0),
+        "medical": (0.90, 0.20, 0.24, 1.0),
+        "tourism": (0.60, 0.20, 0.80, 1.0),
+        "other":   (0.55, 0.55, 0.55, 1.0),
+    }
+
+    def _on_poi_toggled(self, btn: Gtk.ToggleButton) -> None:
+        self._poi_visible = btn.get_active()
+        if self._backend == "webkit":
+            val = "true" if self._poi_visible else "false"
+            self._js(f"mapSetPoiVisible({val})")
+        elif self._poi_layer is not None:
+            self._poi_layer.set_visible(self._poi_visible)
+            if self._poi_visible and self._shumate_map is not None:
+                vp = self._shumate_map.get_viewport()
+                lat, lon = vp.get_latitude(), vp.get_longitude()
+                threading.Thread(
+                    target=self._fetch_poi_shumate, args=(lat, lon), daemon=True
+                ).start()
+
+    def _fetch_poi_shumate(self, lat: float, lon: float) -> None:
+        delta = 0.06
+        s, w, n, e = lat - delta, lon - delta, lat + delta, lon + delta
+        q = (
+            f"[out:json][timeout:15][bbox:{s:.5f},{w:.5f},{n:.5f},{e:.5f}];"
+            "(node[\"amenity\"~\"fuel|parking|hospital|pharmacy|restaurant|fast_food|cafe|supermarket\"];"
+            "node[\"tourism\"~\"attraction|viewpoint\"];"
+            "node[\"shop\"=\"convenience\"];);"
+            "out body;"
+        )
+        url = f"https://overpass-api.de/api/interpreter?data={urllib.parse.quote(q)}"
+        data = _http_get(url)
+        GLib.idle_add(self._poi_result_shumate, data)
+
+    def _poi_result_shumate(self, data: Any) -> bool:
+        if data is None or self._poi_layer is None:
+            return False
+        self._poi_layer.remove_all()
+        for el in data.get("elements", []):
+            lat = el.get("lat")
+            lon = el.get("lon")
+            if lat is None or lon is None:
+                continue
+            tags = el.get("tags", {})
+            cat = _poi_category(tags)
+            name = tags.get("name", "")
+            colors = self._POI_CAT_COLORS.get(cat, self._POI_CAT_COLORS["other"])
+            border = tuple(max(0.0, c - 0.2) for c in colors[:3]) + (1.0,)
+            da = Gtk.DrawingArea()
+            da.set_size_request(12, 12)
+            da.set_draw_func(self._draw_dot, (colors, border))
+            if name:
+                da.set_tooltip_text(name)
+            m = Shumate.Marker.new()
+            m.set_child(da)
+            m.set_location(lat, lon)
+            self._poi_layer.add_marker(m)
+        return False
 
     # ── Route ─────────────────────────────────────────────────────────────────
 
