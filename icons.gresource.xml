@@ -10,5 +10,6 @@
     <file alias="step_object_LinearMotor-symbolic.svg">icons/hicolor/symbolic/actions/step_object_LinearMotor-symbolic.svg</file>
     <file alias="stopwatch-symbolic.svg">icons/hicolor/symbolic/actions/stopwatch-symbolic.svg</file>
     <file alias="share-alt-symbolic.svg">icons/hicolor/symbolic/actions/share-alt-symbolic.svg</file>
+    <file alias="navigate-north-symbolic.svg">icons/hicolor/symbolic/actions/navigate-north-symbolic.svg</file>
   </gresource>
 </gresources>
