@@ -158,6 +158,7 @@ class MapPage(Gtk.Box):
 
         # Shumate state
         self._shumate_map: Any = None
+        self._inner_map: Any = None   # underlying ShumateMap inside SimpleMap
         self._car_marker: Any = None
         self._marker_layer: Any = None
         self._path_layer: Any = None
@@ -300,7 +301,8 @@ class MapPage(Gtk.Box):
         self._shumate_map.set_map_source(self._sources["map"])
 
         # Layers are added to the underlying ShumateMap inside SimpleMap.
-        _inner = self._shumate_map.get_map() if hasattr(self._shumate_map, "get_map") else self._shumate_map
+        self._inner_map = self._shumate_map.get_map() if hasattr(self._shumate_map, "get_map") else self._shumate_map
+        _inner = self._inner_map
 
         self._path_layer = Shumate.PathLayer.new(viewport)
         route_color = Gdk.RGBA()
@@ -561,13 +563,22 @@ class MapPage(Gtk.Box):
             lons = [c[0] for c in coords]
             clat = (min(lats) + max(lats)) / 2.0
             clon = (min(lons) + max(lons)) / 2.0
-            zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons))
-            viewport = self._shumate_map.get_viewport()
-            self._setting_pos = True
-            viewport.set_location(clat, clon)
-            viewport.set_zoom_level(zoom)
-            self._setting_pos = False
+
+            alloc = self._shumate_map.get_allocation()
+            px_w = alloc.width  if alloc.width  > 100 else 400
+            px_h = alloc.height if alloc.height > 100 else 600
+            zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
+
             self._set_follow(False)
+            # go_to_full animates pan + zoom smoothly; fall back to instant viewport set
+            target = self._inner_map if self._inner_map is not None else self._shumate_map
+            if hasattr(target, "go_to_full"):
+                target.go_to_full(clat, clon, zoom)
+            else:
+                self._setting_pos = True
+                self._shumate_map.get_viewport().set_location(clat, clon)
+                self._shumate_map.get_viewport().set_zoom_level(zoom)
+                self._setting_pos = False
 
         return False
 
