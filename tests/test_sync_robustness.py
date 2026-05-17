@@ -166,3 +166,16 @@ def test_sync_server_pairing_cancels_timeout(monkeypatch, tmp_path):
 
     assert not timed_out.wait(0.15)
     server.stop()
+
+
+def test_sync_dialog_blocks_server_start_without_user_action(drivepulse_module):
+    from drivepulse_app.sync_dialog import SyncDialog
+
+    dialog = SyncDialog.__new__(SyncDialog)
+    dialog._server_start_requested = False
+    called = []
+    dialog._stop_server = lambda: called.append("stop")
+
+    SyncDialog._start_server_mode(dialog)
+
+    assert called == []

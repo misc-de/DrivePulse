@@ -283,6 +283,7 @@ def drivepulse_module(monkeypatch):
         Application=_Application,
         ApplicationWindow=_ApplicationWindow,
         ComboRow=_ComboRow,
+        Dialog=_Widget,
         HeaderBar=_Widget,
         PreferencesDialog=_Widget,
         PreferencesGroup=_Widget,

@@ -98,11 +98,14 @@ class DashboardSettingsMixin:
 
         def _launch(mode: str) -> None:
             dialog.close()
-            SyncDialog(
+            sync_dialog = SyncDialog(
                 self, self.language, self.db,
-                initial_mode=mode,
+                initial_mode="client" if mode == "client" else None,
                 on_sync_complete=lambda: self.cars_page.refresh_profiles(),
-            ).present(self)
+            )
+            sync_dialog.present(self)
+            if mode == "server":
+                sync_dialog.start_server_from_user_action()
 
         client_btn = Gtk.Button(label=_translate(self.language, "sync.choose.client"))
         client_btn.add_css_class("pill")
@@ -218,4 +221,3 @@ class DashboardSettingsMixin:
             self.status_label.set_text(_translate(self.language, "status.connecting"))
         for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
             gauge.queue_draw()
-
