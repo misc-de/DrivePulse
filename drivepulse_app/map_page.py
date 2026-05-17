@@ -637,6 +637,7 @@ class MapPage(Gtk.Box):
             except Exception:
                 pass
         ucm.connect("script-message-received::drivepulse", self._on_js_message)
+        self._webview.connect("load-changed", self._on_webview_load_changed)
 
         try:
             with open(_HTML_PATH, encoding="utf-8") as fh:
@@ -646,6 +647,11 @@ class MapPage(Gtk.Box):
             log.error("Could not load map.html: %s", exc)
 
         return self._webview
+
+    def _on_webview_load_changed(self, _wv: Any, load_event: Any) -> None:
+        # LoadEvent.FINISHED == 3 in both WebKit 6 and WebKit2
+        if int(load_event) == 3:
+            GLib.timeout_add(150, self._do_map_resize)
 
     def _js(self, code: str) -> None:
         if self._webview is None:
@@ -658,10 +664,20 @@ class MapPage(Gtk.Box):
         except Exception as exc:
             log.debug("JS call failed: %s", exc)
 
+    def _do_map_resize(self) -> bool:
+        self._js("mapResize()")
+        if self._webview is not None:
+            self._webview.queue_draw()
+        return False  # one-shot
+
     def on_shown(self) -> None:
         """Call when the map tab becomes visible so MapLibre can measure canvas size."""
-        if self._backend == "webkit":
-            self._js("mapResize()")
+        if self._backend != "webkit":
+            return
+        # Fire immediately, then again after a short delay in case WebKit
+        # hasn't finished compositing the layout yet.
+        self._do_map_resize()
+        GLib.timeout_add(200, self._do_map_resize)
 
     def _on_js_message(self, _ucm: Any, *args: Any) -> None:
         try:
