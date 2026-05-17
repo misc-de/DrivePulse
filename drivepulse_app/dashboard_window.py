@@ -350,7 +350,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         else:
             self.set_ctx_trash(None)
         if page == self.PAGE_MAP:
-            GLib.idle_add(self.map_page.on_shown)
+            GLib.timeout_add(50, self.map_page.on_shown)
 
     def _on_cars_back_swipe(self) -> None:
         """Vom Autos-Tab (Liste) per Wisch nach rechts — kein Tab (Cars ist erster Tab)."""
