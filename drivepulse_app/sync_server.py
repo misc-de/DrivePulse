@@ -42,8 +42,11 @@ class SyncServer:
         self._thread: threading.Thread | None = None
         self._timeout_timer: threading.Timer | None = None
         self._paired = False
+        self._cancelled = False
 
     def start(self) -> None:
+        if self._cancelled:
+            return
         server = self
 
         def make_handler(*args: Any, **kwargs: Any) -> _SyncHandler:
@@ -76,6 +79,7 @@ class SyncServer:
                 self._on_timeout_cb()
 
     def stop(self) -> None:
+        self._cancelled = True
         if self._timeout_timer is not None:
             self._timeout_timer.cancel()
             self._timeout_timer = None
