@@ -290,7 +290,7 @@ class MapPage(Gtk.Box):
         self._status_lbl.set_hexpand(True)
         self._status_lbl.set_halign(Gtk.Align.END)
 
-        for w in (self._route_btn, self._clear_btn, self._status_lbl):
+        for w in (self._clear_btn, self._status_lbl, self._route_btn):
             action.append(w)
         bar.append(action)
         self.append(bar)
