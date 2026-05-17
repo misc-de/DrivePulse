@@ -7,7 +7,7 @@ from typing import Any, Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Gtk, Pango  # noqa: E402
 
 from .acceleration_canvas import GForceCanvas
 from .acceleration_processing import AccelerationProcessingMixin
@@ -261,16 +261,6 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
     def set_device_rotation(self, angle: int) -> None:
         """Called by the window when the physical device orientation changes."""
         self._device_rotation = angle % 360
-        # Apply immediately with current allocated size (covers the case where
-        # the compositor already resized the GTK window before this fires).
-        self._apply_layout(self.get_width(), self.get_height())
-        # Also schedule a second check: the compositor may resize the GTK window
-        # a few frames after the sensor fires.
-        GLib.timeout_add(250, self._delayed_layout_check)
-
-    def _delayed_layout_check(self) -> bool:
-        self._apply_layout(self.get_width(), self.get_height())
-        return False
 
     def _layout_target_for_size(self, width: int, height: int) -> str:
         # On Phosh/compositor-side rotation the GTK surface stays portrait while
@@ -491,13 +481,13 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
             self._vmax_name_lbl.set_text("Vmax")
 
         if obd_lbl:
-            obd_lbl.set_text(f"{obd_v:.0f}" if obd_v is not None else "--")
+            obd_lbl.set_text(f"{obd_t:.2f} s" if obd_t is not None else "--")
         if gps_lbl:
-            gps_lbl.set_text(f"{gps_v:.0f}" if gps_v is not None else "--")
+            gps_lbl.set_text(f"{gps_t:.2f} s" if gps_t is not None else "--")
 
         if best_lbl:
-            speeds = [v for v in [obd_v, gps_v] if v is not None]
-            best_lbl.set_text(f"{max(speeds):.0f}" if speeds else "--")
+            times = [t for t in [obd_t, gps_t] if t is not None]
+            best_lbl.set_text(f"{sum(times) / len(times):.2f} s" if times else "--")
 
     def _update_maxes_label(self) -> None:
         vmax = self.max_obd_speed if self.max_obd_speed is not None else self.max_gps_speed
