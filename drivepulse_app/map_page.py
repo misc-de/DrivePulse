@@ -658,6 +658,11 @@ class MapPage(Gtk.Box):
         except Exception as exc:
             log.debug("JS call failed: %s", exc)
 
+    def on_shown(self) -> None:
+        """Call when the map tab becomes visible so MapLibre can measure canvas size."""
+        if self._backend == "webkit":
+            self._js("mapResize()")
+
     def _on_js_message(self, _ucm: Any, *args: Any) -> None:
         try:
             msg = args[-1]
