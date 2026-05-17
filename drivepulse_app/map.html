@@ -72,6 +72,8 @@ let _wpEnd          = null;
 let _trafficItems   = [];
 let _trafficVisible = false;
 
+const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
+
 // ── Python bridge ─────────────────────────────────────────────────────────────
 function postToPython(data) {
   try { window.webkit.messageHandlers.drivepulse.postMessage(data); } catch (_) {}
@@ -225,6 +227,7 @@ function mapClearRoute() {
 }
 
 function mapGoTo(lat, lon, zoom) {
+  if (!initialized) initMap(lat, lon);
   if (!map) return;
   map.flyTo({ center: [lon, lat], zoom: zoom, pitch: 60, duration: 900 });
 }
@@ -254,6 +257,10 @@ function mapSetTrafficVisible(visible) {
       map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
   });
 }
+
+window.addEventListener('DOMContentLoaded', () => {
+  initMap(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
+});
 </script>
 </body>
 </html>
