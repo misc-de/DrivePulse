@@ -183,7 +183,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.map_page,
             self.PAGE_MAP,
             _translate(self.language, "nav.map"),
-            "map-symbolic",
+            "navigate-north",
         )
         self.dashboard_stack_page = self.view_stack.add_titled_with_icon(
             dashboard_scroller,
