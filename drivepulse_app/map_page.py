@@ -231,6 +231,7 @@ class MapPage(Gtk.Box):
         self._layer_btn: Gtk.Button | None = None
         self._traffic_btn: Gtk.ToggleButton | None = None
         self._tour_start_btn: Gtk.Button | None = None
+        self._tour_start_lbl: Gtk.Label | None = None
 
         # Traffic layer (Shumate only)
         self._traffic_layer: Any = None
@@ -436,14 +437,18 @@ class MapPage(Gtk.Box):
         return fab
 
     def _build_tour_start_btn(self) -> Gtk.Widget:
-        self._tour_start_btn = Gtk.Button(icon_name="media-playback-start-symbolic")
-        self._tour_start_btn.add_css_class("circular")
+        inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        inner.append(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
+        self._tour_start_lbl = Gtk.Label(label=_translate(self.language, "map.tour_start"))
+        inner.append(self._tour_start_lbl)
+
+        self._tour_start_btn = Gtk.Button()
+        self._tour_start_btn.set_child(inner)
         self._tour_start_btn.add_css_class("osd")
         self._tour_start_btn.set_halign(Gtk.Align.START)
         self._tour_start_btn.set_valign(Gtk.Align.START)
         self._tour_start_btn.set_margin_start(12)
         self._tour_start_btn.set_margin_top(12)
-        self._tour_start_btn.set_tooltip_text(_translate(self.language, "map.tour_start"))
         self._tour_start_btn.set_visible(False)
         self._tour_start_btn.connect("clicked", self._on_tour_start_clicked)
         return self._tour_start_btn
@@ -968,3 +973,5 @@ class MapPage(Gtk.Box):
             self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
         if self._traffic_btn is not None:
             self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
+        if self._tour_start_lbl is not None:
+            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
