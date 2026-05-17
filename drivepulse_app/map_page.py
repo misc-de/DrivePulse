@@ -258,8 +258,7 @@ class MapPage(Gtk.Box):
 
         viewport = self._shumate_map.get_viewport()
         viewport.set_zoom_level(13.0)
-        viewport.set_latitude(48.137)
-        viewport.set_longitude(11.576)
+        viewport.set_location(48.137, 11.576)
 
         for key, url in _TILE_URLS.items():
             self._sources[key] = self._make_tile_source(url)
@@ -359,8 +358,7 @@ class MapPage(Gtk.Box):
     def _goto(self, lat: float, lon: float) -> None:
         self._setting_pos = True
         viewport = self._shumate_map.get_viewport()
-        viewport.set_latitude(lat)
-        viewport.set_longitude(lon)
+        viewport.set_location(lat, lon)
         self._setting_pos = False
 
     # ── Car Cairo drawing ─────────────────────────────────────────────────────
@@ -426,8 +424,7 @@ class MapPage(Gtk.Box):
             return
         viewport = self._shumate_map.get_viewport()
         self._setting_pos = True
-        viewport.set_latitude(self._gps_lat)
-        viewport.set_longitude(self._gps_lon)  # type: ignore[arg-type]
+        viewport.set_location(self._gps_lat, self._gps_lon)  # type: ignore[arg-type]
         if viewport.get_zoom_level() < 15.0:
             viewport.set_zoom_level(15.0)
         self._setting_pos = False
@@ -529,8 +526,7 @@ class MapPage(Gtk.Box):
             zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons))
             viewport = self._shumate_map.get_viewport()
             self._setting_pos = True
-            viewport.set_latitude(clat)
-            viewport.set_longitude(clon)
+            viewport.set_location(clat, clon)
             viewport.set_zoom_level(zoom)
             self._setting_pos = False
             self._set_follow(False)
