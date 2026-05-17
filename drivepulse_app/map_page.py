@@ -77,15 +77,19 @@ _TILE_URLS = {
 
 # ── Bundesautobahn API ────────────────────────────────────────────────────────
 
-_BAB_BASE = "https://autobahn.api.bund.dev/v0/details"
+_BAB_BASE = "https://verkehr.autobahn.de/o/autobahn"
 
 
 def _bab_fetch_road(road: str) -> list[dict]:
     items: list[dict] = []
-    for kind in ("roadworks", "incidents"):
-        data = _http_get(f"{_BAB_BASE}/{kind}/{urllib.parse.quote(road, safe='')}")
+    encoded = urllib.parse.quote(road, safe="")
+    for service, key, kind in (
+        ("roadworks", "roadworks", "roadworks"),
+        ("warning",   "warning",   "incidents"),
+    ):
+        data = _http_get(f"{_BAB_BASE}/{encoded}/services/{service}")
         if data:
-            for entry in data.get(kind, []):
+            for entry in data.get(key, []):
                 entry["_kind"] = kind
                 entry["_road"] = road
                 items.append(entry)
@@ -93,7 +97,7 @@ def _bab_fetch_road(road: str) -> list[dict]:
 
 
 def _bab_fetch_all() -> list[dict]:
-    roads_resp = _http_get(f"{_BAB_BASE}/roads")
+    roads_resp = _http_get(f"{_BAB_BASE}/")
     if not roads_resp:
         return []
     roads: list[str] = roads_resp.get("roads", [])
@@ -873,11 +877,12 @@ class MapPage(Gtk.Box):
     ) -> list[tuple[float, float, str, str]]:
         result = []
         for item in items:
-            coord = item.get("coordinate") or {}
+            point = item.get("point") or ""
             try:
-                lat = float(str(coord.get("lat", "0")).replace(",", "."))
-                lon = float(str(coord.get("long", "0")).replace(",", "."))
-            except (ValueError, TypeError):
+                parts = point.split(",")
+                lat = float(parts[0].strip())
+                lon = float(parts[1].strip())
+            except (ValueError, IndexError):
                 continue
             if lat == 0.0 and lon == 0.0:
                 continue
