@@ -72,7 +72,12 @@ class SyncDialog(Adw.Dialog):
             self._server_spinner = result[3]
             self._server_instr_label = result[4]
             self._nav.add(result[0])
-            self.connect("map", lambda _: threading.Thread(target=self._start_server_mode, daemon=True).start())
+            _started = [False]
+            def _on_map_once(_self: Any) -> None:
+                if not _started[0]:
+                    _started[0] = True
+                    threading.Thread(target=self._start_server_mode, daemon=True).start()
+            self.connect("map", _on_map_once)
         elif initial_mode == "client":
             self._nav.add(self._build_known_devices_page())
         else:
@@ -206,6 +211,18 @@ class SyncDialog(Adw.Dialog):
         self._server_spinner = result[3]
         self._server_instr_label = result[4]
         self._nav.push(page)
+
+        _pop_handler: list[int | None] = [None]
+        def _on_popped(_nav: Any, popped_page: Any) -> None:
+            if popped_page is page:
+                if self._server is not None:
+                    self._server.stop()
+                    self._server = None
+                if _pop_handler[0] is not None:
+                    _nav.disconnect(_pop_handler[0])
+                    _pop_handler[0] = None
+        _pop_handler[0] = self._nav.connect("popped", _on_popped)
+
         threading.Thread(target=self._start_server_mode, daemon=True).start()
 
     def _build_server_page(self) -> tuple[Adw.NavigationPage, Gtk.Label, Gtk.Picture, Gtk.Spinner, Gtk.Label]:
