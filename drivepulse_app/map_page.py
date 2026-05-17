@@ -7,13 +7,9 @@ Backend priority:
 """
 from __future__ import annotations
 
-import concurrent.futures
 import json
-import math
-import os
 import threading
 import time
-import urllib.parse
 from typing import Any
 
 import gi
@@ -22,199 +18,36 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gdk, GLib, GObject, Gtk  # noqa: E402
 
-# ── Optional backends ─────────────────────────────────────────────────────────
-
-_WEBKIT_OK = False
-_WebKit: Any = None
-try:
-    gi.require_version("WebKit", "6.0")
-    from gi.repository import WebKit as _WebKit  # type: ignore[attr-defined]
-    _WEBKIT_OK = True
-except (ValueError, ImportError):
-    try:
-        gi.require_version("WebKit2", "4.1")
-        from gi.repository import WebKit2 as _WebKit  # type: ignore[attr-defined]
-        _WEBKIT_OK = True
-    except (ValueError, ImportError):
-        pass
-
-_SHUMATE_OK = False
-try:
-    gi.require_version("Shumate", "1.0")
-    from gi.repository import Shumate  # type: ignore[attr-defined]
-    _SHUMATE_OK = True
-except (ValueError, ImportError):
-    Shumate = None  # type: ignore[assignment]
-
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 from .diagnostics import get_logger
-from .http_client import http_get
+from .map_shumate import SHUMATE_OK, MapShumateMixin
+from .map_webkit import WEBKIT_OK, MapWebKitMixin
+from .map_services import (
+    MAP_ICONS,
+    MAP_LABEL_KEYS,
+    MAP_TYPES,
+    bab_fetch_all,
+    format_duration,
+    geocode,
+    haversine,
+    osrm_route,
+    resolve_route_points,
+)
 
 log = get_logger(__name__)
 
-_HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "map.html")
-
-# ── Map type cycle ────────────────────────────────────────────────────────────
-
-_MAP_TYPES = ["map", "satellite", "dark"]
-_MAP_LABEL_KEYS = {
-    "map":       "map.type.map",
-    "satellite": "map.type.satellite",
-    "dark":      "map.type.dark",
-}
-_MAP_ICONS = {
-    "map":       "map-symbolic",
-    "satellite": "image-x-generic-symbolic",
-    "dark":      "night-light-symbolic",
-}
-_TILE_URLS = {
-    "map": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    "satellite": (
-        "https://server.arcgisonline.com/ArcGIS/rest/services"
-        "/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-    ),
-    "dark": "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png",
-}
-
-# ── Bundesautobahn API ────────────────────────────────────────────────────────
-
-_BAB_BASE = "https://verkehr.autobahn.de/o/autobahn"
-
-
-def _bab_fetch_road(road: str) -> list[dict]:
-    items: list[dict] = []
-    encoded = urllib.parse.quote(road, safe="")
-    for service, key, kind in (
-        ("roadworks", "roadworks", "roadworks"),
-        ("warning",   "warning",   "incidents"),
-    ):
-        data = http_get(f"{_BAB_BASE}/{encoded}/services/{service}")
-        if data:
-            for entry in data.get(key, []):
-                entry["_kind"] = kind
-                entry["_road"] = road
-                items.append(entry)
-    return items
-
-
-def _bab_fetch_all() -> list[dict]:
-    roads_resp = http_get(f"{_BAB_BASE}/")
-    if not roads_resp:
-        return []
-    roads: list[str] = roads_resp.get("roads", [])
-    all_items: list[dict] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        for result in pool.map(_bab_fetch_road, roads):
-            all_items.extend(result)
-    return all_items
-
-
-# ── Routing modes ─────────────────────────────────────────────────────────────
-
-_OSRM_PROFILE = {"car": "driving", "bicycle": "cycling", "motorcycle": "driving"}
-
-
-def _geocode(query: str) -> tuple[float, float] | None:
-    url = (
-        "https://nominatim.openstreetmap.org/search"
-        f"?q={urllib.parse.quote(query)}&format=json&limit=1"
-    )
-    data = http_get(url)
-    if data:
-        return float(data[0]["lat"]), float(data[0]["lon"])
-    return None
-
-
-def _osrm_route(
-    waypoints: list[tuple[float, float]],
-    mode: str,
-) -> tuple[list[list[float]], float] | None:
-    profile = _OSRM_PROFILE.get(mode, "driving")
-    coord_str = ";".join(f"{lon},{lat}" for lat, lon in waypoints)
-    url = (
-        f"https://router.project-osrm.org/route/v1/{profile}/{coord_str}"
-        "?overview=full&geometries=geojson"
-    )
-    data = http_get(url)
-    if data and data.get("code") == "Ok" and data.get("routes"):
-        route = data["routes"][0]
-        return route["geometry"]["coordinates"], float(route.get("duration", 0))
-    return None
-
-
-def _format_duration(seconds: float) -> str:
-    total = int(seconds)
-    h = total // 3600
-    m = (total % 3600) // 60
-    if h > 0:
-        return f"{h}h {m}min"
-    return f"{m}min"
-
-
-# ── Cairo helpers (Shumate backend only) ──────────────────────────────────────
-
-def _rounded_rect(cr: Any, x: float, y: float, w: float, h: float, r: float) -> None:
-    cr.new_sub_path()
-    cr.arc(x + w - r, y + r,     r, -math.pi / 2, 0)
-    cr.arc(x + w - r, y + h - r, r, 0,            math.pi / 2)
-    cr.arc(x + r,     y + h - r, r, math.pi / 2,  math.pi)
-    cr.arc(x + r,     y + r,     r, math.pi,       3 * math.pi / 2)
-    cr.close_path()
-
-
-def _poi_category(tags: dict) -> str:
-    amenity = tags.get("amenity", "")
-    if amenity == "fuel":
-        return "fuel"
-    if amenity == "parking":
-        return "parking"
-    if amenity in {"restaurant", "fast_food", "cafe"}:
-        return "food"
-    if amenity in {"supermarket"} or tags.get("shop"):
-        return "shop"
-    if amenity in {"hospital", "pharmacy"}:
-        return "medical"
-    if tags.get("tourism"):
-        return "tourism"
-    return "other"
-
-
-def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6_371_000.0
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlam = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
-    return R * 2 * math.asin(math.sqrt(a))
-
-
-def _zoom_for_bbox(
-    lat1: float, lon1: float,
-    lat2: float, lon2: float,
-    px_w: int = 400, px_h: int = 600,
-) -> float:
-    TILE = 256
-    ZOOM_MAX = 17
-
-    def lat_rad(lat: float) -> float:
-        s = math.sin(math.radians(lat))
-        return math.log((1 + s) / (1 - s)) / 2
-
-    dlat = max(abs(lat_rad(lat2) - lat_rad(lat1)) / math.pi, 1e-9)
-    dlon = max(abs(lon2 - lon1) / 360.0, 1e-9)
-    z_lat = math.floor(math.log2(px_h * 0.88 / TILE / dlat))
-    z_lon = math.floor(math.log2(px_w * 0.88 / TILE / dlon))
-    return float(max(1, min(ZOOM_MAX, z_lat, z_lon)))
-
-
 # ── MapPage widget ────────────────────────────────────────────────────────────
 
-class MapPage(Gtk.Box):
+class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     """OpenStreetMap navigation page — WebKit/MapLibre (3D) or Shumate (2D)."""
     __gtype_name__ = "MapPage"
 
     def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_hexpand(True)
+        self.set_vexpand(True)
+        self.set_halign(Gtk.Align.FILL)
+        self.set_valign(Gtk.Align.FILL)
         self.language = _normalize_language(language)
 
         self._gps_lat: float | None = None
@@ -307,7 +140,7 @@ class MapPage(Gtk.Box):
         action = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
         btn_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        btn_inner.append(Gtk.Image.new_from_icon_name("system-search-symbolic"))
+        btn_inner.append(Gtk.Image.new_from_icon_name("xsi-search"))
         btn_inner.append(Gtk.Label(label=_translate(self.language, "map.route")))
         self._route_btn = Gtk.Button()
         self._route_btn.set_child(btn_inner)
@@ -449,11 +282,13 @@ class MapPage(Gtk.Box):
         overlay = Gtk.Overlay()
         overlay.set_hexpand(True)
         overlay.set_vexpand(True)
+        overlay.set_halign(Gtk.Align.FILL)
+        overlay.set_valign(Gtk.Align.FILL)
 
-        if _SHUMATE_OK:
+        if SHUMATE_OK:
             self._backend = "shumate"
             content = self._setup_shumate()
-        elif _WEBKIT_OK:
+        elif WEBKIT_OK:
             self._backend = "webkit"
             content = self._setup_webview()
         else:
@@ -461,6 +296,10 @@ class MapPage(Gtk.Box):
             content = self._build_placeholder()
 
         overlay.set_child(content)
+        content.set_hexpand(True)
+        content.set_vexpand(True)
+        content.set_halign(Gtk.Align.FILL)
+        content.set_valign(Gtk.Align.FILL)
 
         if self._backend != "none":
             overlay.add_overlay(self._build_fab())
@@ -508,7 +347,7 @@ class MapPage(Gtk.Box):
         self._layer_btn = Gtk.Button(icon_name="dialog-layers-symbolic")
         self._layer_btn.add_css_class("circular")
         self._layer_btn.add_css_class("osd")
-        self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS["map"]))
+        self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS["map"]))
         self._layer_btn.connect("clicked", self._on_layer_clicked)
 
         self._follow_btn = Gtk.ToggleButton(icon_name="kstars_satellites-symbolic")
@@ -571,7 +410,7 @@ class MapPage(Gtk.Box):
             viewport.set_location(lat, lon)
             self._setting_pos = False
         if self._gps_lat is not None and self._gps_lon is not None:
-            dist = _haversine(self._gps_lat, self._gps_lon, lat, lon)
+            dist = haversine(self._gps_lat, self._gps_lon, lat, lon)
             if dist > 200:
                 gps_lat, gps_lon = self._gps_lat, self._gps_lon
                 threading.Thread(
@@ -594,7 +433,7 @@ class MapPage(Gtk.Box):
     def _fetch_guide_to_start(
         self, gps_lat: float, gps_lon: float, start_lat: float, start_lon: float
     ) -> None:
-        result = _osrm_route([(gps_lat, gps_lon), (start_lat, start_lon)], self._routing_mode)
+        result = osrm_route([(gps_lat, gps_lon), (start_lat, start_lon)], self._routing_mode)
         GLib.idle_add(self._guide_result, result)
 
     def _guide_result(self, result: tuple[list[list[float]], float] | None) -> bool:
@@ -604,162 +443,8 @@ class MapPage(Gtk.Box):
         if self._backend == "webkit":
             self._js(f"mapSetGuideToStart({json.dumps(coords)})")
         elif self._shumate_map is not None and self._guide_path_layer is not None:
-            self._guide_path_layer.remove_all()
-            for lon, lat in coords:
-                self._guide_path_layer.add_node(Shumate.Coordinate.new_full(lat, lon))
+            self._shumate_set_guide(coords)
         return False
-
-    # ── WebKit backend ────────────────────────────────────────────────────────
-
-    def _setup_webview(self) -> Gtk.Widget:
-        self._webview = _WebKit.WebView()
-        self._webview.set_hexpand(True)
-        self._webview.set_vexpand(True)
-
-        settings = self._webview.get_settings()
-        for prop, val in (
-            ("allow-file-access-from-file-urls", True),
-            ("allow-universal-access-from-file-urls", True),
-            ("enable-accelerated-2d-canvas", True),
-            ("enable-webgl", True),
-        ):
-            try:
-                settings.set_property(prop, val)
-            except Exception:
-                pass
-
-        ucm = self._webview.get_user_content_manager()
-        try:
-            ucm.register_script_message_handler("drivepulse")
-        except TypeError:
-            try:
-                ucm.register_script_message_handler("drivepulse", None)
-            except Exception:
-                pass
-        ucm.connect("script-message-received::drivepulse", self._on_js_message)
-        self._webview.connect("load-changed", self._on_webview_load_changed)
-
-        try:
-            with open(_HTML_PATH, encoding="utf-8") as fh:
-                html = fh.read()
-            self._webview.load_html(html, "file:///")
-        except OSError as exc:
-            log.error("Could not load map.html: %s", exc)
-
-        return self._webview
-
-    def _on_webview_load_changed(self, _wv: Any, load_event: Any) -> None:
-        # LoadEvent.FINISHED == 3 in both WebKit 6 and WebKit2
-        if int(load_event) == 3:
-            GLib.timeout_add(150, self._do_map_resize)
-
-    def _js(self, code: str) -> None:
-        if self._webview is None:
-            return
-        try:
-            if hasattr(self._webview, "evaluate_javascript"):
-                self._webview.evaluate_javascript(code, -1, None, None, None, None, None)
-            else:
-                self._webview.run_javascript(code, None, None, None)
-        except Exception as exc:
-            log.debug("JS call failed: %s", exc)
-
-    def _do_map_resize(self) -> bool:
-        self._js("mapResize()")
-        if self._webview is not None:
-            self._webview.queue_draw()
-        return False  # one-shot
-
-    def on_shown(self) -> None:
-        """Call when the map tab becomes visible so MapLibre can measure canvas size."""
-        if self._backend != "webkit":
-            return
-        # Fire immediately, then again after a short delay in case WebKit
-        # hasn't finished compositing the layout yet.
-        self._do_map_resize()
-        GLib.timeout_add(200, self._do_map_resize)
-
-    def _on_js_message(self, _ucm: Any, *args: Any) -> None:
-        try:
-            msg = args[-1]
-            js_val = msg.get_js_value()
-            data = json.loads(js_val.to_json(0))
-            if data.get("action") == "follow_off":
-                GLib.idle_add(self._set_follow, False)
-        except Exception as exc:
-            log.debug("JS message error: %s", exc)
-
-    # ── Shumate backend ───────────────────────────────────────────────────────
-
-    def _setup_shumate(self) -> Gtk.Widget:
-        self._shumate_map = Shumate.SimpleMap()
-        self._shumate_map.set_hexpand(True)
-        self._shumate_map.set_vexpand(True)
-
-        viewport = self._shumate_map.get_viewport()
-        viewport.set_zoom_level(13.0)
-        viewport.set_location(48.137, 11.576)
-
-        registry = Shumate.MapSourceRegistry.new_with_defaults()
-        osm_id = getattr(Shumate, "MAP_SOURCE_OSM_MAPNIK", "osm-mapnik")
-        osm_source = registry.get_by_id(osm_id)
-        for key in _TILE_URLS:
-            self._sources[key] = osm_source
-
-        if hasattr(Shumate, "RasterRenderer") and hasattr(Shumate, "TileDownloader"):
-            for key, url in (("satellite", _TILE_URLS["satellite"]), ("dark", _TILE_URLS["dark"])):
-                try:
-                    self._sources[key] = Shumate.RasterRenderer.new(
-                        Shumate.TileDownloader.new(url)
-                    )
-                except Exception:
-                    log.warning("Could not create tile source for %s — using OSM fallback", key)
-
-        self._shumate_map.set_map_source(self._sources["map"])
-
-        self._shumate_map.get_scale().set_margin_bottom(24)
-
-        self._inner_map = (
-            self._shumate_map.get_map()
-            if hasattr(self._shumate_map, "get_map")
-            else self._shumate_map
-        )
-        _inner = self._inner_map
-
-        self._guide_path_layer = Shumate.PathLayer.new(viewport)
-        guide_color = Gdk.RGBA()
-        guide_color.red, guide_color.green, guide_color.blue, guide_color.alpha = (
-            0.96, 0.65, 0.14, 0.85
-        )
-        self._guide_path_layer.set_stroke_color(guide_color)
-        self._guide_path_layer.set_stroke_width(4.0)
-        _inner.add_layer(self._guide_path_layer)
-
-        self._path_layer = Shumate.PathLayer.new(viewport)
-        route_color = Gdk.RGBA()
-        route_color.red, route_color.green, route_color.blue, route_color.alpha = (
-            0.20, 0.60, 0.86, 0.85
-        )
-        self._path_layer.set_stroke_color(route_color)
-        self._path_layer.set_stroke_width(5.0)
-        _inner.add_layer(self._path_layer)
-
-        self._wp_layer = Shumate.MarkerLayer.new(viewport)
-        _inner.add_layer(self._wp_layer)
-
-        self._marker_layer = Shumate.MarkerLayer.new(viewport)
-        _inner.add_layer(self._marker_layer)
-
-        self._traffic_layer = Shumate.MarkerLayer.new(viewport)
-        self._traffic_layer.set_visible(False)
-        _inner.add_layer(self._traffic_layer)
-
-        self._poi_layer = Shumate.MarkerLayer.new(viewport)
-        self._poi_layer.set_visible(False)
-        _inner.add_layer(self._poi_layer)
-
-        viewport.connect("notify::latitude", self._on_viewport_moved)
-        return self._shumate_map
 
     # ── GPS position updates ──────────────────────────────────────────────────
 
@@ -784,19 +469,7 @@ class MapPage(Gtk.Box):
                 self._last_map_js = now
                 self._js(f"mapSetCar({lat}, {lon}, {self._gps_heading})")
         elif self._backend == "shumate" and self._shumate_map is not None:
-            if self._car_marker is None:
-                drawing = Gtk.DrawingArea()
-                drawing.set_size_request(40, 40)
-                drawing.set_draw_func(self._draw_car, None)
-                self._car_marker = Shumate.Marker.new()
-                self._car_marker.set_child(drawing)
-                self._car_marker.set_location(lat, lon)
-                self._marker_layer.add_marker(self._car_marker)
-            else:
-                self._car_marker.set_location(lat, lon)
-                child = self._car_marker.get_child()
-                if child is not None:
-                    child.queue_draw()
+            self._update_shumate_gps(lat, lon)
             if self._follow_gps:
                 self._goto(lat, lon)
 
@@ -807,23 +480,6 @@ class MapPage(Gtk.Box):
             self._setting_pos = True
             self._shumate_map.get_viewport().set_location(lat, lon)
             self._setting_pos = False
-
-    # ── Car Cairo drawing (Shumate only) ──────────────────────────────────────
-
-    def _draw_car(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
-        cx, cy = width / 2.0, height / 2.0
-        # Outer glow ring
-        cr.set_source_rgba(0.16, 0.50, 0.73, 0.20)
-        cr.arc(cx, cy, 16, 0, 2 * math.pi)
-        cr.fill()
-        # White border
-        cr.set_source_rgb(1.0, 1.0, 1.0)
-        cr.arc(cx, cy, 9, 0, 2 * math.pi)
-        cr.fill()
-        # Blue dot
-        cr.set_source_rgb(0.16, 0.50, 0.73)
-        cr.arc(cx, cy, 7, 0, 2 * math.pi)
-        cr.fill()
 
     # ── Follow / viewport ─────────────────────────────────────────────────────
 
@@ -864,15 +520,15 @@ class MapPage(Gtk.Box):
             self._setting_pos = False
 
     def _on_layer_clicked(self, _btn: Gtk.Button) -> None:
-        self._map_type_idx = (self._map_type_idx + 1) % len(_MAP_TYPES)
-        layer = _MAP_TYPES[self._map_type_idx]
+        self._map_type_idx = (self._map_type_idx + 1) % len(MAP_TYPES)
+        layer = MAP_TYPES[self._map_type_idx]
         if self._backend == "webkit":
             self._js(f"mapSetStyle('{layer}')")
         elif self._shumate_map is not None:
             self._shumate_map.set_map_source(self._sources[layer])
         if self._layer_btn is not None:
-            self._layer_btn.set_icon_name(_MAP_ICONS.get(layer, "map-symbolic"))
-            self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
+            self._layer_btn.set_icon_name(MAP_ICONS.get(layer, "map-symbolic"))
+            self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS[layer]))
 
     # ── Traffic layer (Bundesautobahn API) ────────────────────────────────────
 
@@ -881,15 +537,15 @@ class MapPage(Gtk.Box):
         if self._backend == "webkit":
             val = "true" if visible else "false"
             self._js(f"mapSetTrafficVisible({val})")
-        elif self._traffic_layer is not None:
-            self._traffic_layer.set_visible(visible)
+        else:
+            self._shumate_set_traffic_visible(visible)
         if visible and not self._traffic_loaded:
             self._traffic_loaded = True
             self._status_lbl.set_text(_translate(self.language, "map.traffic.loading"))
             threading.Thread(target=self._load_traffic_thread, daemon=True).start()
 
     def _load_traffic_thread(self) -> None:
-        items = _bab_fetch_all()
+        items = bab_fetch_all()
         GLib.idle_add(self._show_traffic, items)
 
     def _parse_traffic_items(
@@ -928,11 +584,8 @@ class MapPage(Gtk.Box):
             self._js(f"mapSetTraffic({json.dumps(js_items)})")
             if self._traffic_btn is not None and self._traffic_btn.get_active():
                 self._js("mapSetTrafficVisible(true)")
-        elif self._traffic_layer is not None:
-            self._traffic_layer.remove_all()
-            for lat, lon, kind, tooltip in parsed:
-                m = self._make_traffic_marker(kind, tooltip, lat, lon)
-                self._traffic_layer.add_marker(m)
+        else:
+            self._shumate_show_traffic(parsed)
 
         if self._traffic_btn is not None and self._traffic_btn.get_active():
             self._status_lbl.set_text(
@@ -940,86 +593,15 @@ class MapPage(Gtk.Box):
             )
         return False
 
-    def _make_traffic_marker(self, kind: str, tooltip: str, lat: float, lon: float) -> Any:
-        if kind == "roadworks":
-            fill   = (0.95, 0.60, 0.0,  1.0)
-            border = (0.70, 0.40, 0.0,  1.0)
-        else:
-            fill   = (0.90, 0.20, 0.20, 1.0)
-            border = (0.60, 0.10, 0.10, 1.0)
-        da = Gtk.DrawingArea()
-        da.set_size_request(14, 14)
-        da.set_draw_func(self._draw_dot, (fill, border))
-        da.set_tooltip_text(tooltip)
-        m = Shumate.Marker.new()
-        m.set_child(da)
-        m.set_location(lat, lon)
-        return m
-
     # ── POI layer (Overpass API) ──────────────────────────────────────────────
-
-    _POI_CAT_COLORS: dict[str, tuple[float, float, float, float]] = {
-        "fuel":    (0.18, 0.80, 0.44, 1.0),
-        "parking": (0.20, 0.52, 0.86, 1.0),
-        "food":    (0.95, 0.50, 0.10, 1.0),
-        "shop":    (0.95, 0.80, 0.10, 1.0),
-        "medical": (0.90, 0.20, 0.24, 1.0),
-        "tourism": (0.60, 0.20, 0.80, 1.0),
-        "other":   (0.55, 0.55, 0.55, 1.0),
-    }
 
     def _on_poi_toggled(self, btn: Gtk.ToggleButton) -> None:
         self._poi_visible = btn.get_active()
         if self._backend == "webkit":
             val = "true" if self._poi_visible else "false"
             self._js(f"mapSetPoiVisible({val})")
-        elif self._poi_layer is not None:
-            self._poi_layer.set_visible(self._poi_visible)
-            if self._poi_visible and self._shumate_map is not None:
-                vp = self._shumate_map.get_viewport()
-                lat, lon = vp.get_latitude(), vp.get_longitude()
-                threading.Thread(
-                    target=self._fetch_poi_shumate, args=(lat, lon), daemon=True
-                ).start()
-
-    def _fetch_poi_shumate(self, lat: float, lon: float) -> None:
-        delta = 0.06
-        s, w, n, e = lat - delta, lon - delta, lat + delta, lon + delta
-        q = (
-            f"[out:json][timeout:15][bbox:{s:.5f},{w:.5f},{n:.5f},{e:.5f}];"
-            "(node[\"amenity\"~\"fuel|parking|hospital|pharmacy|restaurant|fast_food|cafe|supermarket\"];"
-            "node[\"tourism\"~\"attraction|viewpoint\"];"
-            "node[\"shop\"=\"convenience\"];);"
-            "out body;"
-        )
-        url = f"https://overpass-api.de/api/interpreter?data={urllib.parse.quote(q)}"
-        data = http_get(url)
-        GLib.idle_add(self._poi_result_shumate, data)
-
-    def _poi_result_shumate(self, data: Any) -> bool:
-        if data is None or self._poi_layer is None:
-            return False
-        self._poi_layer.remove_all()
-        for el in data.get("elements", []):
-            lat = el.get("lat")
-            lon = el.get("lon")
-            if lat is None or lon is None:
-                continue
-            tags = el.get("tags", {})
-            cat = _poi_category(tags)
-            name = tags.get("name", "")
-            colors = self._POI_CAT_COLORS.get(cat, self._POI_CAT_COLORS["other"])
-            border = tuple(max(0.0, c - 0.2) for c in colors[:3]) + (1.0,)
-            da = Gtk.DrawingArea()
-            da.set_size_request(12, 12)
-            da.set_draw_func(self._draw_dot, (colors, border))
-            if name:
-                da.set_tooltip_text(name)
-            m = Shumate.Marker.new()
-            m.set_child(da)
-            m.set_location(lat, lon)
-            self._poi_layer.add_marker(m)
-        return False
+        else:
+            self._shumate_set_poi_visible(self._poi_visible)
 
     # ── Route ─────────────────────────────────────────────────────────────────
 
@@ -1062,45 +644,28 @@ class MapPage(Gtk.Box):
         if self._backend == "webkit":
             self._js("mapClearRoute()")
         else:
-            if self._guide_path_layer is not None:
-                self._guide_path_layer.remove_all()
-            if self._path_layer is not None:
-                self._path_layer.remove_all()
-            if self._wp_layer is not None:
-                self._wp_layer.remove_all()
+            self._shumate_clear_route_layers()
 
     def set_nav_visible(self, visible: bool) -> None:
         if self._search_bar is not None:
             self._search_bar.set_visible(visible)
 
     def _compute_route(self, start_text: str, wp_texts: list[str], end_text: str) -> None:
-        if start_text:
-            start = _geocode(start_text)
-        elif self._gps_lat is not None and self._gps_lon is not None:
-            start = (self._gps_lat, self._gps_lon)
-        else:
-            start = None
-        if start is None:
-            GLib.idle_add(self._route_error)
-            return
-
-        via: list[tuple[float, float]] = []
-        for txt in wp_texts:
-            if not txt:
-                continue
-            pt = _geocode(txt)
-            if pt is None:
+        try:
+            gps = (
+                (self._gps_lat, self._gps_lon)
+                if self._gps_lat is not None and self._gps_lon is not None
+                else None
+            )
+            all_points = resolve_route_points(start_text, wp_texts, end_text, gps, geocode)
+            if all_points is None:
                 GLib.idle_add(self._route_error)
                 return
-            via.append(pt)
-
-        end = _geocode(end_text)
-        if end is None:
+            result = osrm_route(all_points, self._routing_mode)
+        except Exception:
+            log.exception("Could not compute map route")
             GLib.idle_add(self._route_error)
             return
-
-        all_points = [start] + via + [end]
-        result = _osrm_route(all_points, self._routing_mode)
         GLib.idle_add(self._route_result, all_points, result)
 
     def _route_error(self) -> bool:
@@ -1122,7 +687,7 @@ class MapPage(Gtk.Box):
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
         prefix = _translate(self.language, "map.duration_prefix")
-        self._status_lbl.set_text(prefix + _format_duration(duration_s))
+        self._status_lbl.set_text(prefix + format_duration(duration_s))
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_visible(True)
 
@@ -1140,58 +705,9 @@ class MapPage(Gtk.Box):
                 min_lon, max_lon = min(lons), max(lons)
                 self._js(f"mapFitBounds({min_lat},{min_lon},{max_lat},{max_lon})")
         elif self._shumate_map is not None:
-            if self._path_layer is not None:
-                self._path_layer.remove_all()
-                for lon, lat in coords:
-                    self._path_layer.add_node(Shumate.Coordinate.new_full(lat, lon))
-
-            if self._wp_layer is not None:
-                self._wp_layer.remove_all()
-                for i, pt in enumerate(all_points):
-                    role = "start" if i == 0 else ("end" if i == len(all_points) - 1 else "via")
-                    self._wp_layer.add_marker(self._make_wp_marker(pt[0], pt[1], role))
-
-            if coords:
-                clat = (min(lats) + max(lats)) / 2.0
-                clon = (min(lons) + max(lons)) / 2.0
-                alloc = self._shumate_map.get_allocation()
-                px_w = max(alloc.width,  400)
-                px_h = max(alloc.height, 600)
-                zoom = _zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
-                viewport = self._shumate_map.get_viewport()
-                self._setting_pos = True
-                viewport.set_zoom_level(zoom)
-                viewport.set_location(clat, clon)
-                self._setting_pos = False
+            self._shumate_show_route(all_points, coords)
 
         return False
-
-    # ── Waypoint markers (Shumate only) ───────────────────────────────────────
-
-    def _make_wp_marker(self, lat: float, lon: float, role: str) -> Any:
-        if role == "start":
-            fill, border = (0.18, 0.80, 0.44, 1.0), (0.10, 0.54, 0.27, 1.0)
-        elif role == "end":
-            fill, border = (0.91, 0.30, 0.24, 1.0), (0.60, 0.15, 0.10, 1.0)
-        else:  # via
-            fill, border = (0.95, 0.65, 0.10, 1.0), (0.70, 0.45, 0.00, 1.0)
-        da = Gtk.DrawingArea()
-        da.set_size_request(14, 14)
-        da.set_draw_func(self._draw_dot, (fill, border))
-        m = Shumate.Marker.new()
-        m.set_child(da)
-        m.set_location(lat, lon)
-        return m
-
-    def _draw_dot(self, _da: Any, cr: Any, w: int, h: int, data: tuple) -> None:
-        fill, border = data
-        cr.set_source_rgba(*fill)
-        cr.arc(w / 2, h / 2, w / 2 - 1.5, 0, 2 * math.pi)
-        cr.fill()
-        cr.set_source_rgba(*border)
-        cr.set_line_width(2.5)
-        cr.arc(w / 2, h / 2, w / 2 - 1.5, 0, 2 * math.pi)
-        cr.stroke()
 
     # ── Language ──────────────────────────────────────────────────────────────
 
@@ -1199,9 +715,9 @@ class MapPage(Gtk.Box):
         self.language = _normalize_language(language)
         self._update_placeholders()
         self._route_btn.set_tooltip_text(_translate(self.language, "map.route"))
-        layer = _MAP_TYPES[self._map_type_idx]
+        layer = MAP_TYPES[self._map_type_idx]
         if self._layer_btn is not None:
-            self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
+            self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS[layer]))
         if self._follow_btn is not None:
             self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
         if self._center_btn is not None:
