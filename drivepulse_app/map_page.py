@@ -289,20 +289,23 @@ class MapPage(Gtk.Box):
         self._update_placeholders()
         self._update_remove_sensitivity()
 
-        # Action row: [route] [clear] ... [status→]
+        # Action row: [route-btn] [status]
         action = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
-        self._route_btn = Gtk.Button(icon_name="xsi-search")
+        btn_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_inner.append(Gtk.Image.new_from_icon_name("xsi-search"))
+        btn_inner.append(Gtk.Label(label=_translate(self.language, "map.route")))
+        self._route_btn = Gtk.Button()
+        self._route_btn.set_child(btn_inner)
         self._route_btn.add_css_class("suggested-action")
-        self._route_btn.set_tooltip_text(_translate(self.language, "map.route"))
         self._route_btn.connect("clicked", self._on_route_clicked)
 
         self._status_lbl = Gtk.Label(label="")
         self._status_lbl.add_css_class("dim-label")
         self._status_lbl.set_hexpand(True)
-        self._status_lbl.set_halign(Gtk.Align.END)
+        self._status_lbl.set_halign(Gtk.Align.START)
 
-        for w in (self._status_lbl, self._route_btn):
+        for w in (self._route_btn, self._status_lbl):
             action.append(w)
         bar.append(action)
         self.append(bar)
@@ -995,7 +998,8 @@ class MapPage(Gtk.Box):
         coords, duration_s = result
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
-        self._status_lbl.set_text(_format_duration(duration_s))
+        prefix = _translate(self.language, "map.duration_prefix")
+        self._status_lbl.set_text(prefix + _format_duration(duration_s))
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_visible(True)
 
