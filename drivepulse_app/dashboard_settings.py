@@ -28,7 +28,6 @@ class DashboardSettingsMixin:
                 "mock_mode": getattr(self, "mock_mode", False),
                 "obd_port": getattr(self, "obd_port", None),
                 "gauge_theme": getattr(self, "gauge_theme", "cockpit"),
-                "auto_rotate": getattr(self, "auto_rotate", True),
                 "sidebar_side": getattr(self, "sidebar_side", "left"),
                 "engage_threshold": getattr(self, "engage_threshold", 0.20),
             })
@@ -68,8 +67,6 @@ class DashboardSettingsMixin:
             on_obd_port_changed=self._set_obd_port,
             current_gauge_theme=self.gauge_theme,
             on_gauge_theme_changed=self._set_gauge_theme,
-            current_auto_rotate=self.auto_rotate,
-            on_auto_rotate_changed=self._set_auto_rotate,
             current_sidebar_side=self.sidebar_side,
             on_sidebar_side_changed=self._set_sidebar_side,
         )
@@ -181,13 +178,6 @@ class DashboardSettingsMixin:
         self.mock_mode = mock_mode
         self._save_settings()
         self.reader.set_force_mock(mock_mode)
-
-    def _set_auto_rotate(self, enabled: bool) -> None:
-        if enabled == self.auto_rotate:
-            return
-        self.auto_rotate = enabled
-        self._save_settings()
-        self.orientation_reader.set_enabled(enabled)
 
     def _set_sidebar_side(self, side: str) -> None:
         if side == self.sidebar_side:
