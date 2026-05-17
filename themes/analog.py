@@ -347,21 +347,8 @@ def _voltage_halfmoon_right(
     cr.close_path()
     cr.fill()
 
-    # Red danger zone: 11–12 V (bottom 1/5)
     ANG_RED_END = ANG_BOT + math.pi * 0.2
-    cr.set_source_rgba(0.85, 0.10, 0.08, 0.30 * a)
-    cr.move_to(cx, cy)
-    cr.arc(cx, cy, r, ANG_BOT, ANG_RED_END)
-    cr.close_path()
-    cr.fill()
-
-    # Orange warning zone: 12–13 V (next 1/5)
     ANG_ORG_END = ANG_BOT + math.pi * 0.4
-    cr.set_source_rgba(0.95, 0.52, 0.08, 0.22 * a)
-    cr.move_to(cx, cy)
-    cr.arc(cx, cy, r, ANG_RED_END, ANG_ORG_END)
-    cr.close_path()
-    cr.fill()
 
     # Outer border arc
     cr.set_line_width(max(2.0, r * 0.025))
@@ -412,7 +399,7 @@ def _voltage_halfmoon_right(
     # Lightning bolt icon (mirrored position of fuel pump)
     isz = max(12.0, r * 0.22)
     ix  = cx - r * 0.42 + isz
-    iy  = cy + r * 0.28 + isz
+    iy  = cy + r * 0.28 + isz + 5
     cr.set_source_rgba(*dim_col, 0.70 * a)
     cr.move_to(ix - isz*0.18,  iy - isz*0.80)  # top-left tip (mirrored)
     cr.line_to(ix + isz*0.18,  iy + isz*0.06)  # mid-right
