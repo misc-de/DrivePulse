@@ -7,7 +7,7 @@ from typing import Any, Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Pango  # noqa: E402
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 from .acceleration_canvas import GForceCanvas
 from .acceleration_processing import AccelerationProcessingMixin
@@ -261,20 +261,29 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
     def set_device_rotation(self, angle: int) -> None:
         """Called by the window when the physical device orientation changes."""
         self._device_rotation = angle % 360
-        queue_allocate = getattr(self, "queue_allocate", None)
-        if callable(queue_allocate):
-            queue_allocate()
+        # Apply immediately with current allocated size (covers the case where
+        # the compositor already resized the GTK window before this fires).
+        self._apply_layout(self.get_width(), self.get_height())
+        # Also schedule a second check: the compositor may resize the GTK window
+        # a few frames after the sensor fires.
+        GLib.timeout_add(250, self._delayed_layout_check)
+
+    def _delayed_layout_check(self) -> bool:
+        self._apply_layout(self.get_width(), self.get_height())
+        return False
 
     def _layout_target_for_size(self, width: int, height: int) -> str:
-        # Match DashboardLayoutMixin: on Phosh/compositor-side rotation the GTK
-        # surface often stays portrait while the compositor rotates it physically.
-        # In that case the GTK portrait layout appears landscape on the device.
+        # On Phosh/compositor-side rotation the GTK surface stays portrait while
+        # the compositor rotates it physically; a portrait GTK layout appears
+        # landscape on the device.  Only switch the GTK layout when the window
+        # has actually been resized to landscape (width >= height).
         if self._device_rotation in (90, 270) and width < height:
             return "portrait"
         return "landscape" if width >= height else "portrait"
 
-    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:  # type: ignore[override]
-        Gtk.Box.do_size_allocate(self, width, height, baseline)
+    def _apply_layout(self, width: int, height: int) -> None:
+        if width <= 0 or height <= 0:
+            return
         target = self._layout_target_for_size(width, height)
         if target == self._current_layout:
             return
@@ -297,6 +306,12 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
             self.results_scroll.set_valign(Gtk.Align.START)
             self.results_scroll.set_propagate_natural_height(True)
             self.maxes_label.set_margin_top(24)
+
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:  # type: ignore[override]
+        # Apply layout BEFORE the parent allocates children so they are
+        # positioned with the correct orientation in the same frame.
+        self._apply_layout(width, height)
+        Gtk.Box.do_size_allocate(self, width, height, baseline)
 
     # ------------------------------------------------------------------
     # Layout helpers
