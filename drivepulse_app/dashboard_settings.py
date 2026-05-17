@@ -30,6 +30,8 @@ class DashboardSettingsMixin:
                 "gauge_theme": getattr(self, "gauge_theme", "cockpit"),
                 "sidebar_side": getattr(self, "sidebar_side", "left"),
                 "engage_threshold": getattr(self, "engage_threshold", 0.20),
+                "theme_mode": getattr(self, "theme_mode", "auto"),
+                "last_update_check": getattr(self, "last_update_check", None),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -69,6 +71,10 @@ class DashboardSettingsMixin:
             on_gauge_theme_changed=self._set_gauge_theme,
             current_sidebar_side=self.sidebar_side,
             on_sidebar_side_changed=self._set_sidebar_side,
+            current_theme_mode=getattr(self, "theme_mode", "auto"),
+            on_theme_mode_changed=self._set_theme_mode,
+            current_last_check=getattr(self, "last_update_check", None),
+            on_last_check_updated=self._set_last_update_check,
         )
         dialog.present(self)
 
@@ -185,6 +191,17 @@ class DashboardSettingsMixin:
         self.sidebar_side = side
         self._save_settings()
         self.cars_page.set_sidebar_side(side)
+
+    def _set_theme_mode(self, mode: str) -> None:
+        if mode == getattr(self, "theme_mode", "auto"):
+            return
+        self.theme_mode = mode
+        self._save_settings()
+        self._apply_theme_mode(mode)
+
+    def _set_last_update_check(self, timestamp: str) -> None:
+        self.last_update_check = timestamp
+        self._save_settings()
 
     def _set_language(self, language: str) -> None:
         language = _normalize_language(language)
