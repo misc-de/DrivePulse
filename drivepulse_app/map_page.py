@@ -169,7 +169,7 @@ class MapPage(Gtk.Box):
         # FAB buttons (None when Shumate unavailable)
         self._follow_btn: Gtk.ToggleButton | None = None
         self._center_btn: Gtk.Button | None = None
-        self._layer_btn: Gtk.Button | None = None
+        self._layer_btn: Gtk.Button | None = None  # created in _build_search_bar
 
         self._build_search_bar()
         self._build_map()
@@ -220,7 +220,11 @@ class MapPage(Gtk.Box):
         self._clear_btn.set_visible(False)
         self._clear_btn.connect("clicked", self._on_clear_clicked)
 
-        for w in (self._start_entry, arrow, self._end_entry, self._route_btn, self._clear_btn):
+        self._layer_btn = Gtk.Button(icon_name="map-symbolic")
+        self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS["map"]))
+        self._layer_btn.connect("clicked", self._on_layer_clicked)
+
+        for w in (self._start_entry, arrow, self._end_entry, self._route_btn, self._clear_btn, self._layer_btn):
             row1.append(w)
 
         row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -328,15 +332,8 @@ class MapPage(Gtk.Box):
         self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
         self._center_btn.connect("clicked", self._on_center_clicked)
 
-        self._layer_btn = Gtk.Button(icon_name="map-symbolic")
-        self._layer_btn.add_css_class("circular")
-        self._layer_btn.add_css_class("osd")
-        self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS["map"]))
-        self._layer_btn.connect("clicked", self._on_layer_clicked)
-
         fab.append(self._follow_btn)
         fab.append(self._center_btn)
-        fab.append(self._layer_btn)
 
         overlay = Gtk.Overlay()
         overlay.set_hexpand(True)
@@ -591,11 +588,10 @@ class MapPage(Gtk.Box):
         self._end_entry.set_placeholder_text(_translate(self.language, "map.search.end"))
         self._route_btn.set_tooltip_text(_translate(self.language, "map.route"))
         self._clear_btn.set_tooltip_text(_translate(self.language, "map.clear"))
+        layer = _MAP_TYPES[self._map_type_idx]
+        self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
         if self._shumate_map is not None:
             if self._center_btn is not None:
                 self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
             if self._follow_btn is not None:
                 self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
-            if self._layer_btn is not None:
-                layer = _MAP_TYPES[self._map_type_idx]
-                self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
