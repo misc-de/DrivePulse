@@ -7,11 +7,22 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GObject, Gtk  # noqa: E402
 
 from .common import SUPPORTED_LANGUAGES, _normalize_language, _translate
 from .gauge import all_theme_options
 from .obd_devices import scan_obd_devices
+
+
+class DeviceItem(GObject.Object):
+    __gtype_name__ = "DrivePulseDeviceItem"
+
+    def __init__(self, label: str, port: str | None, is_present: bool = False, is_connected: bool = False) -> None:
+        super().__init__()
+        self._label = label
+        self._port = port
+        self._is_present = is_present
+        self._is_connected = is_connected
 
 
 class SettingsDialog(Adw.PreferencesDialog):
@@ -100,15 +111,68 @@ class SettingsDialog(Adw.PreferencesDialog):
         page.add(group)
 
         # OBD hardware group
-        obd_devices = scan_obd_devices()
-        self._obd_port_values: list[str | None] = [None] + [val for _, val in obd_devices]
+        obd_devices = scan_obd_devices()  # (label, port, is_present)
+        self._obd_port_values: list[str | None] = [None]
+
+        dongle_store = Gio.ListStore(item_type=DeviceItem)
+        dongle_store.append(DeviceItem(
+            label=_translate(self.language, "settings.obd_dongle.auto"),
+            port=None,
+            is_present=False,
+            is_connected=(current_obd_port is None),
+        ))
+        for lbl, port, is_present in obd_devices:
+            dongle_store.append(DeviceItem(
+                label=lbl,
+                port=port,
+                is_present=is_present,
+                is_connected=(port == current_obd_port),
+            ))
+            self._obd_port_values.append(port)
+
+        def _setup_header(_fac: object, li: Gtk.ListItem) -> None:
+            li.set_child(Gtk.Label(xalign=0, hexpand=True))
+
+        def _bind_header(_fac: object, li: Gtk.ListItem) -> None:
+            label_widget: Gtk.Label = li.get_child()
+            dev: DeviceItem = li.get_item()
+            label_widget.set_text(dev._label)
+            if dev._is_present:
+                label_widget.add_css_class("success")
+            else:
+                label_widget.remove_css_class("success")
+
+        def _setup_list(_fac: object, li: Gtk.ListItem) -> None:
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            box.append(Gtk.Label(xalign=0, hexpand=True))
+            box.append(Gtk.Image.new_from_icon_name("object-select-symbolic"))
+            li.set_child(box)
+
+        def _bind_list(_fac: object, li: Gtk.ListItem) -> None:
+            box = li.get_child()
+            label_widget: Gtk.Label = box.get_first_child()
+            icon: Gtk.Image = label_widget.get_next_sibling()
+            dev: DeviceItem = li.get_item()
+            label_widget.set_text(dev._label)
+            if dev._is_present:
+                label_widget.add_css_class("success")
+            else:
+                label_widget.remove_css_class("success")
+            icon.set_visible(dev._is_connected)
+
+        header_fac = Gtk.SignalListItemFactory()
+        header_fac.connect("setup", _setup_header)
+        header_fac.connect("bind", _bind_header)
+
+        list_fac = Gtk.SignalListItemFactory()
+        list_fac.connect("setup", _setup_list)
+        list_fac.connect("bind", _bind_list)
+
         obd_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.obd"))
-        dongle_model = Gtk.StringList()
-        dongle_model.append(_translate(self.language, "settings.obd_dongle.auto"))
-        for label, _ in obd_devices:
-            dongle_model.append(label)
         self.dongle_row = Adw.ComboRow(title=_translate(self.language, "settings.obd_dongle"))
-        self.dongle_row.set_model(dongle_model)
+        self.dongle_row.set_model(dongle_store)
+        self.dongle_row.set_factory(header_fac)
+        self.dongle_row.set_list_factory(list_fac)
         if not obd_devices:
             self.dongle_row.set_subtitle(_translate(self.language, "settings.obd_dongle.none_found"))
         selected_idx = 0
