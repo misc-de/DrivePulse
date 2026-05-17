@@ -331,9 +331,10 @@ class MapPage(Gtk.Box):
         triple[1].grab_focus()
 
     def _remove_entry(self, row: Gtk.Box) -> None:
-        if len(self._entry_rows) <= 2:
-            return
         idx = next(i for i, (r, _, __) in enumerate(self._entry_rows) if r is row)
+        if len(self._entry_rows) <= 2:
+            self._entry_rows[idx][1].set_text("")
+            return
         self._entry_rows.pop(idx)
         if self._entries_container is not None:
             self._entries_container.remove(row)
@@ -352,9 +353,8 @@ class MapPage(Gtk.Box):
             entry.set_placeholder_text(_translate(self.language, key))
 
     def _update_remove_sensitivity(self) -> None:
-        enabled = len(self._entry_rows) > 2
         for _, __, rem_btn in self._entry_rows:
-            rem_btn.set_sensitive(enabled)
+            rem_btn.set_sensitive(True)
 
     # ── Map area ──────────────────────────────────────────────────────────────
 
