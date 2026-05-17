@@ -74,10 +74,12 @@ let followMode = true;
 let initialized = false;
 
 let _routeCoords    = [];
+let _guideCoords    = [];
 let _wpStart        = null;   // [lat, lon]
 let _wpEnd          = null;
 let _trafficItems   = [];
 let _trafficVisible = false;
+let _gpsLon = null, _gpsLat = null;
 
 const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
 
@@ -105,6 +107,15 @@ function wpFeat(latlon, role) {
 
 // ── Custom data layers (re-created after every style.load) ────────────────────
 function addDataLayers() {
+  // Guide-to-start (dashed gray, shown below main route)
+  if (!map.getSource('guide')) {
+    map.addSource('guide', { type: 'geojson', data: lineGJ(_guideCoords) });
+    map.addLayer({ id: 'guide-line', type: 'line', source: 'guide',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#F5A623', 'line-width': 4, 'line-opacity': 0.85,
+               'line-dasharray': [2, 2] } });
+  }
+
   // Route
   if (!map.getSource('route')) {
     map.addSource('route', { type: 'geojson', data: lineGJ(_routeCoords) });
@@ -168,14 +179,13 @@ function initMap(lat, lon) {
     renderWorldCopies: false, // no duplicate world tiles
   });
 
-  // Car marker (SVG arrow)
+  // Location dot (blue circle)
   carEl = document.createElement('div');
   carEl.className = 'car-icon';
   carEl.innerHTML = `<svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-    <ellipse cx="22" cy="26" rx="13" ry="5" fill="rgba(0,0,0,0.28)"/>
-    <path d="M22 4 L34 40 L22 33 L10 40 Z"
-          fill="#2980B9" stroke="#1a5a8a" stroke-width="1.5" stroke-linejoin="round"/>
-    <circle cx="22" cy="20" r="3" fill="rgba(255,255,255,0.55)"/>
+    <circle cx="22" cy="22" r="16" fill="rgba(41,128,185,0.20)"/>
+    <circle cx="22" cy="22" r="9"  fill="white"/>
+    <circle cx="22" cy="22" r="7"  fill="#2980B9"/>
   </svg>`;
 
   carMarker = new maplibregl.Marker({ element: carEl, anchor: 'center' })
@@ -196,17 +206,10 @@ function initMap(lat, lon) {
 function mapSetCar(lat, lon, heading) {
   if (!initialized) initMap(lat, lon);
   if (!map) return;
+  _gpsLat = lat; _gpsLon = lon;
   if (carMarker) carMarker.setLngLat([lon, lat]);
-  // 3D nav mode only when following AND a route is active
-  const navMode = followMode && _routeCoords.length >= 2;
   if (followMode) {
-    const pitch   = navMode ? 60 : 0;
-    const bearing = navMode ? heading : 0;
-    map.easeTo({ center: [lon, lat], bearing, pitch, duration: 350 });
-    if (carEl) carEl.style.transform = navMode ? 'rotate(0deg)' : `rotate(${heading}deg)`;
-  } else {
-    const rot = heading - (map.getBearing() || 0);
-    if (carEl) carEl.style.transform = `rotate(${rot}deg)`;
+    map.easeTo({ center: [lon, lat], bearing: 0, pitch: 0, duration: 350 });
   }
 }
 
@@ -235,12 +238,24 @@ function mapSetWaypoints(points) {
 
 function mapClearRoute() {
   _routeCoords = []; _wpStart = null; _wpEnd = null;
+  mapClearGuideToStart();
   if (map) {
     if (map.getSource('route'))     map.getSource('route').setData(lineGJ([]));
     if (map.getSource('waypoints')) map.getSource('waypoints').setData(fcGJ([]));
-    // Leave 3D nav mode → back to flat 2D
     map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
   }
+}
+
+function mapSetGuideToStart(coords) {
+  _guideCoords = coords;
+  if (map && map.getSource('guide'))
+    map.getSource('guide').setData(lineGJ(coords));
+}
+
+function mapClearGuideToStart() {
+  _guideCoords = [];
+  if (map && map.getSource('guide'))
+    map.getSource('guide').setData(lineGJ([]));
 }
 
 function mapGoTo(lat, lon, zoom) {

@@ -20,7 +20,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, GObject, Gtk  # noqa: E402
 
 # ── Optional backends ─────────────────────────────────────────────────────────
 
@@ -171,6 +171,15 @@ def _rounded_rect(cr: Any, x: float, y: float, w: float, h: float, r: float) -> 
     cr.close_path()
 
 
+def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6_371_000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
+
+
 def _zoom_for_bbox(
     lat1: float, lon1: float,
     lat2: float, lon2: float,
@@ -208,6 +217,8 @@ class MapPage(Gtk.Box):
         self._routing_mode: str = "car"
         self._start_coord: tuple[float, float] | None = None
         self._end_coord: tuple[float, float] | None = None
+        self._tour_active: bool = False
+        self._dnd_src_idx: int = -1
 
         # Backend: "webkit" | "shumate" | "none"
         self._backend: str = "none"
@@ -221,6 +232,7 @@ class MapPage(Gtk.Box):
         self._car_marker: Any = None
         self._marker_layer: Any = None
         self._path_layer: Any = None
+        self._guide_path_layer: Any = None
         self._wp_layer: Any = None
         self._sources: dict[str, Any] = {}
         self._setting_pos: bool = False
@@ -232,6 +244,7 @@ class MapPage(Gtk.Box):
         self._traffic_btn: Gtk.ToggleButton | None = None
         self._tour_start_btn: Gtk.Button | None = None
         self._tour_start_lbl: Gtk.Label | None = None
+        self._tour_btn_icon: Gtk.Image | None = None
 
         # Traffic layer (Shumate only)
         self._traffic_layer: Any = None
@@ -296,6 +309,14 @@ class MapPage(Gtk.Box):
 
     def _make_entry_row(self) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+
+        # Drag handle
+        handle = Gtk.Image.new_from_icon_name("list-drag-handle-symbolic")
+        handle.add_css_class("dim-label")
+        handle.set_cursor(Gdk.Cursor.new_from_name("grab"))
+        handle.set_margin_start(2)
+        handle.set_margin_end(2)
+
         entry = Gtk.Entry()
         entry.set_hexpand(True)
         entry.connect("activate", self._on_route_clicked)
@@ -310,12 +331,62 @@ class MapPage(Gtk.Box):
         rem_btn.set_valign(Gtk.Align.CENTER)
         rem_btn.connect("clicked", lambda _b, r=row: self._remove_entry(r))
 
+        row.append(handle)
         row.append(entry)
         row.append(add_btn)
         row.append(rem_btn)
 
+        # DnD: drag source on handle
+        drag_src = Gtk.DragSource.new()
+        drag_src.set_actions(Gdk.DragAction.MOVE)
+        drag_src.connect("prepare", lambda src, x, y, r=row: self._drag_prepare(src, x, y, r))
+        handle.add_controller(drag_src)
+
+        # DnD: drop target on the whole row
+        drop_tgt = Gtk.DropTarget.new(GObject.TYPE_INT, Gdk.DragAction.MOVE)
+        drop_tgt.connect("drop", lambda tgt, val, x, y, r=row: self._drag_drop(tgt, val, x, y, r))
+        drop_tgt.connect("motion", lambda tgt, x, y: Gdk.DragAction.MOVE)
+        row.add_controller(drop_tgt)
+
         self._entry_rows.append((row, entry, rem_btn))
         return row
+
+    def _drag_prepare(
+        self, _src: Gtk.DragSource, _x: float, _y: float, row: Gtk.Box
+    ) -> Gdk.ContentProvider | None:
+        idx = next((i for i, (r, _, __) in enumerate(self._entry_rows) if r is row), -1)
+        if idx < 0:
+            return None
+        self._dnd_src_idx = idx
+        gval = GObject.Value()
+        gval.init(GObject.TYPE_INT)
+        gval.set_int(idx)
+        return Gdk.ContentProvider.new_for_value(gval)
+
+    def _drag_drop(
+        self, _tgt: Gtk.DropTarget, _val: Any, _x: float, _y: float, dst_row: Gtk.Box
+    ) -> bool:
+        src_idx = self._dnd_src_idx
+        dst_idx = next(
+            (i for i, (r, _, __) in enumerate(self._entry_rows) if r is dst_row), -1
+        )
+        if src_idx < 0 or dst_idx < 0 or src_idx == dst_idx:
+            return False
+        self._reorder_row(src_idx, dst_idx)
+        return True
+
+    def _reorder_row(self, src_idx: int, dst_idx: int) -> None:
+        triple = self._entry_rows.pop(src_idx)
+        self._entry_rows.insert(dst_idx, triple)
+        row_widget = triple[0]
+        if self._entries_container is not None:
+            self._entries_container.remove(row_widget)
+            if dst_idx == 0:
+                self._entries_container.prepend(row_widget)
+            else:
+                prev_sibling = self._entry_rows[dst_idx - 1][0]
+                self._entries_container.insert_child_after(row_widget, prev_sibling)
+        self._update_placeholders()
 
     def _insert_entry_after(self, after_row: Gtk.Box) -> None:
         idx = next(i for i, (r, _, __) in enumerate(self._entry_rows) if r is after_row)
@@ -438,7 +509,8 @@ class MapPage(Gtk.Box):
 
     def _build_tour_start_btn(self) -> Gtk.Widget:
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        inner.append(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
+        self._tour_btn_icon = Gtk.Image.new_from_icon_name("media-playback-start-symbolic")
+        inner.append(self._tour_btn_icon)
         self._tour_start_lbl = Gtk.Label(label=_translate(self.language, "map.tour_start"))
         inner.append(self._tour_start_lbl)
 
@@ -456,16 +528,62 @@ class MapPage(Gtk.Box):
     def _on_tour_start_clicked(self, _btn: Gtk.Button) -> None:
         if self._start_coord is None:
             return
+        if self._tour_active:
+            self._stop_tour()
+            return
         lat, lon = self._start_coord
+        self._tour_active = True
+        if self._tour_start_lbl is not None:
+            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_stop"))
+        if self._tour_btn_icon is not None:
+            self._tour_btn_icon.set_from_icon_name("media-playback-stop-symbolic")
         self._set_follow(False)
         if self._backend == "webkit":
-            self._js(f"mapGoTo({lat}, {lon}, 15)")
+            self._js(f"mapGoTo({lat}, {lon}, 17)")
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
             self._setting_pos = True
-            viewport.set_zoom_level(15.0)
+            viewport.set_zoom_level(17.0)
             viewport.set_location(lat, lon)
             self._setting_pos = False
+        if self._gps_lat is not None and self._gps_lon is not None:
+            dist = _haversine(self._gps_lat, self._gps_lon, lat, lon)
+            if dist > 200:
+                gps_lat, gps_lon = self._gps_lat, self._gps_lon
+                threading.Thread(
+                    target=self._fetch_guide_to_start,
+                    args=(gps_lat, gps_lon, lat, lon),
+                    daemon=True,
+                ).start()
+
+    def _stop_tour(self) -> None:
+        self._tour_active = False
+        if self._tour_start_lbl is not None:
+            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
+        if self._tour_btn_icon is not None:
+            self._tour_btn_icon.set_from_icon_name("media-playback-start-symbolic")
+        if self._backend == "webkit":
+            self._js("mapClearGuideToStart()")
+        elif self._guide_path_layer is not None:
+            self._guide_path_layer.remove_all()
+
+    def _fetch_guide_to_start(
+        self, gps_lat: float, gps_lon: float, start_lat: float, start_lon: float
+    ) -> None:
+        result = _osrm_route([(gps_lat, gps_lon), (start_lat, start_lon)], self._routing_mode)
+        GLib.idle_add(self._guide_result, result)
+
+    def _guide_result(self, result: tuple[list[list[float]], float] | None) -> bool:
+        if result is None:
+            return False
+        coords, _ = result
+        if self._backend == "webkit":
+            self._js(f"mapSetGuideToStart({json.dumps(coords)})")
+        elif self._shumate_map is not None and self._guide_path_layer is not None:
+            self._guide_path_layer.remove_all()
+            for lon, lat in coords:
+                self._guide_path_layer.add_node(Shumate.Coordinate.new_full(lat, lon))
+        return False
 
     # ── WebKit backend ────────────────────────────────────────────────────────
 
@@ -558,6 +676,15 @@ class MapPage(Gtk.Box):
         )
         _inner = self._inner_map
 
+        self._guide_path_layer = Shumate.PathLayer.new(viewport)
+        guide_color = Gdk.RGBA()
+        guide_color.red, guide_color.green, guide_color.blue, guide_color.alpha = (
+            0.96, 0.65, 0.14, 0.85
+        )
+        self._guide_path_layer.set_stroke_color(guide_color)
+        self._guide_path_layer.set_stroke_width(4.0)
+        _inner.add_layer(self._guide_path_layer)
+
         self._path_layer = Shumate.PathLayer.new(viewport)
         route_color = Gdk.RGBA()
         route_color.red, route_color.green, route_color.blue, route_color.alpha = (
@@ -625,36 +752,18 @@ class MapPage(Gtk.Box):
 
     def _draw_car(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
         cx, cy = width / 2.0, height / 2.0
-        cr.save()
-        cr.translate(cx, cy)
-        cr.rotate(math.radians(self._gps_heading))
-        cr.translate(-cx, -cy)
-
-        cr.set_source_rgba(0, 0, 0, 0.20)
-        cr.arc(cx, cy + 2, 13, 0, 2 * math.pi)
+        # Outer glow ring
+        cr.set_source_rgba(0.16, 0.50, 0.73, 0.20)
+        cr.arc(cx, cy, 16, 0, 2 * math.pi)
         cr.fill()
-
+        # White border
+        cr.set_source_rgb(1.0, 1.0, 1.0)
+        cr.arc(cx, cy, 9, 0, 2 * math.pi)
+        cr.fill()
+        # Blue dot
         cr.set_source_rgb(0.16, 0.50, 0.73)
-        _rounded_rect(cr, cx - 11, cy - 17, 22, 34, 6)
+        cr.arc(cx, cy, 7, 0, 2 * math.pi)
         cr.fill()
-
-        cr.set_source_rgb(0.53, 0.81, 0.98)
-        _rounded_rect(cr, cx - 7, cy - 11, 14, 20, 4)
-        cr.fill()
-
-        cr.set_source_rgb(0.99, 0.91, 0.28)
-        cr.rectangle(cx - 10, cy - 19, 4, 3)
-        cr.fill()
-        cr.rectangle(cx + 6,  cy - 19, 4, 3)
-        cr.fill()
-
-        cr.set_source_rgb(0.90, 0.30, 0.24)
-        cr.rectangle(cx - 10, cy + 16, 4, 3)
-        cr.fill()
-        cr.rectangle(cx + 6,  cy + 16, 4, 3)
-        cr.fill()
-
-        cr.restore()
 
     # ── Follow / viewport ─────────────────────────────────────────────────────
 
@@ -817,11 +926,18 @@ class MapPage(Gtk.Box):
         self._status_lbl.set_text("")
         self._start_coord = None
         self._end_coord = None
+        self._tour_active = False
+        if self._tour_start_lbl is not None:
+            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
+        if self._tour_btn_icon is not None:
+            self._tour_btn_icon.set_from_icon_name("media-playback-start-symbolic")
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_visible(False)
         if self._backend == "webkit":
             self._js("mapClearRoute()")
         else:
+            if self._guide_path_layer is not None:
+                self._guide_path_layer.remove_all()
             if self._path_layer is not None:
                 self._path_layer.remove_all()
             if self._wp_layer is not None:
