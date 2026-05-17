@@ -270,18 +270,23 @@ def _fuel_halfmoon_left(
         cr.line_to(cx + math.cos(ang) * tick_outer, cy + math.sin(ang) * tick_outer)
         cr.stroke()
 
-    # Lightning bolt icon
+    # Fuel pump icon
     isz = max(12.0, r * 0.22)
     ix  = cx + r * 0.42 - isz
     iy  = cy + r * 0.28 + isz
-    cr.set_source_rgba(*dim_col, 0.70 * a)
-    cr.move_to(ix + isz*0.18,  iy - isz*0.80)  # top-right tip
-    cr.line_to(ix - isz*0.18,  iy + isz*0.06)  # mid-left
-    cr.line_to(ix + isz*0.08,  iy + isz*0.06)  # mid inner-right
-    cr.line_to(ix - isz*0.18,  iy + isz*0.80)  # bottom-left tip
-    cr.line_to(ix + isz*0.18,  iy - isz*0.06)  # mid-right
-    cr.line_to(ix - isz*0.08,  iy - isz*0.06)  # mid inner-left
-    cr.close_path()
+    cr.set_source_rgba(*dim_col, 0.55 * a)
+    cr.set_line_width(max(1.2, isz * 0.14))
+    cr.set_line_cap(1)
+    # Tank body
+    cr.rectangle(ix - isz*0.30, iy - isz*0.45, isz*0.60, isz*0.90)
+    cr.stroke()
+    # Pipe from top-right of body
+    cr.move_to(ix + isz*0.30, iy - isz*0.28)
+    cr.line_to(ix + isz*0.58, iy - isz*0.28)
+    cr.line_to(ix + isz*0.58, iy - isz*0.62)
+    cr.stroke()
+    # Nozzle cap dot
+    cr.arc(ix + isz*0.58, iy - isz*0.62, isz*0.11, 0, math.tau)
     cr.fill()
 
     # Needle (orange diamond — identical shape to _analog_gauge)
@@ -404,26 +409,19 @@ def _voltage_halfmoon_right(
         cr.move_to(nx, ny)
         cr.show_text(txt)
 
-    # Battery icon (mirrored position of fuel pump — same isz, same y offset)
+    # Lightning bolt icon (mirrored position of fuel pump)
     isz = max(12.0, r * 0.22)
-    ix  = cx - r * 0.42 + isz   # mirror of fuel: cx + r*0.42 - isz, reflected around cx=width
+    ix  = cx - r * 0.42 + isz
     iy  = cy + r * 0.28 + isz
-    cr.set_source_rgba(*dim_col, 0.55 * a)
-    cr.set_line_width(max(1.2, isz * 0.14))
-    cr.set_line_cap(1)
-    # Body (same proportions as fuel tank rectangle)
-    cr.rectangle(ix - isz * 0.30, iy - isz * 0.45, isz * 0.60, isz * 0.90)
-    cr.stroke()
-    # Terminal nub on top
-    cr.rectangle(ix - isz * 0.12, iy - isz * 0.45 - isz * 0.18, isz * 0.24, isz * 0.18)
-    cr.stroke()
-    # Plus sign inside body
-    cr.move_to(ix,            iy - isz * 0.30)
-    cr.line_to(ix,            iy - isz * 0.05)
-    cr.stroke()
-    cr.move_to(ix - isz * 0.15, iy - isz * 0.175)
-    cr.line_to(ix + isz * 0.15, iy - isz * 0.175)
-    cr.stroke()
+    cr.set_source_rgba(*dim_col, 0.70 * a)
+    cr.move_to(ix - isz*0.18,  iy - isz*0.80)  # top-left tip (mirrored)
+    cr.line_to(ix + isz*0.18,  iy + isz*0.06)  # mid-right
+    cr.line_to(ix - isz*0.08,  iy + isz*0.06)  # mid inner-left
+    cr.line_to(ix + isz*0.18,  iy + isz*0.80)  # bottom-right tip (mirrored)
+    cr.line_to(ix - isz*0.18,  iy - isz*0.06)  # mid-left
+    cr.line_to(ix + isz*0.08,  iy - isz*0.06)  # mid inner-right
+    cr.close_path()
+    cr.fill()
 
     # Needle (orange diamond — identical shape to fuel halfmoon)
     needle_angle = ANG_BOT + math.pi * volt_norm
