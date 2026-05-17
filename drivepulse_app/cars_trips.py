@@ -46,9 +46,7 @@ class CarsTripsMixin:
     def _make_trip_row(self, trip: Any) -> Adw.ActionRow:
         row = Adw.ActionRow()
         trip_id = int(trip["id"])
-        started = self._parse_ts(trip["started_at"])
-        title = started.strftime("%d.%m.%Y · %H:%M") if started else _translate(self.language, "cars.trip.title", id=trip_id)
-        row.set_title(GLib.markup_escape_text(title))
+        row.set_title(GLib.markup_escape_text(self._trip_display_title(trip)))
 
         parts: list[str] = []
         dur = trip["duration_s"]
@@ -115,11 +113,63 @@ class CarsTripsMixin:
 
         self._set_trash(lambda: self._confirm_delete_trip(trip_id))
 
-        page = Adw.NavigationPage(child=self._wrap_sub_page(page_content, title), title=title)
+        page_ref: list[Adw.NavigationPage | None] = [None]
+
+        def _on_rename(title_lbl: Gtk.Label) -> None:
+            self._open_trip_rename_dialog(trip_id, title_lbl, page_ref)
+
+        page = Adw.NavigationPage(
+            child=self._wrap_sub_page(page_content, title, on_rename=_on_rename),
+            title=title,
+        )
         page.set_tag(f"trip-{trip_id}")
+        page_ref[0] = page
         self._trip_detail_page = page
         self._trip_detail_pushed = True
         self.nav_view.push(page)
+
+    def _open_trip_rename_dialog(
+        self,
+        trip_id: int,
+        title_lbl: Gtk.Label,
+        page_ref: list,
+    ) -> None:
+        entry = Gtk.Entry()
+        entry.set_hexpand(True)
+        entry.set_margin_top(8)
+        entry.set_text(title_lbl.get_label())
+        entry.set_placeholder_text(_translate(self.language, "cars.trip.rename_placeholder"))
+        entry.select_region(0, -1)
+
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "cars.trip.rename_title"),
+        )
+        dialog.set_extra_child(entry)
+        dialog.add_response("cancel", _translate(self.language, "cars.trip.rename_cancel"))
+        dialog.add_response("save", _translate(self.language, "cars.trip.rename_confirm"))
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+        entry.connect("activate", lambda _e: dialog.response("save"))
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "save":
+                return
+            new_name = entry.get_text().strip()
+            if self.db is None:
+                return
+            try:
+                self.db.rename_trip(trip_id, new_name)
+            except Exception:
+                log.exception("Could not rename trip id=%s", trip_id)
+                return
+            title_lbl.set_label(new_name if new_name else title_lbl.get_label())
+            if page_ref[0] is not None and new_name:
+                page_ref[0].set_title(new_name)
+            GLib.idle_add(self._render_detail)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
 
     # ---------------------------------------------------- Fahrten Multi-Auswahl
 
@@ -169,10 +219,17 @@ class CarsTripsMixin:
                 log.exception("Could not delete selected trip id=%s", tid)
         self._exit_trip_select_mode()
 
-    def _trip_detail_title(self, trip: Any) -> str:
+    def _trip_display_title(self, trip: Any) -> str:
+        """Label if set, otherwise formatted start date."""
+        label = trip["label"] if "label" in trip.keys() else None
+        if label:
+            return label
         started = self._parse_ts(trip["started_at"])
         if started is None:
             return _translate(self.language, "cars.trip.title", id=int(trip["id"]))
-        return started.strftime("%d.%m.%Y %H:%M")
+        return started.strftime("%d.%m.%Y · %H:%M")
+
+    def _trip_detail_title(self, trip: Any) -> str:
+        return self._trip_display_title(trip)
 
     # ---------------------------------------------------- Scan-Liste & Detail

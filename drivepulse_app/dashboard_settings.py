@@ -77,31 +77,49 @@ class DashboardSettingsMixin:
 
     def _open_sync(self, *_args: Any) -> None:
         import gi
+        gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        from gi.repository import Adw, GLib
+        from gi.repository import Adw, Gtk
         from .sync_dialog import SyncDialog
 
-        title = _translate(self.language, "sync.title")
-        alert = Adw.AlertDialog(body="")
-        alert.set_heading_use_markup(True)
-        alert.set_heading(f'<span background="#2ec27e" foreground="white"> {GLib.markup_escape_text(title)} </span>')
-        alert.add_response("cancel", _translate(self.language, "sync.choose.cancel"))
-        alert.add_response("server", _translate(self.language, "sync.choose.server"))
-        alert.add_response("client", _translate(self.language, "sync.choose.client"))
-        alert.set_response_appearance("cancel", Adw.ResponseAppearance.SUGGESTED)
-        alert.set_default_response("cancel")
-        alert.set_close_response("cancel")
+        dialog = Adw.Dialog()
+        dialog.set_title(_translate(self.language, "sync.title"))
+        dialog.set_content_width(320)
 
-        def _on_response(_dlg: Any, response: str) -> None:
-            if response in ("server", "client"):
-                SyncDialog(
-                    self, self.language, self.db,
-                    initial_mode=response,
-                    on_sync_complete=lambda: self.cars_page.refresh_profiles(),
-                ).present(self)
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        toolbar_view.add_top_bar(header)
 
-        alert.connect("response", _on_response)
-        alert.present(self)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+
+        def _launch(mode: str) -> None:
+            dialog.close()
+            SyncDialog(
+                self, self.language, self.db,
+                initial_mode=mode,
+                on_sync_complete=lambda: self.cars_page.refresh_profiles(),
+            ).present(self)
+
+        client_btn = Gtk.Button(label=_translate(self.language, "sync.choose.client"))
+        client_btn.add_css_class("pill")
+        client_btn.set_hexpand(True)
+        client_btn.connect("clicked", lambda _b: _launch("client"))
+
+        server_btn = Gtk.Button(label=_translate(self.language, "sync.choose.server"))
+        server_btn.add_css_class("pill")
+        server_btn.set_hexpand(True)
+        server_btn.connect("clicked", lambda _b: _launch("server"))
+
+        box.append(client_btn)
+        box.append(server_btn)
+
+        toolbar_view.set_content(box)
+        dialog.set_child(toolbar_view)
+        dialog.present(self)
 
     def _set_obd_port(self, port: str | None) -> None:
         if port == self.obd_port:
