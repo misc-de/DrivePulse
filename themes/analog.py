@@ -401,14 +401,15 @@ def _voltage_halfmoon_right(
     # Lightning bolt icon (mirrored position of fuel pump)
     isz = max(12.0, r * 0.22)
     ix  = cx - r * 0.42 + isz
-    iy  = cy + r * 0.28 + isz + 10
+    iy  = cy + r * 0.28 + isz + 15  # 5 px lower
+    bsz = isz * 1.35               # bolder / larger
     cr.set_source_rgba(*dim_col, 0.70 * a)
-    cr.move_to(ix - isz*0.18,  iy - isz*0.80)  # top-left tip (mirrored)
-    cr.line_to(ix + isz*0.18,  iy + isz*0.06)  # mid-right
-    cr.line_to(ix - isz*0.08,  iy + isz*0.06)  # mid inner-left
-    cr.line_to(ix + isz*0.18,  iy + isz*0.80)  # bottom-right tip (mirrored)
-    cr.line_to(ix - isz*0.18,  iy - isz*0.06)  # mid-left
-    cr.line_to(ix + isz*0.08,  iy - isz*0.06)  # mid inner-right
+    cr.move_to(ix - bsz*0.18,  iy - bsz*0.80)
+    cr.line_to(ix + bsz*0.18,  iy + bsz*0.06)
+    cr.line_to(ix - bsz*0.08,  iy + bsz*0.06)
+    cr.line_to(ix + bsz*0.18,  iy + bsz*0.80)
+    cr.line_to(ix - bsz*0.18,  iy - bsz*0.06)
+    cr.line_to(ix + bsz*0.08,  iy - bsz*0.06)
     cr.close_path()
     cr.fill()
 
