@@ -116,6 +116,8 @@ class DashboardTelemetryMixin:
             self._set_link_indicator(self.gps_indicator, self._gps_connected_with_holdover(gps_speed_kmh), False)
             self.acceleration_page.update_payload(payload, self._plain_number)
             self.cars_page.update_live(payload)
+            if hasattr(self, "map_page"):
+                self.map_page.update_gps(lat, lon, gps_heading)
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
                 display = self._display_speed(gps_speed_kmh)
                 src_gps = _translate(self.language, "gauge.source.gps")
