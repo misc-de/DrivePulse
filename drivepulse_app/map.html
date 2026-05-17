@@ -283,7 +283,7 @@ function mapSetCar(lat, lon, heading) {
   _gpsLat = lat; _gpsLon = lon;
   if (carMarker) carMarker.setLngLat([lon, lat]);
   if (followMode) {
-    map.easeTo({ center: [lon, lat], bearing: 0, pitch: 0, duration: 350 });
+    map.easeTo({ center: [lon, lat], bearing: 0, pitch: 0, duration: 200 });
   }
 }
 

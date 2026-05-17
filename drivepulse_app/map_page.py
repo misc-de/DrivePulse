@@ -12,8 +12,8 @@ import json
 import math
 import os
 import threading
+import time
 import urllib.parse
-import urllib.request
 from typing import Any
 
 import gi
@@ -48,6 +48,7 @@ except (ValueError, ImportError):
 
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 from .diagnostics import get_logger
+from .http_client import http_get
 
 log = get_logger(__name__)
 
@@ -87,7 +88,7 @@ def _bab_fetch_road(road: str) -> list[dict]:
         ("roadworks", "roadworks", "roadworks"),
         ("warning",   "warning",   "incidents"),
     ):
-        data = _http_get(f"{_BAB_BASE}/{encoded}/services/{service}")
+        data = http_get(f"{_BAB_BASE}/{encoded}/services/{service}")
         if data:
             for entry in data.get(key, []):
                 entry["_kind"] = kind
@@ -97,12 +98,12 @@ def _bab_fetch_road(road: str) -> list[dict]:
 
 
 def _bab_fetch_all() -> list[dict]:
-    roads_resp = _http_get(f"{_BAB_BASE}/")
+    roads_resp = http_get(f"{_BAB_BASE}/")
     if not roads_resp:
         return []
     roads: list[str] = roads_resp.get("roads", [])
     all_items: list[dict] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         for result in pool.map(_bab_fetch_road, roads):
             all_items.extend(result)
     return all_items
@@ -112,27 +113,13 @@ def _bab_fetch_all() -> list[dict]:
 
 _OSRM_PROFILE = {"car": "driving", "bicycle": "cycling", "motorcycle": "driving"}
 
-# ── Network helpers ───────────────────────────────────────────────────────────
-
-_UA = {"User-Agent": "DrivePulse/1.0"}
-
-
-def _http_get(url: str) -> Any:
-    try:
-        req = urllib.request.Request(url, headers=_UA)
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())
-    except Exception as exc:
-        log.warning("HTTP GET failed %s — %s", url, exc)
-        return None
-
 
 def _geocode(query: str) -> tuple[float, float] | None:
     url = (
         "https://nominatim.openstreetmap.org/search"
         f"?q={urllib.parse.quote(query)}&format=json&limit=1"
     )
-    data = _http_get(url)
+    data = http_get(url)
     if data:
         return float(data[0]["lat"]), float(data[0]["lon"])
     return None
@@ -148,7 +135,7 @@ def _osrm_route(
         f"https://router.project-osrm.org/route/v1/{profile}/{coord_str}"
         "?overview=full&geometries=geojson"
     )
-    data = _http_get(url)
+    data = http_get(url)
     if data and data.get("code") == "Ok" and data.get("routes"):
         route = data["routes"][0]
         return route["geometry"]["coordinates"], float(route.get("duration", 0))
@@ -234,6 +221,7 @@ class MapPage(Gtk.Box):
         self._gps_lon: float | None = None
         self._gps_heading: float = 0.0
         self._follow_gps: bool = True
+        self._last_map_js: float = 0.0   # throttle: last time mapSetCar was sent
         self._map_type_idx: int = 0
         self._routing_mode: str = "car"
         self._start_coord: tuple[float, float] | None = None
@@ -629,9 +617,14 @@ class MapPage(Gtk.Box):
         self._webview.set_vexpand(True)
 
         settings = self._webview.get_settings()
-        for prop in ("allow-file-access-from-file-urls", "allow-universal-access-from-file-urls"):
+        for prop, val in (
+            ("allow-file-access-from-file-urls", True),
+            ("allow-universal-access-from-file-urls", True),
+            ("enable-accelerated-2d-canvas", True),
+            ("enable-webgl", True),
+        ):
             try:
-                settings.set_property(prop, True)
+                settings.set_property(prop, val)
             except Exception:
                 pass
 
@@ -749,6 +742,9 @@ class MapPage(Gtk.Box):
 
     # ── GPS position updates ──────────────────────────────────────────────────
 
+    # Max rate at which position updates are pushed to the map renderer (seconds)
+    _MAP_JS_INTERVAL = 0.25  # 4 Hz
+
     def update_gps(
         self,
         lat: float | None,
@@ -762,7 +758,10 @@ class MapPage(Gtk.Box):
         self._gps_heading = heading or 0.0
 
         if self._backend == "webkit":
-            self._js(f"mapSetCar({lat}, {lon}, {self._gps_heading})")
+            now = time.monotonic()
+            if now - self._last_map_js >= self._MAP_JS_INTERVAL:
+                self._last_map_js = now
+                self._js(f"mapSetCar({lat}, {lon}, {self._gps_heading})")
         elif self._backend == "shumate" and self._shumate_map is not None:
             if self._car_marker is None:
                 drawing = Gtk.DrawingArea()
@@ -973,7 +972,7 @@ class MapPage(Gtk.Box):
             "out body;"
         )
         url = f"https://overpass-api.de/api/interpreter?data={urllib.parse.quote(q)}"
-        data = _http_get(url)
+        data = http_get(url)
         GLib.idle_add(self._poi_result_shumate, data)
 
     def _poi_result_shumate(self, data: Any) -> bool:
