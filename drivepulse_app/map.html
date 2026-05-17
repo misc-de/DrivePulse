@@ -388,18 +388,41 @@ function mapSetPoiVisible(visible) {
   if (visible) _fetchPoi();
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  initMap(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
-  // Re-measure canvas whenever the container is resized (e.g. tab shown, window resize).
-  if (typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(() => { if (map) map.resize(); })
-      .observe(document.getElementById('map'));
-  }
-});
-
 function mapResize() {
   if (map) map.resize();
 }
+
+window.addEventListener('DOMContentLoaded', () => {
+  const mapEl = document.getElementById('map');
+
+  function tryInit() {
+    if (!initialized && mapEl.clientWidth > 0 && mapEl.clientHeight > 0) {
+      initMap(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
+    }
+  }
+
+  // Observe container size — init as soon as we have real dimensions,
+  // then keep resizing on every layout change (tab switch, window resize).
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => {
+      if (!initialized) {
+        tryInit();
+      } else if (map) {
+        map.resize();
+      }
+    }).observe(mapEl);
+  }
+
+  // Also try immediately (works when map tab is the default/active tab).
+  tryInit();
+
+  // Last-resort fallback: poll for a real size during the first 2 s.
+  let _initTries = 0;
+  const _initTimer = setInterval(() => {
+    if (initialized || ++_initTries > 20) { clearInterval(_initTimer); return; }
+    tryInit();
+  }, 100);
+});
 </script>
 </body>
 </html>
