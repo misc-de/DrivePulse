@@ -380,7 +380,7 @@ class MapPage(Gtk.Box):
         fab.set_halign(Gtk.Align.END)
         fab.set_valign(Gtk.Align.END)
         fab.set_margin_end(12)
-        fab.set_margin_bottom(12)
+        fab.set_margin_bottom(36)
 
         self._traffic_btn = Gtk.ToggleButton(icon_name="emblem-important-symbolic")
         self._traffic_btn.add_css_class("circular")
@@ -494,6 +494,9 @@ class MapPage(Gtk.Box):
                     log.warning("Could not create tile source for %s — using OSM fallback", key)
 
         self._shumate_map.set_map_source(self._sources["map"])
+
+        self._shumate_map.get_scale().set_margin_bottom(24)
+        self._shumate_map.get_license().set_margin_bottom(24)
 
         self._inner_map = (
             self._shumate_map.get_map()

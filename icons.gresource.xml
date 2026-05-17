@@ -12,5 +12,7 @@
     <file alias="share-alt-symbolic.svg">icons/hicolor/symbolic/actions/share-alt-symbolic.svg</file>
     <file alias="navigate-north-symbolic.svg">icons/hicolor/symbolic/actions/navigate-north-symbolic.svg</file>
     <file alias="xsi-search.svg">icons/hicolor/symbolic/actions/xsi-search.svg</file>
+    <file alias="kstars_satellites-symbolic.svg">icons/hicolor/symbolic/actions/kstars_satellites-symbolic.svg</file>
+    <file alias="dialog-layers-symbolic.svg">icons/hicolor/symbolic/actions/dialog-layers-symbolic.svg</file>
   </gresource>
 </gresources>
