@@ -162,6 +162,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page = CarsPage(self.language, db=self.db, sidebar_side=self.sidebar_side)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
+        self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
 
         self.map_page = MapPage(self.language)

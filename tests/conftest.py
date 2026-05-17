@@ -190,6 +190,15 @@ class _StringList(_Widget):
         self.children.append(value)
 
 
+class _ListStore(_Widget):
+    def __init__(self, item_type=None, **kwargs) -> None:
+        super().__init__(item_type=item_type, **kwargs)
+        self.item_type = item_type
+
+    def append(self, value: object) -> None:
+        self.children.append(value)
+
+
 class _ComboRow(_Widget):
     def __init__(self, title: str = "") -> None:
         super().__init__(title=title)
@@ -218,6 +227,14 @@ class _DrawingArea(_Widget):
 
 
 class _GestureSwipe(_Widget):
+    pass
+
+
+class _SignalListItemFactory(_Widget):
+    pass
+
+
+class _ListItem(_Widget):
     pass
 
 
@@ -267,10 +284,12 @@ def drivepulse_module(monkeypatch):
         Grid=_Grid,
         Image=_Image,
         Label=_Label,
+        ListItem=_ListItem,
         Orientation=_Orientation,
         PolicyType=_PolicyType,
         ScrolledWindow=_Widget,
         SelectionMode=_SelectionMode,
+        SignalListItemFactory=_SignalListItemFactory,
         Spinner=_Spinner,
         StringList=_StringList,
         StyleContext=types.SimpleNamespace(add_provider_for_display=lambda *a: None),
@@ -294,7 +313,7 @@ def drivepulse_module(monkeypatch):
     )
     glib = types.SimpleNamespace(idle_add=lambda callback, *args: callback(*args))
     gobject = types.SimpleNamespace(Object=object)
-    gio = types.SimpleNamespace()
+    gio = types.SimpleNamespace(ListStore=_ListStore)
     pango = types.SimpleNamespace(WrapMode=_WrapMode)
     gdk = types.SimpleNamespace(Display=types.SimpleNamespace(get_default=lambda: None))
 

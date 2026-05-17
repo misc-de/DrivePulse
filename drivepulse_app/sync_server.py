@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import ssl
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -48,6 +49,12 @@ class SyncServer:
     def start(self) -> None:
         if self._cancelled:
             return
+        log.info(
+            "Sync server start requested in pid=%s thread=%s",
+            os.getpid(),
+            threading.current_thread().name,
+            stack_info=True,
+        )
         server = self
 
         def make_handler(*args: Any, **kwargs: Any) -> _SyncHandler:
@@ -64,6 +71,7 @@ class SyncServer:
         if httpd is None:
             raise OSError(f"No free port found in range {self.PORT}–{self.PORT + 9}")
         self.actual_port = port
+        log.info("Sync server binding on 0.0.0.0:%s", port)
 
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(str(self._cert_path), str(self._key_path))
