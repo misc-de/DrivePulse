@@ -26,13 +26,14 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an ELM327 adapter and r
 - Multiple dashboard themes (Analog, Cockpit, Digital, Modern, Neon, Racing, Sport)
 - Circular and halfmoon gauges for RPM, speed, coolant temperature, fuel level, battery voltage
 - Analog theme: halfmoon fuel gauge (left edge) and battery voltage gauge (right edge) with color-coded danger zones
-- Automatic landscape / portrait layout switching
-- **Acceleration measurement** — 0–30 / 0–50 / 0–70 / 0–100 / 0–110 / … / 0–200 km/h and 100–200 km/h from OBD and GPS data; replay completed runs with real-time animation
+- Automatic landscape / portrait layout switching based on window dimensions
+- **Acceleration measurement** — 0–30 / 0–50 / 0–70 / 0–100 / … / 0–200 km/h and 100–200 km/h from OBD and GPS; G-force ball display with real-time longitudinal and lateral G; Vmax elapsed times (OBD / GPS / average) shown at end of run; replay completed runs with real-time animation
 - GPS integration via GeoClue2 (D-Bus) and GPSD; indicator turns green on active fix
-- **Cars / Trips page** — lists all vehicles seen, with recorded trips, OBD scan history and acceleration runs per vehicle; trip detail includes speed/RPM/G chart + map track
+- **Cars / Trips page** — lists all vehicles seen, with recorded trips, OBD scan history and acceleration runs per vehicle; trip detail includes speed/RPM/G chart + map track; sidebar collapses to icon-only on narrow screens (phones), shows labels on wide screens (tablets/desktop)
 - OBD scan history with DTC fault codes, supported PIDs and trend comparison between scans
 - Acceleration runs stored per vehicle (date, GPS location, all split times, G-force peaks)
-- Settings: units (km/h / mph), language (English / German), mock mode toggle
+- **Device sync** — transfer the full database between two devices over a local Wi-Fi connection; server generates a QR code, client scans it; TLS-encrypted; auto-selects a free port if 8765 is occupied
+- Settings: units (km/h / mph), language (English / German), gauge theme, mock mode toggle
 
 ---
 
@@ -85,27 +86,68 @@ bash uninstall.sh   # to remove
 ```
 drivepulse.py              Launcher (imports drivepulse_app.app)
 drivepulse_app/
-  app.py                   Main application window, OBD/GPS dispatch loop
-  acceleration.py          Acceleration measurement page and replay
+  app.py                   Application entry point (Adw.Application subclass)
+  app_settings.py          Load / save persistent user settings (JSON)
+  common.py                Shared constants and utility functions
+  translations.py          Translation catalog (EN / DE) and _translate helper
+  diagnostics.py           Logging helpers
+
+  dashboard_window.py      Main application window (Adw.ApplicationWindow)
+  dashboard_layout.py      Responsive gauge layout mixin (portrait / landscape)
+  dashboard_settings.py    Settings callbacks mixin
+  dashboard_telemetry.py   OBD + GPS payload dispatch mixin
+  dashboard_data.py        DashData dataclass used by dashboard themes
+  dashboard.py             Dashboard canvas and theme dispatcher
+
+  gauge.py                 Circular gauge widget (Cairo)
+  draw_helpers.py          Shared Cairo drawing utilities
+
+  acceleration.py          Acceleration measurement page (GTK widget)
+  acceleration_canvas.py   G-force ball canvas widget
+  acceleration_processing.py  Payload processing mixin (timing, G logic)
+  acceleration_replay.py   Run replay mixin
+
   cars.py                  Vehicles / trips / scans / acceleration runs page
+  cars_layout.py           Cars page layout mixin (sidebar / detail split)
+  cars_detail_render.py    Car detail content renderer
   cars_metadata.py         OBD PID catalogue and category definitions
   cars_profiles.py         OBD profile loader
+  cars_actions.py          Car CRUD actions (rename, delete)
+  cars_trips.py            Trip list and detail widgets
   cars_trip_widgets.py     Trip detail chart + map widget
+  cars_trip_visuals.py     Trip chart drawing helpers
+  cars_scans.py            Scan list and detail widgets
   cars_scan_widgets.py     Scan detail widget
-  common.py                Translations, shared constants, utility functions
-  dashboard.py             Dashboard canvas and DashData dataclass
+  cars_accel_runs.py       Acceleration run list and detail widgets
+
   db.py                    SQLite storage (cars, trips, samples, scans, acceleration_runs)
-  draw_helpers.py          Shared Cairo drawing utilities
-  gauge.py                 Circular gauge widget (Cairo)
-  gps_reader.py            GeoClue2 + GPSD reader
-  mock_obd.py              Mock OBD simulator for development
-  obd_devices.py           ELM327 device detection
+  trip_recorder.py         Ongoing trip recording logic
+
+  obd_reader.py            OBD connection manager (real + mock)
   obd_polling.py           OBD polling loop
   obd_scanner.py           Full OBD scan (PIDs, DTCs, identity)
-  orientation_reader.py    Screen orientation/rotation sensor
-  settings_dialog.py       Settings UI
-  telemetry_utils.py       Telemetry helpers
+  obd_devices.py           ELM327 device detection
+  mock_obd.py              Mock OBD simulator for development
   bluetooth_bridge.py      Bluetooth RFCOMM helper
+
+  gps_reader.py            GeoClue2 + GPSD reader
+  orientation_reader.py    Accelerometer sensor reader (g-force data)
+
+  sync_dialog.py           Sync UI (server / client flow, QR display)
+  sync_server.py           HTTPS sync server (TLS, port auto-select 8765+)
+  sync_client.py           Sync client (TLS, certificate pinning)
+  sync_flow.py             Pairing URL parsing and sync protocol
+  sync_data.py             Database export / import and paired-device registry
+  sync_crypto.py           TLS key-pair generation, SPKI fingerprint, token helpers
+  sync_identity.py         Persistent device identity (ID + certificate paths)
+  sync_qrgen.py            Pure-Python QR code generator (SVG → GdkPixbuf)
+  sync_qr_scanner.py       Webcam QR scanner via GStreamer + zxing
+
+  settings_dialog.py       Settings UI (Adw.PreferencesDialog)
+  icon_registry.py         Bundled SVG icon registration
+  startup_info.py          Python package dependency checker
+  telemetry_utils.py       Telemetry helpers
+
 themes/
   analog.py                Analog halfmoon dashboard theme
   cockpit.py               Cockpit theme
