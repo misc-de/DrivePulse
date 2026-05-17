@@ -235,10 +235,9 @@ class MapPage(Gtk.Box):
         self._traffic_layer: Any = None
         self._traffic_loaded: bool = False
 
-        # Waypoint entries (dynamic intermediate stops)
-        self._wp_entries: list[Gtk.Entry] = []
-        self._wp_container: Gtk.Box | None = None
-        self._add_wp_btn: Gtk.Button | None = None
+        # Entry rows: flat list of (row_box, entry, remove_btn)
+        self._entry_rows: list[tuple[Gtk.Box, Gtk.Entry, Gtk.Button]] = []
+        self._entries_container: Gtk.Box | None = None
 
         self._build_search_bar()
         self._build_map()
@@ -263,35 +262,23 @@ class MapPage(Gtk.Box):
         bar.set_margin_start(8)
         bar.set_margin_end(8)
 
-        # Start entry
-        self._start_entry = Gtk.Entry()
-        self._start_entry.set_placeholder_text(_translate(self.language, "map.search.start"))
-        self._start_entry.set_hexpand(True)
-        self._start_entry.connect("activate", self._on_route_clicked)
-        bar.append(self._start_entry)
+        self._entries_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        bar.append(self._entries_container)
 
-        # Dynamic intermediate waypoint rows
-        self._wp_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        bar.append(self._wp_container)
+        # Two initial rows: start + end
+        self._entry_rows = []
+        for _ in range(2):
+            self._entries_container.append(self._make_entry_row())
+        self._update_placeholders()
+        self._update_remove_sensitivity()
 
-        # End entry
-        self._end_entry = Gtk.Entry()
-        self._end_entry.set_placeholder_text(_translate(self.language, "map.search.end"))
-        self._end_entry.set_hexpand(True)
-        self._end_entry.connect("activate", self._on_route_clicked)
-        bar.append(self._end_entry)
-
-        # Action row: [route] [+] [clear] ... [status→]
+        # Action row: [route] [clear] ... [status→]
         action = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
         self._route_btn = Gtk.Button(icon_name="xsi-search")
         self._route_btn.add_css_class("suggested-action")
         self._route_btn.set_tooltip_text(_translate(self.language, "map.route"))
         self._route_btn.connect("clicked", self._on_route_clicked)
-
-        self._add_wp_btn = Gtk.Button(icon_name="list-add-symbolic")
-        self._add_wp_btn.set_tooltip_text(_translate(self.language, "map.add_waypoint"))
-        self._add_wp_btn.connect("clicked", self._on_add_waypoint)
 
         self._clear_btn = Gtk.Button(icon_name="edit-clear-symbolic")
         self._clear_btn.set_tooltip_text(_translate(self.language, "map.clear"))
@@ -303,35 +290,71 @@ class MapPage(Gtk.Box):
         self._status_lbl.set_hexpand(True)
         self._status_lbl.set_halign(Gtk.Align.END)
 
-        for w in (self._route_btn, self._add_wp_btn, self._clear_btn, self._status_lbl):
+        for w in (self._route_btn, self._clear_btn, self._status_lbl):
             action.append(w)
         bar.append(action)
         self.append(bar)
 
-    def _make_wp_row(self) -> tuple[Gtk.Box, Gtk.Entry]:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    def _make_entry_row(self) -> Gtk.Box:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         entry = Gtk.Entry()
-        entry.set_placeholder_text(_translate(self.language, "map.search.waypoint"))
         entry.set_hexpand(True)
         entry.connect("activate", self._on_route_clicked)
-        remove_btn = Gtk.Button(icon_name="list-remove-symbolic")
-        remove_btn.connect("clicked", lambda _b: self._on_remove_waypoint(row, entry))
+
+        add_btn = Gtk.Button(label="+")
+        add_btn.add_css_class("flat")
+        add_btn.set_valign(Gtk.Align.CENTER)
+        add_btn.connect("clicked", lambda _b, r=row: self._insert_entry_after(r))
+
+        rem_btn = Gtk.Button(label="−")
+        rem_btn.add_css_class("flat")
+        rem_btn.set_valign(Gtk.Align.CENTER)
+        rem_btn.connect("clicked", lambda _b, r=row: self._remove_entry(r))
+
         row.append(entry)
-        row.append(remove_btn)
-        return row, entry
+        row.append(add_btn)
+        row.append(rem_btn)
 
-    def _on_add_waypoint(self, _btn: Gtk.Button) -> None:
-        row, entry = self._make_wp_row()
-        if self._wp_container is not None:
-            self._wp_container.append(row)
-        self._wp_entries.append(entry)
-        entry.grab_focus()
+        self._entry_rows.append((row, entry, rem_btn))
+        return row
 
-    def _on_remove_waypoint(self, row: Gtk.Box, entry: Gtk.Entry) -> None:
-        if entry in self._wp_entries:
-            self._wp_entries.remove(entry)
-        if self._wp_container is not None:
-            self._wp_container.remove(row)
+    def _insert_entry_after(self, after_row: Gtk.Box) -> None:
+        idx = next(i for i, (r, _, __) in enumerate(self._entry_rows) if r is after_row)
+        new_row = self._make_entry_row()
+        # _make_entry_row appended to list; move it to correct position
+        triple = self._entry_rows.pop()
+        self._entry_rows.insert(idx + 1, triple)
+        if self._entries_container is not None:
+            self._entries_container.insert_child_after(new_row, after_row)
+        self._update_placeholders()
+        self._update_remove_sensitivity()
+        triple[1].grab_focus()
+
+    def _remove_entry(self, row: Gtk.Box) -> None:
+        if len(self._entry_rows) <= 2:
+            return
+        idx = next(i for i, (r, _, __) in enumerate(self._entry_rows) if r is row)
+        self._entry_rows.pop(idx)
+        if self._entries_container is not None:
+            self._entries_container.remove(row)
+        self._update_placeholders()
+        self._update_remove_sensitivity()
+
+    def _update_placeholders(self) -> None:
+        n = len(self._entry_rows)
+        for i, (_, entry, __) in enumerate(self._entry_rows):
+            if i == 0:
+                key = "map.search.start"
+            elif i == n - 1:
+                key = "map.search.end"
+            else:
+                key = "map.search.waypoint"
+            entry.set_placeholder_text(_translate(self.language, key))
+
+    def _update_remove_sensitivity(self) -> None:
+        enabled = len(self._entry_rows) > 2
+        for _, __, rem_btn in self._entry_rows:
+            rem_btn.set_sensitive(enabled)
 
     # ── Map area ──────────────────────────────────────────────────────────────
 
@@ -735,11 +758,12 @@ class MapPage(Gtk.Box):
     # ── Route ─────────────────────────────────────────────────────────────────
 
     def _on_route_clicked(self, _widget: Any) -> None:
-        end_text = self._end_entry.get_text().strip()
-        if not end_text:
+        texts = [e.get_text().strip() for _, e, __ in self._entry_rows]
+        if not texts[-1]:
             return
-        start_text = self._start_entry.get_text().strip()
-        wp_texts = [e.get_text().strip() for e in self._wp_entries]
+        start_text = texts[0]
+        wp_texts = texts[1:-1]
+        end_text = texts[-1]
         self._status_lbl.set_text(_translate(self.language, "map.routing.searching"))
         self._route_btn.set_sensitive(False)
         threading.Thread(
@@ -749,14 +773,16 @@ class MapPage(Gtk.Box):
         ).start()
 
     def _on_clear_clicked(self, _btn: Gtk.Button) -> None:
-        self._start_entry.set_text("")
-        self._end_entry.set_text("")
-        # Remove all waypoint rows
-        for entry in list(self._wp_entries):
-            row = entry.get_parent()
-            if row is not None and self._wp_container is not None:
-                self._wp_container.remove(row)
-        self._wp_entries.clear()
+        # Remove all rows except first two (start + end)
+        while len(self._entry_rows) > 2:
+            row, _, __ = self._entry_rows.pop()
+            if self._entries_container is not None:
+                self._entries_container.remove(row)
+        # Clear text in remaining entries
+        for _, entry, __ in self._entry_rows:
+            entry.set_text("")
+        self._update_placeholders()
+        self._update_remove_sensitivity()
         self._clear_btn.set_visible(False)
         self._status_lbl.set_text("")
         if self._backend == "webkit":
@@ -889,14 +915,9 @@ class MapPage(Gtk.Box):
 
     def set_language(self, language: str) -> None:
         self.language = _normalize_language(language)
-        self._start_entry.set_placeholder_text(_translate(self.language, "map.search.start"))
-        self._end_entry.set_placeholder_text(_translate(self.language, "map.search.end"))
+        self._update_placeholders()
         self._route_btn.set_tooltip_text(_translate(self.language, "map.route"))
         self._clear_btn.set_tooltip_text(_translate(self.language, "map.clear"))
-        if self._add_wp_btn is not None:
-            self._add_wp_btn.set_tooltip_text(_translate(self.language, "map.add_waypoint"))
-        for entry in self._wp_entries:
-            entry.set_placeholder_text(_translate(self.language, "map.search.waypoint"))
         layer = _MAP_TYPES[self._map_type_idx]
         if self._layer_btn is not None:
             self._layer_btn.set_tooltip_text(_translate(self.language, _MAP_LABEL_KEYS[layer]))
