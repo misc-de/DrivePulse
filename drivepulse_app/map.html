@@ -390,7 +390,16 @@ function mapSetPoiVisible(visible) {
 
 window.addEventListener('DOMContentLoaded', () => {
   initMap(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
+  // Re-measure canvas whenever the container is resized (e.g. tab shown, window resize).
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => { if (map) map.resize(); })
+      .observe(document.getElementById('map'));
+  }
 });
+
+function mapResize() {
+  if (map) map.resize();
+}
 </script>
 </body>
 </html>
