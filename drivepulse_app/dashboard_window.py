@@ -288,6 +288,17 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         switcher_bar.set_stack(self.view_stack)
         switcher_bar.set_reveal(True)
 
+        landscape_switcher = Adw.ViewSwitcherBar()
+        landscape_switcher.set_stack(self.view_stack)
+        landscape_switcher.set_reveal(True)
+        nav_rotator = RotatedContainer()
+        nav_rotator.set_child(landscape_switcher)
+        nav_rotator.set_valign(Gtk.Align.CENTER)
+        nav_rotator.set_halign(Gtk.Align.START)
+        nav_rotator.set_hexpand(False)
+        nav_rotator.set_vexpand(False)
+        nav_rotator.set_visible(False)
+
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         self.title_label = Gtk.Label(label=_translate(self.language, "window.title"))
@@ -329,15 +340,22 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         switcher_top = Adw.ViewSwitcherBar()
         switcher_top.set_stack(self.view_stack)
 
-        self.header        = header
-        self.switcher_bar  = switcher_bar        # bottom bar (default)
-        self.switcher_top  = switcher_top
-        self.toolbar_view  = toolbar_view
+        stack_overlay = Gtk.Overlay()
+        stack_overlay.set_child(self.view_stack)
+        stack_overlay.add_overlay(nav_rotator)
+
+        self.header              = header
+        self.switcher_bar        = switcher_bar        # bottom bar (default)
+        self.switcher_top        = switcher_top
+        self._landscape_switcher = landscape_switcher
+        self._nav_rotator        = nav_rotator
+        self._current_rotation   = 0
+        self.toolbar_view        = toolbar_view
         toolbar_view.add_top_bar(header)
         toolbar_view.add_top_bar(switcher_top)
         toolbar_view.add_bottom_bar(switcher_bar)
         self._apply_nav_position(self.nav_position)
-        toolbar_view.set_content(self.view_stack)
+        toolbar_view.set_content(stack_overlay)
 
         self._nav_visible = True
         self._last_swipe_time = 0.0
@@ -347,7 +365,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         tap = Gtk.GestureClick()
         tap.connect("pressed", self._on_content_press)
         tap.connect("released", self._on_content_tap)
-        self.view_stack.add_controller(tap)
+        stack_overlay.add_controller(tap)
 
         self.set_content(toolbar_view)
         self.connect("notify::default-width", self._on_size_changed)
@@ -375,10 +393,31 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._dashcam_rec_box.set_visible(recording)
 
     def _apply_page_rotation(self, angle: int) -> None:
+        self._current_rotation = angle
         self._gauge_rotator.set_rotation(angle)
         self._stopwatch_rotator.set_rotation(angle)
         self._cars_rotator.set_rotation(angle)
         self._map_rotator.set_rotation(angle)
+        self.dashcam_page.update_ui_rotation(angle)
+
+        is_landscape = angle in (90, 270)
+        self._nav_rotator.set_visible(is_landscape and self._nav_visible)
+        if is_landscape:
+            self.switcher_bar.set_reveal(False)
+            self.switcher_top.set_reveal(False)
+            nr = self._nav_rotator
+            nr.set_rotation(angle)
+            if angle == 90:
+                nr.set_halign(Gtk.Align.START)
+                nr.set_margin_start(0)
+                nr.set_margin_end(0)
+            else:
+                nr.set_halign(Gtk.Align.END)
+                nr.set_margin_start(0)
+                nr.set_margin_end(0)
+        else:
+            self._apply_nav_position(self.nav_position)
+
         GLib.idle_add(self._on_size_changed)
 
     def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
@@ -446,8 +485,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     def _set_nav_visible(self, visible: bool) -> None:
         self._nav_visible = visible
         self.header.set_visible(visible)
-        self.switcher_bar.set_visible(visible)
         self.footer.set_visible(visible)
+        if self._current_rotation in (90, 270):
+            self._nav_rotator.set_visible(visible)
+        else:
+            self.switcher_bar.set_visible(visible)
         if self.view_stack.get_visible_child_name() == self.PAGE_MAP:
             self.map_page.set_nav_visible(visible)
 
