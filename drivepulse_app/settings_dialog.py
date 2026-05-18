@@ -102,7 +102,7 @@ class SettingsDialog(Adw.Dialog):
         self.on_rotation_mode_changed = on_rotation_mode_changed
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
-        self.set_content_width(540)
+        self.set_content_width(380)
 
         # ── Build all option rows (assigned to pages further below) ──────────
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
@@ -426,16 +426,37 @@ class SettingsDialog(Adw.Dialog):
         gps_group.add(gps_osd_row)
         dc_page.add(gps_group)
 
-        # ── Build Stack + StackSwitcher header (no icons) ─────────────────────
-        view_stack = Gtk.Stack()
-        view_stack.add_titled(app_page, "app", _translate(self.language, "settings.page.app"))
-        view_stack.add_titled(display_page, "display", _translate(self.language, "settings.page.display"))
-        view_stack.add_titled(tour_page, "tour", _translate(self.language, "settings.page.tour"))
-        view_stack.add_titled(dc_page, "dashcam", _translate(self.language, "settings.page.dashcam"))
-        view_stack.add_titled(tacho_page, "tacho", _translate(self.language, "settings.page.tacho"))
+        # ── Build ViewStack + ViewSwitcher header (icon-only, mobile-friendly) ─
+        view_stack = Adw.ViewStack()
+        view_stack.add_titled_with_icon(
+            app_page, "app",
+            _translate(self.language, "settings.page.app"),
+            "applications-system-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            display_page, "display",
+            _translate(self.language, "settings.page.display"),
+            "video-display-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            tour_page, "tour",
+            _translate(self.language, "settings.page.tour"),
+            "navigate-north-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            dc_page, "dashcam",
+            _translate(self.language, "settings.page.dashcam"),
+            "camera-video-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            tacho_page, "tacho",
+            _translate(self.language, "settings.page.tacho"),
+            "speedometer4-symbolic",
+        )
 
-        switcher = Gtk.StackSwitcher()
+        switcher = Adw.ViewSwitcher()
         switcher.set_stack(view_stack)
+        switcher.set_policy(Adw.ViewSwitcherPolicy.NARROW)
 
         dlg_header = Adw.HeaderBar()
         dlg_header.set_title_widget(switcher)
