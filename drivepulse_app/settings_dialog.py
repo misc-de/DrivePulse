@@ -51,6 +51,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_sidebar_side_changed: Callable[[str], None] | None = None,
         current_theme_mode: str = "auto",
         on_theme_mode_changed: Callable[[str], None] | None = None,
+        current_force_webkit_map: bool = False,
+        on_force_webkit_map_changed: Callable[[bool], None] | None = None,
         current_last_check: str | None = None,
         on_last_check_updated: Callable[[str], None] | None = None,
     ) -> None:
@@ -63,6 +65,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.on_gauge_theme_changed = on_gauge_theme_changed
         self.on_sidebar_side_changed = on_sidebar_side_changed
         self.on_theme_mode_changed = on_theme_mode_changed
+        self.on_force_webkit_map_changed = on_force_webkit_map_changed
         self.on_last_check_updated = on_last_check_updated
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
@@ -126,11 +129,23 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.theme_mode_row.set_selected(_THEME_MODES.index(selected_mode))
         self.theme_mode_row.connect("notify::selected", self._on_theme_mode_selected)
 
+        self.force_webkit_map_switch = Gtk.Switch()
+        self.force_webkit_map_switch.set_active(current_force_webkit_map)
+        self.force_webkit_map_switch.set_valign(Gtk.Align.CENTER)
+        self.force_webkit_map_switch.connect("notify::active", self._on_force_webkit_map_changed)
+        self.force_webkit_map_row = Adw.ActionRow(
+            title=_translate(self.language, "settings.map.webkit"),
+            subtitle=_translate(self.language, "settings.map.webkit.subtitle"),
+        )
+        self.force_webkit_map_row.add_suffix(self.force_webkit_map_switch)
+        self.force_webkit_map_row.set_activatable_widget(self.force_webkit_map_switch)
+
         group.add(self.unit_row)
         group.add(self.language_row)
         group.add(self.theme_mode_row)
         group.add(self.gauge_theme_row)
         group.add(self.sidebar_side_row)
+        group.add(self.force_webkit_map_row)
         group.add(self.mock_row)
         page.add(group)
 
@@ -278,6 +293,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         if self.on_theme_mode_changed is not None:
             modes = ["auto", "dark", "light"]
             self.on_theme_mode_changed(modes[self.theme_mode_row.get_selected()])
+
+    def _on_force_webkit_map_changed(self, *_args: Any) -> None:
+        if self.on_force_webkit_map_changed is not None:
+            self.on_force_webkit_map_changed(self.force_webkit_map_switch.get_active())
 
     # ── Update check ──────────────────────────────────────────────────────────
 
