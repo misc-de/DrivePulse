@@ -533,22 +533,12 @@ class DashcamPage(Gtk.Box):
         and buttons read upright.
 
         angle=0   (normal)                       → portrait BOTTOM, no rotation
-        angle=90  (right-up / CCW device tilt)   → portrait LEFT,   rotate 90°
+        angle=90  (left-up  / CW  device tilt)   → portrait LEFT,   rotate 90°
         angle=180 (bottom-up)                    → portrait TOP,    rotate 180°
-        angle=270 (left-up  / CW  device tilt)   → portrait RIGHT,  rotate -90°
+        angle=270 (right-up / CCW device tilt)   → portrait RIGHT,  rotate 270°
         """
         rot = self._bar_rotator
         if is_landscape and angle == 90:
-            rot.set_valign(Gtk.Align.CENTER)
-            rot.set_halign(Gtk.Align.END)
-            rot.set_hexpand(False)
-            rot.set_vexpand(False)
-            rot.set_margin_start(0)
-            rot.set_margin_end(8)
-            rot.set_margin_top(8)
-            rot.set_margin_bottom(8)
-            rot.set_rotation(270)
-        elif is_landscape and angle == 270:
             rot.set_valign(Gtk.Align.CENTER)
             rot.set_halign(Gtk.Align.START)
             rot.set_hexpand(False)
@@ -558,6 +548,16 @@ class DashcamPage(Gtk.Box):
             rot.set_margin_top(8)
             rot.set_margin_bottom(8)
             rot.set_rotation(90)
+        elif is_landscape and angle == 270:
+            rot.set_valign(Gtk.Align.CENTER)
+            rot.set_halign(Gtk.Align.END)
+            rot.set_hexpand(False)
+            rot.set_vexpand(False)
+            rot.set_margin_start(0)
+            rot.set_margin_end(8)
+            rot.set_margin_top(8)
+            rot.set_margin_bottom(8)
+            rot.set_rotation(270)
         elif angle == 180:
             rot.set_valign(Gtk.Align.START)
             rot.set_halign(Gtk.Align.FILL)
