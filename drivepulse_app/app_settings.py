@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from .common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language
@@ -10,6 +11,7 @@ from .diagnostics import get_logger
 
 log = get_logger(__name__)
 
+_DASHCAM_BASE = Path.home() / "Videos" / "DrivePulse" / "Dashcam"
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "units": "metric",
@@ -25,6 +27,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "dashcam_seg_minutes": 3,
     "dashcam_max_segments": 10,
     "dashcam_dim_timeout": 30,
+    "dashcam_rolling_dir": str(_DASHCAM_BASE / "rolling"),
+    "dashcam_saved_dir": str(_DASHCAM_BASE / "saved"),
 }
 
 
@@ -64,6 +68,8 @@ def load_settings() -> dict[str, Any]:
         "dashcam_seg_minutes": max(1, min(30, int(data.get("dashcam_seg_minutes", 3)))),
         "dashcam_max_segments": max(2, min(60, int(data.get("dashcam_max_segments", 10)))),
         "dashcam_dim_timeout": max(0, min(300, int(data.get("dashcam_dim_timeout", 30)))),
+        "dashcam_rolling_dir": data.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
+        "dashcam_saved_dir": data.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
     }
 
 
@@ -88,6 +94,8 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "dashcam_seg_minutes": max(1, min(30, int(settings.get("dashcam_seg_minutes", 3)))),
                 "dashcam_max_segments": max(2, min(60, int(settings.get("dashcam_max_segments", 10)))),
                 "dashcam_dim_timeout": max(0, min(300, int(settings.get("dashcam_dim_timeout", 30)))),
+                "dashcam_rolling_dir": settings.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
+                "dashcam_saved_dir": settings.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
             },
             indent=2,
         ),

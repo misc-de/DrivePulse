@@ -38,6 +38,8 @@ class DashboardSettingsMixin:
                 "dashcam_seg_minutes": getattr(self, "dashcam_seg_minutes", 3),
                 "dashcam_max_segments": getattr(self, "dashcam_max_segments", 10),
                 "dashcam_dim_timeout": getattr(self, "dashcam_dim_timeout", 30),
+                "dashcam_rolling_dir": getattr(self, "dashcam_rolling_dir", ""),
+                "dashcam_saved_dir": getattr(self, "dashcam_saved_dir", ""),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -93,6 +95,10 @@ class DashboardSettingsMixin:
             on_dashcam_max_segments_changed=self._set_dashcam_max_segments,
             current_dashcam_dim_timeout=getattr(self, "dashcam_dim_timeout", 30),
             on_dashcam_dim_timeout_changed=self._set_dashcam_dim_timeout,
+            current_dashcam_rolling_dir=getattr(self, "dashcam_rolling_dir", ""),
+            on_dashcam_rolling_dir_changed=self._set_dashcam_rolling_dir,
+            current_dashcam_saved_dir=getattr(self, "dashcam_saved_dir", ""),
+            on_dashcam_saved_dir_changed=self._set_dashcam_saved_dir,
         )
         dialog.present(self)
 
@@ -120,6 +126,16 @@ class DashboardSettingsMixin:
         self.dashcam_dim_timeout = value
         self._save_settings()
         self.dashcam_page.set_dim_timeout(value)
+
+    def _set_dashcam_rolling_dir(self, value: str) -> None:
+        self.dashcam_rolling_dir = value
+        self._save_settings()
+        self.dashcam_page.set_rolling_dir(value)
+
+    def _set_dashcam_saved_dir(self, value: str) -> None:
+        self.dashcam_saved_dir = value
+        self._save_settings()
+        self.dashcam_page.set_saved_dir(value)
 
     def _open_sync(self, *_args: Any) -> None:
         import gi
