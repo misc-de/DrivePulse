@@ -29,6 +29,7 @@ from .dashboard_telemetry import DashboardTelemetryMixin
 from .db import DriveDB
 from .dashboard_settings import DashboardSettingsMixin
 from .gps_reader import GpsReader
+from .mock_tour import MockTourSimulator
 from .orientation_reader import OrientationReader
 from .obd_reader import ObdReader
 from .trip_recorder import TripRecorder
@@ -187,6 +188,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
 
+        self.mock_tour_sim = MockTourSimulator(self._update_from_payload)
         self.map_page = MapPage(
             self.language,
             force_webkit=self.force_webkit_map,
@@ -194,6 +196,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             traffic_visible=self.map_traffic_visible,
             on_poi_visible_changed=self._set_map_poi_visible,
             on_traffic_visible_changed=self._set_map_traffic_visible,
+            on_tour_started=self._on_tour_started,
+            on_tour_stopped=self._on_tour_stopped,
         )
         self.dashcam_page = DashcamPage(self.language)
         self.dashcam_page.set_camera(self.dashcam_camera)
@@ -421,6 +425,13 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.set_ctx_trash(None)
         if page == self.PAGE_MAP:
             GLib.timeout_add(50, self.map_page.on_shown)
+
+    def _on_tour_started(self, coords: list[list[float]]) -> None:
+        if self.mock_mode:
+            self.mock_tour_sim.start(coords)
+
+    def _on_tour_stopped(self) -> None:
+        self.mock_tour_sim.stop()
 
     def _on_cars_back_swipe(self) -> None:
         """Vom Autos-Tab (Liste) per Wisch nach rechts — kein Tab (Cars ist erster Tab)."""
