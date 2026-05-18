@@ -59,6 +59,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.gauge_theme: str = self.settings.get("gauge_theme", "cockpit")
         self.sidebar_side: str = self.settings.get("sidebar_side", "left")
         self.theme_mode: str = self.settings.get("theme_mode", "auto")
+        self.force_webkit_map: bool = bool(self.settings.get("force_webkit_map", False))
         self.last_update_check: str | None = self.settings.get("last_update_check")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
@@ -167,7 +168,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
 
-        self.map_page = MapPage(self.language)
+        self.map_page = MapPage(self.language, force_webkit=self.force_webkit_map)
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)

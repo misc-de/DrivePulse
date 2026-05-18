@@ -31,6 +31,7 @@ class DashboardSettingsMixin:
                 "sidebar_side": getattr(self, "sidebar_side", "left"),
                 "engage_threshold": getattr(self, "engage_threshold", 0.20),
                 "theme_mode": getattr(self, "theme_mode", "auto"),
+                "force_webkit_map": getattr(self, "force_webkit_map", False),
                 "last_update_check": getattr(self, "last_update_check", None),
             })
         except Exception:
@@ -73,6 +74,8 @@ class DashboardSettingsMixin:
             on_sidebar_side_changed=self._set_sidebar_side,
             current_theme_mode=getattr(self, "theme_mode", "auto"),
             on_theme_mode_changed=self._set_theme_mode,
+            current_force_webkit_map=getattr(self, "force_webkit_map", False),
+            on_force_webkit_map_changed=self._set_force_webkit_map,
             current_last_check=getattr(self, "last_update_check", None),
             on_last_check_updated=self._set_last_update_check,
         )
@@ -199,6 +202,12 @@ class DashboardSettingsMixin:
         self._save_settings()
         self._apply_theme_mode(mode)
         self._apply_window_theme(self.gauge_theme)
+
+    def _set_force_webkit_map(self, force_webkit: bool) -> None:
+        if force_webkit == getattr(self, "force_webkit_map", False):
+            return
+        self.force_webkit_map = force_webkit
+        self._save_settings()
 
     def _set_last_update_check(self, timestamp: str) -> None:
         self.last_update_check = timestamp
