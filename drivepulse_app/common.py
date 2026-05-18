@@ -15,6 +15,24 @@ from .translations import SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, TRANSLATIONS, la
 # Paths and OBD configuration
 # ---------------------------------------------------------------------------
 
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int_or_none(name: str) -> int | None:
+    value = os.environ.get(name)
+    if not value:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 APP_ID = "de.cais.DrivePulse"
 _VERSION_FILE = Path(__file__).parent.parent / "VERSION"
 APP_VERSION: str = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION_FILE.exists() else "?"
@@ -23,10 +41,10 @@ LOG_FILE = LOG_DIR / "obd-log.jsonl"
 CONNECTION_LOG_FILE = LOG_DIR / "connection-log.jsonl"
 PROFILES_DIR = LOG_DIR / "profiles"
 THEMES_DIR = LOG_DIR / "themes"
-POLL_INTERVAL_SECONDS = float(os.environ.get("OBD_POLL_INTERVAL", "0.5"))
+POLL_INTERVAL_SECONDS = _env_float("OBD_POLL_INTERVAL", 0.5)
 OBD_PORT = os.environ.get("OBD_PORT")
-OBD_BAUDRATE = int(os.environ["OBD_BAUDRATE"]) if os.environ.get("OBD_BAUDRATE") else None
-OBD_TIMEOUT_SECONDS = float(os.environ.get("OBD_TIMEOUT", "2.0"))
+OBD_BAUDRATE = _env_int_or_none("OBD_BAUDRATE")
+OBD_TIMEOUT_SECONDS = _env_float("OBD_TIMEOUT", 2.0)
 OBD_FAST = os.environ.get("OBD_FAST", "1").lower() in {"1", "true", "yes", "on"}
 # Direct Bluetooth RFCOMM: comma-separated addresses, optional channel suffix
 # e.g. "00:1D:A5:68:98:8A" or "00:1D:A5:68:98:8A:1" or "AA:BB:CC:DD:EE:FF:1,11:22:33:44:55:66"

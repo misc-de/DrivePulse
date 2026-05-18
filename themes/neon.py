@@ -49,9 +49,6 @@ def _draw_impl(cr: Any, width: int, height: int, gauge: Any, dark: bool) -> None
     accent = gauge.accent_rgb if gauge.active else (0.35, 0.38, 0.42)
     r, g, b = accent
 
-    cr.set_source_rgb(*pal["bg"])
-    cr.paint()
-
     cr.set_line_width(1.0)
     cr.set_source_rgba(r, g, b, 0.18 * active_alpha)
     cr.arc(cx, cy, radius + line_width * 1.6, start_angle, end_angle)

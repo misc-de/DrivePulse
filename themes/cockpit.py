@@ -48,12 +48,6 @@ def _draw_impl(cr: Any, width: int, height: int, gauge: Any, dark: bool) -> None
     active_alpha = 1.0 if gauge.active else 0.34
     accent = gauge.accent_rgb if gauge.active else (0.45, 0.48, 0.50)
 
-    # Fill the entire DrawingArea rectangle so no app-background bleeds through
-    cr.set_source_rgb(*pal["bg"])
-    cr.paint()
-    cr.arc(cx, cy, radius + line_width * 1.15, 0, math.tau)
-    cr.fill()
-
     cr.set_line_width(2.0)
     o = pal["outer_ring"]
     cr.set_source_rgba(o[0], o[1], o[2], o[3] * active_alpha)

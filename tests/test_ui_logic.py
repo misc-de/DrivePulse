@@ -273,3 +273,22 @@ def test_live_vehicle_add_uses_callback_and_refreshes(drivepulse_module):
     assert calls == [{"VIN": "WVWZZZ1JZXW000001", "CALIBRATION_ID": "CAL"}]
     assert refreshed == [True]
     assert page._selected_car_id == 42
+
+
+def test_scan_widgets_tolerate_bad_numeric_counts(drivepulse_module):
+    from drivepulse_app.cars_scan_widgets import _build_scan_detail_widget
+
+    widget = _build_scan_detail_widget(
+        "en",
+        {
+            "scanned_at": "2026-01-01T00:00:00+00:00",
+            "protocol": "ISO",
+            "dtc_count": "bad",
+            "pending_dtc_count": None,
+            "pids_count": {},
+        },
+        {"dtc_count": "also-bad"},
+        {"dtcs": [], "pending_dtcs": [], "live_data": {}},
+    )
+
+    assert widget is not None

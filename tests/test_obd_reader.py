@@ -242,3 +242,79 @@ def test_write_log_writes_jsonl(drivepulse_module, tmp_log_paths):
 
     lines = obd_reader.LOG_FILE.read_text(encoding="utf-8").splitlines()
     assert json.loads(lines[0]) == {"speed": {"value": 12}}
+
+
+def test_gpsd_line_ignores_bad_optional_numbers(drivepulse_module):
+    from drivepulse_app.gps_reader import GpsReader
+
+    updates = []
+    reader = GpsReader(updates.append)
+
+    reader._handle_gpsd_line(json.dumps({
+        "class": "TPV",
+        "mode": 3,
+        "speed": "10",
+        "track": "bad",
+        "lat": "48.1",
+        "lon": "not-a-number",
+        "alt": float("nan"),
+    }))
+
+    assert len(updates) == 1
+    assert updates[0]["gps_speed"] == {"value": 36.0, "unit": "km/h"}
+    assert "gps_heading" not in updates[0]
+    assert "gps_lat" not in updates[0]
+    assert "gps_lon" not in updates[0]
+    assert "gps_altitude" not in updates[0]
+
+
+def test_gpsd_line_rejects_bad_speed(drivepulse_module):
+    from drivepulse_app.gps_reader import GpsReader
+
+    updates = []
+    reader = GpsReader(updates.append)
+
+    reader._handle_gpsd_line(json.dumps({"class": "TPV", "mode": 3, "speed": "bad"}))
+    reader._handle_gpsd_line(json.dumps({"class": "TPV", "mode": 3, "speed": -1}))
+
+    assert updates == []
+
+
+def test_obd_scanner_writes_profile_atomically(monkeypatch, tmp_path, drivepulse_module):
+    from drivepulse_app import obd_scanner
+    from drivepulse_app.obd_scanner import ObdScanner
+
+    monkeypatch.setattr(obd_scanner, "PROFILES_DIR", tmp_path)
+
+    class Connection:
+        supported_commands = set()
+
+        def query(self, command):
+            if command == "VIN":
+                return _Response("TESTVIN123")
+            return _Response(is_null=True)
+
+        def protocol_name(self):
+            return "ISO"
+
+    obd = types.SimpleNamespace(
+        commands=types.SimpleNamespace(
+            VIN="VIN",
+            GET_DTC=None,
+            PENDING_DTC=None,
+            CALIBRATION_ID=None,
+            CVN=None,
+            ECU_NAME=None,
+        )
+    )
+    updates = []
+    cache = set()
+    scanner = ObdScanner(Connection(), "/dev/rfcomm0", updates.append, cache, obd_module=obd)
+
+    scanner.run()
+
+    profile_path = tmp_path / "vin_TESTVIN123.json"
+    assert profile_path.exists()
+    assert not (tmp_path / "vin_TESTVIN123.json.tmp").exists()
+    assert json.loads(profile_path.read_text(encoding="utf-8"))["vin"] == "TESTVIN123"
+    assert "vin_TESTVIN123" in cache

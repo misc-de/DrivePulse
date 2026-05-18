@@ -39,6 +39,22 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
 
 
+def _bounded_int(value: Any, default: int, lower: int, upper: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(lower, min(upper, parsed))
+
+
+def _bounded_float(value: Any, default: float, lower: float, upper: float) -> float:
+    try:
+        parsed = round(float(value), 2)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(lower, min(upper, parsed))
+
+
 def load_settings() -> dict[str, Any]:
     """Read settings.json and normalize invalid or missing values."""
     try:
@@ -54,11 +70,12 @@ def load_settings() -> dict[str, Any]:
 
     units = data.get("units")
     language = data.get("language") or _detect_language()
-    raw_thresh = data.get("engage_threshold", DEFAULT_SETTINGS["engage_threshold"])
-    try:
-        engage_threshold = max(0.05, min(1.50, round(float(raw_thresh), 2)))
-    except (TypeError, ValueError):
-        engage_threshold = DEFAULT_SETTINGS["engage_threshold"]
+    engage_threshold = _bounded_float(
+        data.get("engage_threshold"),
+        DEFAULT_SETTINGS["engage_threshold"],
+        0.05,
+        1.50,
+    )
     return {
         "units": units if units in {"metric", "imperial"} else "metric",
         "language": _normalize_language(language),
@@ -74,9 +91,9 @@ def load_settings() -> dict[str, Any]:
         "last_update_check": data.get("last_update_check") or None,
         "dashcam_camera": data.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
         "dashcam_resolution": data.get("dashcam_resolution") or DEFAULT_SETTINGS["dashcam_resolution"],
-        "dashcam_seg_minutes": max(1, min(30, int(data.get("dashcam_seg_minutes", 3)))),
-        "dashcam_max_segments": max(2, min(60, int(data.get("dashcam_max_segments", 10)))),
-        "dashcam_dim_timeout": max(0, min(300, int(data.get("dashcam_dim_timeout", 30)))),
+        "dashcam_seg_minutes": _bounded_int(data.get("dashcam_seg_minutes"), 3, 1, 30),
+        "dashcam_max_segments": _bounded_int(data.get("dashcam_max_segments"), 10, 2, 60),
+        "dashcam_dim_timeout": _bounded_int(data.get("dashcam_dim_timeout"), 30, 0, 300),
         "dashcam_rolling_dir": data.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
         "dashcam_saved_dir": data.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
         "nav_position": data.get("nav_position", "bottom") if data.get("nav_position") in {"top", "bottom"} else "bottom",
@@ -87,7 +104,7 @@ def load_settings() -> dict[str, Any]:
 
 def save_settings(settings: dict[str, Any]) -> None:
     """Persist normalized settings to settings.json."""
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_FILE.write_text(
         json.dumps(
             {
@@ -96,7 +113,12 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "mock_mode": bool(settings.get("mock_mode", False)),
                 "obd_port": settings.get("obd_port") or None,
                 "gauge_theme": settings.get("gauge_theme", "cockpit") or "cockpit",
-                "engage_threshold": float(settings.get("engage_threshold", DEFAULT_SETTINGS["engage_threshold"])),
+                "engage_threshold": _bounded_float(
+                    settings.get("engage_threshold"),
+                    DEFAULT_SETTINGS["engage_threshold"],
+                    0.05,
+                    1.50,
+                ),
                 "theme_mode": settings.get("theme_mode", "auto") if settings.get("theme_mode") in {"auto", "dark", "light"} else "auto",
                 "force_webkit_map": bool(settings.get("force_webkit_map", False)),
                 "map_traffic_visible": bool(settings.get("map_traffic_visible", False)),
@@ -105,9 +127,9 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "last_update_check": settings.get("last_update_check") or None,
                 "dashcam_camera": settings.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
                 "dashcam_resolution": settings.get("dashcam_resolution") or DEFAULT_SETTINGS["dashcam_resolution"],
-                "dashcam_seg_minutes": max(1, min(30, int(settings.get("dashcam_seg_minutes", 3)))),
-                "dashcam_max_segments": max(2, min(60, int(settings.get("dashcam_max_segments", 10)))),
-                "dashcam_dim_timeout": max(0, min(300, int(settings.get("dashcam_dim_timeout", 30)))),
+                "dashcam_seg_minutes": _bounded_int(settings.get("dashcam_seg_minutes"), 3, 1, 30),
+                "dashcam_max_segments": _bounded_int(settings.get("dashcam_max_segments"), 10, 2, 60),
+                "dashcam_dim_timeout": _bounded_int(settings.get("dashcam_dim_timeout"), 30, 0, 300),
                 "dashcam_rolling_dir": settings.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
                 "dashcam_saved_dir": settings.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
                 "nav_position": settings.get("nav_position", "bottom") if settings.get("nav_position") in {"top", "bottom"} else "bottom",

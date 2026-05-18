@@ -20,7 +20,9 @@ def get_or_create_device_id() -> str:
     try:
         SYNC_DIR.mkdir(parents=True, exist_ok=True)
         if DEVICE_ID_FILE.exists():
-            return DEVICE_ID_FILE.read_text().strip()
+            device_id = DEVICE_ID_FILE.read_text().strip()
+            if device_id:
+                return device_id
         device_id = generate_device_id()
         DEVICE_ID_FILE.write_text(device_id)
         return device_id

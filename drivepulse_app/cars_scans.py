@@ -6,7 +6,7 @@ from typing import Any
 from gi.repository import Adw, GLib, Gtk
 
 from .common import _translate
-from .cars_scan_widgets import _build_scan_detail_widget
+from .cars_scan_widgets import _build_scan_detail_widget, _safe_int
 from .diagnostics import get_logger
 
 
@@ -37,15 +37,15 @@ class CarsScansMixin:
         title = ts.strftime("%d.%m.%Y · %H:%M") if ts else str(scan["id"])
         row.set_title(GLib.markup_escape_text(title))
 
-        dtc = int(scan["dtc_count"] or 0)
-        pending = int(scan["pending_dtc_count"] or 0)
-        pids = int(scan["pids_count"] or 0)
+        dtc = _safe_int(scan["dtc_count"])
+        pending = _safe_int(scan["pending_dtc_count"])
+        pids = _safe_int(scan["pids_count"])
 
         # DTC trend vs. previous scan
         if prev_scan is None:
             trend = _translate(self.language, "cars.scan.trend_first")
         else:
-            delta = dtc - int(prev_scan["dtc_count"] or 0)
+            delta = dtc - _safe_int(prev_scan["dtc_count"])
             if delta > 0:
                 trend = _translate(self.language, "cars.scan.trend_up", delta=delta)
             elif delta < 0:
