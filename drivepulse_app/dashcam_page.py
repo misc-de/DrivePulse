@@ -522,8 +522,11 @@ class DashcamPage(Gtk.Box):
 
     def update_orientation(self, angle: int, is_landscape: bool) -> None:
         self._recorder.rotation = angle
-        self._is_landscape = is_landscape
-        self._apply_bar_position(angle, is_landscape)
+
+    def update_ui_rotation(self, angle: int) -> None:
+        landscape = angle in (90, 270)
+        self._is_landscape = landscape
+        self._apply_bar_position(angle, landscape)
 
     def _apply_bar_position(self, angle: int, is_landscape: bool) -> None:
         """Reposition + rotate the control bar to follow physical orientation.
