@@ -86,9 +86,11 @@ def test_settings_dialog_calls_callbacks(drivepulse_module):
     unit_calls = []
     language_calls = []
     mock_calls = []
+    webkit_calls = []
     dialog = SettingsDialog(
         None, "metric", "en", unit_calls.append, language_calls.append,
         current_mock_mode=False, on_mock_mode_changed=mock_calls.append,
+        current_force_webkit_map=False, on_force_webkit_map_changed=webkit_calls.append,
     )
 
     dialog.unit_row.set_selected(1)
@@ -97,10 +99,13 @@ def test_settings_dialog_calls_callbacks(drivepulse_module):
     dialog._on_language_selected()
     dialog.mock_switch.set_active(True)
     dialog._on_mock_changed()
+    dialog.force_webkit_map_switch.set_active(True)
+    dialog._on_force_webkit_map_changed()
 
     assert unit_calls == ["imperial"]
     assert language_calls == ["de"]
     assert mock_calls == [True]
+    assert webkit_calls == [True]
 
 
 def test_load_and_save_units(drivepulse_module, tmp_log_paths):
@@ -117,6 +122,7 @@ def test_load_and_save_units(drivepulse_module, tmp_log_paths):
     assert loaded["units"] == "imperial"
     assert loaded["language"] == "de"
     assert "mock_mode" in loaded
+    assert loaded["force_webkit_map"] is False
 
     drivepulse_module.SETTINGS_FILE.write_text('{"units": "invalid"}', encoding="utf-8")
     assert window._load_units() == "metric"

@@ -43,13 +43,14 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     """OpenStreetMap navigation page — WebKit/MapLibre (3D) or Shumate (2D)."""
     __gtype_name__ = "MapPage"
 
-    def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
+    def __init__(self, language: str = SOURCE_LANGUAGE, force_webkit: bool = False) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
         self.set_vexpand(True)
         self.set_halign(Gtk.Align.FILL)
         self.set_valign(Gtk.Align.FILL)
         self.language = _normalize_language(language)
+        self.force_webkit = force_webkit
 
         self._gps_lat: float | None = None
         self._gps_lon: float | None = None
@@ -283,12 +284,15 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         overlay.set_halign(Gtk.Align.FILL)
         overlay.set_valign(Gtk.Align.FILL)
 
-        if WEBKIT_OK:
+        if self.force_webkit and WEBKIT_OK:
             self._backend = "webkit"
             content = self._setup_webview()
         elif SHUMATE_OK:
             self._backend = "shumate"
             content = self._setup_shumate()
+        elif WEBKIT_OK:
+            self._backend = "webkit"
+            content = self._setup_webview()
         else:
             self._backend = "none"
             content = self._build_placeholder()
