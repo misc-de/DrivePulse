@@ -183,7 +183,9 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         header_box.append(chart_title_lbl)
 
         if len(_avail) > 1:
-            _str_model = Gtk.StringList.new([m[1] for m in _avail])
+            _str_model = Gtk.StringList()
+            for _label in (m[1] for m in _avail):
+                _str_model.append(_label)
             _dropdown = Gtk.DropDown.new(_str_model, None)
             _dropdown.set_valign(Gtk.Align.CENTER)
             _init_sel = next((i for i, m in enumerate(_avail) if m[0] == chart_state["key"]), 0)

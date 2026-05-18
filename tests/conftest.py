@@ -142,6 +142,36 @@ class _CheckButton(_Switch):
     pass
 
 
+class _Adjustment(_Widget):
+    def __init__(
+        self,
+        value: float = 0.0,
+        lower: float = 0.0,
+        upper: float = 0.0,
+        step_increment: float = 1.0,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            value=value,
+            lower=lower,
+            upper=upper,
+            step_increment=step_increment,
+            **kwargs,
+        )
+        self.value = value
+
+
+class _SpinButton(_Widget):
+    def __init__(self, adjustment: _Adjustment | None = None, **kwargs) -> None:
+        super().__init__(adjustment=adjustment, **kwargs)
+        self.adjustment = adjustment
+
+    def get_value_as_int(self) -> int:
+        if self.adjustment is None:
+            return 0
+        return int(self.adjustment.value)
+
+
 class _StyleContext:
     def add_provider(self, provider: object, priority: int) -> None:
         pass
@@ -222,6 +252,18 @@ class _ActionRow(_Widget):
         self.props["activatable_widget"] = widget
 
 
+class _SwitchRow(_ActionRow):
+    def __init__(self, title: str = "", subtitle: str = "", **kwargs) -> None:
+        super().__init__(title=title, subtitle=subtitle, **kwargs)
+        self._active = False
+
+    def set_active(self, active: bool) -> None:
+        self._active = active
+
+    def get_active(self) -> bool:
+        return self._active
+
+
 class _DrawingArea(_Widget):
     pass
 
@@ -264,6 +306,11 @@ class _ViewStack(_Widget):
         return self.visible_child_name
 
 
+class _ToolbarView(_Widget):
+    def add_top_bar(self, widget: object) -> None:
+        self.children.append(widget)
+
+
 @pytest.fixture
 def drivepulse_module(monkeypatch):
     gi = types.ModuleType("gi")
@@ -271,6 +318,7 @@ def drivepulse_module(monkeypatch):
 
     gtk = types.SimpleNamespace(
         AccessibleRole=types.SimpleNamespace(),
+        Adjustment=_Adjustment,
         Align=_Align,
         ApplicationWindow=_ApplicationWindow,
         Box=_Box,
@@ -290,6 +338,7 @@ def drivepulse_module(monkeypatch):
         ScrolledWindow=_Widget,
         SelectionMode=_SelectionMode,
         SignalListItemFactory=_SignalListItemFactory,
+        SpinButton=_SpinButton,
         Spinner=_Spinner,
         StringList=_StringList,
         StyleContext=types.SimpleNamespace(add_provider_for_display=lambda *a: None),
@@ -307,9 +356,12 @@ def drivepulse_module(monkeypatch):
         PreferencesDialog=_Widget,
         PreferencesGroup=_Widget,
         PreferencesPage=_Widget,
-        ToolbarView=_Widget,
+        SwitchRow=_SwitchRow,
+        ToolbarView=_ToolbarView,
         ViewStack=_ViewStack,
+        ViewSwitcher=_Widget,
         ViewSwitcherBar=_Widget,
+        ViewSwitcherPolicy=types.SimpleNamespace(WIDE=_EnumValue("wide")),
     )
     glib = types.SimpleNamespace(idle_add=lambda callback, *args: callback(*args))
     gobject = types.SimpleNamespace(Object=object)
