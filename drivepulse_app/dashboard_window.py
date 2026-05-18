@@ -200,6 +200,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
+        self._cars_rotator = RotatedContainer()
+        self._cars_rotator.set_child(self.cars_page)
+        self._cars_rotator.set_hexpand(True)
+        self._cars_rotator.set_vexpand(True)
 
         self.mock_tour_sim = MockTourSimulator(self._update_from_payload)
         self._pending_sim_start_id: int | None = None
@@ -217,6 +221,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             on_tour_stopped=self._on_tour_stopped,
             on_tour_resumed=self._on_tour_resumed,
         )
+        self._map_rotator = RotatedContainer()
+        self._map_rotator.set_child(self.map_page)
+        self._map_rotator.set_hexpand(True)
+        self._map_rotator.set_vexpand(True)
+
         self.dashcam_page = DashcamPage(self.language)
         self.dashcam_page.set_camera(self.dashcam_camera)
         self.dashcam_page.set_resolution(self.dashcam_resolution)
@@ -239,13 +248,13 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.view_stack.set_enable_transitions(True)
         self.view_stack.set_transition_duration(240)
         self.cars_stack_page = self.view_stack.add_titled_with_icon(
-            self.cars_page,
+            self._cars_rotator,
             self.PAGE_CARS,
             _translate(self.language, "nav.cars"),
             "driving-symbolic",
         )
         self.map_stack_page = self.view_stack.add_titled_with_icon(
-            self.map_page,
+            self._map_rotator,
             self.PAGE_MAP,
             _translate(self.language, "nav.map"),
             "navigate-north",
@@ -368,6 +377,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     def _apply_page_rotation(self, angle: int) -> None:
         self._gauge_rotator.set_rotation(angle)
         self._stopwatch_rotator.set_rotation(angle)
+        self._cars_rotator.set_rotation(angle)
+        self._map_rotator.set_rotation(angle)
         GLib.idle_add(self._on_size_changed)
 
     def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
