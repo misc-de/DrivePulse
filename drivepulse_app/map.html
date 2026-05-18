@@ -83,7 +83,13 @@ let _wpEnd          = null;
 let _trafficItems   = [];
 let _trafficVisible = false;
 let _gpsLon = null, _gpsLat = null;
-let _poiVisible     = true;
+let _poiVisible     = false;  // POIs are opt-in per session — keep them hidden until Python toggles them on
+let _tourActive     = false;
+let _smoothedBearing = null;  // EMA-smoothed compass bearing used to *drive the map's* bearing
+let _rawHeading      = null;  // most recent GPS heading — used by the arrow so it responds instantly
+let _tourFlying     = false;  // suppresses GPS-driven easeTo while mapStartTour's flyTo is animating
+let _view3D         = true;   // false = top-down flat map; true = tilted 3D view
+let _followingGps   = false;  // while true, the marker tracks map.getCenter() every frame
 
 const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
 
@@ -144,12 +150,8 @@ function addDataLayers() {
     });
   }
 
-  // Traffic
-  const trafficFeats = _trafficItems.map(item => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
-    properties: { kind: item.kind, title: item.title }
-  }));
+  // Traffic — filtered to route bounding box (+ ~5 km pad) for performance
+  const trafficFeats = _trafficNearRoute();
   const vis = _trafficVisible ? 'visible' : 'none';
   if (!map.getSource('traffic')) {
     map.addSource('traffic', { type: 'geojson', data: fcGJ(trafficFeats) });
@@ -180,10 +182,16 @@ function initMap(lat, lon) {
     zoom: 15,
     pitch: 0,
     bearing: 0,
+    maxPitch: 85,            // allow strong 3D tilt for active tours
     antialias: false,        // faster rendering on mobile/embedded GPU
     fadeDuration: 0,         // tiles appear instantly, no fade-in overhead
     renderWorldCopies: false, // no duplicate world tiles
+    attributionControl: { compact: true },  // bottom-right OSM credit
   });
+
+  // OSM credit (compact ⓘ button) is already added via attributionControl;
+  // a scale bar in the lower-left helps the driver gauge distance.
+  map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
 
   // Location arrow (classic navigation marker)
   carEl = document.createElement('div');
@@ -206,8 +214,47 @@ function initMap(lat, lon) {
 
   map.on('style.load', addDataLayers);
 
+  // Keep marker glued to the camera center while we're following GPS, and
+  // always recompute the arrow rotation relative to the current map bearing.
+  map.on('move', () => {
+    if (_followingGps && carMarker) {
+      const c = map.getCenter();
+      carMarker.setLngLat([c.lng, c.lat]);
+    }
+    _updateArrowRotation();
+  });
+  map.on('rotate', _updateArrowRotation);
+
+  // Push camera state to Python whenever the map settles after a movement
+  // (zoom, pitch, rotate, pan). This drives the mock-mode debug overlay so
+  // values appear even without GPS / tour activity.
+  const _pushCamState = () => {
+    try {
+      postToPython({
+        action: 'map_state',
+        zoom: map.getZoom(),
+        pitch: map.getPitch(),
+        bearing: map.getBearing(),
+      });
+    } catch (_) {}
+  };
+  map.on('idle', _pushCamState);
+  map.on('zoomend', _pushCamState);
+  map.on('pitchend', _pushCamState);
+  map.on('rotateend', _pushCamState);
+  map.on('moveend', _pushCamState);
+  // Initial push once the map has its first frame, so values show up
+  // before the user does anything.
+  map.once('load', _pushCamState);
+  // Safety net — fire on a 1 s interval too, in case the *end events
+  // don't trigger (e.g. continuous animation, tour fly-in).
+  setInterval(_pushCamState, 1000);
+
   map.on('dragstart', () => {
-    if (followMode) {
+    // While a tour is active the map must stay oriented to the driving
+    // direction — let the user pan but keep follow logically on so the
+    // bearing keeps tracking heading.
+    if (followMode && !_tourActive) {
       followMode = false;
       postToPython({ action: 'follow_off' });
     }
@@ -231,36 +278,183 @@ function isBasePoiLayer(layer) {
 }
 
 function setBasePoiVisibility(visible) {
-  if (!map || !map.isStyleLoaded()) return;
-  const style = map.getStyle();
+  // NOTE: do not short-circuit on isStyleLoaded() — that flag is still false
+  // while the style.load event is firing, which is exactly when we want to
+  // apply the initial POI=hidden state.  getStyle() already returns the parsed
+  // layer list at this point, so iterating is safe.
+  if (!map) return;
+  let style;
+  try { style = map.getStyle(); } catch (_) { return; }
+  if (!style) return;
   const visibility = visible ? 'visible' : 'none';
   (style.layers || []).forEach(layer => {
     if (isBasePoiLayer(layer) && map.getLayer(layer.id)) {
-      map.setLayoutProperty(layer.id, 'visibility', visibility);
+      try {
+        map.setLayoutProperty(layer.id, 'visibility', visibility);
+      } catch (_) { /* layer may have been removed between getStyle() and now */ }
     }
   });
 }
 
 // ── Public API (called from Python) ──────────────────────────────────────────
+function _updateArrowRotation() {
+  if (!carArrowEl) return;
+  // Use the *raw* GPS heading, not the smoothed one.  The map's bearing eases
+  // toward _smoothedBearing over 280 ms, so when the car enters a curve the
+  // raw heading jumps ahead while map bearing is still catching up — that
+  // difference is what makes the arrow physically "lean into" the turn,
+  // pointing along the road instead of just sitting glued to screen-up.
+  const hdg = _rawHeading === null ? 0 : _rawHeading;
+  const mapBearing = map ? map.getBearing() : 0;
+  const angle = ((hdg - mapBearing) % 360 + 360) % 360;
+  carArrowEl.style.transform = `rotate(${angle}deg)`;
+}
+
 function mapSetCar(lat, lon, heading) {
   if (!initialized) initMap(lat, lon);
   if (!map) return;
   _gpsLat = lat; _gpsLon = lon;
-  if (carMarker) carMarker.setLngLat([lon, lat]);
-  if (carArrowEl) carArrowEl.style.transform = `rotate(${Number(heading || 0)}deg)`;
-  if (followMode) {
-    map.easeTo({ center: [lon, lat], bearing: 0, pitch: 0, duration: 200 });
+  const targetBearing = Number(heading || 0);
+  _rawHeading = targetBearing;  // arrow uses this — snaps to actual heading
+  // EMA-smooth the bearing the *map* will rotate to.  The arrow doesn't go
+  // through this filter, so the arrow leads into a turn while the map catches
+  // up — much closer to how real navigation arrows behave.
+  if (_smoothedBearing === null) {
+    _smoothedBearing = targetBearing;
+  } else {
+    const delta = ((targetBearing - _smoothedBearing + 540) % 360) - 180;
+    _smoothedBearing = (_smoothedBearing + delta * 0.30 + 360) % 360;
   }
+  const hdg = _smoothedBearing;
+  // When the camera follows the GPS, the marker is *not* set directly here —
+  // instead the map.on('move', ...) listener (registered in initMap) keeps the
+  // marker pinned to the camera center every animation frame, so the marker
+  // and the map glide together with no "map jumps forward, arrow hops behind".
+  if (!followMode) {
+    if (carMarker) carMarker.setLngLat([lon, lat]);
+  }
+  _followingGps = followMode;
+  _updateArrowRotation();
+  if (!_tourFlying) {
+    // Duration is slightly longer than the GPS push interval (250 ms) so each
+    // animation blends into the next, avoiding the stutter-and-jump look.
+    const opts = {
+      bearing: hdg, duration: 280,
+      easing: t => t,  // linear, so consecutive eases concatenate smoothly
+    };
+    if (followMode) {
+      // Tour mode: shift car into lower third so more road ahead is visible.
+      const pad = _tourActive
+        ? { top: Math.round(window.innerHeight * 0.38), bottom: 0, left: 0, right: 0 }
+        : { top: 0, bottom: 0, left: 0, right: 0 };
+      opts.center = [lon, lat];
+      opts.padding = pad;
+      // Keep the strong tilt while a tour is active; flatten view otherwise.
+      if (!_tourActive) opts.pitch = 0;
+      map.easeTo(opts);
+    } else if (_tourActive) {
+      // Follow was disabled (e.g. user panned), but during a tour we still
+      // want the map oriented in the driving direction — rotate without
+      // recentring so the user's pan is preserved.
+      map.easeTo(opts);
+    }
+  }
+  // Push current camera state to Python (mock-mode debug overlay reads this).
+  try {
+    postToPython({
+      action: 'map_state',
+      zoom: map.getZoom(),
+      pitch: map.getPitch(),
+      bearing: map.getBearing(),
+    });
+  } catch (_) {}
 }
 
 function mapSetFollow(active) {
   followMode = active;
 }
 
+function mapSetTourActive(active) {
+  // Just flip the flag — DO NOT mutate the camera here.  Pausing a tour must
+  // leave the view exactly as the driver had it (zoomed, tilted, rotated).
+  // Aborting/clearing the route is what calls mapResetView() explicitly.
+  _tourActive = active;
+  if (!active) {
+    _smoothedBearing = null;
+    _rawHeading = null;
+    _tourFlying = false;
+  }
+}
+
+function mapResetView() {
+  if (!map) return;
+  _smoothedBearing = null;
+  _rawHeading = null;
+  _tourFlying = false;
+  map.easeTo({
+    bearing: 0, pitch: 0,
+    padding: { top: 0, bottom: 0, left: 0, right: 0 },
+    duration: 400,
+  });
+}
+
+// Tour start camera — tuned for legibility:
+//   zoom 18  — close enough to read street names, far enough to see ahead
+//   pitch 49 — strong sense of 3D without losing distance perception
+//   bearing 0 — start facing north; rotates to heading as soon as GPS arrives
+const TOUR_ZOOM    = 18;
+const TOUR_PITCH   = 49;
+const TOUR_BEARING = 0;
+
+function mapSet3DView(enabled) {
+  _view3D = !!enabled;
+  if (!map) return;
+  const targetPitch = _view3D
+    ? Math.min(TOUR_PITCH, typeof map.getMaxPitch === 'function' ? map.getMaxPitch() : 60)
+    : 0;
+  map.easeTo({ pitch: targetPitch, duration: 400 });
+}
+
+function mapStartTour(lat, lon) {
+  if (!initialized) initMap(lat, lon);
+  if (!map) return;
+  _tourActive = true;
+  _smoothedBearing = null;
+  _rawHeading = null;
+  const maxZ = typeof map.getMaxZoom === 'function' ? map.getMaxZoom() : 22;
+  const maxP = typeof map.getMaxPitch === 'function' ? map.getMaxPitch() : 60;
+  const z = Math.min(TOUR_ZOOM, maxZ);
+  const p = _view3D ? Math.min(TOUR_PITCH, maxP) : 0;
+  // Fly to the tour camera, then hold it still for a few seconds so the user
+  // can orient (the "Navikarten-Aufbau" period).  GPS-driven easeTo is
+  // suppressed for the entire settle window — otherwise the first GPS tick
+  // would cancel the flyTo and yank the camera into follow mode.
+  _tourFlying = true;
+  map.flyTo({
+    center: [lon, lat],
+    zoom: z, pitch: p, bearing: TOUR_BEARING,
+    duration: 900,
+  });
+  setTimeout(() => { _tourFlying = false; }, 3000);
+}
+
+function mapZoomIn() {
+  if (!map) return;
+  map.easeTo({ zoom: map.getZoom() + 1, duration: 200 });
+}
+
+function mapZoomOut() {
+  if (!map) return;
+  map.easeTo({ zoom: map.getZoom() - 1, duration: 200 });
+}
+
 function mapSetRoute(coords) {
   _routeCoords = coords;
   if (map && map.getSource('route'))
     map.getSource('route').setData(lineGJ(coords));
+  // Refresh traffic to show only items near the new route
+  if (map && map.getSource('traffic'))
+    map.getSource('traffic').setData(fcGJ(_trafficNearRoute()));
 }
 
 function mapSetWaypoints(points) {
@@ -277,12 +471,13 @@ function mapSetWaypoints(points) {
 }
 
 function mapClearRoute() {
-  _routeCoords = []; _wpStart = null; _wpEnd = null;
+  _routeCoords = []; _wpStart = null; _wpEnd = null; _tourActive = false;
   mapClearGuideToStart();
   if (map) {
     if (map.getSource('route'))     map.getSource('route').setData(lineGJ([]));
     if (map.getSource('waypoints')) map.getSource('waypoints').setData(fcGJ([]));
-    map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
+    if (map.getSource('traffic'))   map.getSource('traffic').setData(fcGJ([]));
+    map.easeTo({ bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, pitch: 0, duration: 600 });
   }
 }
 
@@ -324,15 +519,30 @@ function mapSetStyle(key) {
   map.setStyle(style);
 }
 
+function _trafficNearRoute() {
+  if (_routeCoords.length === 0) return [];
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const [lon, lat] of _routeCoords) {
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+  }
+  const pad = 0.05; // ~5 km bounding-box padding
+  return _trafficItems
+    .filter(i => i.lat >= minLat - pad && i.lat <= maxLat + pad &&
+                 i.lon >= minLon - pad && i.lon <= maxLon + pad)
+    .map(i => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [i.lon, i.lat] },
+      properties: { kind: i.kind, title: i.title }
+    }));
+}
+
 function mapSetTraffic(items) {
   _trafficItems = items;
-  if (map && map.getSource('traffic')) {
-    map.getSource('traffic').setData(fcGJ(items.map(item => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
-      properties: { kind: item.kind, title: item.title }
-    }))));
-  }
+  if (map && map.getSource('traffic'))
+    map.getSource('traffic').setData(fcGJ(_trafficNearRoute()));
 }
 
 function mapSetTrafficVisible(visible) {

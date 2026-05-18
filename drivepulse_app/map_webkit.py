@@ -107,7 +107,14 @@ class MapWebKitMixin:
             msg = args[-1]
             js_val = msg.get_js_value()
             data = json.loads(js_val.to_json(0))
-            if data.get("action") == "follow_off":
+            action = data.get("action")
+            if action == "follow_off":
                 GLib.idle_add(self._set_follow, False)
+            elif action == "map_state":
+                z = data.get("zoom")
+                p = data.get("pitch")
+                b = data.get("bearing")
+                if z is not None and p is not None and b is not None:
+                    GLib.idle_add(self._on_js_map_state, float(z), float(p), float(b))
         except Exception as exc:
             log.debug("JS message error: %s", exc)

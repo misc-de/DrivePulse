@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from .common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language
@@ -10,6 +11,7 @@ from .diagnostics import get_logger
 
 log = get_logger(__name__)
 
+_DASHCAM_BASE = Path.home() / "Videos" / "DrivePulse" / "Dashcam"
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "units": "metric",
@@ -20,8 +22,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "engage_threshold": 0.20,
     "theme_mode": "auto",
     "force_webkit_map": False,
-    "map_poi_visible": False,
+    "dashcam_camera": "/dev/video0",
+    "dashcam_resolution": "1280x720",
+    "dashcam_seg_minutes": 3,
+    "dashcam_max_segments": 10,
+    "dashcam_dim_timeout": 30,
+    "dashcam_rolling_dir": str(_DASHCAM_BASE / "rolling"),
+    "dashcam_saved_dir": str(_DASHCAM_BASE / "saved"),
+    "nav_position": "bottom",
+    "dashcam_gps_osd": False,
     "map_traffic_visible": False,
+    "map_3d_view": True,
 }
 
 
@@ -54,10 +65,19 @@ def load_settings() -> dict[str, Any]:
         "engage_threshold": engage_threshold,
         "theme_mode": data.get("theme_mode", "auto") if data.get("theme_mode") in {"auto", "dark", "light"} else "auto",
         "force_webkit_map": bool(data.get("force_webkit_map", DEFAULT_SETTINGS["force_webkit_map"])),
-        "map_poi_visible": bool(data.get("map_poi_visible", DEFAULT_SETTINGS["map_poi_visible"])),
         "map_traffic_visible": bool(data.get("map_traffic_visible", DEFAULT_SETTINGS["map_traffic_visible"])),
+        "map_3d_view": bool(data.get("map_3d_view", DEFAULT_SETTINGS["map_3d_view"])),
         "sidebar_side": data.get("sidebar_side", "left") if data.get("sidebar_side") in {"left", "right"} else "left",
         "last_update_check": data.get("last_update_check") or None,
+        "dashcam_camera": data.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
+        "dashcam_resolution": data.get("dashcam_resolution") or DEFAULT_SETTINGS["dashcam_resolution"],
+        "dashcam_seg_minutes": max(1, min(30, int(data.get("dashcam_seg_minutes", 3)))),
+        "dashcam_max_segments": max(2, min(60, int(data.get("dashcam_max_segments", 10)))),
+        "dashcam_dim_timeout": max(0, min(300, int(data.get("dashcam_dim_timeout", 30)))),
+        "dashcam_rolling_dir": data.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
+        "dashcam_saved_dir": data.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
+        "nav_position": data.get("nav_position", "bottom") if data.get("nav_position") in {"top", "bottom"} else "bottom",
+        "dashcam_gps_osd": bool(data.get("dashcam_gps_osd", False)),
     }
 
 
@@ -75,10 +95,19 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "engage_threshold": float(settings.get("engage_threshold", DEFAULT_SETTINGS["engage_threshold"])),
                 "theme_mode": settings.get("theme_mode", "auto") if settings.get("theme_mode") in {"auto", "dark", "light"} else "auto",
                 "force_webkit_map": bool(settings.get("force_webkit_map", False)),
-                "map_poi_visible": bool(settings.get("map_poi_visible", False)),
                 "map_traffic_visible": bool(settings.get("map_traffic_visible", False)),
+                "map_3d_view": bool(settings.get("map_3d_view", True)),
                 "sidebar_side": settings.get("sidebar_side", "left") if settings.get("sidebar_side") in {"left", "right"} else "left",
                 "last_update_check": settings.get("last_update_check") or None,
+                "dashcam_camera": settings.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
+                "dashcam_resolution": settings.get("dashcam_resolution") or DEFAULT_SETTINGS["dashcam_resolution"],
+                "dashcam_seg_minutes": max(1, min(30, int(settings.get("dashcam_seg_minutes", 3)))),
+                "dashcam_max_segments": max(2, min(60, int(settings.get("dashcam_max_segments", 10)))),
+                "dashcam_dim_timeout": max(0, min(300, int(settings.get("dashcam_dim_timeout", 30)))),
+                "dashcam_rolling_dir": settings.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
+                "dashcam_saved_dir": settings.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
+                "nav_position": settings.get("nav_position", "bottom") if settings.get("nav_position") in {"top", "bottom"} else "bottom",
+                "dashcam_gps_osd": bool(settings.get("dashcam_gps_osd", False)),
             },
             indent=2,
         ),

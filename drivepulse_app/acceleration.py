@@ -17,6 +17,10 @@ from .common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language
 _WARNING_CSS = (
     b"button.warning-reset{background:rgba(229,165,10,0.85);color:#1c1c1c;}"
     b"button.warning-reset:hover{background:rgba(200,144,8,0.9);}"
+    b".dp-accel-light .card{background:rgba(255,255,255,0.82);color:#000000;}"
+    b".dp-accel-light label{color:#000000;}"
+    b".dp-accel-light .dim-label{color:rgba(0,0,0,0.62);}"
+    b".dp-accel-light checkbutton{color:#000000;}"
 )
 
 
@@ -479,6 +483,14 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
                 self.remove_css_class(cls)
         safe = theme_id.replace(":", "-").replace("_", "-")
         self.add_css_class(f"dp-accel-theme-{safe}")
+
+    def set_theme_mode(self, mode: str) -> None:
+        light = mode == "light"
+        if light:
+            self.add_css_class("dp-accel-light")
+        else:
+            self.remove_css_class("dp-accel-light")
+        self.gforce_canvas.set_light_mode(light)
 
     def _set_g_text(self, active_g: float | None) -> None:
         if active_g is None:
