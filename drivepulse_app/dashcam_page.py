@@ -388,7 +388,7 @@ class DashcamPage(Gtk.Box):
         btn_row.append(toggle_btn)
 
         save_btn = Gtk.Button(label=_translate(self.language, "dashcam.btn.save"))
-        save_btn.set_sensitive(False)
+        save_btn.set_visible(False)
         save_btn.set_hexpand(True)
         save_btn.add_css_class("pill")
         save_btn.connect("clicked", self._on_save_event)
@@ -396,10 +396,11 @@ class DashcamPage(Gtk.Box):
         btn_row.append(save_btn)
 
         self._clips_popover = self._build_clips_popover()
-        clips_btn = Gtk.MenuButton(label=_translate(self.language, "dashcam.saved.title"))
+        clips_btn = Gtk.MenuButton(icon_name="folder-videos-symbolic")
         clips_btn.set_popover(self._clips_popover)
         self._clips_popover.connect("show", lambda _: self._update_saved_list())
-        clips_btn.add_css_class("pill")
+        clips_btn.add_css_class("circular")
+        clips_btn.add_css_class("osd")
         btn_row.append(clips_btn)
 
         box.append(btn_row)
@@ -534,7 +535,7 @@ class DashcamPage(Gtk.Box):
             self._stop_tick()
             self._stop_dim_timer()
             for btn in self._save_btns:
-                btn.set_sensitive(False)
+                btn.set_visible(False)
             self._rec_bar.set_visible(False)
             for lbl in self._elapsed_lbls:
                 lbl.set_visible(False)
@@ -543,7 +544,7 @@ class DashcamPage(Gtk.Box):
             self._start_tick()
             self._reset_dim_timer()
             for btn in self._save_btns:
-                btn.set_sensitive(True)
+                btn.set_visible(True)
             self._rec_bar.set_visible(True)
         self._update_toggle_btn()
         self._update_status()
