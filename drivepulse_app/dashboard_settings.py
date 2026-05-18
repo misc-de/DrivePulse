@@ -230,8 +230,10 @@ class DashboardSettingsMixin:
         self.acceleration_stack_page.set_title(_translate(self.language, "nav.acceleration"))
         self.cars_stack_page.set_title(_translate(self.language, "nav.cars"))
         self.map_stack_page.set_title(_translate(self.language, "nav.map"))
+        self.dashcam_stack_page.set_title(_translate(self.language, "nav.dashcam"))
         self.acceleration_page.set_language(self.language)
         self.map_page.set_language(self.language)
+        self.dashcam_page.set_language(self.language)
         self.dashboard_canvas.set_language(self.language)
         self.cars_page.set_language(self.language)
         if self.last_payload is not None:
