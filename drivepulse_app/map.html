@@ -183,7 +183,12 @@ function initMap(lat, lon) {
     antialias: false,        // faster rendering on mobile/embedded GPU
     fadeDuration: 0,         // tiles appear instantly, no fade-in overhead
     renderWorldCopies: false, // no duplicate world tiles
+    attributionControl: { compact: true },  // bottom-right OSM credit
   });
+
+  // OSM credit (compact ⓘ button) is already added via attributionControl;
+  // a scale bar in the lower-left helps the driver gauge distance.
+  map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
 
   // Location arrow (classic navigation marker)
   carEl = document.createElement('div');
