@@ -32,6 +32,8 @@ class DashboardSettingsMixin:
                 "engage_threshold": getattr(self, "engage_threshold", 0.20),
                 "theme_mode": getattr(self, "theme_mode", "auto"),
                 "force_webkit_map": getattr(self, "force_webkit_map", False),
+                "map_poi_visible": getattr(self, "map_poi_visible", False),
+                "map_traffic_visible": getattr(self, "map_traffic_visible", False),
                 "last_update_check": getattr(self, "last_update_check", None),
             })
         except Exception:
@@ -207,6 +209,18 @@ class DashboardSettingsMixin:
         if force_webkit == getattr(self, "force_webkit_map", False):
             return
         self.force_webkit_map = force_webkit
+        self._save_settings()
+
+    def _set_map_poi_visible(self, visible: bool) -> None:
+        if visible == getattr(self, "map_poi_visible", False):
+            return
+        self.map_poi_visible = visible
+        self._save_settings()
+
+    def _set_map_traffic_visible(self, visible: bool) -> None:
+        if visible == getattr(self, "map_traffic_visible", False):
+            return
+        self.map_traffic_visible = visible
         self._save_settings()
 
     def _set_last_update_check(self, timestamp: str) -> None:
