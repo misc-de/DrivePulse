@@ -98,7 +98,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     # Comfortable street-level zoom for tour following; max zoom (22) was
     # too close to be useful for navigation.
-    _TOUR_ZOOM = 17.0
+    _TOUR_ZOOM = 18.0
 
     def __init__(
         self,
@@ -108,8 +108,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         mock_mode: bool = False,
         poi_visible: bool = False,
         traffic_visible: bool = False,
+        map_3d_view: bool = True,
         on_poi_visible_changed: Callable[[bool], None] | None = None,
         on_traffic_visible_changed: Callable[[bool], None] | None = None,
+        on_3d_view_changed: Callable[[bool], None] | None = None,
         on_tour_started: Callable[[list[list[float]]], None] | None = None,
         on_tour_stopped: Callable[[], None] | None = None,
         on_tour_resumed: Callable[[], None] | None = None,
@@ -134,6 +136,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._map_state_poll_id: int | None = None
         self._on_poi_visible_changed = on_poi_visible_changed
         self._on_traffic_visible_changed = on_traffic_visible_changed
+        self._on_3d_view_changed = on_3d_view_changed
+        self._map_3d_view: bool = bool(map_3d_view)
+        self._3d_btn: Gtk.ToggleButton | None = None
         self._on_tour_started = on_tour_started
         self._on_tour_stopped = on_tour_stopped
         self._on_tour_resumed = on_tour_resumed
@@ -222,12 +227,14 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         GLib.idle_add(self._drop_focus)
 
     def _apply_initial_overlay_state(self) -> None:
-        """Sync POI/traffic visibility from settings to the active backend."""
+        """Sync POI/traffic visibility + 3D preference from settings."""
         if self._backend == "webkit":
             poi = "true" if self._poi_visible else "false"
             traffic = "true" if self._traffic_visible else "false"
+            view3d = "true" if self._map_3d_view else "false"
             self._js(f"mapSetPoiVisible({poi})")
             self._js(f"mapSetTrafficVisible({traffic})")
+            self._js(f"mapSet3DView({view3d})")
         elif self._backend == "shumate":
             self._shumate_set_poi_visible(self._poi_visible)
             self._shumate_set_traffic_visible(self._traffic_visible)
@@ -546,7 +553,34 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._zoom_out_btn = zoom_out
         box.append(zoom_in)
         box.append(zoom_out)
+
+        # 3D/2D toggle — only meaningful on the WebKit backend; Shumate is 2D
+        # only.  Active state means the map is in 3D (tilted) view.
+        if self._backend == "webkit":
+            view_btn = Gtk.ToggleButton(icon_name="dp-view-3d-symbolic")
+            view_btn.add_css_class("circular")
+            view_btn.add_css_class("osd")
+            view_btn.set_active(self._map_3d_view)
+            view_btn.set_tooltip_text(self._view_3d_tooltip(self._map_3d_view))
+            view_btn.connect("toggled", self._on_3d_toggled)
+            self._3d_btn = view_btn
+            box.append(view_btn)
         return box
+
+    def _view_3d_tooltip(self, active: bool) -> str:
+        return _translate(
+            self.language,
+            "map.view.switch_to_2d" if active else "map.view.switch_to_3d",
+        )
+
+    def _on_3d_toggled(self, btn: Gtk.ToggleButton) -> None:
+        active = btn.get_active()
+        self._map_3d_view = active
+        btn.set_tooltip_text(self._view_3d_tooltip(active))
+        if self._backend == "webkit":
+            self._js("mapSet3DView(true)" if active else "mapSet3DView(false)")
+        if self._on_3d_view_changed is not None:
+            self._on_3d_view_changed(active)
 
     def _zoom_step(self, delta: int) -> None:
         if self._backend == "webkit":
@@ -1067,9 +1101,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     def set_mock_mode(self, mock_mode: bool) -> None:
         self.mock_mode = bool(mock_mode)
-        if not self.mock_mode and self._status_lbl is not None:
-            # Don't keep stale debug text around after mock mode is disabled.
-            self._status_lbl.set_text("")
         if self.mock_mode:
             self._ensure_map_state_poll()
         self._refresh_map_state_status()
@@ -1160,8 +1191,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._map_bearing is not None:
             parts.append(f"bearing {self._map_bearing:.0f}°")
         text = "  ".join(parts)
-        if self._status_lbl is not None:
-            self._status_lbl.set_text(text)
+        # Status row (Duration / Distance) stays free for routing info even in
+        # mock mode now that the bottom-left overlay is working.
         if self._map_state_lbl is not None:
             self._map_state_lbl.set_text(text)
         if self._map_state_overlay is not None:
