@@ -37,8 +37,8 @@ VALID_MODES: tuple[Source, ...] = ("follow_sensor", "follow_system")
 
 # Mutter DisplayConfig encodes transform as 0..7 (4..7 = flipped variants).
 _TRANSFORM_TO_ANGLE: dict[int, int] = {
-    0: 0, 1: 90, 2: 180, 3: 270,
-    4: 0, 5: 90, 6: 180, 7: 270,
+    0: 0, 1: 270, 2: 180, 3: 90,
+    4: 0, 5: 270, 6: 180, 7: 90,
 }
 
 
