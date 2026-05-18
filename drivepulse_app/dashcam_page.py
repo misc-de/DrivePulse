@@ -12,7 +12,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
-from .dashcam_recorder import DashcamRecorder, list_cameras
+from .dashcam_recorder import DashcamRecorder
 from .diagnostics import get_logger
 
 log = get_logger(__name__)
@@ -43,7 +43,6 @@ class DashcamPage(Gtk.Box):
         self._orientation_deg: int = 0
 
         self._build_ui()
-        self._refresh_cameras()
         self._update_status_row()
 
     # ── Widget construction ───────────────────────────────────────────────────
@@ -252,15 +251,6 @@ class DashcamPage(Gtk.Box):
         box.append(self._saved_placeholder)
 
         return box
-
-    # ── Camera detection ──────────────────────────────────────────────────────
-
-    def _refresh_cameras(self) -> None:
-        cameras = list_cameras() or ["/dev/video0"]
-        self._cam_row.set_model(Gtk.StringList.new(cameras))
-        self._cam_row.set_selected(0)
-        self._cam_row.connect("notify::selected", self._on_cam_changed)
-        self._recorder.camera = cameras[0]
 
     # ── Orientation (called by dashboard_window) ──────────────────────────────
 
