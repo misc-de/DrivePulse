@@ -231,12 +231,20 @@ function isBasePoiLayer(layer) {
 }
 
 function setBasePoiVisibility(visible) {
-  if (!map || !map.isStyleLoaded()) return;
-  const style = map.getStyle();
+  // NOTE: do not short-circuit on isStyleLoaded() — that flag is still false
+  // while the style.load event is firing, which is exactly when we want to
+  // apply the initial POI=hidden state.  getStyle() already returns the parsed
+  // layer list at this point, so iterating is safe.
+  if (!map) return;
+  let style;
+  try { style = map.getStyle(); } catch (_) { return; }
+  if (!style) return;
   const visibility = visible ? 'visible' : 'none';
   (style.layers || []).forEach(layer => {
     if (isBasePoiLayer(layer) && map.getLayer(layer.id)) {
-      map.setLayoutProperty(layer.id, 'visibility', visibility);
+      try {
+        map.setLayoutProperty(layer.id, 'visibility', visibility);
+      } catch (_) { /* layer may have been removed between getStyle() and now */ }
     }
   });
 }
