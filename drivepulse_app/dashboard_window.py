@@ -503,6 +503,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
         else:
             manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
+        if hasattr(self, "acceleration_page"):
+            self.acceleration_page.set_theme_mode(mode)
 
     def _lock_screen_rotation(self) -> None:
         """Disable compositor auto-rotation for this session (Phosh/GNOME)."""
