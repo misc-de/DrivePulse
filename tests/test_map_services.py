@@ -2,11 +2,14 @@ from __future__ import annotations
 
 
 def test_format_duration():
-    from drivepulse_app.map_services import format_duration
+    from drivepulse_app.map_services import format_distance, format_duration
 
     assert format_duration(59) == "0min"
     assert format_duration(125) == "2min"
     assert format_duration(3661) == "1h 1min"
+    assert format_distance(30_000) == "30 km"
+    assert format_distance(12_500) == "12.5 km"
+    assert format_distance(1_250) == "1.2 km"
 
 
 def test_geocode_handles_empty_and_malformed_responses():
@@ -32,6 +35,7 @@ def test_osrm_route_builds_request_and_parses_result():
             "routes": [
                 {
                     "duration": 125.0,
+                    "distance": 30000.0,
                     "geometry": {"coordinates": [[11.0, 48.0], [12.0, 49.0]]},
                 }
             ],
@@ -39,7 +43,7 @@ def test_osrm_route_builds_request_and_parses_result():
 
     result = osrm_route([(48.0, 11.0), (49.0, 12.0)], "car", fake_get)
 
-    assert result == ([[11.0, 48.0], [12.0, 49.0]], 125.0)
+    assert result == ([[11.0, 48.0], [12.0, 49.0]], 125.0, 30000.0)
     assert "/route/v1/driving/11.0,48.0;12.0,49.0" in seen_urls[0]
 
 
