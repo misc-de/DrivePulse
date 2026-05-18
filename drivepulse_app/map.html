@@ -85,6 +85,7 @@ let _trafficVisible = false;
 let _gpsLon = null, _gpsLat = null;
 let _poiVisible     = true;
 let _tourActive     = false;
+let _smoothedBearing = null;  // EMA-smoothed compass bearing to dampen heading jitter
 
 const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
 
@@ -177,6 +178,7 @@ function initMap(lat, lon) {
     zoom: 15,
     pitch: 0,
     bearing: 0,
+    maxPitch: 85,            // allow strong 3D tilt for active tours
     antialias: false,        // faster rendering on mobile/embedded GPU
     fadeDuration: 0,         // tiles appear instantly, no fade-in overhead
     renderWorldCopies: false, // no duplicate world tiles
@@ -243,7 +245,16 @@ function mapSetCar(lat, lon, heading) {
   if (!initialized) initMap(lat, lon);
   if (!map) return;
   _gpsLat = lat; _gpsLon = lon;
-  const hdg = Number(heading || 0);
+  const targetBearing = Number(heading || 0);
+  // EMA-smooth bearing with shortest-arc wrap so sharp turns ease in instead
+  // of snapping. alpha tuned for ~4 Hz GPS — settles in ~500 ms.
+  if (_smoothedBearing === null) {
+    _smoothedBearing = targetBearing;
+  } else {
+    const delta = ((targetBearing - _smoothedBearing + 540) % 360) - 180;
+    _smoothedBearing = (_smoothedBearing + delta * 0.30 + 360) % 360;
+  }
+  const hdg = _smoothedBearing;
   if (carMarker) carMarker.setLngLat([lon, lat]);
   // Arrow: relative to map bearing. In follow-mode the map rotates with heading,
   // so the arrow always points straight up (0°). Otherwise show absolute heading.
@@ -253,7 +264,15 @@ function mapSetCar(lat, lon, heading) {
     const pad = _tourActive
       ? { top: Math.round(window.innerHeight * 0.38), bottom: 0, left: 0, right: 0 }
       : { top: 0, bottom: 0, left: 0, right: 0 };
-    map.easeTo({ center: [lon, lat], bearing: hdg, pitch: 0, duration: 200, padding: pad });
+    // Duration is slightly longer than the GPS push interval (250 ms) so each
+    // animation blends into the next, avoiding the stutter-and-jump look.
+    const opts = {
+      center: [lon, lat], bearing: hdg, duration: 280, padding: pad,
+      easing: t => t,  // linear, so consecutive eases concatenate smoothly
+    };
+    // Keep the strong tilt while a tour is active; flatten view otherwise.
+    if (!_tourActive) opts.pitch = 0;
+    map.easeTo(opts);
   }
 }
 
@@ -264,8 +283,19 @@ function mapSetFollow(active) {
 function mapSetTourActive(active) {
   _tourActive = active;
   if (!active && map) {
-    map.easeTo({ bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 400 });
+    _smoothedBearing = null;
+    map.easeTo({ bearing: 0, pitch: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 400 });
   }
+}
+
+function mapStartTour(lat, lon) {
+  if (!initialized) initMap(lat, lon);
+  if (!map) return;
+  _tourActive = true;
+  _smoothedBearing = null;
+  const z = typeof map.getMaxZoom === 'function' ? map.getMaxZoom() : 22;
+  const p = typeof map.getMaxPitch === 'function' ? map.getMaxPitch() : 60;
+  map.flyTo({ center: [lon, lat], zoom: z, pitch: p, duration: 900 });
 }
 
 function mapSetRoute(coords) {

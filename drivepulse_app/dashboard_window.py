@@ -198,6 +198,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             on_traffic_visible_changed=self._set_map_traffic_visible,
             on_tour_started=self._on_tour_started,
             on_tour_stopped=self._on_tour_stopped,
+            on_tour_resumed=self._on_tour_resumed,
         )
         self.dashcam_page = DashcamPage(self.language)
         self.dashcam_page.set_camera(self.dashcam_camera)
@@ -432,6 +433,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
     def _on_tour_stopped(self) -> None:
         self.mock_tour_sim.stop()
+
+    def _on_tour_resumed(self) -> None:
+        if self.mock_mode:
+            self.mock_tour_sim.resume()
 
     def _on_cars_back_swipe(self) -> None:
         """Vom Autos-Tab (Liste) per Wisch nach rechts — kein Tab (Cars ist erster Tab)."""
