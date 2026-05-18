@@ -207,7 +207,10 @@ function initMap(lat, lon) {
   map.on('style.load', addDataLayers);
 
   map.on('dragstart', () => {
-    if (followMode) {
+    // While a tour is active the map must stay oriented to the driving
+    // direction — let the user pan but keep follow logically on so the
+    // bearing keeps tracking heading.
+    if (followMode && !_tourActive) {
       followMode = false;
       postToPython({ action: 'follow_off' });
     }
@@ -268,21 +271,39 @@ function mapSetCar(lat, lon, heading) {
   // Arrow: relative to map bearing. In follow-mode the map rotates with heading,
   // so the arrow always points straight up (0°). Otherwise show absolute heading.
   if (carArrowEl) carArrowEl.style.transform = `rotate(${followMode ? 0 : hdg}deg)`;
-  if (followMode && !_tourFlying) {
-    // Tour mode: shift car into lower third so more road ahead is visible.
-    const pad = _tourActive
-      ? { top: Math.round(window.innerHeight * 0.38), bottom: 0, left: 0, right: 0 }
-      : { top: 0, bottom: 0, left: 0, right: 0 };
+  if (!_tourFlying) {
     // Duration is slightly longer than the GPS push interval (250 ms) so each
     // animation blends into the next, avoiding the stutter-and-jump look.
     const opts = {
-      center: [lon, lat], bearing: hdg, duration: 280, padding: pad,
+      bearing: hdg, duration: 280,
       easing: t => t,  // linear, so consecutive eases concatenate smoothly
     };
-    // Keep the strong tilt while a tour is active; flatten view otherwise.
-    if (!_tourActive) opts.pitch = 0;
-    map.easeTo(opts);
+    if (followMode) {
+      // Tour mode: shift car into lower third so more road ahead is visible.
+      const pad = _tourActive
+        ? { top: Math.round(window.innerHeight * 0.38), bottom: 0, left: 0, right: 0 }
+        : { top: 0, bottom: 0, left: 0, right: 0 };
+      opts.center = [lon, lat];
+      opts.padding = pad;
+      // Keep the strong tilt while a tour is active; flatten view otherwise.
+      if (!_tourActive) opts.pitch = 0;
+      map.easeTo(opts);
+    } else if (_tourActive) {
+      // Follow was disabled (e.g. user panned), but during a tour we still
+      // want the map oriented in the driving direction — rotate without
+      // recentring so the user's pan is preserved.
+      map.easeTo(opts);
+    }
   }
+  // Push current camera state to Python (mock-mode debug overlay reads this).
+  try {
+    postToPython({
+      action: 'camera',
+      zoom: map.getZoom(),
+      pitch: map.getPitch(),
+      bearing: map.getBearing(),
+    });
+  } catch (_) {}
 }
 
 function mapSetFollow(active) {

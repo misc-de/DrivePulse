@@ -265,6 +265,8 @@ class DashboardSettingsMixin:
         self.mock_mode = mock_mode
         self._save_settings()
         self.reader.set_force_mock(mock_mode)
+        if hasattr(self, "map_page"):
+            self.map_page.set_mock_mode(mock_mode)
 
     def _set_sidebar_side(self, side: str) -> None:
         if side == self.sidebar_side:
