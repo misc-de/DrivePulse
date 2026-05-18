@@ -356,6 +356,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
     def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
         self.dashcam_page.update_orientation(angle, is_landscape)
+        # Enable/disable OS screen rotation based on sensor — only while dashcam is open.
+        if self.view_stack.get_visible_child_name() == self.PAGE_DASHCAM:
+            if is_landscape:
+                self._enable_auto_rotation()
+            else:
+                self._disable_auto_rotation()
 
         # Idle-Erkennung + WAL-Checkpoint alle 30 s
         GLib.timeout_add_seconds(30, self._db_periodic_tick)
@@ -438,11 +444,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # tour is recorded end-to-end regardless of which tab is in front.
         prev = getattr(self, "_last_visible_page", None)
         if page == self.PAGE_DASHCAM:
-            self._enable_auto_rotation()
             self.dashcam_page.on_shown()
         elif prev == self.PAGE_DASHCAM:
             self.dashcam_page.on_hidden()
-            self._disable_auto_rotation()
+            self._disable_auto_rotation()  # re-lock when leaving dashcam
         self._last_visible_page = page
 
     # Hold the simulated drive for this long after the tour starts, matching
