@@ -65,6 +65,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_dashcam_max_segments_changed: Callable[[int], None] | None = None,
         current_dashcam_dim_timeout: int = 30,
         on_dashcam_dim_timeout_changed: Callable[[int], None] | None = None,
+        current_dashcam_rolling_dir: str = "",
+        on_dashcam_rolling_dir_changed: Callable[[str], None] | None = None,
+        current_dashcam_saved_dir: str = "",
+        on_dashcam_saved_dir_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -82,6 +86,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.on_dashcam_seg_minutes_changed = on_dashcam_seg_minutes_changed
         self.on_dashcam_max_segments_changed = on_dashcam_max_segments_changed
         self.on_dashcam_dim_timeout_changed = on_dashcam_dim_timeout_changed
+        self.on_dashcam_rolling_dir_changed = on_dashcam_rolling_dir_changed
+        self.on_dashcam_saved_dir_changed = on_dashcam_saved_dir_changed
+        self._current_dashcam_rolling_dir = current_dashcam_rolling_dir
+        self._current_dashcam_saved_dir = current_dashcam_saved_dir
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
 
@@ -342,9 +350,67 @@ class SettingsDialog(Adw.PreferencesDialog):
         dc_group.add(dim_row)
 
         dc_page.add(dc_group)
+
+        # Storage folder group
+        storage_group = Adw.PreferencesGroup(title=_translate(self.language, "dashcam.settings.storage"))
+        self._dc_rolling_row = self._make_folder_row(
+            title=_translate(self.language, "dashcam.settings.rolling_dir"),
+            current=current_dashcam_rolling_dir,
+            callback=self._on_dc_rolling_dir_chosen,
+        )
+        self._dc_saved_row = self._make_folder_row(
+            title=_translate(self.language, "dashcam.settings.saved_dir"),
+            current=current_dashcam_saved_dir,
+            callback=self._on_dc_saved_dir_chosen,
+        )
+        storage_group.add(self._dc_rolling_row)
+        storage_group.add(self._dc_saved_row)
+        dc_page.add(storage_group)
+
         self.add(dc_page)
 
     # ── Dashcam callbacks ─────────────────────────────────────────────────────
+
+    def _make_folder_row(
+        self, title: str, current: str, callback: Callable[[str], None]
+    ) -> Adw.ActionRow:
+        row = Adw.ActionRow(title=title, subtitle=current or _translate(self.language, "dashcam.settings.dir_default"))
+        row.set_subtitle_lines(1)
+        btn = Gtk.Button(label=_translate(self.language, "dashcam.settings.choose_dir"))
+        btn.add_css_class("flat")
+        btn.set_valign(Gtk.Align.CENTER)
+        btn.connect("clicked", lambda _b, r=row, cb=callback: self._pick_folder(r, cb))
+        row.add_suffix(btn)
+        return row
+
+    def _pick_folder(self, row: Adw.ActionRow, callback: Callable[[str], None]) -> None:
+        chooser = Gtk.FileChooserNative(
+            title=row.get_title(),
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+            accept_label=_translate(self.language, "dashcam.settings.dir_select"),
+            cancel_label=_translate(self.language, "dashcam.settings.dir_cancel"),
+        )
+        chooser.set_transient_for(self.get_root())
+        chooser.connect("response", lambda dlg, resp, r=row, cb=callback: self._on_folder_response(dlg, resp, r, cb))
+        chooser.show()
+
+    def _on_folder_response(
+        self, dlg: Gtk.FileChooserNative, resp: int, row: Adw.ActionRow, callback: Callable[[str], None]
+    ) -> None:
+        if resp == Gtk.ResponseType.ACCEPT:
+            f = dlg.get_file()
+            path = f.get_path() if f else None
+            if path:
+                row.set_subtitle(path)
+                callback(path)
+
+    def _on_dc_rolling_dir_chosen(self, path: str) -> None:
+        if self.on_dashcam_rolling_dir_changed:
+            self.on_dashcam_rolling_dir_changed(path)
+
+    def _on_dc_saved_dir_chosen(self, path: str) -> None:
+        if self.on_dashcam_saved_dir_changed:
+            self.on_dashcam_saved_dir_changed(path)
 
     def _on_dc_camera_changed(self, row: Adw.ComboRow, _pspec: Any) -> None:
         item = row.get_selected_item()
