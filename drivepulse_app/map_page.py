@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 import gi
 
@@ -31,6 +31,8 @@ from .map_services import (
     format_duration,
     geocode,
     haversine,
+    maneuver_icon,
+    maneuver_text_key,
     osrm_route,
     resolve_route_points,
 )
@@ -43,7 +45,15 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     """OpenStreetMap navigation page — WebKit/MapLibre (3D) or Shumate (2D)."""
     __gtype_name__ = "MapPage"
 
-    def __init__(self, language: str = SOURCE_LANGUAGE, force_webkit: bool = False) -> None:
+    def __init__(
+        self,
+        language: str = SOURCE_LANGUAGE,
+        force_webkit: bool = False,
+        poi_visible: bool = False,
+        traffic_visible: bool = False,
+        on_poi_visible_changed: Callable[[bool], None] | None = None,
+        on_traffic_visible_changed: Callable[[bool], None] | None = None,
+    ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -51,6 +61,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self.set_valign(Gtk.Align.FILL)
         self.language = _normalize_language(language)
         self.force_webkit = force_webkit
+        self._on_poi_visible_changed = on_poi_visible_changed
+        self._on_traffic_visible_changed = on_traffic_visible_changed
 
         self._gps_lat: float | None = None
         self._gps_lon: float | None = None
@@ -64,7 +76,15 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._start_coord: tuple[float, float] | None = None
         self._end_coord: tuple[float, float] | None = None
         self._tour_active: bool = False
+        self._tour_steps: list[dict] = []
+        self._tour_step_idx: int = 0
         self._dnd_src_idx: int = -1
+
+        # Maneuver overlay widgets
+        self._maneuver_overlay: Gtk.Box | None = None
+        self._maneuver_icon: Gtk.Image | None = None
+        self._maneuver_distance_lbl: Gtk.Label | None = None
+        self._maneuver_instr_lbl: Gtk.Label | None = None
 
         # Backend: "webkit" | "shumate" | "none"
         self._backend: str = "none"
@@ -99,7 +119,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         # POI layer
         self._poi_btn: Gtk.ToggleButton | None = None
         self._poi_layer: Any = None
-        self._poi_visible: bool = True
+        self._poi_visible: bool = bool(poi_visible)
+        self._traffic_visible: bool = bool(traffic_visible)
 
         # Entry rows: flat list of (row_box, entry, remove_btn)
         self._entry_rows: list[tuple[Gtk.Box, Gtk.Entry, Gtk.Button]] = []
@@ -113,6 +134,30 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     def _on_mapped(self, _widget: Any) -> None:
         GLib.idle_add(self._drop_focus)
+
+    def _apply_initial_overlay_state(self) -> None:
+        """Sync POI/traffic visibility from settings to the active backend."""
+        if self._backend == "webkit":
+            poi = "true" if self._poi_visible else "false"
+            traffic = "true" if self._traffic_visible else "false"
+            self._js(f"mapSetPoiVisible({poi})")
+            self._js(f"mapSetTrafficVisible({traffic})")
+        elif self._backend == "shumate":
+            self._shumate_set_poi_visible(self._poi_visible)
+            self._shumate_set_traffic_visible(self._traffic_visible)
+        if self._traffic_visible and not self._traffic_loaded:
+            self._traffic_loaded = True
+            self._status_lbl.set_text(_translate(self.language, "map.traffic.loading"))
+            threading.Thread(target=self._load_traffic_thread, daemon=True).start()
+
+    def _on_webview_load_changed(self, wv: Any, load_event: Any) -> None:
+        super()._on_webview_load_changed(wv, load_event)
+        if int(load_event) == 3:
+            GLib.timeout_add(200, self._apply_initial_overlay_state_after_load)
+
+    def _apply_initial_overlay_state_after_load(self) -> bool:
+        self._apply_initial_overlay_state()
+        return False
 
     def _drop_focus(self) -> bool:
         root = self.get_root()
@@ -308,8 +353,12 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._backend != "none":
             overlay.add_overlay(self._build_fab())
             overlay.add_overlay(self._build_tour_start_btn())
+            overlay.add_overlay(self._build_maneuver_overlay())
 
         self.append(overlay)
+
+        if self._backend == "shumate":
+            self._apply_initial_overlay_state()
 
     def _build_placeholder(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -339,13 +388,14 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._poi_btn = Gtk.ToggleButton(icon_name="mark-location-symbolic")
         self._poi_btn.add_css_class("circular")
         self._poi_btn.add_css_class("osd")
-        self._poi_btn.set_active(True)
+        self._poi_btn.set_active(self._poi_visible)
         self._poi_btn.set_tooltip_text(_translate(self.language, "map.poi"))
         self._poi_btn.connect("toggled", self._on_poi_toggled)
 
         self._traffic_btn = Gtk.ToggleButton(icon_name="emblem-important-symbolic")
         self._traffic_btn.add_css_class("circular")
         self._traffic_btn.add_css_class("osd")
+        self._traffic_btn.set_active(self._traffic_visible)
         self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
         self._traffic_btn.connect("toggled", self._on_traffic_toggled)
 
@@ -366,6 +416,52 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         fab.append(self._layer_btn)
         fab.append(self._center_btn)
         return fab
+
+    def _build_maneuver_overlay(self) -> Gtk.Widget:
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.set_halign(Gtk.Align.CENTER)
+        outer.set_valign(Gtk.Align.START)
+        outer.set_margin_top(48)
+        outer.set_margin_start(12)
+        outer.set_margin_end(12)
+        outer.set_can_target(False)
+        outer.set_visible(False)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        card.add_css_class("osd")
+        card.add_css_class("card")
+        card.set_margin_top(0)
+
+        self._maneuver_icon = Gtk.Image.new_from_icon_name("go-up-symbolic")
+        self._maneuver_icon.set_pixel_size(56)
+        self._maneuver_icon.set_margin_start(14)
+        self._maneuver_icon.set_margin_end(4)
+        self._maneuver_icon.set_margin_top(10)
+        self._maneuver_icon.set_margin_bottom(10)
+        card.append(self._maneuver_icon)
+
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box.set_valign(Gtk.Align.CENTER)
+        text_box.set_margin_end(16)
+        text_box.set_margin_top(8)
+        text_box.set_margin_bottom(8)
+
+        self._maneuver_distance_lbl = Gtk.Label(label="")
+        self._maneuver_distance_lbl.add_css_class("title-2")
+        self._maneuver_distance_lbl.set_halign(Gtk.Align.START)
+
+        self._maneuver_instr_lbl = Gtk.Label(label="")
+        self._maneuver_instr_lbl.set_halign(Gtk.Align.START)
+        self._maneuver_instr_lbl.set_max_width_chars(32)
+        self._maneuver_instr_lbl.set_wrap(True)
+
+        text_box.append(self._maneuver_distance_lbl)
+        text_box.append(self._maneuver_instr_lbl)
+        card.append(text_box)
+
+        outer.append(card)
+        self._maneuver_overlay = outer
+        return outer
 
     def _build_tour_start_btn(self) -> Gtk.Widget:
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -393,6 +489,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             return
         lat, lon = self._start_coord
         self._tour_active = True
+        self._tour_step_idx = 0
+        self._update_maneuver_overlay()
         if self._tour_start_lbl is not None:
             self._tour_start_lbl.set_label(_translate(self.language, "map.tour_stop"))
         if self._tour_btn_icon is not None:
@@ -421,6 +519,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._js("mapClearGuideToStart()")
         elif self._guide_path_layer is not None:
             self._guide_path_layer.remove_all()
+        if self._maneuver_overlay is not None:
+            self._maneuver_overlay.set_visible(False)
 
     def _fetch_guide_to_start(
         self, gps_lat: float, gps_lon: float, start_lat: float, start_lon: float
@@ -428,7 +528,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         result = osrm_route([(gps_lat, gps_lon), (start_lat, start_lon)], self._routing_mode)
         GLib.idle_add(self._guide_result, result)
 
-    def _guide_result(self, result: tuple[list[list[float]], float, float] | None) -> bool:
+    def _guide_result(
+        self,
+        result: tuple[list[list[float]], float, float, list[dict]] | None,
+    ) -> bool:
         if result is None:
             return False
         coords = result[0]
@@ -468,6 +571,55 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._update_shumate_gps(lat, lon)
             if self._follow_gps:
                 self._goto(lat, lon)
+
+        if self._tour_active:
+            self._update_maneuver_overlay()
+
+    # Advance step when the user gets within this many meters of its maneuver point.
+    _MANEUVER_ADVANCE_M = 25.0
+
+    def _update_maneuver_overlay(self) -> None:
+        if self._maneuver_overlay is None:
+            return
+        if (
+            not self._tour_active
+            or not self._tour_steps
+            or self._gps_lat is None
+            or self._gps_lon is None
+        ):
+            self._maneuver_overlay.set_visible(False)
+            return
+
+        # Advance past "depart" and any maneuver we've already reached.
+        while self._tour_step_idx < len(self._tour_steps) - 1:
+            cur = self._tour_steps[self._tour_step_idx]
+            if cur.get("type") == "depart":
+                self._tour_step_idx += 1
+                continue
+            d_cur = haversine(self._gps_lat, self._gps_lon, cur["lat"], cur["lon"])
+            if d_cur <= self._MANEUVER_ADVANCE_M:
+                self._tour_step_idx += 1
+                continue
+            break
+
+        step = self._tour_steps[self._tour_step_idx]
+        distance_m = haversine(self._gps_lat, self._gps_lon, step["lat"], step["lon"])
+        m_type = step.get("type", "")
+        m_modifier = step.get("modifier", "")
+        name = step.get("name", "") or ""
+
+        icon = maneuver_icon(m_type, m_modifier)
+        text = _translate(self.language, maneuver_text_key(m_type, m_modifier))
+        if name and m_type not in {"arrive", "depart"}:
+            text += _translate(self.language, "map.maneuver.on_street").format(name=name)
+
+        if self._maneuver_icon is not None:
+            self._maneuver_icon.set_from_icon_name(icon)
+        if self._maneuver_distance_lbl is not None:
+            self._maneuver_distance_lbl.set_text(format_distance(distance_m))
+        if self._maneuver_instr_lbl is not None:
+            self._maneuver_instr_lbl.set_text(text)
+        self._maneuver_overlay.set_visible(True)
 
     def _goto(self, lat: float, lon: float) -> None:
         if self._backend == "webkit":
@@ -530,6 +682,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     def _on_traffic_toggled(self, btn: Gtk.ToggleButton) -> None:
         visible = btn.get_active()
+        self._traffic_visible = visible
         if self._backend == "webkit":
             val = "true" if visible else "false"
             self._js(f"mapSetTrafficVisible({val})")
@@ -539,6 +692,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._traffic_loaded = True
             self._status_lbl.set_text(_translate(self.language, "map.traffic.loading"))
             threading.Thread(target=self._load_traffic_thread, daemon=True).start()
+        if self._on_traffic_visible_changed is not None:
+            self._on_traffic_visible_changed(visible)
 
     def _load_traffic_thread(self) -> None:
         items = bab_fetch_all()
@@ -615,6 +770,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._js(f"mapSetPoiVisible({val})")
         else:
             self._shumate_set_poi_visible(self._poi_visible)
+        if self._on_poi_visible_changed is not None:
+            self._on_poi_visible_changed(self._poi_visible)
 
     # ── Route ─────────────────────────────────────────────────────────────────
 
@@ -648,6 +805,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._start_coord = None
         self._end_coord = None
         self._tour_active = False
+        self._tour_steps = []
+        self._tour_step_idx = 0
+        if self._maneuver_overlay is not None:
+            self._maneuver_overlay.set_visible(False)
         if self._tour_start_lbl is not None:
             self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
         if self._tour_btn_icon is not None:
@@ -689,14 +850,16 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def _route_result(
         self,
         all_points: list[tuple[float, float]],
-        result: tuple[list[list[float]], float, float] | None,
+        result: tuple[list[list[float]], float, float, list[dict]] | None,
     ) -> bool:
         self._route_btn.set_sensitive(True)
         if result is None:
             self._status_lbl.set_text(_translate(self.language, "map.routing.error"))
             return False
 
-        coords, duration_s, distance_m = result
+        coords, duration_s, distance_m, steps = result
+        self._tour_steps = steps
+        self._tour_step_idx = 0
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
         prefix = _translate(self.language, "map.duration_prefix")
