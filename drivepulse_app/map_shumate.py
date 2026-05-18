@@ -143,6 +143,18 @@ class MapShumateMixin:
     def _shumate_set_guide(self, coords: list[list[float]]) -> None:
         self._shumate_set_path(self._guide_path_layer, coords)
 
+    def _shumate_max_zoom(self) -> float:
+        """Maximum zoom level supported by the current Shumate tile source."""
+        if self._shumate_map is None:
+            return 19.0
+        source = self._shumate_map.get_map_source()
+        if source is not None and hasattr(source, "get_max_zoom_level"):
+            try:
+                return float(source.get_max_zoom_level())
+            except Exception:
+                pass
+        return 19.0
+
     def _shumate_set_path(self, layer: Any, coords: list[list[float]]) -> None:
         if layer is None:
             return

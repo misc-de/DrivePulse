@@ -24,6 +24,7 @@ from .dashboard_layout import DashboardLayoutMixin
 from .acceleration import AccelerationPage
 from .cars import CarsPage
 from .map_page import MapPage
+from .dashcam_page import DashcamPage
 from .dashboard_telemetry import DashboardTelemetryMixin
 from .db import DriveDB
 from .dashboard_settings import DashboardSettingsMixin
@@ -41,6 +42,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     PAGE_ACCELERATION = "acceleration"
     PAGE_CARS = "cars"
     PAGE_MAP = "map"
+    PAGE_DASHCAM = "dashcam"
 
     # Fensterbreite, unterhalb derer die Autos-Detailansicht ihre Kategorienleiste
     # auf Icon-only umschaltet (Phosh/Mobian-typische Portrait-Breiten 360–540 px).
@@ -61,13 +63,30 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.sidebar_side: str = self.settings.get("sidebar_side", "left")
         self.theme_mode: str = self.settings.get("theme_mode", "auto")
         self.force_webkit_map: bool = bool(self.settings.get("force_webkit_map", False))
-        self.map_poi_visible: bool = bool(self.settings.get("map_poi_visible", False))
+        # POIs are deliberately not persisted — they're a performance hit, so
+        # the map always starts without POI loading until the user toggles it.
         self.map_traffic_visible: bool = bool(self.settings.get("map_traffic_visible", False))
+        self.map_3d_view: bool = bool(self.settings.get("map_3d_view", True))
         self.last_update_check: str | None = self.settings.get("last_update_check")
+        self.dashcam_camera: str = self.settings.get("dashcam_camera", "/dev/video0")
+        self.dashcam_resolution: str = self.settings.get("dashcam_resolution", "1280x720")
+        self.dashcam_seg_minutes: int = int(self.settings.get("dashcam_seg_minutes", 3))
+        self.dashcam_max_segments: int = int(self.settings.get("dashcam_max_segments", 10))
+        self.dashcam_dim_timeout: int = int(self.settings.get("dashcam_dim_timeout", 30))
+        self.dashcam_rolling_dir: str = self.settings.get("dashcam_rolling_dir", "")
+        self.dashcam_saved_dir: str = self.settings.get("dashcam_saved_dir", "")
+        self.nav_position: str = self.settings.get("nav_position", "bottom")
+        self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
         self._last_gps_lon: float | None = None
+
+        # Lock screen auto-rotation for the session so the display doesn't
+        # spin when the phone vibrates while mounted in the car.
+        self._saved_rotation_setting: tuple[str, str, str] | None = None
+        self._lock_screen_rotation()
+        atexit.register(self._unlock_screen_rotation)
 
         # Persistente Fahrten-Datenbank (cars/trips/samples) — vor allen Pages,
         # weil CarsPage sie injiziert bekommt.
@@ -172,16 +191,34 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
 
         self.mock_tour_sim = MockTourSimulator(self._update_from_payload)
+        self._pending_sim_start_id: int | None = None
         self.map_page = MapPage(
             self.language,
             force_webkit=self.force_webkit_map,
-            poi_visible=self.map_poi_visible,
+            units=self.units,
+            mock_mode=self.mock_mode,
+            poi_visible=False,
             traffic_visible=self.map_traffic_visible,
-            on_poi_visible_changed=self._set_map_poi_visible,
+            map_3d_view=self.map_3d_view,
             on_traffic_visible_changed=self._set_map_traffic_visible,
+            on_3d_view_changed=self._set_map_3d_view,
             on_tour_started=self._on_tour_started,
             on_tour_stopped=self._on_tour_stopped,
+            on_tour_resumed=self._on_tour_resumed,
         )
+        self.dashcam_page = DashcamPage(self.language)
+        self.dashcam_page.set_camera(self.dashcam_camera)
+        self.dashcam_page.set_resolution(self.dashcam_resolution)
+        self.dashcam_page.set_segment_minutes(self.dashcam_seg_minutes)
+        self.dashcam_page.set_max_segments(self.dashcam_max_segments)
+        self.dashcam_page.set_dim_timeout(self.dashcam_dim_timeout)
+        self.dashcam_page.set_rolling_dir(self.dashcam_rolling_dir)
+        self.dashcam_page.set_saved_dir(self.dashcam_saved_dir)
+        self.dashcam_page.set_gps_osd(
+            bool(self.settings.get("dashcam_gps_osd", False))
+        )
+        self.dashcam_page.set_units(self.units)
+        self.dashcam_page.on_recording_changed = self._on_dashcam_recording_changed
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
@@ -201,6 +238,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.PAGE_MAP,
             _translate(self.language, "nav.map"),
             "navigate-north",
+        )
+        self.dashcam_stack_page = self.view_stack.add_titled_with_icon(
+            self.dashcam_page,
+            self.PAGE_DASHCAM,
+            _translate(self.language, "nav.dashcam"),
+            "camera-video-symbolic",
         )
         self.dashboard_stack_page = self.view_stack.add_titled_with_icon(
             dashboard_scroller,
@@ -246,16 +289,34 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._sync_btn.set_tooltip_text(_translate(self.language, "sync.tooltip"))
         self._sync_btn.connect("clicked", self._open_sync)
 
+        # REC indicator — shown when dashcam is recording in the background
+        self._dashcam_rec_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self._dashcam_rec_box.set_visible(False)
+        _rec_dot = Gtk.Label(label="●")
+        _rec_dot.add_css_class("error")
+        self._dashcam_rec_box.append(_rec_dot)
+        _rec_lbl = Gtk.Label(label="REC")
+        _rec_lbl.add_css_class("caption-heading")
+        self._dashcam_rec_box.append(_rec_lbl)
+
         header.pack_start(self.obd_indicator["box"])
         header.pack_start(self.gps_indicator["box"])
+        header.pack_start(self._dashcam_rec_box)
         header.pack_end(settings_button)
         header.pack_end(self._sync_btn)
         header.pack_end(self._ctx_trash_btn)
 
-        self.header = header
-        self.switcher_bar = switcher_bar
+        switcher_top = Adw.ViewSwitcherBar()
+        switcher_top.set_stack(self.view_stack)
+
+        self.header        = header
+        self.switcher_bar  = switcher_bar        # bottom bar (default)
+        self.switcher_top  = switcher_top
+        self.toolbar_view  = toolbar_view
         toolbar_view.add_top_bar(header)
+        toolbar_view.add_top_bar(switcher_top)
         toolbar_view.add_bottom_bar(switcher_bar)
+        self._apply_nav_position(self.nav_position)
         toolbar_view.set_content(self.view_stack)
 
         self._nav_visible = True
@@ -287,8 +348,14 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
-        self.orientation_reader = OrientationReader(lambda *_: None)
+        self.orientation_reader = OrientationReader(self._on_orientation_changed)
         self.orientation_reader.on_gforce = self.acceleration_page.update_gforce_raw
+
+    def _on_dashcam_recording_changed(self, recording: bool) -> None:
+        self._dashcam_rec_box.set_visible(recording)
+
+    def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
+        self.dashcam_page.update_orientation(angle, is_landscape)
 
         # Idle-Erkennung + WAL-Checkpoint alle 30 s
         GLib.timeout_add_seconds(30, self._db_periodic_tick)
@@ -366,12 +433,48 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if page == self.PAGE_MAP:
             GLib.timeout_add(50, self.map_page.on_shown)
 
+        # Dashcam preview is started lazily and torn down when the user leaves
+        # the tab — except the recorder keeps running across tab switches so a
+        # tour is recorded end-to-end regardless of which tab is in front.
+        prev = getattr(self, "_last_visible_page", None)
+        if page == self.PAGE_DASHCAM:
+            self.dashcam_page.on_shown()
+        elif prev == self.PAGE_DASHCAM:
+            self.dashcam_page.on_hidden()
+        self._last_visible_page = page
+
+    # Hold the simulated drive for this long after the tour starts, matching
+    # mapStartTour's camera settle window in map.html so the car doesn't pull
+    # away while the user is still reading the freshly opened navigation card.
+    _TOUR_SETTLE_MS = 3000
+
     def _on_tour_started(self, coords: list[list[float]]) -> None:
+        self._cancel_pending_sim_start()
+        if not self.mock_mode:
+            return
+        coords_copy = list(coords)
+        self._pending_sim_start_id = GLib.timeout_add(
+            self._TOUR_SETTLE_MS, self._start_mock_sim_delayed, coords_copy
+        )
+
+    def _start_mock_sim_delayed(self, coords: list[list[float]]) -> bool:
+        self._pending_sim_start_id = None
         if self.mock_mode:
             self.mock_tour_sim.start(coords)
+        return False  # one-shot
+
+    def _cancel_pending_sim_start(self) -> None:
+        if self._pending_sim_start_id is not None:
+            GLib.source_remove(self._pending_sim_start_id)
+            self._pending_sim_start_id = None
 
     def _on_tour_stopped(self) -> None:
+        self._cancel_pending_sim_start()
         self.mock_tour_sim.stop()
+
+    def _on_tour_resumed(self) -> None:
+        if self.mock_mode:
+            self.mock_tour_sim.resume()
 
     def _on_cars_back_swipe(self) -> None:
         """Vom Autos-Tab (Liste) per Wisch nach rechts — kein Tab (Cars ist erster Tab)."""
@@ -400,6 +503,53 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
         else:
             manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
+        if hasattr(self, "acceleration_page"):
+            self.acceleration_page.set_theme_mode(mode)
+
+    def _lock_screen_rotation(self) -> None:
+        """Disable compositor auto-rotation for this session (Phosh/GNOME)."""
+        import subprocess
+        candidates = [
+            ("org.gnome.settings-daemon.plugins.orientation", "active", "false"),
+            ("org.gnome.desktop.interface", "orientation-lock", "true"),
+        ]
+        for schema, key, lock_value in candidates:
+            try:
+                r = subprocess.run(
+                    ["gsettings", "get", schema, key],
+                    capture_output=True, text=True, timeout=2,
+                )
+                if r.returncode != 0:
+                    continue
+                previous = r.stdout.strip()
+                subprocess.run(
+                    ["gsettings", "set", schema, key, lock_value],
+                    timeout=2, capture_output=True,
+                )
+                self._saved_rotation_setting = (schema, key, previous)
+                log.info("Screen rotation locked via %s %s", schema, key)
+                return
+            except Exception:
+                pass
+
+    def _unlock_screen_rotation(self) -> None:
+        """Restore auto-rotation setting saved at startup."""
+        if not self._saved_rotation_setting:
+            return
+        schema, key, previous = self._saved_rotation_setting
+        import subprocess
+        try:
+            subprocess.run(
+                ["gsettings", "set", schema, key, previous],
+                timeout=2, capture_output=True,
+            )
+        except Exception:
+            pass
+
+    def _apply_nav_position(self, position: str) -> None:
+        at_top = position == "top"
+        self.switcher_top.set_reveal(at_top)
+        self.switcher_bar.set_reveal(not at_top)
 
     def _apply_window_theme(self, theme: str) -> None:
         for cls in list(self.get_css_classes()):
@@ -452,7 +602,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # Zurück-Swipe (Detail → Liste). Wir schalten dann nicht zusätzlich den Tab um.
         if current == self.PAGE_CARS and velocity_x > 0 and self.cars_page.is_detail_open():
             return
-        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
+        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHCAM, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
         try:
             index = pages.index(current)
         except ValueError:
