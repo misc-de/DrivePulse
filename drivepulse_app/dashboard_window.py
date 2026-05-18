@@ -24,6 +24,7 @@ from .dashboard_layout import DashboardLayoutMixin
 from .acceleration import AccelerationPage
 from .cars import CarsPage
 from .map_page import MapPage
+from .dashcam_page import DashcamPage
 from .dashboard_telemetry import DashboardTelemetryMixin
 from .db import DriveDB
 from .dashboard_settings import DashboardSettingsMixin
@@ -40,6 +41,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     PAGE_ACCELERATION = "acceleration"
     PAGE_CARS = "cars"
     PAGE_MAP = "map"
+    PAGE_DASHCAM = "dashcam"
 
     # Fensterbreite, unterhalb derer die Autos-Detailansicht ihre Kategorienleiste
     # auf Icon-only umschaltet (Phosh/Mobian-typische Portrait-Breiten 360–540 px).
@@ -169,6 +171,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
 
         self.map_page = MapPage(self.language, force_webkit=self.force_webkit_map)
+        self.dashcam_page = DashcamPage(self.language)
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
@@ -188,6 +191,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.PAGE_MAP,
             _translate(self.language, "nav.map"),
             "navigate-north",
+        )
+        self.dashcam_stack_page = self.view_stack.add_titled_with_icon(
+            self.dashcam_page,
+            self.PAGE_DASHCAM,
+            _translate(self.language, "nav.dashcam"),
+            "camera-video-symbolic",
         )
         self.dashboard_stack_page = self.view_stack.add_titled_with_icon(
             dashboard_scroller,
@@ -274,8 +283,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
-        self.orientation_reader = OrientationReader(lambda *_: None)
+        self.orientation_reader = OrientationReader(self._on_orientation_changed)
         self.orientation_reader.on_gforce = self.acceleration_page.update_gforce_raw
+
+    def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
+        self.dashcam_page.update_orientation(angle, is_landscape)
 
         # Idle-Erkennung + WAL-Checkpoint alle 30 s
         GLib.timeout_add_seconds(30, self._db_periodic_tick)
@@ -432,7 +444,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # Zurück-Swipe (Detail → Liste). Wir schalten dann nicht zusätzlich den Tab um.
         if current == self.PAGE_CARS and velocity_x > 0 and self.cars_page.is_detail_open():
             return
-        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
+        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHCAM, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
         try:
             index = pages.index(current)
         except ValueError:
