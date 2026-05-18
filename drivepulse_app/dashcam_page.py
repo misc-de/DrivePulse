@@ -90,15 +90,19 @@ class _CameraPreview:
         for src in sources:
             # videoflip method=0 forces identity — strips any upstream orientation
             # metadata that pipewiresrc/libcamerasrc may inject on mobile devices.
+            # queue leaky=downstream drops stale frames instead of buffering them.
             # gtk4paintablesink: GPU-native GTK4 rendering, no CPU copy
             out.append((
-                f"{src} ! videoconvert ! videoflip method=0 ! gtk4paintablesink name=sink sync=false",
+                f"{src} ! videoconvert ! videoflip method=0 "
+                f"! queue max-size-buffers=2 leaky=downstream "
+                f"! gtk4paintablesink name=sink sync=false",
                 True,
             ))
             # appsink: CPU frame-copy fallback
             out.append((
-                f"{src} ! videoconvert ! videoflip method=0 ! video/x-raw,format=RGB ! "
-                f"appsink name=sink max-buffers=1 drop=true sync=false",
+                f"{src} ! videoconvert ! videoflip method=0 ! video/x-raw,format=RGB "
+                f"! queue max-size-buffers=1 leaky=downstream "
+                f"! appsink name=sink max-buffers=1 drop=true sync=false",
                 False,
             ))
         return out
@@ -160,9 +164,12 @@ class _CameraPreview:
             GLib.source_remove(self._timer)
             self._timer = None
         if self._pipeline is not None:
+            bus = self._pipeline.get_bus()
+            bus.remove_signal_watch()
             self._pipeline.set_state(Gst.State.NULL)
             self._pipeline = None
-        self._sink    = None
+        self._sink = None
+        self._picture.set_paintable(None)
 
     def stop(self) -> None:
         self._teardown_pipeline()
@@ -181,13 +188,13 @@ class _CameraPreview:
             h    = st.get_value("height")
             ok, mi = buf.map(Gst.MapFlags.READ)
             if ok:
-                raw    = bytes(mi.data)
-                gbytes = GLib.Bytes.new(raw)
-                tex    = Gdk.MemoryTexture.new(
+                gbytes = GLib.Bytes.new(mi.data)
+                buf.unmap(mi)
+                tex = Gdk.MemoryTexture.new(
                     w, h, Gdk.MemoryFormat.R8G8B8, gbytes, w * 3
                 )
+                del gbytes
                 self._picture.set_paintable(tex)
-                buf.unmap(mi)
                 if not self._got_frame:
                     self._got_frame = True
                     if self._on_first_frame:
