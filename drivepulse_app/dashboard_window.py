@@ -394,7 +394,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             css = b""
         else:
             css = (
-                f".dp-nav-rotated button {{ transform: rotate({angle}deg); }}"
+                f".dp-nav-rotated button image,"
+                f".dp-nav-rotated button label"
+                f" {{ transform: rotate({angle}deg); }}"
             ).encode()
         self._nav_rotation_css.load_from_data(css)
         for bar in (self.switcher_bar, self.switcher_top):
