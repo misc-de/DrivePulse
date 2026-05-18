@@ -129,6 +129,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dashcam.settings.choose_dir": "Choose…",
         "dashcam.settings.dir_select": "Select",
         "dashcam.settings.dir_cancel": "Cancel",
+        "dashcam.settings.gps": "GPS & Location",
+        "dashcam.settings.gps_osd": "Burn GPS into video",
+        "dashcam.settings.gps_osd_sub": "Overlays coordinates and speed in the bottom-left corner of each recording",
 
         "map.search.start": "From (empty = GPS)",
         "map.search.end": "Destination",
@@ -471,6 +474,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dashcam.settings.choose_dir": "Auswählen…",
         "dashcam.settings.dir_select": "Auswählen",
         "dashcam.settings.dir_cancel": "Abbrechen",
+        "dashcam.settings.gps": "GPS & Standort",
+        "dashcam.settings.gps_osd": "GPS ins Video einbetten",
+        "dashcam.settings.gps_osd_sub": "Koordinaten und Geschwindigkeit unten links ins Video einblenden",
 
         "map.search.start": "Von (leer = GPS)",
         "map.search.end": "Ziel",
