@@ -149,7 +149,7 @@ class DashboardTelemetryMixin:
                     lat=lat, lon=lon, altitude_m=altitude_m,
                     heading_deg=gps_heading, gps_speed_kmh=gps_speed_kmh,
                 )
-            self.acceleration_page.update_payload(payload, self._plain_number)
+            self.stopwatch_page.update_payload(payload, self._plain_number)
             self.cars_page.update_live(payload)
             if hasattr(self, "map_page"):
                 self.map_page.update_gps(lat, lon, gps_heading)
@@ -199,7 +199,7 @@ class DashboardTelemetryMixin:
             _spd_src = ""
         self.speed_gauge.set_source_label(_spd_src)
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
-        self.acceleration_page.update_payload(payload, self._plain_number)
+        self.stopwatch_page.update_payload(payload, self._plain_number)
         self.cars_page.update_live(payload)
 
         canvas_speed = self._display_speed(speed_source_kmh)

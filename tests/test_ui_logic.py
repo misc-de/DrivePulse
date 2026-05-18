@@ -85,7 +85,7 @@ def test_swipe_changes_pages(drivepulse_module):
     window.view_stack.visible_child_name = window.PAGE_DASHBOARD
 
     window._on_swipe(None, -300, 0)
-    assert window.view_stack.get_visible_child_name() == window.PAGE_ACCELERATION
+    assert window.view_stack.get_visible_child_name() == window.PAGE_STOPWATCH
 
     window._on_swipe(None, 300, 0)
     assert window.view_stack.get_visible_child_name() == window.PAGE_DASHBOARD
@@ -116,7 +116,7 @@ def _payload_window(drivepulse_module):
     window.rpm_gauge = drivepulse_module.Gauge("RPM", "rpm", 0, 7000, (1, 1, 1))
     window.speed_gauge = drivepulse_module.Gauge("Speed", "km/h", 0, 240, (1, 1, 1))
     window.temp_gauge = drivepulse_module.Gauge("Temp", "C", 40, 130, (1, 1, 1))
-    window.acceleration_page = type("AccelerationSpy", (), {"update_payload": lambda self, payload, reader: None})()
+    window.stopwatch_page = type("StopWatchSpy", (), {"update_payload": lambda self, payload, reader: None})()
     window.cars_page = type("CarsSpy", (), {"update_live": lambda self, payload: None})()
     window.dashboard_canvas = drivepulse_module.DashboardCanvas("racing", "metric", "en")
     window.status_label = drivepulse_module.Gtk.Label(label="")

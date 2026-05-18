@@ -1,4 +1,4 @@
-"""Replay helpers for acceleration measurements."""
+"""Replay helpers for StopWatch measurements."""
 from __future__ import annotations
 
 import time
@@ -12,7 +12,7 @@ from gi.repository import GLib  # noqa: E402
 from .common import _translate
 
 
-class AccelerationReplayMixin:
+class StopWatchReplayMixin:
     def _stop_replay(self) -> None:
         if self._replay_timer_id is not None:
             GLib.source_remove(self._replay_timer_id)
@@ -31,8 +31,8 @@ class AccelerationReplayMixin:
         self._replay_active = True
         self._replay_start_mono = time.monotonic()
         self._replay_sample_idx = 0
-        self.replay_button.set_label(_translate(self.language, "acceleration.replay.running"))
-        self.status_label.set_text(_translate(self.language, "acceleration.running"))
+        self.replay_button.set_label(_translate(self.language, "stopwatch.replay.running"))
+        self.status_label.set_text(_translate(self.language, "stopwatch.running"))
         self._replay_timer_id = GLib.timeout_add(33, self._replay_tick)
 
     def _replay_tick(self) -> bool:
@@ -76,8 +76,8 @@ class AccelerationReplayMixin:
             self._replay_timer_id = None
             self._update_best_labels()
             self._update_vmax_row(obd_v=obd_v, obd_t=obd_t, gps_v=gps_v, gps_t=gps_t)
-            self.status_label.set_text(_translate(self.language, "acceleration.done"))
-            self.replay_button.set_label(_translate(self.language, "acceleration.replay"))
+            self.status_label.set_text(_translate(self.language, "stopwatch.done"))
+            self.replay_button.set_label(_translate(self.language, "stopwatch.replay"))
             return GLib.SOURCE_REMOVE
         return GLib.SOURCE_CONTINUE
 

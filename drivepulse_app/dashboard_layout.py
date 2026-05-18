@@ -22,8 +22,8 @@ class DashboardLayoutMixin:
             # Use the shorter dimension so phones in landscape stay narrow
             self.cars_page.set_narrow(min(width, height) < self.CARS_NARROW_BREAKPOINT)
 
-        if hasattr(self, "acceleration_page"):
-            self.acceleration_page._apply_layout(width, height)
+        if hasattr(self, "stopwatch_page"):
+            self.stopwatch_page._apply_layout(width, height)
 
         gauge_box_visible = self.gauge_box.get_visible()
         if gauge_box_visible is not False:

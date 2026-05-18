@@ -24,16 +24,16 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
 ## Features
 
 - Multiple dashboard themes (Analog, Cockpit, Digital, Modern, Neon, Racing, Sport)
-- **Acceleration measurement**
+- **StopWatch measurement**
   - G-force ball display with real-time longitudinal and lateral G
   - 0–30 / 0–50 / 0–70 / 0–100 / … / 0–200 km/h and 100–200 km/h from OBD and GPS
   - Vmax elapsed times (OBD / GPS / average) shown at end of run
   - replay completed runs with real-time animation
 - **Cars / Trips page**
   - lists all vehicles seen, with recorded trips
-  - OBD scan history and acceleration runs per vehicle
+  - OBD scan history and StopWatch runs per vehicle
   - trip detail includes speed/RPM/G chart + map track
-  - Acceleration runs stored per vehicle (date, GPS location, all split times, G-force peaks)
+  - StopWatch runs stored per vehicle (date, GPS location, all split times, G-force peaks)
 - **Device sync**
   - transfer the full database between two devices over a local Wi-Fi connection
   - server generates a QR code, client scans it in local networks; TLS-encrypted
@@ -106,12 +106,12 @@ drivepulse_app/
   gauge.py                 Circular gauge widget (Cairo)
   draw_helpers.py          Shared Cairo drawing utilities
 
-  acceleration.py          Acceleration measurement page (GTK widget)
-  acceleration_canvas.py   G-force ball canvas widget
-  acceleration_processing.py  Payload processing mixin (timing, G logic)
-  acceleration_replay.py   Run replay mixin
+  stopwatch.py             StopWatch measurement page (GTK widget)
+  stopwatch_canvas.py      G-force ball canvas widget
+  stopwatch_processing.py  Payload processing mixin (timing, G logic)
+  stopwatch_replay.py      Run replay mixin
 
-  cars.py                  Vehicles / trips / scans / acceleration runs page
+  cars.py                  Vehicles / trips / scans / stopwatch runs page
   cars_layout.py           Cars page layout mixin (sidebar / detail split)
   cars_detail_render.py    Car detail content renderer
   cars_metadata.py         OBD PID catalogue and category definitions
@@ -122,7 +122,7 @@ drivepulse_app/
   cars_trip_visuals.py     Trip chart drawing helpers
   cars_scans.py            Scan list and detail widgets
   cars_scan_widgets.py     Scan detail widget
-  cars_accel_runs.py       Acceleration run list and detail widgets
+  cars_stopwatch_runs.py   StopWatch run list and detail widgets
 
   db.py                    SQLite storage (cars, trips, samples, scans, acceleration_runs)
   trip_recorder.py         Ongoing trip recording logic

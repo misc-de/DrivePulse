@@ -521,8 +521,8 @@ class ObdReader(GObject.Object):
     def _response_to_plain_value(self, response: Any) -> Any:
         return response_to_plain_value(response)
 
-    def trigger_mock_acceleration(self) -> None:
-        """Start a mock 0-230 km/h acceleration run (called when Start is pressed in mock mode)."""
+    def trigger_mock_stopwatch(self) -> None:
+        """Start a mock 0-230 km/h stopwatch run (called when Start is pressed in mock mode)."""
         self._mock_simulator.trigger_acceleration()
 
     def _read_mock(self) -> dict[str, Any]:

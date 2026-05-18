@@ -1,4 +1,4 @@
-"""Acceleration measurement page for DrivePulse."""
+"""StopWatch (0-100/0-200 timing) page for DrivePulse."""
 from __future__ import annotations
 
 import math
@@ -9,9 +9,9 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango  # noqa: E402
 
-from .acceleration_canvas import GForceCanvas
-from .acceleration_processing import AccelerationProcessingMixin
-from .acceleration_replay import AccelerationReplayMixin
+from .stopwatch_canvas import GForceCanvas
+from .stopwatch_processing import StopWatchProcessingMixin
+from .stopwatch_replay import StopWatchReplayMixin
 from .common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language, _translate
 
 _WARNING_CSS = (
@@ -43,8 +43,8 @@ def _apply_warning_css(button: Gtk.Button) -> None:
     button.connect("realize", _on_realize)
 
 
-class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk.Box):
-    __gtype_name__ = "AccelerationPage"
+class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
+    __gtype_name__ = "StopWatchPage"
 
     SPEED_TARGETS_KMH = (30, 50, 70, 100, 150, 200)
     RANGE_TARGETS_KMH: tuple[tuple[int, int], ...] = ((100, 200),)
@@ -239,7 +239,7 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.results_scroll.set_child(self.results_box)
 
         # Wrap trigger + controls into a box that gets reparented by _apply_layout:
-        # inside left_col in landscape, directly on AccelerationPage in portrait.
+        # inside left_col in landscape, directly on StopWatchPage in portrait.
         self._trigger_row.set_margin_top(8)
         self._bottom_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self._bottom_box.set_hexpand(True)
@@ -453,23 +453,23 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
     # ------------------------------------------------------------------
 
     def _refresh_texts(self) -> None:
-        self.title_label.set_text(_translate(self.language, "acceleration.title"))
-        self.start_button.set_label(_translate(self.language, "acceleration.start"))
-        self.abort_button.set_label(_translate(self.language, "acceleration.abort"))
-        self.reset_button.set_label(_translate(self.language, "acceleration.reset"))
-        self.gforce_trigger_check.set_label(_translate(self.language, "acceleration.gforce_trigger"))
+        self.title_label.set_text(_translate(self.language, "stopwatch.title"))
+        self.start_button.set_label(_translate(self.language, "stopwatch.start"))
+        self.abort_button.set_label(_translate(self.language, "stopwatch.abort"))
+        self.reset_button.set_label(_translate(self.language, "stopwatch.reset"))
+        self.gforce_trigger_check.set_label(_translate(self.language, "stopwatch.gforce_trigger"))
         if self.replay_button.get_visible() and not self._replay_active:
-            self.replay_button.set_label(_translate(self.language, "acceleration.replay"))
+            self.replay_button.set_label(_translate(self.language, "stopwatch.replay"))
         if not self.armed and not self.running:
-            self.status_label.set_text(_translate(self.language, "acceleration.ready"))
+            self.status_label.set_text(_translate(self.language, "stopwatch.ready"))
         if hasattr(self, "_header_name_lbl"):
-            self._header_name_lbl.set_text(_translate(self.language, "acceleration.title"))
+            self._header_name_lbl.set_text(_translate(self.language, "stopwatch.title"))
         if hasattr(self, "_header_obd_lbl"):
-            self._header_obd_lbl.set_text(_translate(self.language, "acceleration.obd"))
+            self._header_obd_lbl.set_text(_translate(self.language, "stopwatch.obd"))
         if hasattr(self, "_header_gps_lbl"):
-            self._header_gps_lbl.set_text(_translate(self.language, "acceleration.gps"))
+            self._header_gps_lbl.set_text(_translate(self.language, "stopwatch.gps"))
         if hasattr(self, "_header_best_lbl"):
-            self._header_best_lbl.set_text(_translate(self.language, "acceleration.best"))
+            self._header_best_lbl.set_text(_translate(self.language, "stopwatch.best"))
         self._update_best_labels()
         self._update_maxes_label()
 
@@ -494,9 +494,9 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
 
     def _set_g_text(self, active_g: float | None) -> None:
         if active_g is None:
-            self.g_label.set_text(_translate(self.language, "acceleration.g.empty"))
+            self.g_label.set_text(_translate(self.language, "stopwatch.g.empty"))
         else:
-            self.g_label.set_text(_translate(self.language, "acceleration.g", value=f"{active_g:.3f}"))
+            self.g_label.set_text(_translate(self.language, "stopwatch.g", value=f"{active_g:.3f}"))
 
     def _update_vmax_row(
         self,
@@ -530,13 +530,13 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         vmax = self.max_obd_speed if self.max_obd_speed is not None else self.max_gps_speed
         parts: list[str] = []
         if vmax is not None:
-            parts.append(_translate(self.language, "acceleration.vmax", value=f"{vmax:.0f} km/h"))
+            parts.append(_translate(self.language, "stopwatch.vmax", value=f"{vmax:.0f} km/h"))
         else:
-            parts.append(_translate(self.language, "acceleration.vmax.empty"))
+            parts.append(_translate(self.language, "stopwatch.vmax.empty"))
         if self.max_g is not None:
-            parts.append(_translate(self.language, "acceleration.gmax", value=f"{self.max_g:.1f}"))
+            parts.append(_translate(self.language, "stopwatch.gmax", value=f"{self.max_g:.1f}"))
         else:
-            parts.append(_translate(self.language, "acceleration.gmax.empty"))
+            parts.append(_translate(self.language, "stopwatch.gmax.empty"))
         self.maxes_label.set_text("  ·  ".join(parts))
 
     # ------------------------------------------------------------------
@@ -596,7 +596,7 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
     def _show_replay(self) -> None:
         self.start_button.set_visible(False)
         self.abort_button.set_visible(False)
-        self.replay_button.set_label(_translate(self.language, "acceleration.replay"))
+        self.replay_button.set_label(_translate(self.language, "stopwatch.replay"))
         self.replay_button.set_visible(True)
 
     # ------------------------------------------------------------------
@@ -626,7 +626,7 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self._set_source_visibility(False, False)
         self._update_maxes_label()
         self._show_abort()
-        self.status_label.set_text(_translate(self.language, "acceleration.armed"))
+        self.status_label.set_text(_translate(self.language, "stopwatch.armed"))
         if self.on_mock_start is not None:
             self.on_mock_start()
 
@@ -634,7 +634,7 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self.armed = False
         self.running = False
         self._show_start()
-        self.status_label.set_text(_translate(self.language, "acceleration.done"))
+        self.status_label.set_text(_translate(self.language, "stopwatch.done"))
 
     def reset_measurement(self, *_args: Any) -> None:
         self._stop_replay()
@@ -668,7 +668,7 @@ class AccelerationPage(AccelerationProcessingMixin, AccelerationReplayMixin, Gtk
         self._update_maxes_label()
         self._show_start()
         self._set_g_text(None)
-        self.status_label.set_text(_translate(self.language, "acceleration.ready"))
+        self.status_label.set_text(_translate(self.language, "stopwatch.ready"))
 
     def update_gforce_raw(self, x_g: float, y_g: float, z_g: float) -> None:
         """Compute _raw_g_dev for start-detection. Canvas is driven by update_payload only."""

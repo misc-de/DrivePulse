@@ -1,4 +1,4 @@
-"""Payload processing for acceleration measurements."""
+"""Payload processing for StopWatch measurements."""
 from __future__ import annotations
 
 import math
@@ -8,7 +8,7 @@ from typing import Any, Callable
 from .common import _translate
 
 
-class AccelerationProcessingMixin:
+class StopWatchProcessingMixin:
     def _update_lateral_g(self, heading_deg: float | None, speed_kmh: float | None, now: float) -> None:
         """Estimate lateral G from GPS heading change × speed (centripetal acceleration).
 
@@ -116,7 +116,7 @@ class AccelerationProcessingMixin:
                 self.running = True
                 # Set start time retroactively to when the gentle push began
                 self.start_monotonic = self._prestart_since if self._prestart_since is not None else now
-                self.status_label.set_text(_translate(self.language, "acceleration.running"))
+                self.status_label.set_text(_translate(self.language, "stopwatch.running"))
 
         if not self.running or self.start_monotonic is None:
             return
@@ -171,7 +171,7 @@ class AccelerationProcessingMixin:
                 gps_v=self.max_gps_speed, gps_t=self._max_gps_speed_t,
             )
             self._show_replay()
-            self.status_label.set_text(_translate(self.language, "acceleration.done"))
+            self.status_label.set_text(_translate(self.language, "stopwatch.done"))
             if self.on_run_complete is not None:
                 combined = {
                     "targets": {str(k): dict(v) for k, v in self.results.items()},

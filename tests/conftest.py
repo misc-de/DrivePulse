@@ -361,6 +361,7 @@ def drivepulse_module(monkeypatch):
         StringList=_StringList,
         StyleContext=types.SimpleNamespace(add_provider_for_display=lambda *a: None),
         Switch=_Switch,
+        Widget=_Widget,
         Window=_Widget,
         STYLE_PROVIDER_PRIORITY_APPLICATION=600,
     )
@@ -395,6 +396,8 @@ def drivepulse_module(monkeypatch):
     repository.Gio = gio
     repository.Pango = pango
     repository.Gdk = gdk
+    repository.Gsk = types.SimpleNamespace(Transform=types.SimpleNamespace(new=lambda: None))
+    repository.Graphene = types.SimpleNamespace(Point=types.SimpleNamespace(alloc=lambda: types.SimpleNamespace(init=lambda x, y: None)))
 
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repository)

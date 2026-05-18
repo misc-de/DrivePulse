@@ -367,9 +367,11 @@ class DriveDB:
                 (trip_id,),
             ).fetchall())
 
-    # -------------------------------------------------------- Acceleration runs
+    # -------------------------------------------------------- StopWatch runs
+    # NB: the underlying SQL table is still `acceleration_runs` for backward
+    # compatibility with existing user databases.
 
-    def add_acceleration_run(
+    def add_stopwatch_run(
         self,
         car_id: int,
         results: dict[str, Any],
@@ -393,7 +395,7 @@ class DriveDB:
             self._conn.commit()
             return int(cur.lastrowid)
 
-    def list_acceleration_runs_for_car(self, car_id: int) -> list[sqlite3.Row]:
+    def list_stopwatch_runs_for_car(self, car_id: int) -> list[sqlite3.Row]:
         with self._lock:
             return list(self._conn.execute(
                 "SELECT id, car_id, run_at, lat, lon FROM acceleration_runs"
@@ -401,7 +403,7 @@ class DriveDB:
                 (car_id,),
             ).fetchall())
 
-    def get_acceleration_run(self, run_id: int) -> dict[str, Any]:
+    def get_stopwatch_run(self, run_id: int) -> dict[str, Any]:
         import json as _json
         with self._lock:
             row = self._conn.execute(
@@ -420,10 +422,10 @@ class DriveDB:
                 "samples": _json.loads(row["samples_json"]),
             }
         except Exception:
-            log.exception("Could not decode acceleration run JSON for run_id=%s", run_id)
+            log.exception("Could not decode stopwatch run JSON for run_id=%s", run_id)
             return {}
 
-    def delete_acceleration_run(self, run_id: int) -> None:
+    def delete_stopwatch_run(self, run_id: int) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM acceleration_runs WHERE id=?", (run_id,))
             self._conn.commit()
