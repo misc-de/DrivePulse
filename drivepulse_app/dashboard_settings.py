@@ -45,6 +45,9 @@ class DashboardSettingsMixin:
                 "nav_position": getattr(self, "nav_position", "bottom"),
                 "dashcam_gps_osd": getattr(self, "dashcam_gps_osd", False),
                 "rotation_mode": getattr(self, "rotation_mode", "follow_sensor"),
+                "tts_enabled": getattr(self, "tts_enabled", False),
+                "tts_language": getattr(self, "tts_language", "auto"),
+                "tts_voice": getattr(self, "tts_voice", "female"),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -110,6 +113,12 @@ class DashboardSettingsMixin:
             on_dashcam_gps_osd_changed=self._set_dashcam_gps_osd,
             current_rotation_mode=getattr(self, "rotation_mode", "follow_sensor"),
             on_rotation_mode_changed=self._set_rotation_mode,
+            current_tts_enabled=getattr(self, "tts_enabled", False),
+            on_tts_enabled_changed=self._set_tts_enabled,
+            current_tts_language=getattr(self, "tts_language", "auto"),
+            on_tts_language_changed=self._set_tts_language,
+            current_tts_voice=getattr(self, "tts_voice", "female"),
+            on_tts_voice_changed=self._set_tts_voice,
         )
         dialog.present(self)
 
@@ -166,6 +175,24 @@ class DashboardSettingsMixin:
         self.rotation_mode = mode
         self._save_settings()
         self.rotation.set_mode(mode)
+
+    def _set_tts_enabled(self, enabled: bool) -> None:
+        self.tts_enabled = enabled
+        self._save_settings()
+        if hasattr(self, "map_page"):
+            self.map_page.set_tts_enabled(enabled)
+
+    def _set_tts_language(self, language: str) -> None:
+        self.tts_language = language
+        self._save_settings()
+        if hasattr(self, "map_page"):
+            self.map_page.set_tts_language(language)
+
+    def _set_tts_voice(self, voice: str) -> None:
+        self.tts_voice = voice
+        self._save_settings()
+        if hasattr(self, "map_page"):
+            self.map_page.set_tts_voice(voice)
 
     def _open_sync(self, *_args: Any) -> None:
         import gi
