@@ -190,6 +190,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
 
         self.mock_tour_sim = MockTourSimulator(self._update_from_payload)
+        self._pending_sim_start_id: int | None = None
         self.map_page = MapPage(
             self.language,
             force_webkit=self.force_webkit_map,
@@ -428,11 +429,33 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if page == self.PAGE_MAP:
             GLib.timeout_add(50, self.map_page.on_shown)
 
+    # Hold the simulated drive for this long after the tour starts, matching
+    # mapStartTour's camera settle window in map.html so the car doesn't pull
+    # away while the user is still reading the freshly opened navigation card.
+    _TOUR_SETTLE_MS = 3000
+
     def _on_tour_started(self, coords: list[list[float]]) -> None:
+        self._cancel_pending_sim_start()
+        if not self.mock_mode:
+            return
+        coords_copy = list(coords)
+        self._pending_sim_start_id = GLib.timeout_add(
+            self._TOUR_SETTLE_MS, self._start_mock_sim_delayed, coords_copy
+        )
+
+    def _start_mock_sim_delayed(self, coords: list[list[float]]) -> bool:
+        self._pending_sim_start_id = None
         if self.mock_mode:
             self.mock_tour_sim.start(coords)
+        return False  # one-shot
+
+    def _cancel_pending_sim_start(self) -> None:
+        if self._pending_sim_start_id is not None:
+            GLib.source_remove(self._pending_sim_start_id)
+            self._pending_sim_start_id = None
 
     def _on_tour_stopped(self) -> None:
+        self._cancel_pending_sim_start()
         self.mock_tour_sim.stop()
 
     def _on_tour_resumed(self) -> None:
