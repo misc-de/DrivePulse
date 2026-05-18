@@ -16,6 +16,7 @@ from gi.repository import Adw, Gdk, GLib, Graphene, Gsk, Gtk  # noqa: E402
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 from .dashcam_recorder import DashcamRecorder
 from .diagnostics import get_logger
+from .rotated_container import RotatedContainer
 
 log = get_logger(__name__)
 
@@ -203,79 +204,6 @@ class _CameraPreview:
         return True
 
 
-# ── Rotated single-child container ────────────────────────────────────────────
-
-class _RotatedBar(Gtk.Widget):
-    """Single-child container that rotates its child by 0/90/180/270°.
-
-    For 90/270 the child is allocated with its width and height swapped, then
-    a Gsk.Transform is applied so the child's contents (labels, buttons) render
-    upright for the user when the device is held in landscape.
-    """
-    __gtype_name__ = "DPDashcamRotatedBar"
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._child: Gtk.Widget | None = None
-        self._angle: int = 0
-
-    def set_child(self, child: Gtk.Widget | None) -> None:
-        if self._child is not None:
-            self._child.unparent()
-        self._child = child
-        if child is not None:
-            child.set_parent(self)
-
-    def set_rotation(self, angle: int) -> None:
-        a = angle % 360
-        if a not in (0, 90, 180, 270):
-            a = 0
-        if a == self._angle:
-            return
-        self._angle = a
-        self.queue_resize()
-
-    def do_measure(self, orientation: Gtk.Orientation, for_size: int):
-        if self._child is None:
-            return (0, 0, -1, -1)
-        if self._angle in (0, 180):
-            return self._child.measure(orientation, for_size)
-        other = (Gtk.Orientation.HORIZONTAL
-                 if orientation == Gtk.Orientation.VERTICAL
-                 else Gtk.Orientation.VERTICAL)
-        return self._child.measure(other, for_size)
-
-    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
-        if self._child is None:
-            return
-        a = self._angle
-        if a == 0:
-            self._child.allocate(width, height, baseline, None)
-            return
-        if a == 180:
-            tr = (Gsk.Transform.new()
-                  .translate(Graphene.Point.alloc().init(width, height))
-                  .rotate(180))
-            self._child.allocate(width, height, baseline, tr)
-            return
-        if a == 90:
-            tr = (Gsk.Transform.new()
-                  .translate(Graphene.Point.alloc().init(width, 0))
-                  .rotate(90))
-            self._child.allocate(height, width, baseline, tr)
-            return
-        # 270
-        tr = (Gsk.Transform.new()
-              .translate(Graphene.Point.alloc().init(0, height))
-              .rotate(-90))
-        self._child.allocate(height, width, baseline, tr)
-
-    def do_dispose(self) -> None:
-        if self._child is not None:
-            self._child.unparent()
-            self._child = None
-
-
 # ── Page widget ───────────────────────────────────────────────────────────────
 
 class DashcamPage(Gtk.Box):
@@ -390,7 +318,7 @@ class DashcamPage(Gtk.Box):
 
         # ── Controls overlay — always at the user's visual bottom ─────────────
         # The inner `bar_wrap` carries the styled translucent backdrop and the
-        # controls. It is wrapped in `_RotatedBar`, which moves/rotates the
+        # controls. It is wrapped in a RotatedContainer, which moves/rotates the
         # whole thing as the device orientation changes so the buttons stay
         # reachable at the user's visual bottom edge and read upright.
         bar_wrap = Gtk.Box()
@@ -398,7 +326,7 @@ class DashcamPage(Gtk.Box):
         bar_wrap.set_hexpand(True)
         bar_wrap.append(self._build_controls())
 
-        rotator = _RotatedBar()
+        rotator = RotatedContainer()
         rotator.set_child(bar_wrap)
         rotator.set_valign(Gtk.Align.END)
         rotator.set_halign(Gtk.Align.FILL)
