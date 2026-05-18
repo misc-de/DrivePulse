@@ -131,6 +131,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._map_bearing: float | None = None
         self._map_state_overlay: Gtk.Box | None = None
         self._map_state_lbl: Gtk.Label | None = None
+        self._map_state_poll_id: int | None = None
         self._on_poi_visible_changed = on_poi_visible_changed
         self._on_traffic_visible_changed = on_traffic_visible_changed
         self._on_tour_started = on_tour_started
@@ -213,6 +214,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._build_map()
 
         self.connect("map", self._on_mapped)
+
+        if self.mock_mode:
+            self._ensure_map_state_poll()
 
     def _on_mapped(self, _widget: Any) -> None:
         GLib.idle_add(self._drop_focus)
@@ -1066,8 +1070,33 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if not self.mock_mode and self._status_lbl is not None:
             # Don't keep stale debug text around after mock mode is disabled.
             self._status_lbl.set_text("")
-        else:
-            self._refresh_map_state_status()
+        if self.mock_mode:
+            self._ensure_map_state_poll()
+        self._refresh_map_state_status()
+
+    def _ensure_map_state_poll(self) -> None:
+        if self._map_state_poll_id is not None:
+            return
+        # 1 s tick — independent of the JS bridge, so it works for Shumate too.
+        self._map_state_poll_id = GLib.timeout_add(1000, self._poll_map_state)
+
+    def _poll_map_state(self) -> bool:
+        if not self.mock_mode:
+            self._map_state_poll_id = None
+            return False
+        # Shumate: read directly from the viewport (2D, no pitch/bearing).
+        if self._backend == "shumate" and self._shumate_map is not None:
+            try:
+                viewport = self._shumate_map.get_viewport()
+                self._map_zoom = float(viewport.get_zoom_level())
+                self._map_pitch = None
+                self._map_bearing = None
+            except Exception:
+                pass
+        # WebKit pushes its own state via the JS bridge; nothing to read here.
+        # We still refresh so any cached values land on screen.
+        self._refresh_map_state_status()
+        return True
 
     def _refresh_map_state_status(self) -> None:
         """In mock mode, render live map view state in the status row and a
@@ -1076,9 +1105,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             if self._map_state_overlay is not None:
                 self._map_state_overlay.set_visible(False)
             return
-        if self._map_zoom is None and self._map_pitch is None:
-            return
-        parts: list[str] = []
+        # Tag with the active backend so it's obvious which path is feeding
+        # the readout (e.g. "shumate" never has pitch).
+        parts: list[str] = [self._backend or "none"]
         if self._map_zoom is not None:
             parts.append(f"zoom {self._map_zoom:.1f}")
         if self._map_pitch is not None:
