@@ -60,9 +60,10 @@ class _CameraPreview:
         self._pipeline       = None
         self._sink           = None        # only set for appsink mode
         self._timer: int | None = None
-        self._camera    = "/dev/video0"
-        self._flip      = 0
-        self._got_frame = False
+        self._camera       = "/dev/video0"
+        self._flip_el: Any = None          # GStreamer videoflip element
+        self._flip_method  = 0             # pending method applied on pipeline start
+        self._got_frame    = False
         self._attempts: list[tuple[str, bool]] = []   # (desc, is_paintable)
 
     def set_camera(self, device: str) -> None:
@@ -74,8 +75,10 @@ class _CameraPreview:
             self.start()
 
     def set_rotation(self, angle: int) -> None:
-        # Preview is never rotated — rotation is metadata-only on recordings.
-        pass
+        method = self._FLIP_MAP.get(angle % 360, 0)
+        self._flip_method = method
+        if self._flip_el is not None:
+            self._flip_el.set_property("method", method)
 
     def start(self) -> None:
         if not _GST_OK or self._pipeline is not None:
@@ -88,7 +91,7 @@ class _CameraPreview:
     def _build_attempts(self) -> "list[tuple[str, bool]]":
         cam = self._camera
         # Sources in priority order: PipeWire (Furios/Halium) → libcamera → V4L2 → auto
-        # No videoflip — the preview shows exactly what the camera captures.
+        # Sources in priority order; videoflip rotates preview to match device orientation.
         sources = [
             "pipewiresrc",
             "libcamerasrc",
@@ -99,12 +102,12 @@ class _CameraPreview:
         for src in sources:
             # gtk4paintablesink: GPU-native GTK4 rendering, no CPU copy
             out.append((
-                f"{src} ! videoconvert ! gtk4paintablesink name=sink sync=false",
+                f"{src} ! videoconvert ! videoflip name=flip ! gtk4paintablesink name=sink sync=false",
                 True,
             ))
             # appsink: CPU frame-copy fallback
             out.append((
-                f"{src} ! videoconvert ! video/x-raw,format=RGB ! "
+                f"{src} ! videoconvert ! videoflip name=flip ! video/x-raw,format=RGB ! "
                 f"appsink name=sink max-buffers=1 drop=true sync=false",
                 False,
             ))
@@ -128,6 +131,10 @@ class _CameraPreview:
             return
 
         sink_el = pipeline.get_by_name("sink")
+        flip_el = pipeline.get_by_name("flip")
+        if flip_el is not None:
+            flip_el.set_property("method", self._flip_method)
+            self._flip_el = flip_el
 
         if is_paintable:
             try:
@@ -169,7 +176,8 @@ class _CameraPreview:
         if self._pipeline is not None:
             self._pipeline.set_state(Gst.State.NULL)
             self._pipeline = None
-        self._sink = None
+        self._sink    = None
+        self._flip_el = None
 
     def stop(self) -> None:
         self._teardown_pipeline()
@@ -522,6 +530,7 @@ class DashcamPage(Gtk.Box):
 
     def update_orientation(self, angle: int, is_landscape: bool) -> None:
         self._recorder.rotation = angle
+        self._preview.set_rotation(angle)
 
     def update_ui_rotation(self, angle: int) -> None:
         landscape = angle in (90, 270)
