@@ -305,13 +305,13 @@ function mapStartTour(lat, lon) {
   _smoothedBearing = null;
   const z = typeof map.getMaxZoom === 'function' ? map.getMaxZoom() : 22;
   const p = typeof map.getMaxPitch === 'function' ? map.getMaxPitch() : 60;
-  // Lock out GPS-driven easeTo for the duration of the fly — otherwise the
-  // first mock GPS tick (~250 ms after start) cancels the flyTo and the map
-  // stays stuck at whatever partial zoom/pitch the fly had reached.
+  // Fly to max zoom/pitch, then hold the camera still for a few seconds so
+  // the user can orient (the "Navikarten-Aufbau" period).  GPS-driven easeTo
+  // is suppressed for the entire settle window — otherwise the first GPS
+  // tick would cancel the flyTo and yank the camera into follow-mode.
   _tourFlying = true;
-  const flyMs = 900;
-  map.flyTo({ center: [lon, lat], zoom: z, pitch: p, duration: flyMs });
-  setTimeout(() => { _tourFlying = false; }, flyMs + 50);
+  map.flyTo({ center: [lon, lat], zoom: z, pitch: p, duration: 900 });
+  setTimeout(() => { _tourFlying = false; }, 3000);
 }
 
 function mapSetRoute(coords) {
