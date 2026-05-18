@@ -91,6 +91,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self,
         language: str = SOURCE_LANGUAGE,
         force_webkit: bool = False,
+        units: str = "metric",
         poi_visible: bool = False,
         traffic_visible: bool = False,
         on_poi_visible_changed: Callable[[bool], None] | None = None,
@@ -106,6 +107,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self.set_valign(Gtk.Align.FILL)
         self.language = _normalize_language(language)
         self.force_webkit = force_webkit
+        self.units = units if units in {"metric", "imperial"} else "metric"
         self._on_poi_visible_changed = on_poi_visible_changed
         self._on_traffic_visible_changed = on_traffic_visible_changed
         self._on_tour_started = on_tour_started
@@ -766,7 +768,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._maneuver_icon is not None:
             self._maneuver_icon.set_from_icon_name(icon)
         if self._maneuver_distance_lbl is not None:
-            self._maneuver_distance_lbl.set_text(format_distance(distance_m))
+            self._maneuver_distance_lbl.set_text(format_distance(distance_m, self.units))
         if self._maneuver_instr_lbl is not None:
             self._maneuver_instr_lbl.set_text(text)
         self._maneuver_overlay.set_visible(True)
@@ -969,6 +971,15 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._search_bar is not None:
             self._search_bar.set_visible(visible)
 
+    def set_units(self, units: str) -> None:
+        units = units if units in {"metric", "imperial"} else "metric"
+        if units == self.units:
+            return
+        self.units = units
+        # Re-render whatever's currently on screen using the new unit system.
+        if self._tour_active:
+            self._update_maneuver_overlay()
+
     def _compute_route(self, start_text: str, wp_texts: list[str], end_text: str) -> None:
         try:
             gps = (
@@ -1015,7 +1026,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         distance_prefix = _translate(self.language, "map.distance_prefix")
         self._status_lbl.set_text(
             f"{prefix}{format_duration(duration_s)} / "
-            f"{distance_prefix}{format_distance(distance_m)}"
+            f"{distance_prefix}{format_distance(distance_m, self.units)}"
         )
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_visible(True)
