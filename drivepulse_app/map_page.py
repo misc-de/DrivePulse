@@ -510,6 +510,16 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         fab.append(self._traffic_btn)
         fab.append(self._layer_btn)
         fab.append(self._center_btn)
+
+        # 3D/2D toggle — text label instead of icon so the current mode is
+        # always readable at a glance.  WebKit-only (Shumate is flat).
+        if self._backend == "webkit":
+            self._3d_btn = Gtk.Button()
+            self._3d_btn.add_css_class("circular")
+            self._3d_btn.add_css_class("osd")
+            self._3d_btn.connect("clicked", self._on_3d_clicked)
+            self._refresh_3d_btn()
+            fab.append(self._3d_btn)
         return fab
 
     def _build_map_state_overlay(self) -> Gtk.Widget:
@@ -553,18 +563,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._zoom_out_btn = zoom_out
         box.append(zoom_in)
         box.append(zoom_out)
-
-        # 3D/2D toggle — only meaningful on the WebKit backend; Shumate is 2D
-        # only.  Active state means the map is in 3D (tilted) view.
-        if self._backend == "webkit":
-            view_btn = Gtk.ToggleButton(icon_name="dp-view-3d-symbolic")
-            view_btn.add_css_class("circular")
-            view_btn.add_css_class("osd")
-            view_btn.set_active(self._map_3d_view)
-            view_btn.set_tooltip_text(self._view_3d_tooltip(self._map_3d_view))
-            view_btn.connect("toggled", self._on_3d_toggled)
-            self._3d_btn = view_btn
-            box.append(view_btn)
         return box
 
     def _view_3d_tooltip(self, active: bool) -> str:
@@ -573,10 +571,17 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             "map.view.switch_to_2d" if active else "map.view.switch_to_3d",
         )
 
-    def _on_3d_toggled(self, btn: Gtk.ToggleButton) -> None:
-        active = btn.get_active()
+    def _refresh_3d_btn(self) -> None:
+        if self._3d_btn is None:
+            return
+        # Show the *current* mode on the button face — clicking flips it.
+        self._3d_btn.set_label("3D" if self._map_3d_view else "2D")
+        self._3d_btn.set_tooltip_text(self._view_3d_tooltip(self._map_3d_view))
+
+    def _on_3d_clicked(self, _btn: Gtk.Button) -> None:
+        active = not self._map_3d_view
         self._map_3d_view = active
-        btn.set_tooltip_text(self._view_3d_tooltip(active))
+        self._refresh_3d_btn()
         if self._backend == "webkit":
             self._js("mapSet3DView(true)" if active else "mapSet3DView(false)")
         if self._on_3d_view_changed is not None:
@@ -1089,6 +1094,25 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def set_nav_visible(self, visible: bool) -> None:
         if self._search_bar is not None:
             self._search_bar.set_visible(visible)
+        # Showing/hiding the search bar changes the map widget's allocated
+        # height — MapLibre's WebGL canvas doesn't notice on its own, and
+        # Shumate's viewport also needs a queue_draw to repaint the freshly
+        # exposed area.  Defer until after GTK has allocated the new layout.
+        GLib.idle_add(self._nudge_map_resize)
+
+    def _nudge_map_resize(self) -> bool:
+        if self._backend == "webkit":
+            # mapResize() calls map.resize() inside MapLibre, which recomputes
+            # the canvas size and triggers a re-render at the new dimensions.
+            self._do_map_resize()
+            # A second nudge after the GTK layout has fully settled catches
+            # the case where the first call ran before the search bar's
+            # disappearance had propagated through the size cycle.
+            GLib.timeout_add(150, self._do_map_resize)
+        elif self._backend == "shumate" and self._shumate_map is not None:
+            self._shumate_map.queue_resize()
+            self._shumate_map.queue_draw()
+        return False
 
     def set_units(self, units: str) -> None:
         units = units if units in {"metric", "imperial"} else "metric"
