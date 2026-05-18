@@ -68,6 +68,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_seg_minutes: int = int(self.settings.get("dashcam_seg_minutes", 3))
         self.dashcam_max_segments: int = int(self.settings.get("dashcam_max_segments", 10))
         self.dashcam_dim_timeout: int = int(self.settings.get("dashcam_dim_timeout", 30))
+        self.dashcam_rolling_dir: str = self.settings.get("dashcam_rolling_dir", "")
+        self.dashcam_saved_dir: str = self.settings.get("dashcam_saved_dir", "")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -182,6 +184,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_page.set_segment_minutes(self.dashcam_seg_minutes)
         self.dashcam_page.set_max_segments(self.dashcam_max_segments)
         self.dashcam_page.set_dim_timeout(self.dashcam_dim_timeout)
+        self.dashcam_page.set_rolling_dir(self.dashcam_rolling_dir)
+        self.dashcam_page.set_saved_dir(self.dashcam_saved_dir)
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
