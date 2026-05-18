@@ -63,6 +63,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.theme_mode: str = self.settings.get("theme_mode", "auto")
         self.force_webkit_map: bool = bool(self.settings.get("force_webkit_map", False))
         self.last_update_check: str | None = self.settings.get("last_update_check")
+        self.dashcam_camera: str = self.settings.get("dashcam_camera", "/dev/video0")
+        self.dashcam_resolution: str = self.settings.get("dashcam_resolution", "1280x720")
+        self.dashcam_seg_minutes: int = int(self.settings.get("dashcam_seg_minutes", 3))
+        self.dashcam_max_segments: int = int(self.settings.get("dashcam_max_segments", 10))
+        self.dashcam_dim_timeout: int = int(self.settings.get("dashcam_dim_timeout", 30))
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -172,6 +177,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
         self.map_page = MapPage(self.language, force_webkit=self.force_webkit_map)
         self.dashcam_page = DashcamPage(self.language)
+        self.dashcam_page.set_camera(self.dashcam_camera)
+        self.dashcam_page.set_resolution(self.dashcam_resolution)
+        self.dashcam_page.set_segment_minutes(self.dashcam_seg_minutes)
+        self.dashcam_page.set_max_segments(self.dashcam_max_segments)
+        self.dashcam_page.set_dim_timeout(self.dashcam_dim_timeout)
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)

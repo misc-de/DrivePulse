@@ -55,6 +55,16 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_force_webkit_map_changed: Callable[[bool], None] | None = None,
         current_last_check: str | None = None,
         on_last_check_updated: Callable[[str], None] | None = None,
+        current_dashcam_camera: str = "/dev/video0",
+        on_dashcam_camera_changed: Callable[[str], None] | None = None,
+        current_dashcam_resolution: str = "1280x720",
+        on_dashcam_resolution_changed: Callable[[str], None] | None = None,
+        current_dashcam_seg_minutes: int = 3,
+        on_dashcam_seg_minutes_changed: Callable[[int], None] | None = None,
+        current_dashcam_max_segments: int = 10,
+        on_dashcam_max_segments_changed: Callable[[int], None] | None = None,
+        current_dashcam_dim_timeout: int = 30,
+        on_dashcam_dim_timeout_changed: Callable[[int], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -67,6 +77,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.on_theme_mode_changed = on_theme_mode_changed
         self.on_force_webkit_map_changed = on_force_webkit_map_changed
         self.on_last_check_updated = on_last_check_updated
+        self.on_dashcam_camera_changed = on_dashcam_camera_changed
+        self.on_dashcam_resolution_changed = on_dashcam_resolution_changed
+        self.on_dashcam_seg_minutes_changed = on_dashcam_seg_minutes_changed
+        self.on_dashcam_max_segments_changed = on_dashcam_max_segments_changed
+        self.on_dashcam_dim_timeout_changed = on_dashcam_dim_timeout_changed
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
 
@@ -261,6 +276,97 @@ class SettingsDialog(Adw.PreferencesDialog):
         app_page.add(obd_group)
 
         self.add(app_page)
+
+        # ── Dashcam page ──────────────────────────────────────────────────────
+        from .dashcam_recorder import RESOLUTIONS, list_cameras  # lazy import
+
+        dc_page = Adw.PreferencesPage(
+            title=_translate(self.language, "settings.page.dashcam"),
+            icon_name="camera-video-symbolic",
+        )
+        dc_group = Adw.PreferencesGroup(title=_translate(self.language, "dashcam.settings.title"))
+
+        # Camera selector
+        cameras = list_cameras() or [current_dashcam_camera]
+        cam_model = Gtk.StringList.new(cameras)
+        self._dc_cam_row = Adw.ComboRow(title=_translate(self.language, "dashcam.settings.camera"))
+        self._dc_cam_row.set_model(cam_model)
+        sel_cam = cameras.index(current_dashcam_camera) if current_dashcam_camera in cameras else 0
+        self._dc_cam_row.set_selected(sel_cam)
+        self._dc_cam_row.connect("notify::selected", self._on_dc_camera_changed)
+        dc_group.add(self._dc_cam_row)
+
+        # Resolution
+        res_model = Gtk.StringList.new(RESOLUTIONS)
+        self._dc_res_row = Adw.ComboRow(title=_translate(self.language, "dashcam.settings.resolution"))
+        self._dc_res_row.set_model(res_model)
+        sel_res = RESOLUTIONS.index(current_dashcam_resolution) if current_dashcam_resolution in RESOLUTIONS else 1
+        self._dc_res_row.set_selected(sel_res)
+        self._dc_res_row.connect("notify::selected", self._on_dc_resolution_changed)
+        dc_group.add(self._dc_res_row)
+
+        # Segment length
+        seg_adj = Gtk.Adjustment(value=current_dashcam_seg_minutes, lower=1, upper=30, step_increment=1)
+        self._dc_seg_spin = Gtk.SpinButton(adjustment=seg_adj, climb_rate=1, digits=0)
+        self._dc_seg_spin.connect("value-changed", self._on_dc_seg_minutes_changed)
+        seg_row = Adw.ActionRow(
+            title=_translate(self.language, "dashcam.settings.seg_len"),
+            subtitle=_translate(self.language, "dashcam.settings.seg_len_sub"),
+        )
+        seg_row.add_suffix(self._dc_seg_spin)
+        seg_row.set_activatable_widget(self._dc_seg_spin)
+        dc_group.add(seg_row)
+
+        # Max segments
+        max_adj = Gtk.Adjustment(value=current_dashcam_max_segments, lower=2, upper=60, step_increment=1)
+        self._dc_max_spin = Gtk.SpinButton(adjustment=max_adj, climb_rate=1, digits=0)
+        self._dc_max_spin.connect("value-changed", self._on_dc_max_segments_changed)
+        max_row = Adw.ActionRow(
+            title=_translate(self.language, "dashcam.settings.max_seg"),
+            subtitle=_translate(self.language, "dashcam.settings.max_seg_sub"),
+        )
+        max_row.add_suffix(self._dc_max_spin)
+        max_row.set_activatable_widget(self._dc_max_spin)
+        dc_group.add(max_row)
+
+        # Screen dim timeout
+        dim_adj = Gtk.Adjustment(value=current_dashcam_dim_timeout, lower=0, upper=300, step_increment=5)
+        self._dc_dim_spin = Gtk.SpinButton(adjustment=dim_adj, climb_rate=1, digits=0)
+        self._dc_dim_spin.connect("value-changed", self._on_dc_dim_timeout_changed)
+        dim_row = Adw.ActionRow(
+            title=_translate(self.language, "dashcam.settings.dim_timeout"),
+            subtitle=_translate(self.language, "dashcam.settings.dim_timeout_sub"),
+        )
+        dim_row.add_suffix(self._dc_dim_spin)
+        dim_row.set_activatable_widget(self._dc_dim_spin)
+        dc_group.add(dim_row)
+
+        dc_page.add(dc_group)
+        self.add(dc_page)
+
+    # ── Dashcam callbacks ─────────────────────────────────────────────────────
+
+    def _on_dc_camera_changed(self, row: Adw.ComboRow, _pspec: Any) -> None:
+        item = row.get_selected_item()
+        if item and self.on_dashcam_camera_changed:
+            self.on_dashcam_camera_changed(item.get_string())
+
+    def _on_dc_resolution_changed(self, row: Adw.ComboRow, _pspec: Any) -> None:
+        item = row.get_selected_item()
+        if item and self.on_dashcam_resolution_changed:
+            self.on_dashcam_resolution_changed(item.get_string())
+
+    def _on_dc_seg_minutes_changed(self, spin: Gtk.SpinButton) -> None:
+        if self.on_dashcam_seg_minutes_changed:
+            self.on_dashcam_seg_minutes_changed(int(spin.get_value()))
+
+    def _on_dc_max_segments_changed(self, spin: Gtk.SpinButton) -> None:
+        if self.on_dashcam_max_segments_changed:
+            self.on_dashcam_max_segments_changed(int(spin.get_value()))
+
+    def _on_dc_dim_timeout_changed(self, spin: Gtk.SpinButton) -> None:
+        if self.on_dashcam_dim_timeout_changed:
+            self.on_dashcam_dim_timeout_changed(int(spin.get_value()))
 
     def _on_unit_selected(self, *_args: Any) -> None:
         self.on_units_changed("metric" if self.unit_row.get_selected() == 0 else "imperial")

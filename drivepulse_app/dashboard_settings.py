@@ -33,6 +33,11 @@ class DashboardSettingsMixin:
                 "theme_mode": getattr(self, "theme_mode", "auto"),
                 "force_webkit_map": getattr(self, "force_webkit_map", False),
                 "last_update_check": getattr(self, "last_update_check", None),
+                "dashcam_camera": getattr(self, "dashcam_camera", "/dev/video0"),
+                "dashcam_resolution": getattr(self, "dashcam_resolution", "1280x720"),
+                "dashcam_seg_minutes": getattr(self, "dashcam_seg_minutes", 3),
+                "dashcam_max_segments": getattr(self, "dashcam_max_segments", 10),
+                "dashcam_dim_timeout": getattr(self, "dashcam_dim_timeout", 30),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -78,8 +83,43 @@ class DashboardSettingsMixin:
             on_force_webkit_map_changed=self._set_force_webkit_map,
             current_last_check=getattr(self, "last_update_check", None),
             on_last_check_updated=self._set_last_update_check,
+            current_dashcam_camera=getattr(self, "dashcam_camera", "/dev/video0"),
+            on_dashcam_camera_changed=self._set_dashcam_camera,
+            current_dashcam_resolution=getattr(self, "dashcam_resolution", "1280x720"),
+            on_dashcam_resolution_changed=self._set_dashcam_resolution,
+            current_dashcam_seg_minutes=getattr(self, "dashcam_seg_minutes", 3),
+            on_dashcam_seg_minutes_changed=self._set_dashcam_seg_minutes,
+            current_dashcam_max_segments=getattr(self, "dashcam_max_segments", 10),
+            on_dashcam_max_segments_changed=self._set_dashcam_max_segments,
+            current_dashcam_dim_timeout=getattr(self, "dashcam_dim_timeout", 30),
+            on_dashcam_dim_timeout_changed=self._set_dashcam_dim_timeout,
         )
         dialog.present(self)
+
+    def _set_dashcam_camera(self, value: str) -> None:
+        self.dashcam_camera = value
+        self._save_settings()
+        self.dashcam_page.set_camera(value)
+
+    def _set_dashcam_resolution(self, value: str) -> None:
+        self.dashcam_resolution = value
+        self._save_settings()
+        self.dashcam_page.set_resolution(value)
+
+    def _set_dashcam_seg_minutes(self, value: int) -> None:
+        self.dashcam_seg_minutes = value
+        self._save_settings()
+        self.dashcam_page.set_segment_minutes(value)
+
+    def _set_dashcam_max_segments(self, value: int) -> None:
+        self.dashcam_max_segments = value
+        self._save_settings()
+        self.dashcam_page.set_max_segments(value)
+
+    def _set_dashcam_dim_timeout(self, value: int) -> None:
+        self.dashcam_dim_timeout = value
+        self._save_settings()
+        self.dashcam_page.set_dim_timeout(value)
 
     def _open_sync(self, *_args: Any) -> None:
         import gi
