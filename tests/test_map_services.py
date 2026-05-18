@@ -43,8 +43,9 @@ def test_osrm_route_builds_request_and_parses_result():
 
     result = osrm_route([(48.0, 11.0), (49.0, 12.0)], "car", fake_get)
 
-    assert result == ([[11.0, 48.0], [12.0, 49.0]], 125.0, 30000.0)
+    assert result == ([[11.0, 48.0], [12.0, 49.0]], 125.0, 30000.0, [])
     assert "/route/v1/driving/11.0,48.0;12.0,49.0" in seen_urls[0]
+    assert "steps=true" in seen_urls[0]
 
 
 def test_osrm_route_rejects_missing_waypoints():
