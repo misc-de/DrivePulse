@@ -26,6 +26,7 @@ from .map_services import (
     MAP_ICONS,
     MAP_LABEL_KEYS,
     MAP_TYPES,
+    format_distance,
     bab_fetch_all,
     format_duration,
     geocode,
@@ -139,11 +140,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         # Action row: [route-btn] [status]
         action = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
-        btn_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        btn_inner.append(Gtk.Image.new_from_icon_name("xsi-search"))
-        btn_inner.append(Gtk.Label(label=_translate(self.language, "map.route")))
         self._route_btn = Gtk.Button()
-        self._route_btn.set_child(btn_inner)
+        self._route_btn.set_label(_translate(self.language, "map.route"))
         self._route_btn.add_css_class("suggested-action")
         self._route_btn.connect("clicked", self._on_route_clicked)
 
@@ -436,10 +434,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         result = osrm_route([(gps_lat, gps_lon), (start_lat, start_lon)], self._routing_mode)
         GLib.idle_add(self._guide_result, result)
 
-    def _guide_result(self, result: tuple[list[list[float]], float] | None) -> bool:
+    def _guide_result(self, result: tuple[list[list[float]], float, float] | None) -> bool:
         if result is None:
             return False
-        coords, _ = result
+        coords = result[0]
         if self._backend == "webkit":
             self._js(f"mapSetGuideToStart({json.dumps(coords)})")
         elif self._shumate_map is not None and self._guide_path_layer is not None:
@@ -676,18 +674,22 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def _route_result(
         self,
         all_points: list[tuple[float, float]],
-        result: tuple[list[list[float]], float] | None,
+        result: tuple[list[list[float]], float, float] | None,
     ) -> bool:
         self._route_btn.set_sensitive(True)
         if result is None:
             self._status_lbl.set_text(_translate(self.language, "map.routing.error"))
             return False
 
-        coords, duration_s = result
+        coords, duration_s, distance_m = result
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
         prefix = _translate(self.language, "map.duration_prefix")
-        self._status_lbl.set_text(prefix + format_duration(duration_s))
+        distance_prefix = _translate(self.language, "map.distance_prefix")
+        self._status_lbl.set_text(
+            f"{prefix}{format_duration(duration_s)} / "
+            f"{distance_prefix}{format_distance(distance_m)}"
+        )
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_visible(True)
 
@@ -714,7 +716,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def set_language(self, language: str) -> None:
         self.language = _normalize_language(language)
         self._update_placeholders()
-        self._route_btn.set_tooltip_text(_translate(self.language, "map.route"))
+        self._route_btn.set_label(_translate(self.language, "map.route"))
         layer = MAP_TYPES[self._map_type_idx]
         if self._layer_btn is not None:
             self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS[layer]))

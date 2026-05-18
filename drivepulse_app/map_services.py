@@ -82,7 +82,7 @@ def osrm_route(
     waypoints: list[tuple[float, float]],
     mode: str,
     http_get_fn: HttpGet = http_get,
-) -> tuple[list[list[float]], float] | None:
+) -> tuple[list[list[float]], float, float] | None:
     if len(waypoints) < 2:
         return None
     profile = OSRM_PROFILE.get(mode, "driving")
@@ -94,7 +94,11 @@ def osrm_route(
     data = http_get_fn(url)
     if data and data.get("code") == "Ok" and data.get("routes"):
         route = data["routes"][0]
-        return route["geometry"]["coordinates"], float(route.get("duration", 0))
+        return (
+            route["geometry"]["coordinates"],
+            float(route.get("duration", 0)),
+            float(route.get("distance", 0)),
+        )
     return None
 
 
@@ -138,6 +142,13 @@ def format_duration(seconds: float) -> str:
     if h > 0:
         return f"{h}h {m}min"
     return f"{m}min"
+
+
+def format_distance(meters: float) -> str:
+    km = max(0.0, meters / 1000.0)
+    if km >= 10 and abs(km - round(km)) < 0.05:
+        return f"{km:.0f} km"
+    return f"{km:.1f} km"
 
 
 def poi_category(tags: dict) -> str:
