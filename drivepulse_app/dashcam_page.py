@@ -223,6 +223,13 @@ class DashcamPage(Gtk.Box):
         self._dim_timeout_s: int = _DIM_DEFAULT_S
         self._dim_remaining: int = _DIM_DEFAULT_S
         self._lock_visible:  bool = False
+        self._is_landscape:  bool = False
+
+        # widget lists kept in sync across portrait/landscape layouts
+        self._toggle_btns:  list[Gtk.Button] = []
+        self._save_btns:    list[Gtk.Button] = []
+        self._status_lbls:  list[Gtk.Label]  = []
+        self._elapsed_lbls: list[Gtk.Label]  = []
 
         self._build_ui()
         self._update_status()
@@ -302,59 +309,24 @@ class DashcamPage(Gtk.Box):
             cam_overlay.add_controller(ctrl)
 
         # ── Controls (ToolbarView bottom_bar) ─────────────────────────────────
-        bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        bottom.add_css_class("dc-bottom")
-        bottom.set_hexpand(True)
-        inner_tv.add_bottom_bar(bottom)
+        bar_wrap = Gtk.Box()
+        bar_wrap.add_css_class("dc-bottom")
+        bar_wrap.set_hexpand(True)
+        inner_tv.add_bottom_bar(bar_wrap)
 
-        self._status_lbl = Gtk.Label(label="")
-        self._status_lbl.add_css_class("dc-status")
-        self._status_lbl.set_halign(Gtk.Align.CENTER)
-        bottom.append(self._status_lbl)
+        self._bottom_stack = Gtk.Stack()
+        self._bottom_stack.set_hexpand(True)
+        self._bottom_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self._bottom_stack.set_transition_duration(120)
+        bar_wrap.append(self._bottom_stack)
 
-        self._elapsed_lbl = Gtk.Label(label="")
-        self._elapsed_lbl.add_css_class("dc-status")
-        self._elapsed_lbl.set_halign(Gtk.Align.CENTER)
-        self._elapsed_lbl.set_visible(False)
-        bottom.append(self._elapsed_lbl)
-
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        btn_row.set_halign(Gtk.Align.CENTER)
-
-        self._toggle_btn = Gtk.Button()
-        self._toggle_btn.set_size_request(160, 48)
-        self._toggle_btn.add_css_class("suggested-action")
-        self._toggle_btn.add_css_class("pill")
-        self._toggle_btn.connect("clicked", self._on_toggle)
+        self._bottom_stack.add_named(self._build_portrait_controls(), "portrait")
+        self._bottom_stack.add_named(self._build_landscape_controls(), "landscape")
+        self._bottom_stack.set_visible_child_name("portrait")
         self._update_toggle_btn()
-        btn_row.append(self._toggle_btn)
-
-        save_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        save_inner.append(Gtk.Image.new_from_icon_name("starred-symbolic"))
-        save_inner.append(Gtk.Label(label=_translate(self.language, "dashcam.btn.save")))
-        self._save_btn = Gtk.Button()
-        self._save_btn.set_child(save_inner)
-        self._save_btn.set_size_request(160, 48)
-        self._save_btn.add_css_class("destructive-action")
-        self._save_btn.add_css_class("pill")
-        self._save_btn.set_sensitive(False)
-        self._save_btn.connect("clicked", self._on_save_event)
-        btn_row.append(self._save_btn)
-
-        clips_btn = Gtk.MenuButton()
-        clips_btn.set_icon_name("view-list-symbolic")
-        clips_btn.add_css_class("flat")
-        clips_btn.set_valign(Gtk.Align.CENTER)
-        clips_btn.set_tooltip_text(_translate(self.language, "dashcam.saved.title"))
-        self._clips_popover = self._build_clips_popover()
-        clips_btn.set_popover(self._clips_popover)
-        self._clips_popover.connect("show", lambda _: self._update_saved_list())
-        btn_row.append(clips_btn)
-
-        bottom.append(btn_row)
 
         # ── Lock / dim screen — covers entire outer overlay ───────────────────
-        self._lock_overlay = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self._lock_overlay = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         self._lock_overlay.add_css_class("dc-lock-bg")
         self._lock_overlay.set_hexpand(True)
         self._lock_overlay.set_vexpand(True)
@@ -362,14 +334,20 @@ class DashcamPage(Gtk.Box):
         self._lock_overlay.set_valign(Gtk.Align.FILL)
         self._lock_overlay.set_visible(False)
 
+        lock_icon = Gtk.Image.new_from_icon_name("starred-symbolic")
+        lock_icon.set_pixel_size(48)
         lock_btn_lbl = Gtk.Label()
         lock_btn_lbl.add_css_class("title-1")
         self._lock_btn_lbl = lock_btn_lbl
         self._update_lock_btn_label()
+        lock_btn_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        lock_btn_inner.set_halign(Gtk.Align.CENTER)
+        lock_btn_inner.append(lock_icon)
+        lock_btn_inner.append(lock_btn_lbl)
 
         self._lock_save_btn = Gtk.Button()
-        self._lock_save_btn.set_child(lock_btn_lbl)
-        self._lock_save_btn.set_size_request(240, 120)
+        self._lock_save_btn.set_child(lock_btn_inner)
+        self._lock_save_btn.set_size_request(200, 140)
         self._lock_save_btn.add_css_class("destructive-action")
         self._lock_save_btn.add_css_class("pill")
         self._lock_save_btn.set_halign(Gtk.Align.CENTER)
@@ -390,6 +368,106 @@ class DashcamPage(Gtk.Box):
             on_all_failed=self._on_preview_failed,
         )
         self._preview.start()
+
+    def _build_portrait_controls(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_hexpand(True)
+
+        status_lbl = Gtk.Label()
+        status_lbl.add_css_class("dc-status")
+        status_lbl.set_halign(Gtk.Align.CENTER)
+        self._status_lbls.append(status_lbl)
+        box.append(status_lbl)
+
+        elapsed_lbl = Gtk.Label()
+        elapsed_lbl.add_css_class("dc-status")
+        elapsed_lbl.set_halign(Gtk.Align.CENTER)
+        elapsed_lbl.set_visible(False)
+        self._elapsed_lbls.append(elapsed_lbl)
+        box.append(elapsed_lbl)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row.set_halign(Gtk.Align.CENTER)
+        btn_row.set_hexpand(True)
+
+        toggle_btn = Gtk.Button()
+        toggle_btn.set_hexpand(True)
+        toggle_btn.add_css_class("pill")
+        toggle_btn.connect("clicked", self._on_toggle)
+        self._toggle_btns.append(toggle_btn)
+        btn_row.append(toggle_btn)
+
+        save_btn = Gtk.Button()
+        save_btn.set_sensitive(False)
+        save_btn.set_hexpand(True)
+        save_btn.add_css_class("pill")
+        save_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        save_inner.append(Gtk.Image.new_from_icon_name("starred-symbolic"))
+        save_inner.append(Gtk.Label(label=_translate(self.language, "dashcam.btn.save")))
+        save_btn.set_child(save_inner)
+        save_btn.connect("clicked", self._on_save_event)
+        self._save_btns.append(save_btn)
+        btn_row.append(save_btn)
+
+        self._clips_popover = self._build_clips_popover()
+        clips_btn = Gtk.MenuButton()
+        clips_btn.set_popover(self._clips_popover)
+        self._clips_popover.connect("show", lambda _: self._update_saved_list())
+        clips_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        clips_inner.append(Gtk.Image.new_from_icon_name("folder-videos-symbolic"))
+        clips_inner.append(Gtk.Label(label=_translate(self.language, "dashcam.saved.title")))
+        clips_btn.set_child(clips_inner)
+        clips_btn.add_css_class("pill")
+        btn_row.append(clips_btn)
+
+        box.append(btn_row)
+        return box
+
+    def _build_landscape_controls(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        box.set_hexpand(True)
+
+        info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        info_box.set_valign(Gtk.Align.CENTER)
+        info_box.set_hexpand(True)
+
+        status_lbl = Gtk.Label()
+        status_lbl.add_css_class("dc-status")
+        status_lbl.set_halign(Gtk.Align.START)
+        self._status_lbls.append(status_lbl)
+        info_box.append(status_lbl)
+
+        elapsed_lbl = Gtk.Label()
+        elapsed_lbl.add_css_class("dc-status")
+        elapsed_lbl.set_halign(Gtk.Align.START)
+        elapsed_lbl.set_visible(False)
+        self._elapsed_lbls.append(elapsed_lbl)
+        info_box.append(elapsed_lbl)
+
+        box.append(info_box)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row.set_valign(Gtk.Align.CENTER)
+
+        toggle_btn = Gtk.Button()
+        toggle_btn.add_css_class("pill")
+        toggle_btn.connect("clicked", self._on_toggle)
+        self._toggle_btns.append(toggle_btn)
+        btn_row.append(toggle_btn)
+
+        save_btn = Gtk.Button()
+        save_btn.set_sensitive(False)
+        save_btn.add_css_class("pill")
+        save_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        save_inner.append(Gtk.Image.new_from_icon_name("starred-symbolic"))
+        save_inner.append(Gtk.Label(label=_translate(self.language, "dashcam.btn.save")))
+        save_btn.set_child(save_inner)
+        save_btn.connect("clicked", self._on_save_event)
+        self._save_btns.append(save_btn)
+        btn_row.append(save_btn)
+
+        box.append(btn_row)
+        return box
 
     def _build_clips_popover(self) -> Gtk.Popover:
         pop = Gtk.Popover()
@@ -419,7 +497,8 @@ class DashcamPage(Gtk.Box):
         self._no_cam_icon.set_visible(False)
 
     def _on_preview_failed(self, msg: str) -> None:
-        self._status_lbl.set_text(msg)
+        for lbl in self._status_lbls:
+            lbl.set_text(msg)
 
     # ── Public setters (called from dashboard_settings) ───────────────────────
 
@@ -456,6 +535,11 @@ class DashcamPage(Gtk.Box):
         # Only update recording metadata so video players show the file upright.
         # The live preview is never rotated — "Quer bleibt Quer".
         self._recorder.rotation = angle
+        if is_landscape != self._is_landscape:
+            self._is_landscape = is_landscape
+            self._bottom_stack.set_visible_child_name(
+                "landscape" if is_landscape else "portrait"
+            )
 
     # ── Dim / lock screen ─────────────────────────────────────────────────────
 
@@ -508,14 +592,17 @@ class DashcamPage(Gtk.Box):
             self._recorder.stop()
             self._stop_tick()
             self._stop_dim_timer()
-            self._save_btn.set_sensitive(False)
+            for btn in self._save_btns:
+                btn.set_sensitive(False)
             self._rec_bar.set_visible(False)
-            self._elapsed_lbl.set_visible(False)
+            for lbl in self._elapsed_lbls:
+                lbl.set_visible(False)
         else:
             self._recorder.start()
             self._start_tick()
             self._reset_dim_timer()
-            self._save_btn.set_sensitive(True)
+            for btn in self._save_btns:
+                btn.set_sensitive(True)
             self._rec_bar.set_visible(True)
         self._update_toggle_btn()
         self._update_status()
@@ -545,7 +632,8 @@ class DashcamPage(Gtk.Box):
         return False
 
     def _show_error(self, msg: str) -> bool:
-        self._status_lbl.set_text(msg)
+        for lbl in self._status_lbls:
+            lbl.set_text(msg)
         self._stop_tick()
         self._stop_dim_timer()
         self._rec_bar.set_visible(False)
@@ -562,8 +650,9 @@ class DashcamPage(Gtk.Box):
         if self._tick_source is not None:
             GLib.source_remove(self._tick_source)
             self._tick_source = None
-        self._elapsed_lbl.set_text("")
-        self._elapsed_lbl.set_visible(False)
+        for lbl in self._elapsed_lbls:
+            lbl.set_text("")
+            lbl.set_visible(False)
 
     def _tick(self) -> bool:
         if not self._recorder.is_recording:
@@ -571,10 +660,10 @@ class DashcamPage(Gtk.Box):
             return False
         elapsed = self._recorder.segment_elapsed_seconds
         mm, ss  = divmod(int(elapsed), 60)
-        self._elapsed_lbl.set_text(
-            f"{mm:02d}:{ss:02d} / {self._recorder.segment_minutes:02d}:00"
-        )
-        self._elapsed_lbl.set_visible(True)
+        text = f"{mm:02d}:{ss:02d} / {self._recorder.segment_minutes:02d}:00"
+        for lbl in self._elapsed_lbls:
+            lbl.set_text(text)
+            lbl.set_visible(True)
         self._update_status()
         return True
 
@@ -582,20 +671,19 @@ class DashcamPage(Gtk.Box):
 
     def _update_toggle_btn(self) -> None:
         rec = self._recorder.is_recording
-        inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        inner.append(Gtk.Image.new_from_icon_name(
-            "media-playback-stop-symbolic" if rec else "media-record-symbolic"
-        ))
-        inner.append(Gtk.Label(label=_translate(
-            self.language, "dashcam.btn.stop" if rec else "dashcam.btn.start"
-        )))
-        self._toggle_btn.set_child(inner)
-        if rec:
-            self._toggle_btn.remove_css_class("suggested-action")
-            self._toggle_btn.add_css_class("destructive-action")
-        else:
-            self._toggle_btn.remove_css_class("destructive-action")
-            self._toggle_btn.add_css_class("suggested-action")
+        icon_name = "media-playback-stop-symbolic" if rec else "media-record-symbolic"
+        label_key = "dashcam.btn.stop" if rec else "dashcam.btn.start"
+        for btn in self._toggle_btns:
+            inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            inner.append(Gtk.Image.new_from_icon_name(icon_name))
+            inner.append(Gtk.Label(label=_translate(self.language, label_key)))
+            btn.set_child(inner)
+            if rec:
+                btn.remove_css_class("suggested-action")
+                btn.add_css_class("destructive-action")
+            else:
+                btn.remove_css_class("destructive-action")
+                btn.add_css_class("suggested-action")
 
     def _update_status(self) -> None:
         segs  = len(self._recorder.segments)
@@ -607,7 +695,9 @@ class DashcamPage(Gtk.Box):
             f"{mb:.1f} MB",
             f"{saved} {t(self.language, 'dashcam.status.saved_count')}",
         ]
-        self._status_lbl.set_text("  ·  ".join(parts))
+        text = "  ·  ".join(parts)
+        for lbl in self._status_lbls:
+            lbl.set_text(text)
 
     def _update_saved_list(self) -> None:
         while (c := self._saved_list_box.get_first_child()) is not None:
