@@ -352,12 +352,15 @@ class DashcamPage(Gtk.Box):
         outer.add_overlay(self._lock_overlay)
 
         # ── GStreamer preview ─────────────────────────────────────────────────
+        # Lazily started — the camera pipeline only opens once the user
+        # actually views the Dashcam tab (via on_shown).  This avoids holding
+        # /dev/video0 open while the user is on other tabs.  The recorder
+        # process is independent and keeps running across tab switches.
         self._preview = _CameraPreview(
             self._preview_pic,
             on_first_frame=self._on_first_frame,
             on_all_failed=self._on_preview_failed,
         )
-        self._preview.start()
 
     def _build_controls(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -474,6 +477,28 @@ class DashcamPage(Gtk.Box):
 
     def update_gps(self, lat: float | None, lon: float | None, speed_kmh: float | None) -> None:
         self._recorder.update_gps(lat, lon, speed_kmh)
+
+    # ── Tab visibility ────────────────────────────────────────────────────────
+
+    def on_shown(self) -> None:
+        """Called when the Dashcam tab becomes visible.
+
+        Starts the camera preview lazily.  Idempotent — `_CameraPreview.start`
+        is a no-op if the pipeline is already alive (e.g. when a recording is
+        running and the user returns to the tab).
+        """
+        self._preview.start()
+
+    def on_hidden(self) -> None:
+        """Called when the user navigates away from the Dashcam tab.
+
+        Tears down the on-screen preview when no recording is active so we
+        stop holding /dev/video0.  If a recording is in progress, the
+        recorder's own ffmpeg process keeps running independently — the
+        preview is still torn down since no one is watching it, but the
+        on-disk segmentation continues uninterrupted.
+        """
+        self._preview.stop()
 
     # ── Orientation (from dashboard_window orientation sensor) ────────────────
 
