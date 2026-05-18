@@ -335,7 +335,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.header            = header
         self.switcher_bar      = switcher_bar        # bottom bar (default)
         self.switcher_top      = switcher_top
-        self._current_rotation = 0
+        self._current_rotation  = 0
+        self._last_sensor_angle = 0
         self.toolbar_view      = toolbar_view
         toolbar_view.add_top_bar(header)
         toolbar_view.add_top_bar(switcher_top)
@@ -394,9 +395,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             css = b""
         else:
             css = (
-                f".dp-nav-rotated button image {{ transform: rotate({angle}deg); }}"
-                f".dp-nav-rotated button label {{ opacity: 0; min-width: 0; min-height: 0; }}"
-                f".dp-nav-rotated button > * {{ -gtk-align: center center; }}"
+                f".dp-nav-rotated button {{ padding: 0; }}"
+                f".dp-nav-rotated button > * {{ margin: auto; }}"
+                f".dp-nav-rotated button image {{ transform: rotate({angle}deg); margin: auto; }}"
+                f".dp-nav-rotated button label {{ opacity: 0; font-size: 0; min-width: 0; min-height: 0; margin: 0; padding: 0; }}"
             ).encode()
         self._nav_rotation_css.load_from_data(css)
         for bar in (self.switcher_bar, self.switcher_top):
@@ -406,6 +408,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 bar.remove_css_class("dp-nav-rotated")
 
     def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
+        self._last_sensor_angle = angle
         self.rotation.set_sensor(angle)
         self.dashcam_page.update_orientation(angle, is_landscape)
 
