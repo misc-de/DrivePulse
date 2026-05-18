@@ -197,14 +197,15 @@ class MapShumateMixin:
         if self._traffic_layer is not None:
             self._traffic_layer.set_visible(visible)
 
-    def _shumate_show_traffic(self, parsed: list[tuple[float, float, str, str]]) -> None:
+    def _shumate_show_traffic(self, parsed: list[dict]) -> None:
         if self._traffic_layer is None:
             return
         self._traffic_layer.remove_all()
-        for lat, lon, kind, tooltip in parsed:
-            self._traffic_layer.add_marker(self._make_traffic_marker(kind, tooltip, lat, lon))
+        for item in parsed:
+            self._traffic_layer.add_marker(self._make_traffic_marker(item))
 
-    def _make_traffic_marker(self, kind: str, tooltip: str, lat: float, lon: float) -> Any:
+    def _make_traffic_marker(self, item: dict) -> Any:
+        kind = item.get("kind", "incidents")
         if kind == "roadworks":
             fill = (0.95, 0.60, 0.0, 1.0)
             border = (0.70, 0.40, 0.0, 1.0)
@@ -214,11 +215,28 @@ class MapShumateMixin:
         da = Gtk.DrawingArea()
         da.set_size_request(14, 14)
         da.set_draw_func(self._draw_dot, (fill, border))
-        da.set_tooltip_text(tooltip)
+        road = item.get("road") or ""
+        title = item.get("title") or ""
+        da.set_tooltip_text(f"{road}: {title}" if road else title)
+        click = Gtk.GestureClick.new()
+        click.set_button(1)
+        click.connect("released", lambda g, n, x, y, it=item: self._show_traffic_popover(g, it))
+        da.add_controller(click)
         marker = Shumate.Marker.new()
         marker.set_child(da)
-        marker.set_location(lat, lon)
+        marker.set_location(item.get("lat", 0.0), item.get("lon", 0.0))
         return marker
+
+    def _show_traffic_popover(self, gesture: Any, item: dict) -> None:
+        widget = gesture.get_widget()
+        if widget is None:
+            return
+        popover = Gtk.Popover()
+        popover.set_has_arrow(True)
+        popover.set_autohide(True)
+        popover.set_parent(widget)
+        popover.set_child(self._build_traffic_detail_widget(item))
+        popover.popup()
 
     def _shumate_set_poi_visible(self, visible: bool) -> None:
         if self._poi_layer is None:
