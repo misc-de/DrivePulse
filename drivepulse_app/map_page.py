@@ -53,6 +53,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         traffic_visible: bool = False,
         on_poi_visible_changed: Callable[[bool], None] | None = None,
         on_traffic_visible_changed: Callable[[bool], None] | None = None,
+        on_tour_started: Callable[[list[list[float]]], None] | None = None,
+        on_tour_stopped: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
@@ -63,6 +65,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self.force_webkit = force_webkit
         self._on_poi_visible_changed = on_poi_visible_changed
         self._on_traffic_visible_changed = on_traffic_visible_changed
+        self._on_tour_started = on_tour_started
+        self._on_tour_stopped = on_tour_stopped
 
         self._gps_lat: float | None = None
         self._gps_lon: float | None = None
@@ -76,6 +80,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_active: bool = False
         self._tour_steps: list[dict] = []
         self._tour_step_idx: int = 0
+        self._tour_coords: list[list[float]] = []
         self._dnd_src_idx: int = -1
 
         # Maneuver overlay widgets
@@ -497,6 +502,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_active = True
         self._tour_step_idx = 0
         self._update_maneuver_overlay()
+        if self._on_tour_started is not None and self._tour_coords:
+            self._on_tour_started(self._tour_coords)
         if self._tour_start_lbl is not None:
             self._tour_start_lbl.set_label(_translate(self.language, "map.tour_stop"))
         if self._tour_btn_icon is not None:
@@ -532,6 +539,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._guide_path_layer.remove_all()
         if self._maneuver_overlay is not None:
             self._maneuver_overlay.set_visible(False)
+        if self._on_tour_stopped is not None:
+            self._on_tour_stopped()
 
     def _fetch_guide_to_start(
         self, gps_lat: float, gps_lon: float, start_lat: float, start_lon: float
@@ -794,11 +803,15 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._status_lbl.set_text("")
         self._start_coord = None
         self._end_coord = None
+        was_tour_active = self._tour_active
         self._tour_active = False
         self._tour_steps = []
         self._tour_step_idx = 0
+        self._tour_coords = []
         if self._maneuver_overlay is not None:
             self._maneuver_overlay.set_visible(False)
+        if was_tour_active and self._on_tour_stopped is not None:
+            self._on_tour_stopped()
         if self._tour_start_lbl is not None:
             self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
         if self._tour_btn_icon is not None:
@@ -850,6 +863,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         coords, duration_s, distance_m, steps = result
         self._tour_steps = steps
         self._tour_step_idx = 0
+        self._tour_coords = list(coords) if coords else []
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
         prefix = _translate(self.language, "map.duration_prefix")
