@@ -386,8 +386,13 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 self.remove_css_class(cls)
         safe = theme.replace(":", "-").replace("_", "-")
         self.add_css_class(f"dp-theme-{safe}")
-        css = get_theme_css(theme)
-        self._theme_css_provider.load_from_data(css.encode() if css else b"")
+        # In light mode, don't override Libadwaita's natural light colours with
+        # the gauge theme's hardcoded dark backgrounds.
+        if getattr(self, "theme_mode", "auto") == "light":
+            self._theme_css_provider.load_from_data(b"")
+        else:
+            css = get_theme_css(theme)
+            self._theme_css_provider.load_from_data(css.encode() if css else b"")
 
     def close(self) -> bool:
         self.reader.stop()
