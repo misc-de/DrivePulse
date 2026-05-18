@@ -7,11 +7,28 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GObject, Gtk  # noqa: E402
+
+import threading
+from datetime import datetime
+
+from gi.repository import GLib  # noqa: E402
 
 from .common import SUPPORTED_LANGUAGES, _normalize_language, _translate
 from .gauge import all_theme_options
 from .obd_devices import scan_obd_devices
+from . import updater
+
+
+class DeviceItem(GObject.Object):
+    __gtype_name__ = "DrivePulseDeviceItem"
+
+    def __init__(self, label: str, port: str | None, is_present: bool = False, is_connected: bool = False) -> None:
+        super().__init__()
+        self._label = label
+        self._port = port
+        self._is_present = is_present
+        self._is_connected = is_connected
 
 
 class SettingsDialog(Adw.PreferencesDialog):
@@ -32,6 +49,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_gauge_theme_changed: Callable[[str], None] | None = None,
         current_sidebar_side: str = "left",
         on_sidebar_side_changed: Callable[[str], None] | None = None,
+        current_theme_mode: str = "auto",
+        on_theme_mode_changed: Callable[[str], None] | None = None,
+        current_last_check: str | None = None,
+        on_last_check_updated: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -41,6 +62,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.on_obd_port_changed = on_obd_port_changed
         self.on_gauge_theme_changed = on_gauge_theme_changed
         self.on_sidebar_side_changed = on_sidebar_side_changed
+        self.on_theme_mode_changed = on_theme_mode_changed
+        self.on_last_check_updated = on_last_check_updated
+        self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
 
         page = Adw.PreferencesPage(title=_translate(self.language, "settings.display"))
@@ -92,23 +116,87 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.sidebar_side_row.set_selected(0 if current_sidebar_side == "left" else 1)
         self.sidebar_side_row.connect("notify::selected", self._on_sidebar_side_selected)
 
+        _THEME_MODES = ["auto", "dark", "light"]
+        theme_mode_model = Gtk.StringList()
+        for key in _THEME_MODES:
+            theme_mode_model.append(_translate(self.language, f"settings.theme_mode.{key}"))
+        self.theme_mode_row = Adw.ComboRow(title=_translate(self.language, "settings.theme_mode"))
+        self.theme_mode_row.set_model(theme_mode_model)
+        selected_mode = current_theme_mode if current_theme_mode in _THEME_MODES else "auto"
+        self.theme_mode_row.set_selected(_THEME_MODES.index(selected_mode))
+        self.theme_mode_row.connect("notify::selected", self._on_theme_mode_selected)
+
         group.add(self.unit_row)
         group.add(self.language_row)
+        group.add(self.theme_mode_row)
         group.add(self.gauge_theme_row)
         group.add(self.sidebar_side_row)
         group.add(self.mock_row)
         page.add(group)
 
         # OBD hardware group
-        obd_devices = scan_obd_devices()
-        self._obd_port_values: list[str | None] = [None] + [val for _, val in obd_devices]
+        obd_devices = scan_obd_devices()  # (label, port, is_present)
+        self._obd_port_values: list[str | None] = [None]
+
+        dongle_store = Gio.ListStore(item_type=DeviceItem)
+        dongle_store.append(DeviceItem(
+            label=_translate(self.language, "settings.obd_dongle.auto"),
+            port=None,
+            is_present=False,
+            is_connected=(current_obd_port is None),
+        ))
+        for lbl, port, is_present in obd_devices:
+            dongle_store.append(DeviceItem(
+                label=lbl,
+                port=port,
+                is_present=is_present,
+                is_connected=(port == current_obd_port),
+            ))
+            self._obd_port_values.append(port)
+
+        def _setup_header(_fac: object, li: Gtk.ListItem) -> None:
+            li.set_child(Gtk.Label(xalign=0, hexpand=True))
+
+        def _bind_header(_fac: object, li: Gtk.ListItem) -> None:
+            label_widget: Gtk.Label = li.get_child()
+            dev: DeviceItem = li.get_item()
+            label_widget.set_text(dev._label)
+            if dev._is_present:
+                label_widget.add_css_class("success")
+            else:
+                label_widget.remove_css_class("success")
+
+        def _setup_list(_fac: object, li: Gtk.ListItem) -> None:
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            box.append(Gtk.Label(xalign=0, hexpand=True))
+            box.append(Gtk.Image.new_from_icon_name("object-select-symbolic"))
+            li.set_child(box)
+
+        def _bind_list(_fac: object, li: Gtk.ListItem) -> None:
+            box = li.get_child()
+            label_widget: Gtk.Label = box.get_first_child()
+            icon: Gtk.Image = label_widget.get_next_sibling()
+            dev: DeviceItem = li.get_item()
+            label_widget.set_text(dev._label)
+            if dev._is_present:
+                label_widget.add_css_class("success")
+            else:
+                label_widget.remove_css_class("success")
+            icon.set_visible(dev._is_connected)
+
+        header_fac = Gtk.SignalListItemFactory()
+        header_fac.connect("setup", _setup_header)
+        header_fac.connect("bind", _bind_header)
+
+        list_fac = Gtk.SignalListItemFactory()
+        list_fac.connect("setup", _setup_list)
+        list_fac.connect("bind", _bind_list)
+
         obd_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.obd"))
-        dongle_model = Gtk.StringList()
-        dongle_model.append(_translate(self.language, "settings.obd_dongle.auto"))
-        for label, _ in obd_devices:
-            dongle_model.append(label)
         self.dongle_row = Adw.ComboRow(title=_translate(self.language, "settings.obd_dongle"))
-        self.dongle_row.set_model(dongle_model)
+        self.dongle_row.set_model(dongle_store)
+        self.dongle_row.set_factory(header_fac)
+        self.dongle_row.set_list_factory(list_fac)
         if not obd_devices:
             self.dongle_row.set_subtitle(_translate(self.language, "settings.obd_dongle.none_found"))
         selected_idx = 0
@@ -118,9 +206,46 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.dongle_row.connect("notify::selected", self._on_dongle_selected)
         obd_group.add(self.dongle_row)
 
-        page.add(obd_group)
-
         self.add(page)
+
+        # ── App page ──────────────────────────────────────────────────────────
+        app_page = Adw.PreferencesPage(
+            title=_translate(self.language, "settings.page.app"),
+            icon_name="software-update-available-symbolic",
+        )
+
+        app_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.app.group"))
+
+        # Version / update row
+        current_version = updater.get_current_version()
+        if current_last_check:
+            try:
+                dt = datetime.fromisoformat(current_last_check)
+                check_str = _translate(self.language, "settings.app.last_check.prefix") + \
+                            dt.strftime("%d.%m.%Y %H:%M")
+            except ValueError:
+                check_str = _translate(self.language, "settings.app.last_check.never")
+        else:
+            check_str = _translate(self.language, "settings.app.last_check.never")
+
+        self._update_row = Adw.ActionRow(
+            title=_translate(self.language, "settings.app.version_row"),
+            subtitle=f"v{current_version}  ·  {check_str}",
+        )
+
+        self._update_btn = Gtk.Button(
+            label=_translate(self.language, "settings.app.check_btn"),
+            valign=Gtk.Align.CENTER,
+        )
+        self._update_btn.connect("clicked", self._on_check_update)
+        self._update_row.add_suffix(self._update_btn)
+        app_group.add(self._update_row)
+        app_page.add(app_group)
+
+        # OBD group (moved from display page)
+        app_page.add(obd_group)
+
+        self.add(app_page)
 
     def _on_unit_selected(self, *_args: Any) -> None:
         self.on_units_changed("metric" if self.unit_row.get_selected() == 0 else "imperial")
@@ -148,3 +273,69 @@ class SettingsDialog(Adw.PreferencesDialog):
         if self.on_sidebar_side_changed is not None:
             side = "left" if self.sidebar_side_row.get_selected() == 0 else "right"
             self.on_sidebar_side_changed(side)
+
+    def _on_theme_mode_selected(self, *_args: Any) -> None:
+        if self.on_theme_mode_changed is not None:
+            modes = ["auto", "dark", "light"]
+            self.on_theme_mode_changed(modes[self.theme_mode_row.get_selected()])
+
+    # ── Update check ──────────────────────────────────────────────────────────
+
+    def _on_check_update(self, _btn: Gtk.Button) -> None:
+        self._update_btn.set_label(_translate(self.language, "settings.app.checking"))
+        self._update_btn.set_sensitive(False)
+        threading.Thread(target=self._do_check, daemon=True).start()
+
+    def _do_check(self) -> None:
+        info = updater.check_for_update()
+        now_iso = datetime.now().astimezone().isoformat(timespec="seconds")
+        GLib.idle_add(self._on_check_done, info, now_iso)
+
+    def _on_check_done(self, info: updater.UpdateInfo, now_iso: str) -> bool:
+        # Persist timestamp
+        if self.on_last_check_updated is not None:
+            self.on_last_check_updated(now_iso)
+        try:
+            dt = datetime.fromisoformat(now_iso)
+            check_str = _translate(self.language, "settings.app.last_check.prefix") + \
+                        dt.strftime("%d.%m.%Y %H:%M")
+        except ValueError:
+            check_str = now_iso
+        self._update_row.set_subtitle(
+            f"v{updater.get_current_version()}  ·  {check_str}"
+        )
+        if info.available:
+            ver = info.remote_version or "?"
+            label = _translate(self.language, "settings.app.update_btn").format(version=ver)
+            self._update_btn.set_label(label)
+            self._update_btn.add_css_class("suggested-action")
+            self._remote_version = info.remote_version
+            self._update_btn.set_sensitive(True)
+            self._update_btn.disconnect_by_func(self._on_check_update)
+            self._update_btn.connect("clicked", self._on_apply_update)
+        else:
+            self._update_btn.set_label(_translate(self.language, "settings.app.no_update"))
+            self._update_btn.set_sensitive(False)
+        return False
+
+    def _on_apply_update(self, _btn: Gtk.Button) -> None:
+        self._update_btn.set_label(_translate(self.language, "settings.app.updating"))
+        self._update_btn.set_sensitive(False)
+        threading.Thread(target=self._do_apply, daemon=True).start()
+
+    def _do_apply(self) -> None:
+        ok = updater.apply_update()
+        GLib.idle_add(self._on_apply_done, ok)
+
+    def _on_apply_done(self, ok: bool) -> bool:
+        if ok:
+            self._update_btn.set_label(_translate(self.language, "settings.app.update_done"))
+            # Reload version label
+            new_ver = updater.get_current_version()
+            subtitle = self._update_row.get_subtitle() or ""
+            prefix = subtitle.split("·")[1].strip() if "·" in subtitle else ""
+            self._update_row.set_subtitle(f"v{new_ver}  ·  {prefix}")
+        else:
+            self._update_btn.set_label(_translate(self.language, "settings.app.update_error"))
+        self._update_btn.set_sensitive(False)
+        return False

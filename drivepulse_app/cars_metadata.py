@@ -40,8 +40,6 @@ _CHART_METRICS: tuple[tuple, ...] = (
 )
 
 CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
-    ("trips", "cars.category.trips", "globe-symbolic", ()),
-    ("acceleration_runs", "cars.category.acceleration_runs", "stopwatch-symbolic", ()),
     ("vehicle", "cars.category.vehicle", "info-symbolic", (
         (_SPECIAL_VIN,        "cars.pid.VIN"),
         (_SPECIAL_CAL,        "cars.pid.CAL"),
@@ -50,6 +48,8 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("011C",              "cars.pid.011C"),
         (_SPECIAL_SCAN_DATE,  "cars.pid.SCAN_DATE"),
     )),
+    ("trips", "cars.category.trips", "globe-symbolic", ()),
+    ("acceleration_runs", "cars.category.acceleration_runs", "stopwatch-symbolic", ()),
     ("engine", "cars.category.engine", "step_object_LinearMotor-symbolic", (
         ("010C", "cars.pid.010C"),
         ("0104", "cars.pid.0104"),

@@ -77,8 +77,15 @@ class CarsLayoutMixin:
         self._rename_btn.set_visible(False)
         self._rename_btn.connect("clicked", lambda _b: self._open_rename_dialog())
 
+        self._add_live_vehicle_btn = Gtk.Button(icon_name="list-add-symbolic")
+        self._add_live_vehicle_btn.add_css_class("suggested-action")
+        self._add_live_vehicle_btn.set_visible(False)
+        self._add_live_vehicle_btn.set_tooltip_text(_translate(self.language, "cars.live.add.tooltip"))
+        self._add_live_vehicle_btn.connect("clicked", lambda _b: self._confirm_add_live_vehicle())
+
         head.append(self._detail_back_btn)
         head.append(self._detail_title)
+        head.append(self._add_live_vehicle_btn)
         head.append(self._rename_btn)
         outer.append(head)
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
@@ -295,4 +302,3 @@ class CarsLayoutMixin:
                 lbl.set_visible(not narrow)
             if hbox is not None:
                 hbox.set_halign(Gtk.Align.CENTER if narrow else Gtk.Align.FILL)
-

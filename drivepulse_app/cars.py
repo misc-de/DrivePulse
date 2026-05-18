@@ -55,6 +55,7 @@ class CarsPage(
         self._sidebar_side: str = sidebar_side
         self._latest_live: dict[str, Any] = {}
         self._live_identity: dict[str, str] = {}
+        self.on_live_vehicle_add: Callable[[dict[str, str]], int | None] | None = None
         self._obd_connected = False
         self._profiles: list[dict[str, Any]] = []
         self._selected_source: str = self.LIVE_ID
@@ -69,6 +70,7 @@ class CarsPage(
         self._scan_id_shown: int | None = None
         self._accel_run_detail_page: Adw.NavigationPage | None = None
         self._live_row: Adw.ActionRow | None = None
+        self._add_live_vehicle_btn: Gtk.Button | None = None
         self._last_live_detail_render = -self.LIVE_DETAIL_RENDER_INTERVAL_S
         self._narrow = False
         self._cat_rows: list[Gtk.ListBoxRow] = []
@@ -138,6 +140,8 @@ class CarsPage(
         self._list_page.set_title(_translate(self.language, "nav.cars"))
         self._categories_label.set_text(_translate(self.language, "cars.categories"))
         self._detail_back_btn.set_tooltip_text(_translate(self.language, "cars.back"))
+        if self._add_live_vehicle_btn is not None:
+            self._add_live_vehicle_btn.set_tooltip_text(_translate(self.language, "cars.live.add.tooltip"))
         self._refresh_list_texts()
         self._rebuild_list()
         for row in self._cat_rows:
@@ -153,6 +157,7 @@ class CarsPage(
     def refresh_profiles(self) -> None:
         self._profiles = _load_profiles(self.db)
         self._rebuild_list()
+        self._update_live_add_button()
 
     def update_live(self, payload: dict[str, Any]) -> None:
         if not payload:
@@ -171,6 +176,7 @@ class CarsPage(
     def set_live_identity(self, identity: dict[str, str]) -> None:
         self._live_identity = dict(identity)
         self._update_live_row_subtitle()
+        self._update_live_add_button()
         if self._selected_source == self.LIVE_ID and self._detail_pushed:
             self._last_live_detail_render = time.monotonic()
             self._render_detail()
@@ -243,6 +249,29 @@ class CarsPage(
             sub = _translate(self.language, "cars.live.subtitle")
         row.set_subtitle(GLib.markup_escape_text(sub))
 
+    def _live_vin(self) -> str:
+        return _extract_inner_string(self._live_identity.get("VIN"))
+
+    def _live_vehicle_is_known(self) -> bool:
+        vin = self._live_vin()
+        if not vin:
+            return False
+        return any(
+            entry.get("car_id") is not None and entry.get("vin") == vin
+            for entry in self._profiles
+        )
+
+    def _update_live_add_button(self) -> None:
+        btn = self._add_live_vehicle_btn
+        if btn is None:
+            return
+        show = (
+            self._selected_source == self.LIVE_ID
+            and bool(self._live_vin())
+            and not self._live_vehicle_is_known()
+        )
+        btn.set_visible(show)
+
     # ---------------------------------------------------- Detail-Navigation
 
     _LIVE_HIDDEN_CATS = frozenset({"trips", "acceleration_runs", "scans"})
@@ -283,6 +312,7 @@ class CarsPage(
         else:
             self._set_trash(None)
         self._rename_btn.set_visible(is_real_car)
+        self._update_live_add_button()
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
         if not self._detail_pushed:
