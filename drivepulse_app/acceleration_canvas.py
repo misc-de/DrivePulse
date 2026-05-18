@@ -31,6 +31,7 @@ class GForceCanvas(Gtk.DrawingArea):
         self._y = 0.0
         self._z = 1.0
         self._has_data = False
+        self._light_mode = False
         self.set_draw_func(self._draw)
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -50,6 +51,10 @@ class GForceCanvas(Gtk.DrawingArea):
         self._x += (self._target_x - self._x) * self._SMOOTH
         self._y += (self._target_y - self._y) * self._SMOOTH
         self._z += (self._target_z - self._z) * self._SMOOTH
+        self.queue_draw()
+
+    def set_light_mode(self, enabled: bool) -> None:
+        self._light_mode = enabled
         self.queue_draw()
 
     def clear(self) -> None:
@@ -90,9 +95,20 @@ class GForceCanvas(Gtk.DrawingArea):
         font_ring  = max(8.0,  radius * 0.095)
         label_pad  = margin * 0.55
 
+        if self._light_mode:
+            bg = (0.98, 0.98, 0.97, 0.96)
+            grid = (0.12, 0.13, 0.15)
+            text = (0.03, 0.03, 0.03)
+            highlight = (0.0, 0.0, 0.0, 0.18)
+        else:
+            bg = (0.08, 0.09, 0.11, 0.95)
+            grid = (0.60, 0.62, 0.66)
+            text = (0.92, 0.93, 0.95)
+            highlight = (1.0, 1.0, 1.0, 0.30)
+
         # Background disc + outer ring
         cr.arc(cx, cy, radius, 0, math.tau)
-        cr.set_source_rgba(0.08, 0.09, 0.11, 0.95)
+        cr.set_source_rgba(*bg)
         cr.fill_preserve()
         cr.set_source_rgba(r, g, b, 0.40)
         cr.set_line_width(2.2)
@@ -107,12 +123,12 @@ class GForceCanvas(Gtk.DrawingArea):
             cr.stroke()
             cr.select_font_face("Cantarell", 0, 0)
             cr.set_font_size(font_ring)
-            cr.set_source_rgba(0.60, 0.62, 0.66, 0.75)
+            cr.set_source_rgba(*grid, 0.75)
             self._text_center(cr, f"{ring_g:.1f}g", cx + rpx * 0.70, cy - rpx * 0.70)
 
         # Cross-hairs through centre
         cr.set_line_width(1.0)
-        cr.set_source_rgba(0.45, 0.47, 0.50, 0.40)
+        cr.set_source_rgba(*grid, 0.40)
         for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
             cr.move_to(cx + dx * radius * 0.06, cy + dy * radius * 0.06)
             cr.line_to(cx + dx * radius * 0.94, cy + dy * radius * 0.94)
@@ -140,13 +156,13 @@ class GForceCanvas(Gtk.DrawingArea):
         cr.stroke()
         if self._has_data:
             cr.arc(dot_x, dot_y, dot_r * 0.32, 0, math.tau)
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.30)
+            cr.set_source_rgba(*highlight)
             cr.fill()
 
         # Axis labels around the ring (top = longitudinal, right = lateral, bottom = magnitude)
         cr.select_font_face("Cantarell", 0, 0)
         cr.set_font_size(font_value)
-        cr.set_source_rgba(0.92, 0.93, 0.95, 0.95 if self._has_data else 0.55)
+        cr.set_source_rgba(*text, 0.95 if self._has_data else 0.55)
         self._text_center(cr, f"{self._y:+.1f}g", cx, cy - radius - label_pad)
         self._text_center(cr, f"{self._x:+.1f}g", cx + radius + label_pad, cy)
         self._text_center(cr, f"{mag:.1f}g",       cx, cy + radius + label_pad)

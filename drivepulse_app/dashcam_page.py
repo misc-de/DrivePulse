@@ -209,6 +209,7 @@ class DashcamPage(Gtk.Box):
     def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.language = _normalize_language(language)
+        self.add_css_class("dp-dashcam-page")
         self.set_hexpand(True)
         self.set_vexpand(True)
 
@@ -245,6 +246,8 @@ class DashcamPage(Gtk.Box):
         css.load_from_data(
             # Translucent gray bar — drawn ON TOP of the video at the bottom,
             # never to the side regardless of portrait/landscape orientation.
+            b".dp-dashcam-page{background:#000000;color:#ffffff;}"
+            b".dc-black-bg{background:#000000;color:#ffffff;}"
             b".dc-bottom { background: rgba(50,50,50,0.78); padding: 10px 14px 14px 14px; border-radius: 14px 14px 0 0; }"
             b".dc-lock-bg { background: #000000; }"
             b".dc-status  { color: rgba(255,255,255,0.85); font-size: 0.85em; }"
@@ -256,6 +259,7 @@ class DashcamPage(Gtk.Box):
         # Outer overlay wraps everything so the lock screen can cover both
         # the camera area AND the bottom bar.
         outer = Gtk.Overlay()
+        outer.add_css_class("dc-black-bg")
         outer.set_hexpand(True)
         outer.set_vexpand(True)
         self.append(outer)
@@ -263,11 +267,13 @@ class DashcamPage(Gtk.Box):
         # Camera area fills the entire outer overlay; the controls float
         # *over* the bottom edge as a separate overlay (not a side rail).
         cam_overlay = Gtk.Overlay()
+        cam_overlay.add_css_class("dc-black-bg")
         cam_overlay.set_hexpand(True)
         cam_overlay.set_vexpand(True)
         outer.set_child(cam_overlay)
 
         self._preview_pic = Gtk.Picture()
+        self._preview_pic.add_css_class("dc-black-bg")
         self._preview_pic.set_hexpand(True)
         self._preview_pic.set_vexpand(True)
         self._preview_pic.set_content_fit(Gtk.ContentFit.CONTAIN)
