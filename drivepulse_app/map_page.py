@@ -44,20 +44,24 @@ log = get_logger(__name__)
 # we inject our own so the white text always reads against the map underneath.
 _MANEUVER_CSS = b"""
 .dp-maneuver-banner {
-  background-color: rgba(20, 24, 32, 0.78);
+  background-color: rgba(20, 24, 32, 0.82);
   color: #ffffff;
-  border-radius: 14px;
-  padding: 10px 18px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  border-radius: 18px;
+  padding: 16px 26px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.40);
 }
 .dp-maneuver-banner label { color: #ffffff; }
+/* Symbolic icons recolor via the widget's CSS color - force black arrows
+   regardless of the surrounding text color. */
+.dp-maneuver-banner image { color: #000000; }
 .dp-maneuver-banner .dp-maneuver-distance {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 32px;
+  font-weight: 800;
 }
 .dp-maneuver-banner .dp-maneuver-instr {
-  font-size: 14px;
-  opacity: 0.92;
+  font-size: 20px;
+  font-weight: 500;
+  opacity: 0.95;
 }
 """
 _maneuver_css_installed = False
@@ -121,6 +125,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._end_coord: tuple[float, float] | None = None
         self._tour_active: bool = False
         self._tour_paused: bool = False
+        self._tour_completed: bool = False
         self._tour_steps: list[dict] = []
         self._tour_step_idx: int = 0
         self._tour_coords: list[list[float]] = []
@@ -480,15 +485,14 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         outer.set_can_target(False)
         outer.set_visible(False)
 
-        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=22)
         card.add_css_class("dp-maneuver-banner")
 
-        self._maneuver_icon = Gtk.Image.new_from_icon_name("go-up-symbolic")
-        self._maneuver_icon.set_pixel_size(64)
-        self._maneuver_icon.set_margin_end(4)
+        self._maneuver_icon = Gtk.Image.new_from_icon_name("dp-nav-straight-symbolic")
+        self._maneuver_icon.set_pixel_size(96)
         card.append(self._maneuver_icon)
 
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         text_box.set_valign(Gtk.Align.CENTER)
 
         self._maneuver_distance_lbl = Gtk.Label(label="")
@@ -498,7 +502,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._maneuver_instr_lbl = Gtk.Label(label="")
         self._maneuver_instr_lbl.add_css_class("dp-maneuver-instr")
         self._maneuver_instr_lbl.set_halign(Gtk.Align.START)
-        self._maneuver_instr_lbl.set_max_width_chars(34)
+        self._maneuver_instr_lbl.set_max_width_chars(28)
         self._maneuver_instr_lbl.set_wrap(True)
 
         text_box.append(self._maneuver_distance_lbl)
@@ -544,6 +548,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         lat, lon = self._start_coord
         self._tour_active = True
         self._tour_paused = False
+        self._tour_completed = False
         self._tour_step_idx = 0
         self._last_step_dist = None
         self._set_tour_button("stop")
@@ -598,6 +603,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         was_running = self._tour_active or self._tour_paused
         self._tour_active = False
         self._tour_paused = False
+        self._tour_completed = False
+        self._last_step_dist = None
         self._set_tour_button("start")
         if self._backend == "webkit":
             self._js("mapSetTourActive(false)")
@@ -707,6 +714,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if (
             not self._tour_active
             or not self._tour_steps
+            or self._tour_completed
             or self._gps_lat is None
             or self._gps_lon is None
         ):
@@ -722,12 +730,13 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         # current distance has grown by more than the noise threshold.  This
         # advances exactly one step per call and never skips over a maneuver
         # that's stacked close to the previous one (e.g. roundabout exits).
-        if (
-            self._tour_step_idx < len(self._tour_steps) - 1
-            and self._last_step_dist is not None
+        passed = (
+            self._last_step_dist is not None
             and self._last_step_dist <= self._MANEUVER_APPROACH_M
             and distance_m > self._last_step_dist + self._MANEUVER_PASS_GROWTH_M
-        ):
+        )
+
+        if passed and self._tour_step_idx < len(self._tour_steps) - 1:
             self._tour_step_idx += 1
             self._last_step_dist = None
             self._skip_non_actionable_steps()
@@ -735,6 +744,13 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             distance_m = haversine(
                 self._gps_lat, self._gps_lon, step["lat"], step["lon"]
             )
+        elif passed and self._tour_step_idx == len(self._tour_steps) - 1:
+            # Final maneuver — usually "arrive" — has been reached and passed.
+            # The route is complete; hide the banner and mark the tour done so
+            # we don't keep redisplaying stale instructions.
+            self._tour_completed = True
+            self._maneuver_overlay.set_visible(False)
+            return
         else:
             self._last_step_dist = distance_m
 
