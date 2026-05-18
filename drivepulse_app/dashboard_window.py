@@ -33,6 +33,7 @@ from .mock_tour import MockTourSimulator
 from .orientation_reader import OrientationReader
 from .obd_reader import ObdReader
 from .rotation import RotationProvider
+from .rotated_container import RotatedContainer
 from .trip_recorder import TripRecorder
 
 
@@ -166,24 +167,33 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashboard_page.append(self.dashboard_canvas)
         self.dashboard_page.append(footer)
 
+        self._gauge_rotator = RotatedContainer()
+        self._gauge_rotator.set_child(self.dashboard_page)
+        self._gauge_rotator.set_hexpand(True)
+        self._gauge_rotator.set_vexpand(True)
         dashboard_scroller = Gtk.ScrolledWindow()
         dashboard_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         dashboard_scroller.set_propagate_natural_width(False)
         dashboard_scroller.set_propagate_natural_height(False)
-        dashboard_scroller.set_child(self.dashboard_page)
+        dashboard_scroller.set_child(self._gauge_rotator)
 
         self.stopwatch_page = StopWatchPage(self.language)
         self.stopwatch_page.set_theme(self.gauge_theme)
         self.stopwatch_page.set_engage_threshold(self.settings.get("engage_threshold", 0.20))
         self.stopwatch_page.on_engage_threshold_changed = self._on_engage_threshold_changed
         self.stopwatch_page.on_run_complete = self._on_stopwatch_run_complete
+        self._stopwatch_rotator = RotatedContainer()
+        self._stopwatch_rotator.set_child(self.stopwatch_page)
+        self._stopwatch_rotator.set_hexpand(True)
+        self._stopwatch_rotator.set_vexpand(True)
         stopwatch_scroller = Gtk.ScrolledWindow()
         stopwatch_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         stopwatch_scroller.set_propagate_natural_width(False)
         stopwatch_scroller.set_propagate_natural_height(False)
         stopwatch_scroller.set_hexpand(True)
         stopwatch_scroller.set_vexpand(True)
-        stopwatch_scroller.set_child(self.stopwatch_page)
+        stopwatch_scroller.set_child(self._stopwatch_rotator)
+        self.rotation.bind(self._apply_page_rotation)
 
         self.cars_page = CarsPage(self.language, db=self.db, sidebar_side=self.sidebar_side)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
@@ -354,6 +364,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
     def _on_dashcam_recording_changed(self, recording: bool) -> None:
         self._dashcam_rec_box.set_visible(recording)
+
+    def _apply_page_rotation(self, angle: int) -> None:
+        self._gauge_rotator.set_rotation(angle)
+        self._stopwatch_rotator.set_rotation(angle)
+        GLib.idle_add(self._on_size_changed)
 
     def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
         self.rotation.set_sensor(angle)
