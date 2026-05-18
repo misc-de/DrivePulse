@@ -57,6 +57,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._gps_heading: float = 0.0
         self._follow_gps: bool = True
         self._last_map_js: float = 0.0   # throttle: last time mapSetCar was sent
+        # Route coords [[lon, lat], ...] — kept for traffic proximity filtering
+        self._route_coords: list[list[float]] = []
         self._map_type_idx: int = 0
         self._routing_mode: str = "car"
         self._start_coord: tuple[float, float] | None = None
@@ -353,13 +355,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS["map"]))
         self._layer_btn.connect("clicked", self._on_layer_clicked)
 
-        self._follow_btn = Gtk.ToggleButton(icon_name="kstars_satellites-symbolic")
-        self._follow_btn.add_css_class("circular")
-        self._follow_btn.add_css_class("osd")
-        self._follow_btn.set_active(True)
-        self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
-        self._follow_btn.connect("toggled", self._on_follow_toggled)
-
         self._center_btn = Gtk.Button(icon_name="find-location-symbolic")
         self._center_btn.add_css_class("circular")
         self._center_btn.add_css_class("osd")
@@ -369,7 +364,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         fab.append(self._poi_btn)
         fab.append(self._traffic_btn)
         fab.append(self._layer_btn)
-        fab.append(self._follow_btn)
         fab.append(self._center_btn)
         return fab
 
@@ -403,15 +397,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._tour_start_lbl.set_label(_translate(self.language, "map.tour_stop"))
         if self._tour_btn_icon is not None:
             self._tour_btn_icon.set_from_icon_name("media-playback-stop-symbolic")
-        self._set_follow(False)
+        self._set_follow(True)
         if self._backend == "webkit":
-            self._js(f"mapGoTo({lat}, {lon}, 17)")
-        elif self._shumate_map is not None:
-            viewport = self._shumate_map.get_viewport()
-            self._setting_pos = True
-            viewport.set_zoom_level(17.0)
-            viewport.set_location(lat, lon)
-            self._setting_pos = False
+            self._js("mapSetTourActive(true)")
         if self._gps_lat is not None and self._gps_lon is not None:
             dist = haversine(self._gps_lat, self._gps_lon, lat, lon)
             if dist > 200:
@@ -429,6 +417,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._tour_btn_icon is not None:
             self._tour_btn_icon.set_from_icon_name("media-playback-start-symbolic")
         if self._backend == "webkit":
+            self._js("mapSetTourActive(false)")
             self._js("mapClearGuideToStart()")
         elif self._guide_path_layer is not None:
             self._guide_path_layer.remove_all()
@@ -465,6 +454,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._gps_lat = lat
         self._gps_lon = lon
         self._gps_heading = heading or 0.0
+
+        # During an active tour always re-engage follow so the map tracks the driver.
+        if self._tour_active and not self._follow_gps:
+            self._set_follow(True)
 
         if self._backend == "webkit":
             now = time.monotonic()
@@ -512,14 +505,14 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def _on_center_clicked(self, _btn: Gtk.Button) -> None:
         if self._gps_lat is None:
             return
+        self._set_follow(True)
         if self._backend == "webkit":
-            self._js(f"mapGoTo({self._gps_lat}, {self._gps_lon}, 15)")
+            self._js(f"mapGoTo({self._gps_lat}, {self._gps_lon}, 17)")
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
             self._setting_pos = True
             viewport.set_location(self._gps_lat, self._gps_lon)
-            if viewport.get_zoom_level() < 15.0:
-                viewport.set_zoom_level(15.0)
+            viewport.set_zoom_level(17.0)
             self._setting_pos = False
 
     def _on_layer_clicked(self, _btn: Gtk.Button) -> None:
@@ -577,9 +570,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     def _show_traffic(self, items: list[dict]) -> bool:
         parsed = self._parse_traffic_items(items)
-        count = len(parsed)
 
         if self._backend == "webkit":
+            # WebKit filters by route bounding box inside JS (mapSetTraffic).
             js_items = [
                 {"lat": lat, "lon": lon, "kind": kind, "title": title}
                 for lat, lon, kind, title in parsed
@@ -588,13 +581,30 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             if self._traffic_btn is not None and self._traffic_btn.get_active():
                 self._js("mapSetTrafficVisible(true)")
         else:
-            self._shumate_show_traffic(parsed)
+            filtered = self._filter_traffic_by_route(parsed)
+            self._shumate_show_traffic(filtered)
 
         if self._traffic_btn is not None and self._traffic_btn.get_active():
             self._status_lbl.set_text(
-                _translate(self.language, "map.traffic.count").format(count=count)
+                _translate(self.language, "map.traffic.count").format(count=len(parsed))
             )
         return False
+
+    def _filter_traffic_by_route(
+        self, items: list[tuple[float, float, str, str]]
+    ) -> list[tuple[float, float, str, str]]:
+        """Keep only items within ~5 km of the route bounding box."""
+        if not self._route_coords:
+            return []
+        lats = [c[1] for c in self._route_coords]
+        lons = [c[0] for c in self._route_coords]
+        pad = 0.05  # ~5 km
+        min_lat, max_lat = min(lats) - pad, max(lats) + pad
+        min_lon, max_lon = min(lons) - pad, max(lons) + pad
+        return [
+            item for item in items
+            if min_lat <= item[0] <= max_lat and min_lon <= item[1] <= max_lon
+        ]
 
     # ── POI layer (Overpass API) ──────────────────────────────────────────────
 
@@ -702,6 +712,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             lats = [c[1] for c in coords]
             lons = [c[0] for c in coords]
             self._set_follow(False)
+
+        self._route_coords = coords  # store for traffic proximity filter
 
         if self._backend == "webkit":
             self._js(f"mapSetRoute({json.dumps(coords)})")
