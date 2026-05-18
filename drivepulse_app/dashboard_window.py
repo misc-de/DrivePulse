@@ -429,6 +429,16 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if page == self.PAGE_MAP:
             GLib.timeout_add(50, self.map_page.on_shown)
 
+        # Dashcam preview is started lazily and torn down when the user leaves
+        # the tab — except the recorder keeps running across tab switches so a
+        # tour is recorded end-to-end regardless of which tab is in front.
+        prev = getattr(self, "_last_visible_page", None)
+        if page == self.PAGE_DASHCAM:
+            self.dashcam_page.on_shown()
+        elif prev == self.PAGE_DASHCAM:
+            self.dashcam_page.on_hidden()
+        self._last_visible_page = page
+
     # Hold the simulated drive for this long after the tour starts, matching
     # mapStartTour's camera settle window in map.html so the car doesn't pull
     # away while the user is still reading the freshly opened navigation card.

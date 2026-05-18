@@ -298,20 +298,35 @@ function mapSetTourActive(active) {
   }
 }
 
+// Comfortable street-level tour zoom — close enough to read shop fronts but
+// far enough to see the next intersection.  Max zoom (22) was disorienting.
+const TOUR_ZOOM = 17;
+
 function mapStartTour(lat, lon) {
   if (!initialized) initMap(lat, lon);
   if (!map) return;
   _tourActive = true;
   _smoothedBearing = null;
-  const z = typeof map.getMaxZoom === 'function' ? map.getMaxZoom() : 22;
+  const maxZ = typeof map.getMaxZoom === 'function' ? map.getMaxZoom() : 22;
+  const z = Math.min(TOUR_ZOOM, maxZ);
   const p = typeof map.getMaxPitch === 'function' ? map.getMaxPitch() : 60;
-  // Fly to max zoom/pitch, then hold the camera still for a few seconds so
-  // the user can orient (the "Navikarten-Aufbau" period).  GPS-driven easeTo
-  // is suppressed for the entire settle window — otherwise the first GPS
-  // tick would cancel the flyTo and yank the camera into follow-mode.
+  // Fly to the tour zoom + max pitch, then hold the camera still for a few
+  // seconds so the user can orient (the "Navikarten-Aufbau" period).
+  // GPS-driven easeTo is suppressed for the entire settle window — otherwise
+  // the first GPS tick would cancel the flyTo and yank the camera into follow.
   _tourFlying = true;
   map.flyTo({ center: [lon, lat], zoom: z, pitch: p, duration: 900 });
   setTimeout(() => { _tourFlying = false; }, 3000);
+}
+
+function mapZoomIn() {
+  if (!map) return;
+  map.easeTo({ zoom: map.getZoom() + 1, duration: 200 });
+}
+
+function mapZoomOut() {
+  if (!map) return;
+  map.easeTo({ zoom: map.getZoom() - 1, duration: 200 });
 }
 
 function mapSetRoute(coords) {
