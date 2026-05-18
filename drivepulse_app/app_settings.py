@@ -32,6 +32,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "nav_position": "bottom",
     "dashcam_gps_osd": False,
     "map_traffic_visible": False,
+    "map_3d_view": True,
 }
 
 
@@ -65,6 +66,7 @@ def load_settings() -> dict[str, Any]:
         "theme_mode": data.get("theme_mode", "auto") if data.get("theme_mode") in {"auto", "dark", "light"} else "auto",
         "force_webkit_map": bool(data.get("force_webkit_map", DEFAULT_SETTINGS["force_webkit_map"])),
         "map_traffic_visible": bool(data.get("map_traffic_visible", DEFAULT_SETTINGS["map_traffic_visible"])),
+        "map_3d_view": bool(data.get("map_3d_view", DEFAULT_SETTINGS["map_3d_view"])),
         "sidebar_side": data.get("sidebar_side", "left") if data.get("sidebar_side") in {"left", "right"} else "left",
         "last_update_check": data.get("last_update_check") or None,
         "dashcam_camera": data.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
@@ -94,6 +96,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "theme_mode": settings.get("theme_mode", "auto") if settings.get("theme_mode") in {"auto", "dark", "light"} else "auto",
                 "force_webkit_map": bool(settings.get("force_webkit_map", False)),
                 "map_traffic_visible": bool(settings.get("map_traffic_visible", False)),
+                "map_3d_view": bool(settings.get("map_3d_view", True)),
                 "sidebar_side": settings.get("sidebar_side", "left") if settings.get("sidebar_side") in {"left", "right"} else "left",
                 "last_update_check": settings.get("last_update_check") or None,
                 "dashcam_camera": settings.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],

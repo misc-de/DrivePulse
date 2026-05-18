@@ -87,6 +87,7 @@ let _poiVisible     = false;  // POIs are opt-in per session — keep them hidde
 let _tourActive     = false;
 let _smoothedBearing = null;  // EMA-smoothed compass bearing to dampen heading jitter
 let _tourFlying     = false;  // suppresses GPS-driven easeTo while mapStartTour's flyTo is animating
+let _view3D         = true;   // false = top-down flat map; true = tilted 3D view
 
 const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
 
@@ -362,9 +363,22 @@ function mapResetView() {
   });
 }
 
-// Comfortable street-level tour zoom — close enough to read shop fronts but
-// far enough to see the next intersection.  Max zoom (22) was disorienting.
-const TOUR_ZOOM = 17;
+// Tour start camera — tuned for legibility:
+//   zoom 18  — close enough to read street names, far enough to see ahead
+//   pitch 49 — strong sense of 3D without losing distance perception
+//   bearing 0 — start facing north; rotates to heading as soon as GPS arrives
+const TOUR_ZOOM    = 18;
+const TOUR_PITCH   = 49;
+const TOUR_BEARING = 0;
+
+function mapSet3DView(enabled) {
+  _view3D = !!enabled;
+  if (!map) return;
+  const targetPitch = _view3D
+    ? Math.min(TOUR_PITCH, typeof map.getMaxPitch === 'function' ? map.getMaxPitch() : 60)
+    : 0;
+  map.easeTo({ pitch: targetPitch, duration: 400 });
+}
 
 function mapStartTour(lat, lon) {
   if (!initialized) initMap(lat, lon);
@@ -372,14 +386,19 @@ function mapStartTour(lat, lon) {
   _tourActive = true;
   _smoothedBearing = null;
   const maxZ = typeof map.getMaxZoom === 'function' ? map.getMaxZoom() : 22;
+  const maxP = typeof map.getMaxPitch === 'function' ? map.getMaxPitch() : 60;
   const z = Math.min(TOUR_ZOOM, maxZ);
-  const p = typeof map.getMaxPitch === 'function' ? map.getMaxPitch() : 60;
-  // Fly to the tour zoom + max pitch, then hold the camera still for a few
-  // seconds so the user can orient (the "Navikarten-Aufbau" period).
-  // GPS-driven easeTo is suppressed for the entire settle window — otherwise
-  // the first GPS tick would cancel the flyTo and yank the camera into follow.
+  const p = _view3D ? Math.min(TOUR_PITCH, maxP) : 0;
+  // Fly to the tour camera, then hold it still for a few seconds so the user
+  // can orient (the "Navikarten-Aufbau" period).  GPS-driven easeTo is
+  // suppressed for the entire settle window — otherwise the first GPS tick
+  // would cancel the flyTo and yank the camera into follow mode.
   _tourFlying = true;
-  map.flyTo({ center: [lon, lat], zoom: z, pitch: p, duration: 900 });
+  map.flyTo({
+    center: [lon, lat],
+    zoom: z, pitch: p, bearing: TOUR_BEARING,
+    duration: 900,
+  });
   setTimeout(() => { _tourFlying = false; }, 3000);
 }
 

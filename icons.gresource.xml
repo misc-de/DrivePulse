@@ -29,5 +29,6 @@
     <file alias="dp-nav-ramp-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-ramp-symbolic.svg</file>
     <file alias="dp-nav-depart-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-depart-symbolic.svg</file>
     <file alias="dp-nav-arrive-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-arrive-symbolic.svg</file>
+    <file alias="dp-view-3d-symbolic.svg">icons/hicolor/symbolic/actions/dp-view-3d-symbolic.svg</file>
   </gresource>
 </gresources>

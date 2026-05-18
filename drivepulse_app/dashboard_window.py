@@ -66,6 +66,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # POIs are deliberately not persisted — they're a performance hit, so
         # the map always starts without POI loading until the user toggles it.
         self.map_traffic_visible: bool = bool(self.settings.get("map_traffic_visible", False))
+        self.map_3d_view: bool = bool(self.settings.get("map_3d_view", True))
         self.last_update_check: str | None = self.settings.get("last_update_check")
         self.dashcam_camera: str = self.settings.get("dashcam_camera", "/dev/video0")
         self.dashcam_resolution: str = self.settings.get("dashcam_resolution", "1280x720")
@@ -198,7 +199,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             mock_mode=self.mock_mode,
             poi_visible=False,
             traffic_visible=self.map_traffic_visible,
+            map_3d_view=self.map_3d_view,
             on_traffic_visible_changed=self._set_map_traffic_visible,
+            on_3d_view_changed=self._set_map_3d_view,
             on_tour_started=self._on_tour_started,
             on_tour_stopped=self._on_tour_stopped,
             on_tour_resumed=self._on_tour_resumed,
