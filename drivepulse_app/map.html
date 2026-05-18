@@ -88,6 +88,7 @@ let _tourActive     = false;
 let _smoothedBearing = null;  // EMA-smoothed compass bearing to dampen heading jitter
 let _tourFlying     = false;  // suppresses GPS-driven easeTo while mapStartTour's flyTo is animating
 let _view3D         = true;   // false = top-down flat map; true = tilted 3D view
+let _followingGps   = false;  // while true, the marker tracks map.getCenter() every frame
 
 const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
 
@@ -212,6 +213,17 @@ function initMap(lat, lon) {
 
   map.on('style.load', addDataLayers);
 
+  // Keep marker glued to the camera center while we're following GPS, and
+  // always recompute the arrow rotation relative to the current map bearing.
+  map.on('move', () => {
+    if (_followingGps && carMarker) {
+      const c = map.getCenter();
+      carMarker.setLngLat([c.lng, c.lat]);
+    }
+    _updateArrowRotation();
+  });
+  map.on('rotate', _updateArrowRotation);
+
   // Push camera state to Python whenever the map settles after a movement
   // (zoom, pitch, rotate, pan). This drives the mock-mode debug overlay so
   // values appear even without GPS / tour activity.
@@ -284,6 +296,18 @@ function setBasePoiVisibility(visible) {
 }
 
 // ── Public API (called from Python) ──────────────────────────────────────────
+function _updateArrowRotation() {
+  if (!carArrowEl) return;
+  const hdg = _smoothedBearing === null ? 0 : _smoothedBearing;
+  // Arrow points in heading direction *relative to the current map bearing*,
+  // so whether the map is north-up, follow-rotated, or anything the user
+  // chose, the arrow always shows the actual direction of travel along the
+  // road.  When map.bearing == hdg the arrow naturally lands at 0°.
+  const mapBearing = map ? map.getBearing() : 0;
+  const angle = ((hdg - mapBearing) % 360 + 360) % 360;
+  carArrowEl.style.transform = `rotate(${angle}deg)`;
+}
+
 function mapSetCar(lat, lon, heading) {
   if (!initialized) initMap(lat, lon);
   if (!map) return;
@@ -298,10 +322,15 @@ function mapSetCar(lat, lon, heading) {
     _smoothedBearing = (_smoothedBearing + delta * 0.30 + 360) % 360;
   }
   const hdg = _smoothedBearing;
-  if (carMarker) carMarker.setLngLat([lon, lat]);
-  // Arrow: relative to map bearing. In follow-mode the map rotates with heading,
-  // so the arrow always points straight up (0°). Otherwise show absolute heading.
-  if (carArrowEl) carArrowEl.style.transform = `rotate(${followMode ? 0 : hdg}deg)`;
+  // When the camera follows the GPS, the marker is *not* set directly here —
+  // instead the map.on('move', ...) listener (registered in initMap) keeps the
+  // marker pinned to the camera center every animation frame, so the marker
+  // and the map glide together with no "map jumps forward, arrow hops behind".
+  if (!followMode) {
+    if (carMarker) carMarker.setLngLat([lon, lat]);
+  }
+  _followingGps = followMode;
+  _updateArrowRotation();
   if (!_tourFlying) {
     // Duration is slightly longer than the GPS push interval (250 ms) so each
     // animation blends into the next, avoiding the stutter-and-jump look.
