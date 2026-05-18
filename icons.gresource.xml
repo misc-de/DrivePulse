@@ -14,5 +14,20 @@
     <file alias="xsi-search.svg">icons/hicolor/symbolic/actions/xsi-search.svg</file>
     <file alias="kstars_satellites-symbolic.svg">icons/hicolor/symbolic/actions/kstars_satellites-symbolic.svg</file>
     <file alias="dialog-layers-symbolic.svg">icons/hicolor/symbolic/actions/dialog-layers-symbolic.svg</file>
+    <file alias="dp-nav-straight-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-straight-symbolic.svg</file>
+    <file alias="dp-nav-left-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-left-symbolic.svg</file>
+    <file alias="dp-nav-right-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-right-symbolic.svg</file>
+    <file alias="dp-nav-slight-left-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-slight-left-symbolic.svg</file>
+    <file alias="dp-nav-slight-right-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-slight-right-symbolic.svg</file>
+    <file alias="dp-nav-sharp-left-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-sharp-left-symbolic.svg</file>
+    <file alias="dp-nav-sharp-right-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-sharp-right-symbolic.svg</file>
+    <file alias="dp-nav-uturn-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-uturn-symbolic.svg</file>
+    <file alias="dp-nav-roundabout-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-roundabout-symbolic.svg</file>
+    <file alias="dp-nav-merge-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-merge-symbolic.svg</file>
+    <file alias="dp-nav-fork-left-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-fork-left-symbolic.svg</file>
+    <file alias="dp-nav-fork-right-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-fork-right-symbolic.svg</file>
+    <file alias="dp-nav-ramp-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-ramp-symbolic.svg</file>
+    <file alias="dp-nav-depart-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-depart-symbolic.svg</file>
+    <file alias="dp-nav-arrive-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-arrive-symbolic.svg</file>
   </gresource>
 </gresources>

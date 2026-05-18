@@ -63,7 +63,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.sidebar_side: str = self.settings.get("sidebar_side", "left")
         self.theme_mode: str = self.settings.get("theme_mode", "auto")
         self.force_webkit_map: bool = bool(self.settings.get("force_webkit_map", False))
-        self.map_poi_visible: bool = bool(self.settings.get("map_poi_visible", False))
+        # POIs are deliberately not persisted — they're a performance hit, so
+        # the map always starts without POI loading until the user toggles it.
         self.map_traffic_visible: bool = bool(self.settings.get("map_traffic_visible", False))
         self.last_update_check: str | None = self.settings.get("last_update_check")
         self.dashcam_camera: str = self.settings.get("dashcam_camera", "/dev/video0")
@@ -192,9 +193,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.map_page = MapPage(
             self.language,
             force_webkit=self.force_webkit_map,
-            poi_visible=self.map_poi_visible,
+            poi_visible=False,
             traffic_visible=self.map_traffic_visible,
-            on_poi_visible_changed=self._set_map_poi_visible,
             on_traffic_visible_changed=self._set_map_traffic_visible,
             on_tour_started=self._on_tour_started,
             on_tour_stopped=self._on_tour_stopped,

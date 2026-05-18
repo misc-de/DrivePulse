@@ -124,6 +124,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_steps: list[dict] = []
         self._tour_step_idx: int = 0
         self._tour_coords: list[list[float]] = []
+        # Last measured distance to the current step's maneuver point; used to
+        # detect "passed" via distance growth instead of a flat radius threshold
+        # (the old radius logic was skipping past stacked close-together steps).
+        self._last_step_dist: float | None = None
         self._dnd_src_idx: int = -1
 
         # Maneuver overlay widgets
@@ -541,6 +545,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_active = True
         self._tour_paused = False
         self._tour_step_idx = 0
+        self._last_step_dist = None
         self._set_tour_button("stop")
         self._update_maneuver_overlay()
         if self._on_tour_started is not None and self._tour_coords:
@@ -672,8 +677,29 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._tour_active:
             self._update_maneuver_overlay()
 
-    # Advance step when the user gets within this many meters of its maneuver point.
-    _MANEUVER_ADVANCE_M = 25.0
+    # Distance at which we consider the user "approaching" the next maneuver
+    # point. We don't advance just by being inside this zone — we wait until
+    # the user has actually moved past, detected by distance growth.
+    _MANEUVER_APPROACH_M = 45.0
+    # Minimum distance growth between ticks before we declare a maneuver passed.
+    # Larger than typical GPS noise but smaller than a single 4 Hz tick's travel.
+    _MANEUVER_PASS_GROWTH_M = 4.0
+
+    # OSRM step types that don't represent an actionable maneuver — they're
+    # bookkeeping entries (road name change, info-only). Skip past them so the
+    # banner always shows a real turn/merge/etc.
+    _NON_ACTIONABLE_STEP_TYPES = frozenset({
+        "depart", "new name", "notification", "use lane",
+    })
+
+    def _skip_non_actionable_steps(self) -> None:
+        while (
+            self._tour_step_idx < len(self._tour_steps) - 1
+            and self._tour_steps[self._tour_step_idx].get("type")
+            in self._NON_ACTIONABLE_STEP_TYPES
+        ):
+            self._tour_step_idx += 1
+            self._last_step_dist = None
 
     def _update_maneuver_overlay(self) -> None:
         if self._maneuver_overlay is None:
@@ -687,20 +713,31 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._maneuver_overlay.set_visible(False)
             return
 
-        # Advance past "depart" and any maneuver we've already reached.
-        while self._tour_step_idx < len(self._tour_steps) - 1:
-            cur = self._tour_steps[self._tour_step_idx]
-            if cur.get("type") == "depart":
-                self._tour_step_idx += 1
-                continue
-            d_cur = haversine(self._gps_lat, self._gps_lon, cur["lat"], cur["lon"])
-            if d_cur <= self._MANEUVER_ADVANCE_M:
-                self._tour_step_idx += 1
-                continue
-            break
+        self._skip_non_actionable_steps()
 
         step = self._tour_steps[self._tour_step_idx]
         distance_m = haversine(self._gps_lat, self._gps_lon, step["lat"], step["lon"])
+
+        # "Passed" detection: previous tick was within the approach zone AND
+        # current distance has grown by more than the noise threshold.  This
+        # advances exactly one step per call and never skips over a maneuver
+        # that's stacked close to the previous one (e.g. roundabout exits).
+        if (
+            self._tour_step_idx < len(self._tour_steps) - 1
+            and self._last_step_dist is not None
+            and self._last_step_dist <= self._MANEUVER_APPROACH_M
+            and distance_m > self._last_step_dist + self._MANEUVER_PASS_GROWTH_M
+        ):
+            self._tour_step_idx += 1
+            self._last_step_dist = None
+            self._skip_non_actionable_steps()
+            step = self._tour_steps[self._tour_step_idx]
+            distance_m = haversine(
+                self._gps_lat, self._gps_lon, step["lat"], step["lon"]
+            )
+        else:
+            self._last_step_dist = distance_m
+
         m_type = step.get("type", "")
         m_modifier = step.get("modifier", "")
         name = step.get("name", "") or ""
