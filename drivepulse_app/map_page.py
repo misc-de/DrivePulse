@@ -87,6 +87,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     """OpenStreetMap navigation page — WebKit/MapLibre (3D) or Shumate (2D)."""
     __gtype_name__ = "MapPage"
 
+    # Comfortable street-level zoom for tour following; max zoom (22) was
+    # too close to be useful for navigation.
+    _TOUR_ZOOM = 17.0
+
     def __init__(
         self,
         language: str = SOURCE_LANGUAGE,
@@ -165,6 +169,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._center_btn: Gtk.Button | None = None
         self._layer_btn: Gtk.Button | None = None
         self._traffic_btn: Gtk.ToggleButton | None = None
+        self._zoom_in_btn: Gtk.Button | None = None
+        self._zoom_out_btn: Gtk.Button | None = None
         self._tour_start_btn: Gtk.Button | None = None
         self._tour_start_lbl: Gtk.Label | None = None
         self._tour_btn_icon: Gtk.Image | None = None
@@ -409,6 +415,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
         if self._backend != "none":
             overlay.add_overlay(self._build_fab())
+            overlay.add_overlay(self._build_zoom_controls())
             overlay.add_overlay(self._build_tour_start_btn())
             overlay.add_overlay(self._build_maneuver_overlay())
 
@@ -473,6 +480,41 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         fab.append(self._layer_btn)
         fab.append(self._center_btn)
         return fab
+
+    def _build_zoom_controls(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_halign(Gtk.Align.END)
+        box.set_valign(Gtk.Align.START)
+        box.set_margin_top(12)
+        box.set_margin_end(12)
+
+        zoom_in = Gtk.Button(icon_name="zoom-in-symbolic")
+        zoom_in.add_css_class("circular")
+        zoom_in.add_css_class("osd")
+        zoom_in.set_tooltip_text(_translate(self.language, "map.zoom_in"))
+        zoom_in.connect("clicked", lambda _b: self._zoom_step(+1))
+
+        zoom_out = Gtk.Button(icon_name="zoom-out-symbolic")
+        zoom_out.add_css_class("circular")
+        zoom_out.add_css_class("osd")
+        zoom_out.set_tooltip_text(_translate(self.language, "map.zoom_out"))
+        zoom_out.connect("clicked", lambda _b: self._zoom_step(-1))
+
+        self._zoom_in_btn = zoom_in
+        self._zoom_out_btn = zoom_out
+        box.append(zoom_in)
+        box.append(zoom_out)
+        return box
+
+    def _zoom_step(self, delta: int) -> None:
+        if self._backend == "webkit":
+            self._js("mapZoomIn()" if delta > 0 else "mapZoomOut()")
+        elif self._shumate_map is not None:
+            viewport = self._shumate_map.get_viewport()
+            current = viewport.get_zoom_level()
+            self._setting_pos = True
+            viewport.set_zoom_level(max(1.0, min(self._shumate_max_zoom(), current + delta)))
+            self._setting_pos = False
 
     def _build_maneuver_overlay(self) -> Gtk.Widget:
         _install_maneuver_css()
@@ -563,7 +605,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
             self._setting_pos = True
-            viewport.set_zoom_level(self._shumate_max_zoom())
+            viewport.set_zoom_level(min(self._TOUR_ZOOM, self._shumate_max_zoom()))
             viewport.set_location(lat, lon)
             self._setting_pos = False
         if self._gps_lat is not None and self._gps_lon is not None:
@@ -1066,6 +1108,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
         if self._traffic_btn is not None:
             self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
+        if self._zoom_in_btn is not None:
+            self._zoom_in_btn.set_tooltip_text(_translate(self.language, "map.zoom_in"))
+        if self._zoom_out_btn is not None:
+            self._zoom_out_btn.set_tooltip_text(_translate(self.language, "map.zoom_out"))
         if self._tour_start_lbl is not None:
             if self._tour_active:
                 self._set_tour_button("stop")
