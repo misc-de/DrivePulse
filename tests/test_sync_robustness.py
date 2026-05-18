@@ -169,9 +169,14 @@ def test_sync_server_pairing_cancels_timeout(monkeypatch, tmp_path):
 
 
 def test_sync_dialog_blocks_server_start_without_user_action(drivepulse_module):
+    import threading
+
     from drivepulse_app.sync_dialog import SyncDialog
 
     dialog = SyncDialog.__new__(SyncDialog)
+    dialog._server_lock = threading.RLock()
+    dialog._closed = False
+    dialog._server_start_generation = 0
     dialog._server_start_requested = False
     called = []
     dialog._stop_server = lambda: called.append("stop")
@@ -179,3 +184,52 @@ def test_sync_dialog_blocks_server_start_without_user_action(drivepulse_module):
     SyncDialog._start_server_mode(dialog)
 
     assert called == []
+
+
+def test_sync_dialog_stop_invalidates_pending_server_start(drivepulse_module):
+    import threading
+
+    from drivepulse_app.sync_dialog import SyncDialog
+
+    dialog = SyncDialog.__new__(SyncDialog)
+    dialog._server_lock = threading.RLock()
+    dialog._closed = False
+    dialog._server_start_generation = 10
+    dialog._server_start_requested = True
+    dialog._server = None
+
+    SyncDialog._stop_server(dialog)
+
+    assert dialog._server_start_requested is False
+    assert dialog._server_start_generation == 11
+    assert SyncDialog._server_start_is_current(dialog, 10) is False
+
+
+def test_sync_dialog_close_stops_server_and_invalidates_starts(drivepulse_module):
+    import threading
+
+    from drivepulse_app.sync_dialog import SyncDialog
+
+    class FakeServer:
+        def __init__(self):
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    server = FakeServer()
+    dialog = SyncDialog.__new__(SyncDialog)
+    dialog._server_lock = threading.RLock()
+    dialog._closed = False
+    dialog._server_start_generation = 20
+    dialog._server_start_requested = True
+    dialog._server = server
+    dialog._scanner = None
+
+    SyncDialog._on_closed(dialog)
+
+    assert dialog._closed is True
+    assert dialog._server is None
+    assert dialog._server_start_requested is False
+    assert dialog._server_start_generation == 21
+    assert server.stopped is True

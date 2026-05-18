@@ -23,6 +23,7 @@ from .dashboard import DashboardCanvas, DASHBOARD_THEMES
 from .dashboard_layout import DashboardLayoutMixin
 from .acceleration import AccelerationPage
 from .cars import CarsPage
+from .map_page import MapPage
 from .dashboard_telemetry import DashboardTelemetryMixin
 from .db import DriveDB
 from .dashboard_settings import DashboardSettingsMixin
@@ -38,6 +39,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     PAGE_DASHBOARD = "dashboard"
     PAGE_ACCELERATION = "acceleration"
     PAGE_CARS = "cars"
+    PAGE_MAP = "map"
 
     # Fensterbreite, unterhalb derer die Autos-Detailansicht ihre Kategorienleiste
     # auf Icon-only umschaltet (Phosh/Mobian-typische Portrait-Breiten 360–540 px).
@@ -56,6 +58,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.obd_port: str | None = self.settings.get("obd_port")
         self.gauge_theme: str = self.settings.get("gauge_theme", "cockpit")
         self.sidebar_side: str = self.settings.get("sidebar_side", "left")
+        self.theme_mode: str = self.settings.get("theme_mode", "auto")
+        self.last_update_check: str | None = self.settings.get("last_update_check")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -160,7 +164,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page = CarsPage(self.language, db=self.db, sidebar_side=self.sidebar_side)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
+        self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
         self.cars_page.set_header_trash_fn = self.set_ctx_trash
+
+        self.map_page = MapPage(self.language)
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
@@ -174,6 +181,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.PAGE_CARS,
             _translate(self.language, "nav.cars"),
             "driving-symbolic",
+        )
+        self.map_stack_page = self.view_stack.add_titled_with_icon(
+            self.map_page,
+            self.PAGE_MAP,
+            _translate(self.language, "nav.map"),
+            "navigate-north",
         )
         self.dashboard_stack_page = self.view_stack.add_titled_with_icon(
             dashboard_scroller,
@@ -326,6 +339,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.header.set_visible(visible)
         self.switcher_bar.set_visible(visible)
         self.footer.set_visible(visible)
+        if self.view_stack.get_visible_child_name() == self.PAGE_MAP:
+            self.map_page.set_nav_visible(visible)
 
     def _on_visible_page_changed(self, _stack: Adw.ViewStack, _pspec: Any) -> None:
         page = self.view_stack.get_visible_child_name()
@@ -334,17 +349,17 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 self._set_nav_visible(True)
         else:
             self.set_ctx_trash(None)
+        if page == self.PAGE_MAP:
+            GLib.timeout_add(50, self.map_page.on_shown)
 
     def _on_cars_back_swipe(self) -> None:
-        """Vom Autos-Tab (Liste) per Wisch nach rechts zurück zur Beschleunigung."""
-        if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
-            self.view_stack.set_visible_child_name(self.PAGE_ACCELERATION)
-            self._last_swipe_time = time.monotonic()
+        """Vom Autos-Tab (Liste) per Wisch nach rechts — kein Tab (Cars ist erster Tab)."""
+        pass
 
     def _on_cars_forward_swipe(self) -> None:
-        """Vom Autos-Tab (Liste) per Wisch nach links zum Tacho."""
+        """Vom Autos-Tab (Liste) per Wisch nach links zur Karte."""
         if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
-            self.view_stack.set_visible_child_name(self.PAGE_DASHBOARD)
+            self.view_stack.set_visible_child_name(self.PAGE_MAP)
             self._last_swipe_time = time.monotonic()
 
     def _on_realize_install_css(self, *_args: Any) -> None:
@@ -352,7 +367,18 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.get_display(), self._theme_css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
+        self._apply_theme_mode(self.theme_mode)
         self._apply_window_theme(self.gauge_theme)
+
+    def _apply_theme_mode(self, mode: str) -> None:
+        from gi.repository import Adw
+        manager = Adw.StyleManager.get_default()
+        if mode == "dark":
+            manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        elif mode == "light":
+            manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
+        else:
+            manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
 
     def _apply_window_theme(self, theme: str) -> None:
         for cls in list(self.get_css_classes()):
@@ -360,8 +386,13 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 self.remove_css_class(cls)
         safe = theme.replace(":", "-").replace("_", "-")
         self.add_css_class(f"dp-theme-{safe}")
-        css = get_theme_css(theme)
-        self._theme_css_provider.load_from_data(css.encode() if css else b"")
+        # In light mode, don't override Libadwaita's natural light colours with
+        # the gauge theme's hardcoded dark backgrounds.
+        if getattr(self, "theme_mode", "auto") == "light":
+            self._theme_css_provider.load_from_data(b"")
+        else:
+            css = get_theme_css(theme)
+            self._theme_css_provider.load_from_data(css.encode() if css else b"")
 
     def close(self) -> bool:
         self.reader.stop()
@@ -400,7 +431,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # Zurück-Swipe (Detail → Liste). Wir schalten dann nicht zusätzlich den Tab um.
         if current == self.PAGE_CARS and velocity_x > 0 and self.cars_page.is_detail_open():
             return
-        pages = [self.PAGE_CARS, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
+        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
         try:
             index = pages.index(current)
         except ValueError:

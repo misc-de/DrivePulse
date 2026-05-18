@@ -16,6 +16,8 @@ from .translations import SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, TRANSLATIONS
 # ---------------------------------------------------------------------------
 
 APP_ID = "de.cais.DrivePulse"
+_VERSION_FILE = Path(__file__).parent.parent / "VERSION"
+APP_VERSION: str = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION_FILE.exists() else "?"
 LOG_DIR = Path(os.environ.get("OBD_LOG_DIR", Path.home() / ".local" / "state" / "drivepulse"))
 LOG_FILE = LOG_DIR / "obd-log.jsonl"
 CONNECTION_LOG_FILE = LOG_DIR / "connection-log.jsonl"

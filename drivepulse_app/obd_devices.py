@@ -64,21 +64,20 @@ OBD_CANDIDATE_PATHS = [
 ]
 
 
-def scan_obd_devices() -> list[tuple[str, str]]:
-    """Return (display_label, port_value) pairs of detectable and common OBD device paths.
+def scan_obd_devices() -> list[tuple[str, str, bool]]:
+    """Return (display_label, port_value, is_present) for serial/USB OBD device paths.
 
-    Existing devices come first (with their real path or descriptive by-id name).
-    Common candidate paths that are not currently present are appended with a
-    '(not found)' suffix so users can pre-configure a port before connecting.
+    BT devices (bt: prefix) are excluded — they are managed via OBD_BT_ADDR env var.
+    is_present=True means the device node currently exists on the system.
     """
-    devices: list[tuple[str, str]] = []
+    devices: list[tuple[str, str, bool]] = []
     seen_paths: set[str] = set()
 
     # /dev/serial/by-id/* — descriptive USB-serial names (only existing)
     for path in sorted(Path("/dev/serial/by-id").glob("*")) if Path("/dev/serial/by-id").exists() else []:
         real = str(path.resolve())
         label = f"{path.name} ({real})"
-        devices.append((label, real))
+        devices.append((label, real, True))
         seen_paths.add(real)
 
     # Directly present wired / already-bound serial devices
@@ -86,28 +85,16 @@ def scan_obd_devices() -> list[tuple[str, str]]:
         for path in sorted(Path("/").glob(pattern.lstrip("/"))):
             p = str(path)
             if p not in seen_paths:
-                devices.append((p, p))
+                devices.append((p, p, True))
                 seen_paths.add(p)
 
-    # Paired Bluetooth devices (direct RFCOMM socket, no rfcomm bind needed)
-    seen_bt: set[str] = set()
-    for label, val in scan_bt_paired_devices():
-        devices.append((label, val))
-        seen_bt.add(val)
-
-    # Manually configured BT addresses from env (if not already listed)
-    for addr, channel in candidate_bt_addresses():
-        val = f"bt:{addr}" if channel == 1 else f"bt:{addr}:{channel}"
-        if val not in seen_bt:
-            devices.append((f"BT: {addr}", val))
-
     if OBD_SOCKET_URL:
-        devices.append((OBD_SOCKET_URL, OBD_SOCKET_URL))
+        devices.append((OBD_SOCKET_URL, OBD_SOCKET_URL, True))
 
     # Common candidate paths not yet present — let users pre-configure
     for candidate in OBD_CANDIDATE_PATHS:
         if candidate not in seen_paths:
-            devices.append((f"{candidate} (not found)", candidate))
+            devices.append((f"{candidate} (not found)", candidate, False))
             seen_paths.add(candidate)
 
     return devices

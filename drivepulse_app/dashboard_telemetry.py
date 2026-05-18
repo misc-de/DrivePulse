@@ -20,6 +20,37 @@ log = get_logger(__name__)
 
 
 class DashboardTelemetryMixin:
+    def _known_car_id_for_vin(self, vin: str | None) -> int | None:
+        if not vin:
+            return None
+        try:
+            for row in self.db.list_cars():
+                if (row["vin"] or "") == vin:
+                    return int(row["id"])
+        except Exception:
+            log.exception("Could not look up car by VIN")
+        return None
+
+    def _add_live_vehicle_from_identity(self, identity: dict[str, str]) -> int | None:
+        vin = identity.get("VIN")
+        if not vin:
+            return None
+        try:
+            car_id = self.trip_recorder.set_car(
+                vin=vin,
+                brand=identity.get("brand"),
+                cal_id=identity.get("CALIBRATION_ID"),
+                cvn=identity.get("CVN"),
+                protocol=identity.get("protocol"),
+                profile_path=identity.get("profile_path"),
+            )
+            self.cars_page.refresh_profiles()
+            self._refresh_last_trip_stats(car_id)
+            return car_id
+        except Exception:
+            log.exception("Could not add live vehicle from identity")
+            return None
+
     def _handle_scan_update(self, payload: dict[str, Any]) -> None:
         status = payload.get("scan_status", "")
         progress = float(payload.get("scan_progress", 0.0))
@@ -116,6 +147,8 @@ class DashboardTelemetryMixin:
             self._set_link_indicator(self.gps_indicator, self._gps_connected_with_holdover(gps_speed_kmh), False)
             self.acceleration_page.update_payload(payload, self._plain_number)
             self.cars_page.update_live(payload)
+            if hasattr(self, "map_page"):
+                self.map_page.update_gps(lat, lon, gps_heading)
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
                 display = self._display_speed(gps_speed_kmh)
                 src_gps = _translate(self.language, "gauge.source.gps")
@@ -293,26 +326,32 @@ class DashboardTelemetryMixin:
         return False
 
     def _handle_scan_identity(self, payload: dict[str, Any]) -> None:
-        """Vom Scanner gemeldete Fahrzeug-Identität in die Trip-DB und in cars_page übernehmen."""
+        """Vom Scanner gemeldete Fahrzeug-Identität in die Live-Ansicht übernehmen."""
         scan_identity = scan_identity_from_payload(payload)
-        try:
-            self.trip_recorder.set_car(
-                vin=scan_identity["vin"],
-                brand=scan_identity["brand"],
-                cal_id=scan_identity["cal_id"],
-                cvn=scan_identity["cvn"],
-                protocol=scan_identity["protocol"],
-                profile_path=scan_identity["profile_path"],
-            )
-        except Exception:
-            log.exception("Could not set trip recorder identity from scan payload")
         identity = scan_identity["identity"]
+        if scan_identity.get("brand"):
+            identity["brand"] = scan_identity["brand"]
+        if scan_identity.get("profile_path"):
+            identity["profile_path"] = str(scan_identity["profile_path"])
         if identity:
             self.cars_page.set_live_identity(identity)
 
+        car_id = self._known_car_id_for_vin(scan_identity["vin"])
+        if car_id is not None:
+            try:
+                self.trip_recorder.set_car(
+                    vin=scan_identity["vin"],
+                    brand=scan_identity["brand"],
+                    cal_id=scan_identity["cal_id"],
+                    cvn=scan_identity["cvn"],
+                    protocol=scan_identity["protocol"],
+                    profile_path=scan_identity["profile_path"],
+                )
+            except Exception:
+                log.exception("Could not set known trip recorder identity from scan payload")
+
         # Letzten abgeschlossenen Trip laden und im Dashboard anzeigen,
         # solange noch kein laufender Trip aktiv ist.
-        car_id = getattr(self.trip_recorder, "car_id", None)
         if car_id is not None and self.trip_recorder.trip_id is None:
             self._refresh_last_trip_stats(car_id)
 
