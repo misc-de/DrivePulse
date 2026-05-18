@@ -808,7 +808,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             if self._follow_gps:
                 self._goto(lat, lon)
 
-        if self._tour_active:
+        if self._tour_active or self._tour_paused:
             self._update_maneuver_overlay()
 
     # A step is considered "passed" when we've gotten within this distance AND
@@ -839,7 +839,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._maneuver_overlay is None:
             return
         if (
-            not self._tour_active
+            not (self._tour_active or self._tour_paused)
             or not self._tour_steps
             or self._tour_completed
             or self._gps_lat is None
