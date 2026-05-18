@@ -39,6 +39,44 @@ from .map_services import (
 
 log = get_logger(__name__)
 
+# Inline CSS for the in-tour navigation banner.  Adwaita's ".osd"/".card" classes
+# on a Box don't reliably paint a dark translucent background under the labels —
+# we inject our own so the white text always reads against the map underneath.
+_MANEUVER_CSS = b"""
+.dp-maneuver-banner {
+  background-color: rgba(20, 24, 32, 0.78);
+  color: #ffffff;
+  border-radius: 14px;
+  padding: 10px 18px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.dp-maneuver-banner label { color: #ffffff; }
+.dp-maneuver-banner .dp-maneuver-distance {
+  font-size: 22px;
+  font-weight: 700;
+}
+.dp-maneuver-banner .dp-maneuver-instr {
+  font-size: 14px;
+  opacity: 0.92;
+}
+"""
+_maneuver_css_installed = False
+
+
+def _install_maneuver_css() -> None:
+    global _maneuver_css_installed
+    if _maneuver_css_installed:
+        return
+    display = Gdk.Display.get_default()
+    if display is None:
+        return
+    provider = Gtk.CssProvider()
+    provider.load_from_data(_MANEUVER_CSS)
+    Gtk.StyleContext.add_provider_for_display(
+        display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+    _maneuver_css_installed = True
+
 # ── MapPage widget ────────────────────────────────────────────────────────────
 
 class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
@@ -55,6 +93,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         on_traffic_visible_changed: Callable[[bool], None] | None = None,
         on_tour_started: Callable[[list[list[float]]], None] | None = None,
         on_tour_stopped: Callable[[], None] | None = None,
+        on_tour_resumed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
@@ -67,6 +106,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._on_traffic_visible_changed = on_traffic_visible_changed
         self._on_tour_started = on_tour_started
         self._on_tour_stopped = on_tour_stopped
+        self._on_tour_resumed = on_tour_resumed
 
         self._gps_lat: float | None = None
         self._gps_lon: float | None = None
@@ -80,6 +120,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._start_coord: tuple[float, float] | None = None
         self._end_coord: tuple[float, float] | None = None
         self._tour_active: bool = False
+        self._tour_paused: bool = False
         self._tour_steps: list[dict] = []
         self._tour_step_idx: int = 0
         self._tour_coords: list[list[float]] = []
@@ -423,41 +464,37 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         return fab
 
     def _build_maneuver_overlay(self) -> Gtk.Widget:
+        _install_maneuver_css()
+
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         outer.set_halign(Gtk.Align.CENTER)
         outer.set_valign(Gtk.Align.START)
-        outer.set_margin_top(48)
+        # Sits visibly in the upper third of the map area, below the search bar.
+        outer.set_margin_top(72)
         outer.set_margin_start(12)
         outer.set_margin_end(12)
         outer.set_can_target(False)
         outer.set_visible(False)
 
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
-        card.add_css_class("osd")
-        card.add_css_class("card")
-        card.set_margin_top(0)
+        card.add_css_class("dp-maneuver-banner")
 
         self._maneuver_icon = Gtk.Image.new_from_icon_name("go-up-symbolic")
-        self._maneuver_icon.set_pixel_size(56)
-        self._maneuver_icon.set_margin_start(14)
+        self._maneuver_icon.set_pixel_size(64)
         self._maneuver_icon.set_margin_end(4)
-        self._maneuver_icon.set_margin_top(10)
-        self._maneuver_icon.set_margin_bottom(10)
         card.append(self._maneuver_icon)
 
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         text_box.set_valign(Gtk.Align.CENTER)
-        text_box.set_margin_end(16)
-        text_box.set_margin_top(8)
-        text_box.set_margin_bottom(8)
 
         self._maneuver_distance_lbl = Gtk.Label(label="")
-        self._maneuver_distance_lbl.add_css_class("title-2")
+        self._maneuver_distance_lbl.add_css_class("dp-maneuver-distance")
         self._maneuver_distance_lbl.set_halign(Gtk.Align.START)
 
         self._maneuver_instr_lbl = Gtk.Label(label="")
+        self._maneuver_instr_lbl.add_css_class("dp-maneuver-instr")
         self._maneuver_instr_lbl.set_halign(Gtk.Align.START)
-        self._maneuver_instr_lbl.set_max_width_chars(32)
+        self._maneuver_instr_lbl.set_max_width_chars(34)
         self._maneuver_instr_lbl.set_wrap(True)
 
         text_box.append(self._maneuver_distance_lbl)
@@ -490,21 +527,33 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._start_coord is None:
             return
         if self._tour_active:
-            self._stop_tour()
+            self._pause_tour()
+            return
+        if self._tour_paused:
+            self._resume_tour()
+            return
+        self._begin_tour()
+
+    def _begin_tour(self) -> None:
+        if self._start_coord is None:
             return
         lat, lon = self._start_coord
         self._tour_active = True
+        self._tour_paused = False
         self._tour_step_idx = 0
+        self._set_tour_button("stop")
         self._update_maneuver_overlay()
         if self._on_tour_started is not None and self._tour_coords:
             self._on_tour_started(self._tour_coords)
-        if self._tour_start_lbl is not None:
-            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_stop"))
-        if self._tour_btn_icon is not None:
-            self._tour_btn_icon.set_from_icon_name("media-playback-stop-symbolic")
         self._set_follow(True)
         if self._backend == "webkit":
-            self._js("mapSetTourActive(true)")
+            self._js(f"mapStartTour({lat}, {lon})")
+        elif self._shumate_map is not None:
+            viewport = self._shumate_map.get_viewport()
+            self._setting_pos = True
+            viewport.set_zoom_level(self._shumate_max_zoom())
+            viewport.set_location(lat, lon)
+            self._setting_pos = False
         if self._gps_lat is not None and self._gps_lon is not None:
             dist = haversine(self._gps_lat, self._gps_lon, lat, lon)
             if dist > 200:
@@ -515,12 +564,36 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
                     daemon=True,
                 ).start()
 
-    def _stop_tour(self) -> None:
+    def _pause_tour(self) -> None:
+        """Pause an active tour — keep route and progress so it can resume."""
         self._tour_active = False
-        if self._tour_start_lbl is not None:
-            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
-        if self._tour_btn_icon is not None:
-            self._tour_btn_icon.set_from_icon_name("media-playback-start-symbolic")
+        self._tour_paused = True
+        self._set_tour_button("resume")
+        if self._backend == "webkit":
+            self._js("mapSetTourActive(false)")
+        if self._maneuver_overlay is not None:
+            self._maneuver_overlay.set_visible(False)
+        if self._on_tour_stopped is not None:
+            self._on_tour_stopped()
+
+    def _resume_tour(self) -> None:
+        """Resume a paused tour without recomputing or recentring."""
+        self._tour_active = True
+        self._tour_paused = False
+        self._set_tour_button("stop")
+        self._set_follow(True)
+        if self._backend == "webkit":
+            self._js("mapSetTourActive(true)")
+        self._update_maneuver_overlay()
+        if self._on_tour_resumed is not None:
+            self._on_tour_resumed()
+
+    def _abort_tour(self) -> None:
+        """Full reset — used when the route is cleared or replaced."""
+        was_running = self._tour_active or self._tour_paused
+        self._tour_active = False
+        self._tour_paused = False
+        self._set_tour_button("start")
         if self._backend == "webkit":
             self._js("mapSetTourActive(false)")
             self._js("mapClearGuideToStart()")
@@ -528,8 +601,21 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._guide_path_layer.remove_all()
         if self._maneuver_overlay is not None:
             self._maneuver_overlay.set_visible(False)
-        if self._on_tour_stopped is not None:
+        if was_running and self._on_tour_stopped is not None:
             self._on_tour_stopped()
+
+    def _set_tour_button(self, mode: str) -> None:
+        """mode: 'start' | 'stop' | 'resume'."""
+        label_key = {
+            "start":  "map.tour_start",
+            "stop":   "map.tour_stop",
+            "resume": "map.tour_resume",
+        }.get(mode, "map.tour_start")
+        icon_name = "media-playback-stop-symbolic" if mode == "stop" else "media-playback-start-symbolic"
+        if self._tour_start_lbl is not None:
+            self._tour_start_lbl.set_label(_translate(self.language, label_key))
+        if self._tour_btn_icon is not None:
+            self._tour_btn_icon.set_from_icon_name(icon_name)
 
     def _fetch_guide_to_start(
         self, gps_lat: float, gps_lon: float, start_lat: float, start_lon: float
@@ -552,8 +638,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     # ── GPS position updates ──────────────────────────────────────────────────
 
-    # Max rate at which position updates are pushed to the map renderer (seconds)
-    _MAP_JS_INTERVAL = 0.25  # 4 Hz
+    # Minimum interval between mapSetCar JS pushes. Slightly below the mock
+    # tour's 250 ms tick so a tick that arrives a few ms early isn't dropped —
+    # dropped ticks were the main source of the arrow's "step-pause-step" feel.
+    _MAP_JS_INTERVAL = 0.18  # ≈ 5.5 Hz cap
 
     def update_gps(
         self,
@@ -813,19 +901,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._status_lbl.set_text("")
         self._start_coord = None
         self._end_coord = None
-        was_tour_active = self._tour_active
-        self._tour_active = False
         self._tour_steps = []
         self._tour_step_idx = 0
         self._tour_coords = []
-        if self._maneuver_overlay is not None:
-            self._maneuver_overlay.set_visible(False)
-        if was_tour_active and self._on_tour_stopped is not None:
-            self._on_tour_stopped()
-        if self._tour_start_lbl is not None:
-            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
-        if self._tour_btn_icon is not None:
-            self._tour_btn_icon.set_from_icon_name("media-playback-start-symbolic")
+        self._abort_tour()
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_visible(False)
         if self._backend == "webkit":
@@ -871,6 +950,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             return False
 
         coords, duration_s, distance_m, steps = result
+        # New route invalidates any paused tour state from a prior route.
+        if self._tour_paused or self._tour_active:
+            self._abort_tour()
         self._tour_steps = steps
         self._tour_step_idx = 0
         self._tour_coords = list(coords) if coords else []
@@ -921,4 +1003,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._traffic_btn is not None:
             self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
         if self._tour_start_lbl is not None:
-            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
+            if self._tour_active:
+                self._set_tour_button("stop")
+            elif self._tour_paused:
+                self._set_tour_button("resume")
+            else:
+                self._set_tour_button("start")
