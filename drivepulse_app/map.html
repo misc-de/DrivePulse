@@ -28,6 +28,28 @@
       flex-direction: column; align-items: center; justify-content: center; gap: 8px;
     }
     #error.visible { display: flex; }
+    .dp-traffic-popup .maplibregl-popup-content {
+      background: rgba(20, 24, 32, 0.94);
+      color: #fff;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+      max-width: 320px;
+    }
+    .dp-traffic-popup .maplibregl-popup-tip { border-top-color: rgba(20, 24, 32, 0.94); }
+    .dp-traffic-popup .maplibregl-popup-close-button { color: #fff; font-size: 18px; }
+    .dp-traffic-popup h3 { font-size: 14px; margin-bottom: 4px; }
+    .dp-traffic-popup .sub { opacity: 0.8; margin-bottom: 6px; }
+    .dp-traffic-popup .blocked { color: #ff7676; font-weight: 700; margin-bottom: 4px; }
+    .dp-traffic-popup .delay { margin-bottom: 4px; }
+    .dp-traffic-popup .since { opacity: 0.7; font-size: 12px; margin-bottom: 6px; }
+    .dp-traffic-popup .desc {
+      border-top: 1px solid rgba(255,255,255,0.18);
+      padding-top: 6px; white-space: pre-line; opacity: 0.92;
+    }
   </style>
 </head>
 <body>
@@ -165,6 +187,8 @@ function addDataLayers() {
       paint: { 'circle-radius': 7, 'circle-color': '#E53030',
                'circle-stroke-color': '#9A1A1A', 'circle-stroke-width': 2 },
       layout: { visibility: vis } });
+    _attachTrafficClick('traffic-rw');
+    _attachTrafficClick('traffic-inc');
   }
 
   setBasePoiVisibility(_poiVisible);
@@ -535,8 +559,90 @@ function _trafficNearRoute() {
     .map(i => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [i.lon, i.lat] },
-      properties: { kind: i.kind, title: i.title }
+      properties: {
+        kind: i.kind,
+        title: i.title || '',
+        subtitle: i.subtitle || '',
+        road: i.road || '',
+        start: i.start || '',
+        blocked: !!i.blocked,
+        delay: i.delay || '',
+        // MapLibre property values are flat — encode arrays as JSON.
+        description: JSON.stringify(i.description || []),
+      },
     }));
+}
+
+const TRAFFIC_LABELS = {
+  blocked: { de: 'Strecke gesperrt', en: 'Road blocked' },
+  delay:   { de: 'Verzögerung: ca. {n} Min.', en: 'Delay: approx. {n} min' },
+  since:   { de: 'Seit {t}', en: 'Since {t}' },
+};
+let _trafficLang = 'de';
+
+function _trafficLabel(key, fields) {
+  const dict = TRAFFIC_LABELS[key] || {};
+  let s = dict[_trafficLang] || dict.en || '';
+  if (fields) for (const k in fields) s = s.replace('{' + k + '}', fields[k]);
+  return s;
+}
+
+function mapSetTrafficLanguage(lang) {
+  _trafficLang = (lang === 'en') ? 'en' : 'de';
+}
+
+function _escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function _formatTrafficStart(raw) {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function _buildTrafficPopupHTML(props) {
+  const road = _escapeHtml(props.road || '');
+  const title = _escapeHtml(props.title || '');
+  const subtitle = _escapeHtml(props.subtitle || '');
+  let descList = [];
+  try { descList = JSON.parse(props.description || '[]'); } catch (_) {}
+  const header = road && title ? `${road} — ${title}` : (road || title);
+  let html = '';
+  if (header) html += `<h3>${_escapeHtml(header)}</h3>`;
+  if (subtitle) html += `<div class="sub">${subtitle}</div>`;
+  if (props.blocked === true || props.blocked === 'true') {
+    html += `<div class="blocked">${_escapeHtml(_trafficLabel('blocked'))}</div>`;
+  }
+  if (props.delay && props.delay !== '0') {
+    html += `<div class="delay">${_escapeHtml(_trafficLabel('delay', {n: props.delay}))}</div>`;
+  }
+  const startStr = _formatTrafficStart(props.start);
+  if (startStr) {
+    html += `<div class="since">${_escapeHtml(_trafficLabel('since', {t: startStr}))}</div>`;
+  }
+  if (descList.length) {
+    html += `<div class="desc">${_escapeHtml(descList.join('\n'))}</div>`;
+  }
+  return html || `<div>${_escapeHtml(title || props.kind || '')}</div>`;
+}
+
+function _attachTrafficClick(layerId) {
+  map.on('click', layerId, (e) => {
+    const f = e.features && e.features[0];
+    if (!f) return;
+    new maplibregl.Popup({ className: 'dp-traffic-popup', maxWidth: '320px' })
+      .setLngLat(f.geometry.coordinates.slice())
+      .setHTML(_buildTrafficPopupHTML(f.properties || {}))
+      .addTo(map);
+  });
+  map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; });
 }
 
 function mapSetTraffic(items) {

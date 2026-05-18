@@ -256,6 +256,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._js(f"mapSetPoiVisible({poi})")
             self._js(f"mapSetTrafficVisible({traffic})")
             self._js(f"mapSet3DView({view3d})")
+            self._js(f"mapSetTrafficLanguage('{self.language}')")
         elif self._backend == "shumate":
             self._shumate_set_poi_visible(self._poi_visible)
             self._shumate_set_traffic_visible(self._traffic_visible)
@@ -1127,10 +1128,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         items = bab_fetch_all()
         GLib.idle_add(self._show_traffic, items)
 
-    def _parse_traffic_items(
-        self, items: list[dict]
-    ) -> list[tuple[float, float, str, str]]:
-        result = []
+    def _parse_traffic_items(self, items: list[dict]) -> list[dict]:
+        result: list[dict] = []
         for item in items:
             point = item.get("point") or ""
             try:
@@ -1142,13 +1141,33 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             if lat == 0.0 and lon == 0.0:
                 continue
             kind = item.get("_kind", "incidents")
-            title = item.get("title") or ""
-            if not title:
-                desc = item.get("description") or []
-                title = desc[0] if desc else kind
+            desc_raw = item.get("description") or []
+            if isinstance(desc_raw, str):
+                description = [desc_raw]
+            else:
+                description = [str(s) for s in desc_raw if s]
+            title = item.get("title") or (description[0] if description else kind)
+            subtitle = item.get("subtitle") or ""
             road = item.get("_road", "")
-            tooltip = f"{road}: {title}" if road else title
-            result.append((lat, lon, kind, tooltip))
+            start_ts = item.get("startTimestamp") or ""
+            is_blocked_raw = item.get("isBlocked")
+            if isinstance(is_blocked_raw, bool):
+                is_blocked = is_blocked_raw
+            else:
+                is_blocked = str(is_blocked_raw or "").lower() == "true"
+            delay = item.get("delayTimeValue") or ""
+            result.append({
+                "lat": lat,
+                "lon": lon,
+                "kind": kind,
+                "title": title,
+                "subtitle": subtitle,
+                "description": description,
+                "road": road,
+                "start": start_ts,
+                "blocked": is_blocked,
+                "delay": str(delay),
+            })
         return result
 
     def _show_traffic(self, items: list[dict]) -> bool:
@@ -1156,11 +1175,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
         if self._backend == "webkit":
             # WebKit filters by route bounding box inside JS (mapSetTraffic).
-            js_items = [
-                {"lat": lat, "lon": lon, "kind": kind, "title": title}
-                for lat, lon, kind, title in parsed
-            ]
-            self._js(f"mapSetTraffic({json.dumps(js_items)})")
+            self._js(f"mapSetTraffic({json.dumps(parsed)})")
             if self._traffic_btn is not None and self._traffic_btn.get_active():
                 self._js("mapSetTrafficVisible(true)")
         else:
@@ -1173,9 +1188,85 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             )
         return False
 
-    def _filter_traffic_by_route(
-        self, items: list[tuple[float, float, str, str]]
-    ) -> list[tuple[float, float, str, str]]:
+    def _format_traffic_timestamp(self, raw: str) -> str:
+        """Render API ISO timestamps as a short local-time string."""
+        if not raw:
+            return ""
+        try:
+            from datetime import datetime
+            cleaned = raw.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(cleaned)
+            return dt.strftime("%d.%m.%Y %H:%M")
+        except (ValueError, TypeError):
+            return raw
+
+    def _build_traffic_detail_widget(self, item: dict) -> Gtk.Widget:
+        """Build the popover/popup content shown for one traffic event."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.set_size_request(280, -1)
+
+        road = item.get("road") or ""
+        title = item.get("title") or ""
+        header_text = f"{road} — {title}" if road and title else (road or title)
+        if header_text:
+            header = Gtk.Label(label=header_text, xalign=0.0)
+            header.add_css_class("title-4")
+            header.set_wrap(True)
+            header.set_max_width_chars(36)
+            box.append(header)
+
+        subtitle = item.get("subtitle") or ""
+        if subtitle:
+            sub = Gtk.Label(label=subtitle, xalign=0.0)
+            sub.add_css_class("dim-label")
+            sub.set_wrap(True)
+            sub.set_max_width_chars(40)
+            box.append(sub)
+
+        if item.get("blocked"):
+            blocked = Gtk.Label(
+                label=_translate(self.language, "map.traffic.blocked"),
+                xalign=0.0,
+            )
+            blocked.add_css_class("error")
+            box.append(blocked)
+
+        delay = item.get("delay") or ""
+        if delay and delay != "0":
+            delay_lbl = Gtk.Label(
+                label=_translate(self.language, "map.traffic.delay").format(min=delay),
+                xalign=0.0,
+            )
+            box.append(delay_lbl)
+
+        start = self._format_traffic_timestamp(item.get("start") or "")
+        if start:
+            start_lbl = Gtk.Label(
+                label=_translate(self.language, "map.traffic.since").format(time=start),
+                xalign=0.0,
+            )
+            start_lbl.add_css_class("dim-label")
+            box.append(start_lbl)
+
+        description = item.get("description") or []
+        if description:
+            sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            sep.set_margin_top(2)
+            sep.set_margin_bottom(2)
+            box.append(sep)
+            desc_text = "\n".join(description)
+            desc = Gtk.Label(label=desc_text, xalign=0.0)
+            desc.set_wrap(True)
+            desc.set_max_width_chars(40)
+            box.append(desc)
+
+        return box
+
+    def _filter_traffic_by_route(self, items: list[dict]) -> list[dict]:
         """Keep only items within ~5 km of the route bounding box."""
         if not self._route_coords:
             return []
@@ -1186,7 +1277,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         min_lon, max_lon = min(lons) - pad, max(lons) + pad
         return [
             item for item in items
-            if min_lat <= item[0] <= max_lat and min_lon <= item[1] <= max_lon
+            if min_lat <= item["lat"] <= max_lat and min_lon <= item["lon"] <= max_lon
         ]
 
     # ── POI layer (Overpass API) ──────────────────────────────────────────────
@@ -1459,6 +1550,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def set_language(self, language: str) -> None:
         self.language = _normalize_language(language)
         self._update_placeholders()
+        if self._backend == "webkit":
+            self._js(f"mapSetTrafficLanguage('{self.language}')")
         self._route_btn.set_label(_translate(self.language, "map.route"))
         layer = MAP_TYPES[self._map_type_idx]
         if self._layer_btn is not None:
