@@ -526,13 +526,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._poi_btn.set_tooltip_text(_translate(self.language, "map.poi"))
         self._poi_btn.connect("toggled", self._on_poi_toggled)
 
-        self._traffic_btn = Gtk.ToggleButton(icon_name="emblem-important-symbolic")
-        self._traffic_btn.add_css_class("circular")
-        self._traffic_btn.add_css_class("osd")
-        self._traffic_btn.set_active(self._traffic_visible)
-        self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
-        self._traffic_btn.connect("toggled", self._on_traffic_toggled)
-
         self._layer_btn = Gtk.Button(icon_name="dialog-layers-symbolic")
         self._layer_btn.add_css_class("circular")
         self._layer_btn.add_css_class("osd")
@@ -546,7 +539,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._center_btn.connect("clicked", self._on_center_clicked)
 
         fab.append(self._poi_btn)
-        fab.append(self._traffic_btn)
         fab.append(self._layer_btn)
         fab.append(self._center_btn)
 
