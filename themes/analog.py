@@ -37,9 +37,10 @@ def _analog_gauge(
     lbl_x_nudge: dict | None = None,
 ) -> None:
     a = 1.0 if active else 0.30
-    face_col = (0.11, 0.12, 0.13) if dark else (0.92, 0.93, 0.95)
+    face_col = (0.11, 0.12, 0.13) if dark else (1.0, 1.0, 1.0)
     text_col = (0.95, 0.96, 0.98) if dark else (0.08, 0.10, 0.12)
     dim_col = (0.55, 0.58, 0.62) if dark else (0.40, 0.42, 0.45)
+    ring_col = (0.35, 0.38, 0.42, 0.70) if dark else (0.55, 0.58, 0.62, 0.80)
 
     ARC_START = math.radians(135)
     ARC_SPAN = math.radians(270)
@@ -52,7 +53,7 @@ def _analog_gauge(
 
     # Outer border ring
     cr.set_line_width(max(2.0, r * 0.025))
-    cr.set_source_rgba(0.35, 0.38, 0.42, 0.70)
+    cr.set_source_rgba(*ring_col)
     cr.arc(cx, cy, r, 0, math.tau)
     cr.stroke()
 
@@ -154,15 +155,16 @@ def _compass_analog(
     dark: bool = True,
 ) -> None:
     a = 1.0 if active else 0.28
-    face_col = (0.11, 0.12, 0.13) if dark else (0.92, 0.93, 0.95)
+    face_col = (0.11, 0.12, 0.13) if dark else (1.0, 1.0, 1.0)
     text_col = (0.95, 0.96, 0.98) if dark else (0.08, 0.10, 0.12)
+    ring_col = (0.35, 0.38, 0.42, 0.70) if dark else (0.55, 0.58, 0.62, 0.80)
     accent = (0.95, 0.42, 0.08)
 
     cr.set_source_rgb(*face_col)
     cr.arc(cx, cy, r, 0, math.tau)
     cr.fill()
     cr.set_line_width(max(1.5, r * 0.025))
-    cr.set_source_rgba(0.35, 0.38, 0.42, 0.70)
+    cr.set_source_rgba(*ring_col)
     cr.arc(cx, cy, r, 0, math.tau)
     cr.stroke()
 
@@ -215,14 +217,16 @@ def _compass_analog(
 def _fuel_halfmoon_left(
     cr: Any, width: int, height: int, d: Any,
     r: float | None = None, cy: float | None = None,
+    dark: bool = True,
 ) -> None:
     """Semicircular fuel gauge on the left edge. 0% = bottom, 100% = top, 4 tick marks."""
     a = 1.0 if d.fuel_active else 0.28
     fuel_norm = max(0.0, min(1.0, d.fuel_pct / 100.0)) if d.fuel_active else 0.0
 
-    face_col = (0.11, 0.12, 0.13)
-    text_col = (0.95, 0.96, 0.98)
-    dim_col  = (0.55, 0.58, 0.62)
+    face_col = (0.11, 0.12, 0.13) if dark else (1.0, 1.0, 1.0)
+    text_col = (0.95, 0.96, 0.98) if dark else (0.08, 0.10, 0.12)
+    dim_col  = (0.55, 0.58, 0.62) if dark else (0.40, 0.42, 0.45)
+    ring_col = (0.35, 0.38, 0.42, 0.70) if dark else (0.55, 0.58, 0.62, 0.80)
 
     if r is None:
         r = min(height * 0.42, width * 0.24)
@@ -252,7 +256,7 @@ def _fuel_halfmoon_left(
 
     # Outer border arc (matches _analog_gauge ring)
     cr.set_line_width(max(2.0, r * 0.025))
-    cr.set_source_rgba(0.35, 0.38, 0.42, 0.70)
+    cr.set_source_rgba(*ring_col)
     cr.arc_negative(cx, cy, r, ANG_BOT, ANG_TOP)
     cr.stroke()
 
@@ -321,15 +325,17 @@ def _fuel_halfmoon_left(
 def _voltage_halfmoon_right(
     cr: Any, width: int, height: int, d: Any,
     r: float | None = None, cy: float | None = None,
+    dark: bool = True,
 ) -> None:
     """Semicircular battery-voltage gauge on the right edge. 11 V = bottom, 16 V = top."""
     V_MIN, V_MAX = 11.0, 16.0
     a = 1.0 if d.voltage_active else 0.28
     volt_norm = max(0.0, min(1.0, (d.voltage_v - V_MIN) / (V_MAX - V_MIN))) if d.voltage_active else 0.0
 
-    face_col = (0.11, 0.12, 0.13)
-    text_col = (0.95, 0.96, 0.98)
-    dim_col  = (0.55, 0.58, 0.62)
+    face_col = (0.11, 0.12, 0.13) if dark else (1.0, 1.0, 1.0)
+    text_col = (0.95, 0.96, 0.98) if dark else (0.08, 0.10, 0.12)
+    dim_col  = (0.55, 0.58, 0.62) if dark else (0.40, 0.42, 0.45)
+    ring_col = (0.35, 0.38, 0.42, 0.70) if dark else (0.55, 0.58, 0.62, 0.80)
 
     if r is None:
         r = min(height * 0.42, width * 0.24)
@@ -352,7 +358,7 @@ def _voltage_halfmoon_right(
 
     # Outer border arc
     cr.set_line_width(max(2.0, r * 0.025))
-    cr.set_source_rgba(0.35, 0.38, 0.42, 0.70)
+    cr.set_source_rgba(*ring_col)
     cr.arc(cx, cy, r, ANG_BOT, ANG_TOP)
     cr.stroke()
 
@@ -442,7 +448,7 @@ def _voltage_halfmoon_right(
     cr.stroke()
 
 
-def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
+def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any, dark: bool = True) -> None:
     r_center = min(height * 0.37, width * 0.22)
     r_right = r_center * 0.58
     r_left = r_center * 0.46
@@ -461,26 +467,27 @@ def _draw_analog_landscape(cr: Any, width: int, height: int, d: Any) -> None:
                   d.speed, 0, d.speed_max,
                   d.speed_label, d.speed_unit, "",
                   d.speed_active, speed_step_maj, speed_step_min,
-                  source=d.speed_source)
+                  dark=dark, source=d.speed_source)
 
     _analog_gauge(cr, cx_right, cy_main, r_right,
                   d.rpm, 0, d.rpm_max,
                   d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), "",
                   d.rpm_active, 1000.0, 500.0,
+                  dark=dark,
                   lbl_x_nudge={1000: 1.0, 2000: 1.0, 5000: -1.0, 6000: -1.0})
 
     _analog_gauge(cr, cx_left, cy_main, r_left,
                   d.coolant, 0.0, 130.0,
                   d.coolant_label, "°C", "",
-                  d.coolant_active, 20.0, 10.0)
+                  d.coolant_active, 20.0, 10.0, dark=dark)
 
     # Fuel: same radius as coolant gauge, bottom-left corner
-    _fuel_halfmoon_left(cr, width, height, d, r=r_left, cy=height - r_left)
+    _fuel_halfmoon_left(cr, width, height, d, r=r_left, cy=height - r_left, dark=dark)
     # Voltage: mirrored, bottom-right corner
-    _voltage_halfmoon_right(cr, width, height, d, r=r_left, cy=height - r_left)
+    _voltage_halfmoon_right(cr, width, height, d, r=r_left, cy=height - r_left, dark=dark)
 
 
-def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
+def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any, dark: bool = True) -> None:
     """Speed top-center (large), RPM + Coolant below side by side, Fuel halfmoon bottom-left."""
     r_center = min(width * 0.38, height * 0.22)
     r_side = r_center * 0.56
@@ -498,33 +505,39 @@ def _draw_analog_portrait(cr: Any, width: int, height: int, d: Any) -> None:
                   d.speed, 0, d.speed_max,
                   d.speed_label, d.speed_unit, "",
                   d.speed_active, speed_step_maj, speed_step_min,
-                  source=d.speed_source)
+                  dark=dark, source=d.speed_source)
 
     _analog_gauge(cr, cx_left, cy_side, r_side,
                   d.rpm, 0, d.rpm_max,
                   d.rpm_label, _translate(d.language, "dashboard.rpm.unit"), "",
                   d.rpm_active, 1000.0, 500.0,
+                  dark=dark,
                   lbl_x_nudge={1000: 1.0, 2000: 1.0, 5000: -1.0, 6000: -1.0})
 
     _analog_gauge(cr, cx_right, cy_side, r_side,
                   d.coolant, 0.0, 130.0,
                   d.coolant_label, "°C", "",
-                  d.coolant_active, 20.0, 10.0)
+                  d.coolant_active, 20.0, 10.0, dark=dark)
 
     # Fuel halfmoon: centered in the gap between side gauges and screen bottom
     r_fuel  = min(height * 0.42, width * 0.24) * (2 / 3)
     cy_fuel = (cy_side + r_side + height) / 2
-    _fuel_halfmoon_left(cr, width, height, d, r=r_fuel, cy=cy_fuel)
+    _fuel_halfmoon_left(cr, width, height, d, r=r_fuel, cy=cy_fuel, dark=dark)
     # Voltage halfmoon: symmetric, right side
-    _voltage_halfmoon_right(cr, width, height, d, r=r_fuel, cy=cy_fuel)
+    _voltage_halfmoon_right(cr, width, height, d, r=r_fuel, cy=cy_fuel, dark=dark)
 
 
-def draw(cr: Any, width: int, height: int, data: Any) -> None:
-    cr.set_source_rgb(0.05, 0.05, 0.06)
+def _draw_impl(cr: Any, width: int, height: int, data: Any, dark: bool) -> None:
+    bg = (0.05, 0.05, 0.06) if dark else (0.92, 0.93, 0.95)
+    cr.set_source_rgb(*bg)
     cr.paint()
     strip_h = max(28.0, height * 0.072)
     if width >= height:
-        _draw_analog_landscape(cr, width, height - strip_h, data)
+        _draw_analog_landscape(cr, width, height - strip_h, data, dark=dark)
     else:
-        _draw_analog_portrait(cr, width, height - strip_h, data)
+        _draw_analog_portrait(cr, width, height - strip_h, data, dark=dark)
     _draw_last_trip_strip(cr, 0, height - strip_h, width, strip_h, data)
+
+
+def draw(cr: Any, width: int, height: int, data: Any) -> None:
+    _draw_impl(cr, width, height, data, dark=True)

@@ -65,10 +65,12 @@ def load_builtin_themes() -> None:
             continue
         stem = path.stem
         try:
-            spec = importlib.util.spec_from_file_location(f"_dp_builtin_{stem}", path)
+            mod_name = f"_dp_builtin_{stem}"
+            spec = importlib.util.spec_from_file_location(mod_name, path)
             if spec is None or spec.loader is None:
                 continue
             mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = mod
             spec.loader.exec_module(mod)  # type: ignore[union-attr]
             theme_type = getattr(mod, "THEME_TYPE", "gauge")
             if theme_type == "dashboard":
