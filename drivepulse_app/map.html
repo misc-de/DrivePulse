@@ -12,9 +12,14 @@
     .maplibregl-ctrl-bottom-right { display: none; }
     .car-icon {
       width: 44px; height: 44px;
-      transform-origin: 50% 50%;
       filter: drop-shadow(0 2px 5px rgba(0,0,0,0.55));
       pointer-events: none;
+    }
+    .nav-arrow {
+      width: 44px; height: 44px;
+      transform-origin: 50% 50%;
+      transition: transform 120ms linear;
+      will-change: transform;
     }
     #error {
       display: none; position: absolute; inset: 0;
@@ -67,6 +72,7 @@ const STYLES = {
 let map = null;
 let carMarker = null;
 let carEl = null;
+let carArrowEl = null;
 let followMode = true;
 let initialized = false;
 
@@ -179,14 +185,20 @@ function initMap(lat, lon) {
     renderWorldCopies: false, // no duplicate world tiles
   });
 
-  // Location dot (blue circle)
+  // Location arrow (classic navigation marker)
   carEl = document.createElement('div');
   carEl.className = 'car-icon';
-  carEl.innerHTML = `<svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="22" cy="22" r="16" fill="rgba(41,128,185,0.20)"/>
-    <circle cx="22" cy="22" r="9"  fill="white"/>
-    <circle cx="22" cy="22" r="7"  fill="#2980B9"/>
-  </svg>`;
+  carEl.innerHTML = `<div class="nav-arrow">
+    <svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="22" cy="22" r="18" fill="rgba(41,128,185,0.18)"/>
+      <path d="M22 3 L34 34 L22 28 L10 34 Z"
+            fill="#1E88E5" stroke="#FFFFFF" stroke-width="3"
+            stroke-linejoin="round"/>
+      <path d="M22 8 L29 27 L22 23 L15 27 Z"
+            fill="#42A5F5"/>
+    </svg>
+  </div>`;
+  carArrowEl = carEl.querySelector('.nav-arrow');
 
   carMarker = new maplibregl.Marker({ element: carEl, anchor: 'center' })
     .setLngLat([lon, lat])
@@ -235,6 +247,7 @@ function mapSetCar(lat, lon, heading) {
   if (!map) return;
   _gpsLat = lat; _gpsLon = lon;
   if (carMarker) carMarker.setLngLat([lon, lat]);
+  if (carArrowEl) carArrowEl.style.transform = `rotate(${Number(heading || 0)}deg)`;
   if (followMode) {
     map.easeTo({ center: [lon, lat], bearing: 0, pitch: 0, duration: 200 });
   }

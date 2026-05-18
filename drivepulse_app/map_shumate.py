@@ -98,7 +98,7 @@ class MapShumateMixin:
     def _update_shumate_gps(self, lat: float, lon: float) -> None:
         if self._car_marker is None:
             drawing = Gtk.DrawingArea()
-            drawing.set_size_request(40, 40)
+            drawing.set_size_request(44, 44)
             drawing.set_draw_func(self._draw_car, None)
             self._car_marker = Shumate.Marker.new()
             self._car_marker.set_child(drawing)
@@ -113,14 +113,32 @@ class MapShumateMixin:
     def _draw_car(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
         cx, cy = width / 2.0, height / 2.0
         cr.set_source_rgba(0.16, 0.50, 0.73, 0.20)
-        cr.arc(cx, cy, 16, 0, 2 * math.pi)
+        cr.arc(cx, cy, 18, 0, 2 * math.pi)
         cr.fill()
+
+        cr.save()
+        cr.translate(cx, cy)
+        cr.rotate(math.radians(getattr(self, "_gps_heading", 0.0)))
+        cr.move_to(0, -18)
+        cr.line_to(12, 14)
+        cr.line_to(0, 8)
+        cr.line_to(-12, 14)
+        cr.close_path()
         cr.set_source_rgb(1.0, 1.0, 1.0)
-        cr.arc(cx, cy, 9, 0, 2 * math.pi)
+        cr.set_line_width(5.0)
+        cr.set_line_join(1)
+        cr.stroke_preserve()
+        cr.set_source_rgb(0.12, 0.53, 0.90)
         cr.fill()
-        cr.set_source_rgb(0.16, 0.50, 0.73)
-        cr.arc(cx, cy, 7, 0, 2 * math.pi)
+
+        cr.move_to(0, -12)
+        cr.line_to(6, 8)
+        cr.line_to(0, 5)
+        cr.line_to(-6, 8)
+        cr.close_path()
+        cr.set_source_rgb(0.26, 0.65, 0.96)
         cr.fill()
+        cr.restore()
 
     def _shumate_set_guide(self, coords: list[list[float]]) -> None:
         self._shumate_set_path(self._guide_path_layer, coords)
