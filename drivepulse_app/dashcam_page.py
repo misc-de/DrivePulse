@@ -71,10 +71,8 @@ class _CameraPreview:
             self.start()
 
     def set_rotation(self, angle: int) -> None:
-        self._flip = self._FLIP_MAP.get(angle % 360, 0)
-        if self._pipeline is not None:
-            self.stop()
-            self.start()
+        # Preview is never rotated — rotation is metadata-only on recordings.
+        pass
 
     def start(self) -> None:
         if not _GST_OK or self._pipeline is not None:
@@ -85,9 +83,9 @@ class _CameraPreview:
         self._try_next()
 
     def _build_attempts(self) -> "list[tuple[str, bool]]":
-        cam  = self._camera
-        flip = f"videoflip method={self._flip} ! " if self._flip else ""
+        cam = self._camera
         # Sources in priority order: PipeWire (Furios/Halium) → libcamera → V4L2 → auto
+        # No videoflip — the preview shows exactly what the camera captures.
         sources = [
             "pipewiresrc",
             "libcamerasrc",
@@ -98,13 +96,12 @@ class _CameraPreview:
         for src in sources:
             # gtk4paintablesink: GPU-native GTK4 rendering, no CPU copy
             out.append((
-                f"{src} ! videoconvert ! {flip}"
-                f"gtk4paintablesink name=sink sync=false",
+                f"{src} ! videoconvert ! gtk4paintablesink name=sink sync=false",
                 True,
             ))
             # appsink: CPU frame-copy fallback
             out.append((
-                f"{src} ! videoconvert ! video/x-raw,format=RGB ! {flip}"
+                f"{src} ! videoconvert ! video/x-raw,format=RGB ! "
                 f"appsink name=sink max-buffers=1 drop=true sync=false",
                 False,
             ))
@@ -456,8 +453,9 @@ class DashcamPage(Gtk.Box):
     # ── Orientation (from dashboard_window orientation sensor) ────────────────
 
     def update_orientation(self, angle: int, is_landscape: bool) -> None:
+        # Only update recording metadata so video players show the file upright.
+        # The live preview is never rotated — "Quer bleibt Quer".
         self._recorder.rotation = angle
-        self._preview.set_rotation(angle)
 
     # ── Dim / lock screen ─────────────────────────────────────────────────────
 
