@@ -477,8 +477,16 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.mock_tour_sim.resume()
 
     def _on_cars_back_swipe(self) -> None:
-        """Vom Autos-Tab (Liste) per Wisch nach rechts — kein Tab (Cars ist erster Tab)."""
-        pass
+        """Vom Autos-Tab (Übersicht) per Wisch nach rechts → Acceleration.
+
+        Cars ist der erste Tab; ein Wisch nach rechts hätte sonst kein Ziel.
+        Statt der Endlosschleife des ViewSwitchers springen wir direkt zum
+        gegenüberliegenden Ende (Acceleration), damit die Geste nicht ins
+        Leere läuft.
+        """
+        if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
+            self.view_stack.set_visible_child_name(self.PAGE_ACCELERATION)
+            self._last_swipe_time = time.monotonic()
 
     def _on_cars_forward_swipe(self) -> None:
         """Vom Autos-Tab (Liste) per Wisch nach links zur Karte."""
