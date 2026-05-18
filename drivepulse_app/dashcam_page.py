@@ -417,7 +417,7 @@ class DashcamPage(Gtk.Box):
         btn_row.append(save_btn)
 
         self._clips_popover = self._build_clips_popover()
-        clips_btn = Gtk.MenuButton(icon_name="folder-videos-symbolic")
+        clips_btn = Gtk.MenuButton(icon_name="list-large-symbolic")
         clips_btn.set_popover(self._clips_popover)
         self._clips_popover.connect("show", lambda _: self._update_saved_list())
         clips_btn.add_css_class("circular")
