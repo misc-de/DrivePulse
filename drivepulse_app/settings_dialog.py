@@ -31,7 +31,7 @@ class DeviceItem(GObject.Object):
         self._is_connected = is_connected
 
 
-class SettingsDialog(Adw.PreferencesDialog):
+class SettingsDialog(Adw.Dialog):
     __gtype_name__ = "SettingsDialog"
 
     def __init__(
@@ -69,6 +69,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_dashcam_rolling_dir_changed: Callable[[str], None] | None = None,
         current_dashcam_saved_dir: str = "",
         on_dashcam_saved_dir_changed: Callable[[str], None] | None = None,
+        current_nav_position: str = "bottom",
+        on_nav_position_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -90,10 +92,15 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.on_dashcam_saved_dir_changed = on_dashcam_saved_dir_changed
         self._current_dashcam_rolling_dir = current_dashcam_rolling_dir
         self._current_dashcam_saved_dir = current_dashcam_saved_dir
+        self.on_nav_position_changed = on_nav_position_changed
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
+        self.set_content_width(540)
 
-        page = Adw.PreferencesPage(title=_translate(self.language, "settings.display"))
+        page = Adw.PreferencesPage(
+            title=_translate(self.language, "settings.display"),
+            icon_name="preferences-system-symbolic",
+        )
         group = Adw.PreferencesGroup(title=_translate(self.language, "settings.units"))
 
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
@@ -163,11 +170,22 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.force_webkit_map_row.add_suffix(self.force_webkit_map_switch)
         self.force_webkit_map_row.set_activatable_widget(self.force_webkit_map_switch)
 
+        _NAV_POSITIONS = ["bottom", "top"]
+        nav_pos_model = Gtk.StringList()
+        nav_pos_model.append(_translate(self.language, "settings.nav_position.bottom"))
+        nav_pos_model.append(_translate(self.language, "settings.nav_position.top"))
+        self.nav_position_row = Adw.ComboRow(title=_translate(self.language, "settings.nav_position"))
+        self.nav_position_row.set_model(nav_pos_model)
+        sel_nav = _NAV_POSITIONS.index(current_nav_position) if current_nav_position in _NAV_POSITIONS else 0
+        self.nav_position_row.set_selected(sel_nav)
+        self.nav_position_row.connect("notify::selected", self._on_nav_position_selected)
+
         group.add(self.unit_row)
         group.add(self.language_row)
         group.add(self.theme_mode_row)
         group.add(self.gauge_theme_row)
         group.add(self.sidebar_side_row)
+        group.add(self.nav_position_row)
         group.add(self.force_webkit_map_row)
         group.add(self.mock_row)
         page.add(group)
@@ -244,7 +262,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.dongle_row.connect("notify::selected", self._on_dongle_selected)
         obd_group.add(self.dongle_row)
 
-        self.add(page)
+        display_page = page
 
         # ── App page ──────────────────────────────────────────────────────────
         app_page = Adw.PreferencesPage(
@@ -282,8 +300,6 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         # OBD group (moved from display page)
         app_page.add(obd_group)
-
-        self.add(app_page)
 
         # ── Dashcam page ──────────────────────────────────────────────────────
         from .dashcam_recorder import RESOLUTIONS, list_cameras  # lazy import
@@ -367,7 +383,36 @@ class SettingsDialog(Adw.PreferencesDialog):
         storage_group.add(self._dc_saved_row)
         dc_page.add(storage_group)
 
-        self.add(dc_page)
+        # ── Build ViewStack + ViewSwitcher header ─────────────────────────────
+        view_stack = Adw.ViewStack()
+        view_stack.add_titled_with_icon(
+            display_page, "display",
+            _translate(self.language, "settings.display"),
+            "preferences-system-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            app_page, "app",
+            _translate(self.language, "settings.page.app"),
+            "software-update-available-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            dc_page, "dashcam",
+            _translate(self.language, "settings.page.dashcam"),
+            "camera-video-symbolic",
+        )
+
+        switcher = Adw.ViewSwitcher()
+        switcher.set_stack(view_stack)
+        switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
+
+        dlg_header = Adw.HeaderBar()
+        dlg_header.set_title_widget(switcher)
+
+        toolbar_view = Adw.ToolbarView()
+        toolbar_view.add_top_bar(dlg_header)
+        toolbar_view.set_content(view_stack)
+
+        self.set_child(toolbar_view)
 
     # ── Dashcam callbacks ─────────────────────────────────────────────────────
 
@@ -469,6 +514,11 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _on_force_webkit_map_changed(self, *_args: Any) -> None:
         if self.on_force_webkit_map_changed is not None:
             self.on_force_webkit_map_changed(self.force_webkit_map_switch.get_active())
+
+    def _on_nav_position_selected(self, *_args: Any) -> None:
+        if self.on_nav_position_changed is not None:
+            pos = "top" if self.nav_position_row.get_selected() == 1 else "bottom"
+            self.on_nav_position_changed(pos)
 
     # ── Update check ──────────────────────────────────────────────────────────
 
