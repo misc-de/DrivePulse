@@ -1093,10 +1093,55 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
                 self._map_bearing = None
             except Exception:
                 pass
-        # WebKit pushes its own state via the JS bridge; nothing to read here.
-        # We still refresh so any cached values land on screen.
+        # WebKit: query via evaluate_javascript — the script-message-handler
+        # bridge proved unreliable in our deployment, so we just RPC the values
+        # out directly. The callback updates the cached fields.
+        elif self._backend == "webkit" and self._webview is not None:
+            self._evaluate_webkit_state()
         self._refresh_map_state_status()
         return True
+
+    def _evaluate_webkit_state(self) -> None:
+        script = (
+            "(function(){try{if(typeof map==='undefined'||!map)return null;"
+            "return JSON.stringify([map.getZoom(),map.getPitch(),map.getBearing()]);"
+            "}catch(e){return null;}})()"
+        )
+        try:
+            if hasattr(self._webview, "evaluate_javascript"):
+                # WebKit 6: 7 args incl. callback
+                self._webview.evaluate_javascript(
+                    script, -1, None, None, None,
+                    self._on_webkit_state_eval, None,
+                )
+            else:
+                # WebKit2: run_javascript(script, cancellable, callback, user_data)
+                self._webview.run_javascript(
+                    script, None, self._on_webkit_state_eval, None,
+                )
+        except Exception:
+            log.debug("evaluate_javascript failed", exc_info=True)
+
+    def _on_webkit_state_eval(self, webview: Any, result: Any, _user: Any) -> None:
+        try:
+            if hasattr(webview, "evaluate_javascript_finish"):
+                js_val = webview.evaluate_javascript_finish(result)
+            else:
+                js_val = webview.run_javascript_finish(result).get_js_value()
+            raw = js_val.to_string() if js_val is not None else None
+            if not raw or raw == "null":
+                return
+            import json as _json
+            try:
+                z, p, b = _json.loads(raw)
+            except Exception:
+                return
+            self._map_zoom = float(z)
+            self._map_pitch = float(p)
+            self._map_bearing = float(b)
+            self._refresh_map_state_status()
+        except Exception:
+            log.debug("evaluate_javascript_finish failed", exc_info=True)
 
     def _refresh_map_state_status(self) -> None:
         """In mock mode, render live map view state in the status row and a
