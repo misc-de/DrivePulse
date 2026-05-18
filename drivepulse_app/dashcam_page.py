@@ -243,9 +243,11 @@ class DashcamPage(Gtk.Box):
         # Inject CSS once
         css = Gtk.CssProvider()
         css.load_from_data(
-            b".dc-bottom { background: rgba(0,0,0,0.70); padding: 8px 12px 16px 12px; }"
+            # Translucent gray bar — drawn ON TOP of the video at the bottom,
+            # never to the side regardless of portrait/landscape orientation.
+            b".dc-bottom { background: rgba(50,50,50,0.78); padding: 10px 14px 14px 14px; border-radius: 14px 14px 0 0; }"
             b".dc-lock-bg { background: #000000; }"
-            b".dc-status  { color: rgba(255,255,255,0.80); font-size: 0.85em; }"
+            b".dc-status  { color: rgba(255,255,255,0.85); font-size: 0.85em; }"
         )
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
@@ -258,19 +260,12 @@ class DashcamPage(Gtk.Box):
         outer.set_vexpand(True)
         self.append(outer)
 
-        # Inner ToolbarView: camera = content, controls = bottom_bar.
-        # Adw.ToolbarView always places the bottom_bar at the physical bottom
-        # regardless of portrait/landscape window shape.
-        inner_tv = Adw.ToolbarView()
-        inner_tv.set_hexpand(True)
-        inner_tv.set_vexpand(True)
-        outer.set_child(inner_tv)
-
-        # ── Camera area (ToolbarView content) ─────────────────────────────────
+        # Camera area fills the entire outer overlay; the controls float
+        # *over* the bottom edge as a separate overlay (not a side rail).
         cam_overlay = Gtk.Overlay()
         cam_overlay.set_hexpand(True)
         cam_overlay.set_vexpand(True)
-        inner_tv.set_content(cam_overlay)
+        outer.set_child(cam_overlay)
 
         self._preview_pic = Gtk.Picture()
         self._preview_pic.set_hexpand(True)
@@ -312,13 +307,21 @@ class DashcamPage(Gtk.Box):
             ctrl.connect(sig, lambda *_: self._reset_dim_timer())
             cam_overlay.add_controller(ctrl)
 
-        # ── Controls (ToolbarView bottom_bar) ─────────────────────────────────
+        # ── Controls overlay — always at the bottom of the video ──────────────
+        # Floating over the preview as an overlay (with a gray translucent
+        # backdrop) instead of a separate bar.  This guarantees the buttons
+        # sit at the screen bottom in both portrait and landscape; nothing
+        # can flip them to a side rail.
         bar_wrap = Gtk.Box()
         bar_wrap.add_css_class("dc-bottom")
         bar_wrap.set_hexpand(True)
-        inner_tv.add_bottom_bar(bar_wrap)
-
+        bar_wrap.set_valign(Gtk.Align.END)
+        bar_wrap.set_halign(Gtk.Align.FILL)
+        bar_wrap.set_margin_start(8)
+        bar_wrap.set_margin_end(8)
+        bar_wrap.set_margin_bottom(8)
         bar_wrap.append(self._build_controls())
+        cam_overlay.add_overlay(bar_wrap)
         self._update_toggle_btn()
 
         # ── Lock / dim screen — covers entire outer overlay ───────────────────

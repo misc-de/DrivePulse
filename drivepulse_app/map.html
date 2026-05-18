@@ -85,7 +85,8 @@ let _trafficVisible = false;
 let _gpsLon = null, _gpsLat = null;
 let _poiVisible     = false;  // POIs are opt-in per session — keep them hidden until Python toggles them on
 let _tourActive     = false;
-let _smoothedBearing = null;  // EMA-smoothed compass bearing to dampen heading jitter
+let _smoothedBearing = null;  // EMA-smoothed compass bearing used to *drive the map's* bearing
+let _rawHeading      = null;  // most recent GPS heading — used by the arrow so it responds instantly
 let _tourFlying     = false;  // suppresses GPS-driven easeTo while mapStartTour's flyTo is animating
 let _view3D         = true;   // false = top-down flat map; true = tilted 3D view
 let _followingGps   = false;  // while true, the marker tracks map.getCenter() every frame
@@ -298,11 +299,12 @@ function setBasePoiVisibility(visible) {
 // ── Public API (called from Python) ──────────────────────────────────────────
 function _updateArrowRotation() {
   if (!carArrowEl) return;
-  const hdg = _smoothedBearing === null ? 0 : _smoothedBearing;
-  // Arrow points in heading direction *relative to the current map bearing*,
-  // so whether the map is north-up, follow-rotated, or anything the user
-  // chose, the arrow always shows the actual direction of travel along the
-  // road.  When map.bearing == hdg the arrow naturally lands at 0°.
+  // Use the *raw* GPS heading, not the smoothed one.  The map's bearing eases
+  // toward _smoothedBearing over 280 ms, so when the car enters a curve the
+  // raw heading jumps ahead while map bearing is still catching up — that
+  // difference is what makes the arrow physically "lean into" the turn,
+  // pointing along the road instead of just sitting glued to screen-up.
+  const hdg = _rawHeading === null ? 0 : _rawHeading;
   const mapBearing = map ? map.getBearing() : 0;
   const angle = ((hdg - mapBearing) % 360 + 360) % 360;
   carArrowEl.style.transform = `rotate(${angle}deg)`;
@@ -313,8 +315,10 @@ function mapSetCar(lat, lon, heading) {
   if (!map) return;
   _gpsLat = lat; _gpsLon = lon;
   const targetBearing = Number(heading || 0);
-  // EMA-smooth bearing with shortest-arc wrap so sharp turns ease in instead
-  // of snapping. alpha tuned for ~4 Hz GPS — settles in ~500 ms.
+  _rawHeading = targetBearing;  // arrow uses this — snaps to actual heading
+  // EMA-smooth the bearing the *map* will rotate to.  The arrow doesn't go
+  // through this filter, so the arrow leads into a turn while the map catches
+  // up — much closer to how real navigation arrows behave.
   if (_smoothedBearing === null) {
     _smoothedBearing = targetBearing;
   } else {
@@ -377,6 +381,7 @@ function mapSetTourActive(active) {
   _tourActive = active;
   if (!active) {
     _smoothedBearing = null;
+    _rawHeading = null;
     _tourFlying = false;
   }
 }
@@ -384,6 +389,7 @@ function mapSetTourActive(active) {
 function mapResetView() {
   if (!map) return;
   _smoothedBearing = null;
+  _rawHeading = null;
   _tourFlying = false;
   map.easeTo({
     bearing: 0, pitch: 0,
@@ -414,6 +420,7 @@ function mapStartTour(lat, lon) {
   if (!map) return;
   _tourActive = true;
   _smoothedBearing = null;
+  _rawHeading = null;
   const maxZ = typeof map.getMaxZoom === 'function' ? map.getMaxZoom() : 22;
   const maxP = typeof map.getMaxPitch === 'function' ? map.getMaxPitch() : 60;
   const z = Math.min(TOUR_ZOOM, maxZ);
