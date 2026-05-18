@@ -76,6 +76,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._last_gps_lat: float | None = None
         self._last_gps_lon: float | None = None
 
+        # Lock screen auto-rotation for the session so the display doesn't
+        # spin when the phone vibrates while mounted in the car.
+        self._saved_rotation_setting: tuple[str, str, str] | None = None
+        self._lock_screen_rotation()
+        atexit.register(self._unlock_screen_rotation)
+
         # Persistente Fahrten-Datenbank (cars/trips/samples) — vor allen Pages,
         # weil CarsPage sie injiziert bekommt.
         self.db = DriveDB(DB_FILE)
@@ -414,6 +420,46 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
         else:
             manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
+
+    def _lock_screen_rotation(self) -> None:
+        """Disable compositor auto-rotation for this session (Phosh/GNOME)."""
+        import subprocess
+        candidates = [
+            ("org.gnome.settings-daemon.plugins.orientation", "active", "false"),
+            ("org.gnome.desktop.interface", "orientation-lock", "true"),
+        ]
+        for schema, key, lock_value in candidates:
+            try:
+                r = subprocess.run(
+                    ["gsettings", "get", schema, key],
+                    capture_output=True, text=True, timeout=2,
+                )
+                if r.returncode != 0:
+                    continue
+                previous = r.stdout.strip()
+                subprocess.run(
+                    ["gsettings", "set", schema, key, lock_value],
+                    timeout=2, capture_output=True,
+                )
+                self._saved_rotation_setting = (schema, key, previous)
+                log.info("Screen rotation locked via %s %s", schema, key)
+                return
+            except Exception:
+                pass
+
+    def _unlock_screen_rotation(self) -> None:
+        """Restore auto-rotation setting saved at startup."""
+        if not self._saved_rotation_setting:
+            return
+        schema, key, previous = self._saved_rotation_setting
+        import subprocess
+        try:
+            subprocess.run(
+                ["gsettings", "set", schema, key, previous],
+                timeout=2, capture_output=True,
+            )
+        except Exception:
+            pass
 
     def _apply_nav_position(self, position: str) -> None:
         at_top = position == "top"
