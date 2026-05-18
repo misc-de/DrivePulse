@@ -70,6 +70,16 @@ class MockTourSimulator:
             GLib.source_remove(self._timeout_id)
             self._timeout_id = None
 
+    def resume(self) -> None:
+        """Resume after a pause; segment index and progress are preserved."""
+        if self._timeout_id is not None or not self._coords:
+            return
+        # Reset the tick clock so the first dt after resume is the tick interval,
+        # not the entire pause duration (which would teleport the car ahead).
+        self._last_tick = time.monotonic()
+        self._emit_current()
+        self._timeout_id = GLib.timeout_add(self.TICK_MS, self._on_tick)
+
     def _on_tick(self) -> bool:
         now = time.monotonic()
         dt = max(0.0, now - self._last_tick)
