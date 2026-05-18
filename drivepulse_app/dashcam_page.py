@@ -34,65 +34,87 @@ except Exception:
 class _CameraPreview:
     """GStreamer appsink preview. Polls frames at ~15 fps into a Gtk.Picture."""
 
-    _FPS_MS   = 67   # ~15 fps
-    _CAP_W    = 640
-    _CAP_H    = 480
+    _FPS_MS = 67   # ~15 fps
+    _CAP_W  = 640
+    _CAP_H  = 480
 
-    def __init__(self, picture: Gtk.Picture) -> None:
-        self._picture  = picture
-        self._pipeline = None
-        self._sink     = None
+    # device rotation angle → videoflip method index
+    _FLIP_MAP = {0: 0, 90: 1, 180: 2, 270: 3}
+
+    def __init__(
+        self,
+        picture: Gtk.Picture,
+        on_first_frame: "Callable[[], None] | None" = None,
+    ) -> None:
+        self._picture       = picture
+        self._on_first_frame = on_first_frame
+        self._pipeline      = None
+        self._sink          = None
         self._timer:  int | None = None
-        self._camera  = "/dev/video0"
-        self._flip    = 0   # videoflip method index (0=none)
-
-    # map device rotation angle → videoflip method
-    _FLIP_MAP = {0: 0, 90: 1, 180: 2, 270: 3}   # rotate-cw variants
+        self._camera = "/dev/video0"
+        self._flip   = 0
+        self._got_frame = False
+        self._pending_sources: list[str] = []
 
     def set_camera(self, device: str) -> None:
-        running = self._pipeline is not None
-        if running:
+        was_running = self._pipeline is not None
+        if was_running:
             self.stop()
         self._camera = device
-        if running:
+        if was_running:
             self.start()
 
     def set_rotation(self, angle: int) -> None:
         self._flip = self._FLIP_MAP.get(angle % 360, 0)
         if self._pipeline is not None:
-            # rebuild pipeline with new flip
             self.stop()
             self.start()
 
     def start(self) -> None:
         if not _GST_OK or self._pipeline is not None:
             return
+        self._got_frame = False
+        # v4l2src for direct V4L2 nodes; autovideosrc auto-picks PipeWire on Furios
+        self._pending_sources = [f"v4l2src device={self._camera}", "autovideosrc"]
+        self._try_next_source()
+
+    def _try_next_source(self) -> None:
+        if not self._pending_sources:
+            log.warning("No working camera source found for preview")
+            return
+        src = self._pending_sources.pop(0)
         flip = f"videoflip method={self._flip} ! " if self._flip else ""
-        # Try v4l2src first (direct device); fall back to autovideosrc for
-        # PipeWire-managed cameras (Furios, postmarketOS, etc.)
-        for src in (f"v4l2src device={self._camera}", "autovideosrc"):
-            desc = (
-                f"{src} "
-                f"! videoconvert "
-                f"! video/x-raw,format=RGB,width={self._CAP_W},height={self._CAP_H},framerate=15/1 "
-                f"! {flip}"
-                f"appsink name=sink max-buffers=1 drop=true sync=false"
-            )
-            try:
-                pipeline = Gst.parse_launch(desc)
-                pipeline.set_state(Gst.State.PLAYING)
-                # Give it a moment to see if it errors immediately
-                ret = pipeline.get_state(timeout=Gst.SECOND)[0]
-                if ret == Gst.StateChangeReturn.FAILURE:
-                    pipeline.set_state(Gst.State.NULL)
-                    continue
-                self._pipeline = pipeline
-                self._sink = pipeline.get_by_name("sink")
-                self._timer = GLib.timeout_add(self._FPS_MS, self._pull)
-                return
-            except Exception as exc:
-                log.warning("Camera preview pipeline failed (%s): %s", src, exc)
-        log.warning("No working camera source found for preview")
+        desc = (
+            f"{src} ! videoconvert "
+            f"! video/x-raw,format=RGB,width={self._CAP_W},height={self._CAP_H},framerate=15/1 "
+            f"! {flip}appsink name=sink max-buffers=1 drop=true sync=false"
+        )
+        try:
+            pipeline = Gst.parse_launch(desc)
+            bus = pipeline.get_bus()
+            bus.add_signal_watch()
+            bus.connect("message::error", self._on_bus_error)
+            pipeline.set_state(Gst.State.PLAYING)
+            self._pipeline = pipeline
+            self._sink = pipeline.get_by_name("sink")
+            self._timer = GLib.timeout_add(self._FPS_MS, self._pull)
+            log.debug("Camera preview started with: %s", src)
+        except Exception as exc:
+            log.warning("Camera preview pipeline failed (%s): %s", src, exc)
+            GLib.idle_add(self._try_next_source)
+
+    def _on_bus_error(self, _bus: Any, msg: Any) -> None:
+        err, debug = msg.parse_error()
+        log.warning("GStreamer pipeline error: %s — %s", err, debug)
+        # Tear down current pipeline and try the next source
+        if self._timer is not None:
+            GLib.source_remove(self._timer)
+            self._timer = None
+        if self._pipeline is not None:
+            self._pipeline.set_state(Gst.State.NULL)
+            self._pipeline = None
+            self._sink = None
+        GLib.idle_add(self._try_next_source)
 
     def stop(self) -> None:
         if self._timer is not None:
@@ -117,13 +139,17 @@ class _CameraPreview:
             h    = st.get_value("height")
             ok, mi = buf.map(Gst.MapFlags.READ)
             if ok:
-                raw   = bytes(mi.data)
+                raw    = bytes(mi.data)
                 gbytes = GLib.Bytes.new(raw)
-                tex   = Gdk.MemoryTexture.new(
+                tex    = Gdk.MemoryTexture.new(
                     w, h, Gdk.MemoryFormat.R8G8B8, gbytes, w * 3
                 )
                 self._picture.set_paintable(tex)
                 buf.unmap(mi)
+                if not self._got_frame:
+                    self._got_frame = True
+                    if self._on_first_frame:
+                        GLib.idle_add(self._on_first_frame)
         except Exception as exc:
             log.debug("Frame pull error: %s", exc)
         return True
@@ -174,32 +200,20 @@ class DashcamPage(Gtk.Box):
         overlay.set_vexpand(True)
         self.append(overlay)
 
-        # ── Base: camera preview ──────────────────────────────────────────────
+        # ── Base: camera preview (always visible; shows frames when available) ──
         self._preview_pic = Gtk.Picture()
         self._preview_pic.set_hexpand(True)
         self._preview_pic.set_vexpand(True)
-        self._preview_pic.set_content_fit(Gtk.ContentFit.COVER)
-        self._preview_pic.add_css_class("dc-no-cam")
+        self._preview_pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+        overlay.set_child(self._preview_pic)
 
-        # Dark placeholder when camera unavailable
-        self._placeholder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self._placeholder.set_hexpand(True)
-        self._placeholder.set_vexpand(True)
-        ph_icon = Gtk.Image.new_from_icon_name("camera-video-symbolic")
-        ph_icon.set_pixel_size(64)
-        ph_icon.add_css_class("dim-label")
-        self._placeholder.append(ph_icon)
-        self._placeholder.set_halign(Gtk.Align.CENTER)
-        self._placeholder.set_valign(Gtk.Align.CENTER)
-
-        # Stack: either live picture or placeholder
-        self._preview_stack = Gtk.Stack()
-        self._preview_stack.set_hexpand(True)
-        self._preview_stack.set_vexpand(True)
-        self._preview_stack.add_named(self._placeholder,   "placeholder")
-        self._preview_stack.add_named(self._preview_pic,   "live")
-        self._preview_stack.set_visible_child_name("placeholder")
-        overlay.set_child(self._preview_stack)
+        # "No camera" icon sits on top and hides itself once the first frame arrives
+        self._no_cam_icon = Gtk.Image.new_from_icon_name("camera-video-symbolic")
+        self._no_cam_icon.set_pixel_size(64)
+        self._no_cam_icon.add_css_class("dim-label")
+        self._no_cam_icon.set_halign(Gtk.Align.CENTER)
+        self._no_cam_icon.set_valign(Gtk.Align.CENTER)
+        overlay.add_overlay(self._no_cam_icon)
 
         # Activity detection resets dim timer
         for ctrl_cls, sig in (
@@ -317,10 +331,8 @@ class DashcamPage(Gtk.Box):
         overlay.add_overlay(self._lock_overlay)
 
         # ── GStreamer preview ─────────────────────────────────────────────────
-        self._preview = _CameraPreview(self._preview_pic)
+        self._preview = _CameraPreview(self._preview_pic, on_first_frame=self._on_first_frame)
         self._preview.start()
-        # show live stack page once preview is running
-        GLib.timeout_add(500, self._check_preview_ready)
 
     def _build_clips_popover(self) -> Gtk.Popover:
         pop = Gtk.Popover()
@@ -346,10 +358,8 @@ class DashcamPage(Gtk.Box):
         pop.set_child(scroll)
         return pop
 
-    def _check_preview_ready(self) -> bool:
-        if _GST_OK and self._preview._pipeline is not None:
-            self._preview_stack.set_visible_child_name("live")
-        return False
+    def _on_first_frame(self) -> None:
+        self._no_cam_icon.set_visible(False)
 
     # ── Public setters (called from dashboard_settings) ───────────────────────
 
