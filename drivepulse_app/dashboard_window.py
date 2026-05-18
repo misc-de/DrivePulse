@@ -288,17 +288,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         switcher_bar.set_stack(self.view_stack)
         switcher_bar.set_reveal(True)
 
-        landscape_switcher = Adw.ViewSwitcherBar()
-        landscape_switcher.set_stack(self.view_stack)
-        landscape_switcher.set_reveal(True)
-        nav_rotator = RotatedContainer()
-        nav_rotator.set_child(landscape_switcher)
-        nav_rotator.set_valign(Gtk.Align.CENTER)
-        nav_rotator.set_halign(Gtk.Align.START)
-        nav_rotator.set_hexpand(False)
-        nav_rotator.set_vexpand(False)
-        nav_rotator.set_visible(False)
-
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         self.title_label = Gtk.Label(label=_translate(self.language, "window.title"))
@@ -342,15 +331,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
         stack_overlay = Gtk.Overlay()
         stack_overlay.set_child(self.view_stack)
-        stack_overlay.add_overlay(nav_rotator)
 
-        self.header              = header
-        self.switcher_bar        = switcher_bar        # bottom bar (default)
-        self.switcher_top        = switcher_top
-        self._landscape_switcher = landscape_switcher
-        self._nav_rotator        = nav_rotator
-        self._current_rotation   = 0
-        self.toolbar_view        = toolbar_view
+        self.header            = header
+        self.switcher_bar      = switcher_bar        # bottom bar (default)
+        self.switcher_top      = switcher_top
+        self._current_rotation = 0
+        self.toolbar_view      = toolbar_view
         toolbar_view.add_top_bar(header)
         toolbar_view.add_top_bar(switcher_top)
         toolbar_view.add_bottom_bar(switcher_bar)
@@ -373,6 +359,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.add_tick_callback(self._layout_tick)
         GLib.idle_add(self._on_size_changed)
 
+        self._nav_rotation_css = Gtk.CssProvider()
         self._theme_css_provider = Gtk.CssProvider()
         self.connect("realize", self._on_realize_install_css)
 
@@ -399,26 +386,22 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._cars_rotator.set_rotation(angle)
         self._map_rotator.set_rotation(angle)
         self.dashcam_page.update_ui_rotation(angle)
-
-        is_landscape = angle in (90, 270)
-        self._nav_rotator.set_visible(is_landscape and self._nav_visible)
-        if is_landscape:
-            self.switcher_bar.set_reveal(False)
-            self.switcher_top.set_reveal(False)
-            nr = self._nav_rotator
-            nr.set_rotation(angle)
-            if angle == 90:
-                nr.set_halign(Gtk.Align.START)
-                nr.set_margin_start(0)
-                nr.set_margin_end(0)
-            else:
-                nr.set_halign(Gtk.Align.END)
-                nr.set_margin_start(0)
-                nr.set_margin_end(0)
-        else:
-            self._apply_nav_position(self.nav_position)
-
+        self._apply_nav_rotation(angle)
         GLib.idle_add(self._on_size_changed)
+
+    def _apply_nav_rotation(self, angle: int) -> None:
+        if angle == 0:
+            css = b""
+        else:
+            css = (
+                f".dp-nav-rotated button {{ transform: rotate({angle}deg); }}"
+            ).encode()
+        self._nav_rotation_css.load_from_data(css)
+        for bar in (self.switcher_bar, self.switcher_top):
+            if angle != 0:
+                bar.add_css_class("dp-nav-rotated")
+            else:
+                bar.remove_css_class("dp-nav-rotated")
 
     def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
         self.rotation.set_sensor(angle)
@@ -485,11 +468,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     def _set_nav_visible(self, visible: bool) -> None:
         self._nav_visible = visible
         self.header.set_visible(visible)
+        self.switcher_bar.set_visible(visible)
         self.footer.set_visible(visible)
-        if self._current_rotation in (90, 270):
-            self._nav_rotator.set_visible(visible)
-        else:
-            self.switcher_bar.set_visible(visible)
         if self.view_stack.get_visible_child_name() == self.PAGE_MAP:
             self.map_page.set_nav_visible(visible)
 
@@ -565,8 +545,13 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self._last_swipe_time = time.monotonic()
 
     def _on_realize_install_css(self, *_args: Any) -> None:
+        display = self.get_display()
         Gtk.StyleContext.add_provider_for_display(
-            self.get_display(), self._theme_css_provider,
+            display, self._theme_css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+        Gtk.StyleContext.add_provider_for_display(
+            display, self._nav_rotation_css,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
         self._apply_theme_mode(self.theme_mode)
