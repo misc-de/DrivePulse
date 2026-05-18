@@ -51,9 +51,9 @@ _MANEUVER_CSS = b"""
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.40);
 }
 .dp-maneuver-banner label { color: #ffffff; }
-/* Symbolic icons recolor via the widget's CSS color - force black arrows
-   regardless of the surrounding text color. */
-.dp-maneuver-banner image { color: #000000; }
+/* Symbolic icons recolor via the widget's CSS color - tint the arrows light
+   blue so they pop against the dark banner without inheriting the label white. */
+.dp-maneuver-banner image { color: #8FCFFF; }
 .dp-maneuver-banner .dp-maneuver-distance {
   font-size: 32px;
   font-weight: 800;
