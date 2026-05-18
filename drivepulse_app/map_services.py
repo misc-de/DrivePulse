@@ -94,13 +94,16 @@ def osrm_route(
     data = http_get_fn(url)
     if data and data.get("code") == "Ok" and data.get("routes"):
         route = data["routes"][0]
+        try:
+            coords = route["geometry"]["coordinates"]
+            duration = float(route.get("duration", 0))
+            distance = float(route.get("distance", 0))
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not isinstance(coords, list):
+            return None
         steps = _flatten_route_steps(route.get("legs", []))
-        return (
-            route["geometry"]["coordinates"],
-            float(route.get("duration", 0)),
-            float(route.get("distance", 0)),
-            steps,
-        )
+        return (coords, duration, distance, steps)
     return None
 
 
@@ -162,7 +165,7 @@ def resolve_route_points(
 
 
 def format_duration(seconds: float) -> str:
-    total = int(seconds)
+    total = max(0, int(seconds))
     h = total // 3600
     m = (total % 3600) // 60
     if h > 0:

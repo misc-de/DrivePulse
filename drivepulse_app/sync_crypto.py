@@ -80,11 +80,10 @@ def generate_device_id() -> str:
 
 def get_local_ip() -> str:
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(1.0)
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
     except Exception:
         log.exception("Could not determine local IP address")
         return "127.0.0.1"

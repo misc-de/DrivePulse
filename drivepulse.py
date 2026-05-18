@@ -6,20 +6,14 @@ application module so existing tests and external imports keep working.
 """
 from __future__ import annotations
 
-import os
-import shutil
 import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
 
 _PROJECT_ROOT = Path(__file__).resolve().parent
-for _pycache in _PROJECT_ROOT.rglob("__pycache__"):
-    shutil.rmtree(_pycache, ignore_errors=True)
-
-_XDG_CACHE = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-for _sub in ("de.cais.DrivePulse", "WebKitGTK", "webkitgtk"):
-    shutil.rmtree(_XDG_CACHE / _sub, ignore_errors=True)
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from drivepulse_app import app as _app
 

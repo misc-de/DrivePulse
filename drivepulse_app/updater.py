@@ -32,7 +32,8 @@ def _git(*args: str, timeout: int = 30) -> tuple[int, str]:
             text=True,
             timeout=timeout,
         )
-        return r.returncode, r.stdout.strip()
+        output = r.stdout.strip() or r.stderr.strip()
+        return r.returncode, output
     except Exception as exc:
         log.debug("git %s: %s", args, exc)
         return -1, ""

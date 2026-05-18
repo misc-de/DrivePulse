@@ -12,7 +12,7 @@ from .diagnostics import get_logger
 
 log = get_logger(__name__)
 
-_VIDEOS_DIR = Path.home() / "Videos" / "DrivePulse" / "Dashcam"
+_VIDEOS_DIR = Path.home() / "Videos" / "Dashcam"
 
 RESOLUTIONS = ["1920x1080", "1280x720", "854x480", "640x480"]
 FPS_OPTIONS  = [30, 25, 15]
@@ -45,8 +45,8 @@ class DashcamRecorder:
         self.fps:             int  = 25
         self.segment_minutes: int  = 3
         self.max_segments:    int  = 10
-        self.rolling_dir:     Path = _VIDEOS_DIR / "rolling"
-        self.protected_dir:   Path = _VIDEOS_DIR / "saved"
+        self.rolling_dir:     Path = _VIDEOS_DIR / "tmp"
+        self.protected_dir:   Path = _VIDEOS_DIR
         # Clockwise rotation in degrees written as MP4 display-matrix metadata.
         # Mirrors what phone cameras embed so players show the video upright.
         self.rotation:        int  = 0
@@ -94,6 +94,7 @@ class DashcamRecorder:
             candidates = list(self._segments[-2:])
         if not candidates:
             return []
+        self.protected_dir.mkdir(parents=True, exist_ok=True)
         tag = datetime.now(timezone.utc).strftime("event_%Y%m%d_%H%M%S")
         saved: list[Path] = []
         for i, src in enumerate(candidates):
@@ -164,7 +165,7 @@ class DashcamRecorder:
             self._prune()
 
     def _next_segment_path(self) -> Path:
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
         return self.rolling_dir / f"dc_{ts}.mp4"
 
     def _run_ffmpeg(self, out: Path) -> bool:

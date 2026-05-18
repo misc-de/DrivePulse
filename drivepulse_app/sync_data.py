@@ -46,6 +46,7 @@ def export_all(db: DriveDB) -> dict[str, Any]:
             "cal_id": car["cal_id"],
             "cvn": car["cvn"],
             "protocol": car["protocol"],
+            "profile_path": car["profile_path"],
             "first_seen": car["first_seen"],
             "last_seen": car["last_seen"],
             "trips": trips_out,
@@ -84,10 +85,14 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
             log.warning("Skipping malformed car entry in sync payload")
             continue
         vin = car.get("vin")
+        profile_path = car.get("profile_path")
         found = None
-        if vin and mode != "replace_all":
+        if mode != "replace_all":
             for c in db.list_cars():
-                if c["vin"] == vin:
+                if vin and c["vin"] == vin:
+                    found = c
+                    break
+                if profile_path and c["vin"] is None and c["profile_path"] == profile_path:
                     found = c
                     break
 
@@ -98,6 +103,7 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
             cal_id=car.get("cal_id"),
             cvn=car.get("cvn"),
             protocol=car.get("protocol"),
+            profile_path=profile_path,
         )
         if found is None:
             cars_added += 1
@@ -155,9 +161,21 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
                         trip_id, float(ts),
                         **{k: v for k, v in s.items() if k in _SAMPLE_COLS and v is not None},
                     )
-                    samples_added += 1
                 except Exception:
                     log.exception("Could not import sample for trip started_at=%s", started_at)
+
+            with db._lock:
+                row = db._conn.execute(
+                    "SELECT COUNT(*) AS n FROM samples WHERE trip_id=?",
+                    (trip_id,),
+                ).fetchone()
+                actual_samples = int(row["n"] if row is not None else 0)
+                db._conn.execute(
+                    "UPDATE trips SET samples_count=? WHERE id=?",
+                    (actual_samples, trip_id),
+                )
+                db._conn.commit()
+            samples_added += actual_samples
 
     return {
         "cars_added": cars_added,

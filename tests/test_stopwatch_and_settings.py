@@ -108,6 +108,41 @@ def test_settings_dialog_calls_callbacks(drivepulse_module):
     assert webkit_calls == [True]
 
 
+def test_settings_dialog_callbacks_fallback_for_out_of_range_indices(drivepulse_module):
+    from drivepulse_app.settings_dialog import SettingsDialog
+
+    language_calls = []
+    obd_calls = []
+    gauge_calls = []
+    theme_mode_calls = []
+    rotation_calls = []
+    dialog = SettingsDialog(
+        None, "metric", "en", lambda _units: None, language_calls.append,
+        on_obd_port_changed=obd_calls.append,
+        on_gauge_theme_changed=gauge_calls.append,
+        current_theme_mode="auto", on_theme_mode_changed=theme_mode_calls.append,
+        current_rotation_mode="follow_sensor", on_rotation_mode_changed=rotation_calls.append,
+    )
+
+    for invalid_index in (999, -1):
+        dialog.language_row.set_selected(invalid_index)
+        dialog._on_language_selected()
+        dialog.dongle_row.set_selected(invalid_index)
+        dialog._on_dongle_selected()
+        dialog.gauge_theme_row.set_selected(invalid_index)
+        dialog._on_gauge_theme_selected()
+        dialog.theme_mode_row.set_selected(invalid_index)
+        dialog._on_theme_mode_selected()
+        dialog.rotation_mode_row.set_selected(invalid_index)
+        dialog._on_rotation_mode_selected()
+
+    assert language_calls == ["en", "en"]
+    assert obd_calls == [None, None]
+    assert gauge_calls == ["cockpit", "cockpit"]
+    assert theme_mode_calls == ["auto", "auto"]
+    assert rotation_calls == ["follow_sensor", "follow_sensor"]
+
+
 def test_load_and_save_units(drivepulse_module, tmp_log_paths):
     window = drivepulse_module.DashboardWindow.__new__(drivepulse_module.DashboardWindow)
     window.units = "imperial"

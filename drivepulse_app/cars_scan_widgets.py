@@ -13,6 +13,13 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 from .common import _translate
 
 
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _format_scan_date(raw: Any) -> str:
     if not raw:
         return "—"
@@ -61,14 +68,14 @@ def _build_scan_detail_widget(
         return lb
 
     ts = _safe_scan_ts(scan_meta["scanned_at"])
-    dtc = int(scan_meta["dtc_count"] or 0)
-    pending = int(scan_meta["pending_dtc_count"] or 0)
-    pids = int(scan_meta["pids_count"] or 0)
+    dtc = _safe_int(scan_meta["dtc_count"])
+    pending = _safe_int(scan_meta["pending_dtc_count"])
+    pids = _safe_int(scan_meta["pids_count"])
 
     if prev_meta is None:
         trend_text = _translate(language, "cars.scan.trend_first")
     else:
-        delta = dtc - int(prev_meta["dtc_count"] or 0)
+        delta = dtc - _safe_int(prev_meta["dtc_count"])
         if delta > 0:
             trend_text = _translate(language, "cars.scan.trend_up", delta=delta)
         elif delta < 0:
