@@ -96,6 +96,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         language: str = SOURCE_LANGUAGE,
         force_webkit: bool = False,
         units: str = "metric",
+        mock_mode: bool = False,
         poi_visible: bool = False,
         traffic_visible: bool = False,
         on_poi_visible_changed: Callable[[bool], None] | None = None,
@@ -112,6 +113,13 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self.language = _normalize_language(language)
         self.force_webkit = force_webkit
         self.units = units if units in {"metric", "imperial"} else "metric"
+        self.mock_mode = bool(mock_mode)
+        # Latest camera state pushed from the JS side (zoom/pitch/bearing).
+        # Only displayed when mock_mode is on and there is no active routing
+        # status taking up the label.
+        self._cam_zoom: float | None = None
+        self._cam_pitch: float | None = None
+        self._cam_bearing: float | None = None
         self._on_poi_visible_changed = on_poi_visible_changed
         self._on_traffic_visible_changed = on_traffic_visible_changed
         self._on_tour_started = on_tour_started
@@ -1021,6 +1029,44 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         # Re-render whatever's currently on screen using the new unit system.
         if self._tour_active:
             self._update_maneuver_overlay()
+
+    def set_mock_mode(self, mock_mode: bool) -> None:
+        self.mock_mode = bool(mock_mode)
+        if not self.mock_mode:
+            # Clear any debug text we'd put into the status line.
+            self._refresh_mock_status_text()
+
+    def _refresh_mock_status_text(self) -> None:
+        """When mock_mode is on, surface live camera state in the status row."""
+        if not self.mock_mode:
+            return
+        if self._cam_zoom is None and self._cam_pitch is None:
+            return
+        parts: list[str] = []
+        if self._cam_zoom is not None:
+            parts.append(f"zoom {self._cam_zoom:.1f}")
+        if self._cam_pitch is not None:
+            parts.append(f"pitch {self._cam_pitch:.0f}°")
+        if self._cam_bearing is not None:
+            parts.append(f"bearing {self._cam_bearing:.0f}°")
+        # Only overwrite the label if it isn't already showing a routing
+        # progress/result message — those carry actual user-visible info.
+        current = self._status_lbl.get_text() or ""
+        keep_prefixes = (
+            _translate(self.language, "map.duration_prefix"),
+            _translate(self.language, "map.routing.searching"),
+            _translate(self.language, "map.routing.error"),
+            _translate(self.language, "map.traffic.loading"),
+        )
+        if current and any(current.startswith(p) for p in keep_prefixes if p):
+            return
+        self._status_lbl.set_text(" • ".join(parts))
+
+    def _on_js_camera_state(self, zoom: float, pitch: float, bearing: float) -> None:
+        self._cam_zoom = zoom
+        self._cam_pitch = pitch
+        self._cam_bearing = bearing
+        self._refresh_mock_status_text()
 
     def _compute_route(self, start_text: str, wp_texts: list[str], end_text: str) -> None:
         try:

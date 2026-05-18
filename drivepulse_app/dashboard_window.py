@@ -195,6 +195,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.language,
             force_webkit=self.force_webkit_map,
             units=self.units,
+            mock_mode=self.mock_mode,
             poi_visible=False,
             traffic_visible=self.map_traffic_visible,
             on_traffic_visible_changed=self._set_map_traffic_visible,
