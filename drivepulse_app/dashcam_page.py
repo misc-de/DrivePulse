@@ -328,6 +328,7 @@ class DashcamPage(Gtk.Box):
         bar_wrap.set_margin_bottom(8)
         bar_wrap.append(self._build_controls())
         cam_overlay.add_overlay(bar_wrap)
+        self._bar_wrap = bar_wrap
         self._update_toggle_btn()
 
         # ── Lock / dim screen — covers entire outer overlay ───────────────────
@@ -512,10 +513,42 @@ class DashcamPage(Gtk.Box):
     # ── Orientation (from dashboard_window orientation sensor) ────────────────
 
     def update_orientation(self, angle: int, is_landscape: bool) -> None:
-        # Only update recording metadata so video players show the file upright.
-        # The live preview is never rotated — "Quer bleibt Quer".
         self._recorder.rotation = angle
         self._is_landscape = is_landscape
+        self._apply_bar_position(angle, is_landscape)
+
+    def _apply_bar_position(self, angle: int, is_landscape: bool) -> None:
+        """Reposition the control bar based on physical device orientation.
+
+        Screen is always portrait-locked. When the sensor reports landscape,
+        the bar moves to whichever portrait edge corresponds to the physical
+        bottom so the buttons stay reachable without touching gsettings.
+
+        angle=90  (right-up / CCW rotation) → portrait LEFT  = physical bottom
+        angle=270 (left-up  / CW  rotation) → portrait RIGHT = physical bottom
+        """
+        wrap = self._bar_wrap
+        if not is_landscape:
+            wrap.set_valign(Gtk.Align.END)
+            wrap.set_halign(Gtk.Align.FILL)
+            wrap.set_hexpand(True)
+            wrap.set_margin_start(8)
+            wrap.set_margin_end(8)
+            wrap.set_margin_bottom(8)
+            wrap.set_margin_top(0)
+        else:
+            wrap.set_valign(Gtk.Align.FILL)
+            wrap.set_hexpand(False)
+            wrap.set_margin_bottom(8)
+            wrap.set_margin_top(8)
+            if angle == 90:
+                wrap.set_halign(Gtk.Align.START)
+                wrap.set_margin_start(8)
+                wrap.set_margin_end(0)
+            else:
+                wrap.set_halign(Gtk.Align.END)
+                wrap.set_margin_start(0)
+                wrap.set_margin_end(8)
 
     # ── Dim / lock screen ─────────────────────────────────────────────────────
 

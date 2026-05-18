@@ -160,10 +160,11 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_steps: list[dict] = []
         self._tour_step_idx: int = 0
         self._tour_coords: list[list[float]] = []
-        # Last measured distance to the current step's maneuver point; used to
-        # detect "passed" via distance growth instead of a flat radius threshold
-        # (the old radius logic was skipping past stacked close-together steps).
-        self._last_step_dist: float | None = None
+        # Minimum (closest) distance seen for the current step's maneuver point.
+        # Detecting "passed" via minimum-distance + growth is more reliable than
+        # tracking only the last distance: sparse GPS can jump from 60 m to 80 m
+        # without ever registering an approach, which the old logic missed.
+        self._step_min_dist: float | None = None
         self._dnd_src_idx: int = -1
 
         # Maneuver overlay widgets
@@ -675,7 +676,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_paused = False
         self._tour_completed = False
         self._tour_step_idx = 0
-        self._last_step_dist = None
+        self._step_min_dist = None
         self._set_tour_button("stop")
         self._update_maneuver_overlay()
         if self._on_tour_started is not None and self._tour_coords:
@@ -729,7 +730,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_active = False
         self._tour_paused = False
         self._tour_completed = False
-        self._last_step_dist = None
+        self._step_min_dist = None
         self._set_tour_button("start")
         if self._backend == "webkit":
             self._js("mapSetTourActive(false)")
@@ -810,19 +811,19 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._tour_active:
             self._update_maneuver_overlay()
 
-    # Distance at which we consider the user "approaching" the next maneuver
-    # point. We don't advance just by being inside this zone — we wait until
-    # the user has actually moved past, detected by distance growth.
-    _MANEUVER_APPROACH_M = 45.0
-    # Minimum distance growth between ticks before we declare a maneuver passed.
-    # Larger than typical GPS noise but smaller than a single 4 Hz tick's travel.
-    _MANEUVER_PASS_GROWTH_M = 4.0
+    # A step is considered "passed" when we've gotten within this distance AND
+    # then the distance has grown beyond minimum + _MANEUVER_PASS_GROWTH_M.
+    # 80 m covers sparse-GPS scenarios (1 Hz at 50 km/h = ~14 m/s, so 80 m
+    # allows up to ~5 ticks of travel while still inside the detection window).
+    _MANEUVER_CLOSEST_M = 80.0
+    # How much the distance must grow from the minimum before we declare a
+    # step passed. Large enough to ignore GPS noise (~3–5 m), small enough
+    # not to wait until we're halfway to the next maneuver.
+    _MANEUVER_PASS_GROWTH_M = 8.0
 
-    # OSRM step types that don't represent an actionable maneuver — they're
-    # bookkeeping entries (road name change, info-only). Skip past them so the
-    # banner always shows a real turn/merge/etc.
+    # OSRM step types that don't represent an actionable maneuver.
     _NON_ACTIONABLE_STEP_TYPES = frozenset({
-        "depart", "new name", "notification", "use lane",
+        "new name", "notification",
     })
 
     def _skip_non_actionable_steps(self) -> None:
@@ -832,7 +833,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             in self._NON_ACTIONABLE_STEP_TYPES
         ):
             self._tour_step_idx += 1
-            self._last_step_dist = None
+            self._step_min_dist = None
 
     def _update_maneuver_overlay(self) -> None:
         if self._maneuver_overlay is None:
@@ -849,37 +850,44 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
         self._skip_non_actionable_steps()
 
-        step = self._tour_steps[self._tour_step_idx]
-        distance_m = haversine(self._gps_lat, self._gps_lon, step["lat"], step["lon"])
-
-        # "Passed" detection: previous tick was within the approach zone AND
-        # current distance has grown by more than the noise threshold.  This
-        # advances exactly one step per call and never skips over a maneuver
-        # that's stacked close to the previous one (e.g. roundabout exits).
-        passed = (
-            self._last_step_dist is not None
-            and self._last_step_dist <= self._MANEUVER_APPROACH_M
-            and distance_m > self._last_step_dist + self._MANEUVER_PASS_GROWTH_M
-        )
-
-        if passed and self._tour_step_idx < len(self._tour_steps) - 1:
-            self._tour_step_idx += 1
-            self._last_step_dist = None
-            self._skip_non_actionable_steps()
+        # Multi-step advance loop: if the car passed several close-together
+        # maneuvers between GPS ticks (e.g. city-centre roundabout exits) we
+        # advance as many steps as the data supports in a single call.
+        for _ in range(len(self._tour_steps)):
             step = self._tour_steps[self._tour_step_idx]
             distance_m = haversine(
                 self._gps_lat, self._gps_lon, step["lat"], step["lon"]
             )
-        elif passed and self._tour_step_idx == len(self._tour_steps) - 1:
-            # Final maneuver — usually "arrive" — has been reached and passed.
-            # The route is complete; hide the banner and mark the tour done so
-            # we don't keep redisplaying stale instructions.
-            self._tour_completed = True
-            self._maneuver_overlay.set_visible(False)
-            return
-        else:
-            self._last_step_dist = distance_m
 
+            # Track the closest approach seen so far for this step.
+            if self._step_min_dist is None or distance_m < self._step_min_dist:
+                self._step_min_dist = distance_m
+
+            # "Passed" when we've gotten within _MANEUVER_CLOSEST_M and the
+            # distance has grown back past minimum + noise-guard.
+            passed = (
+                self._step_min_dist <= self._MANEUVER_CLOSEST_M
+                and distance_m > self._step_min_dist + self._MANEUVER_PASS_GROWTH_M
+            )
+
+            if not passed:
+                break  # still approaching — show this step
+
+            # Step passed — last step means route complete.
+            if self._tour_step_idx >= len(self._tour_steps) - 1:
+                self._tour_completed = True
+                self._maneuver_overlay.set_visible(False)
+                return
+
+            self._tour_step_idx += 1
+            self._step_min_dist = None
+            self._skip_non_actionable_steps()
+            # Loop continues to check whether the newly active step is also passed.
+
+        step = self._tour_steps[self._tour_step_idx]
+        distance_m = haversine(
+            self._gps_lat, self._gps_lon, step["lat"], step["lon"]
+        )
         m_type = step.get("type", "")
         m_modifier = step.get("modifier", "")
         name = step.get("name", "") or ""
@@ -1267,6 +1275,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._abort_tour()
         self._tour_steps = steps
         self._tour_step_idx = 0
+        self._step_min_dist = None
         self._tour_coords = list(coords) if coords else []
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]

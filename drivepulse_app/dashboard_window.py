@@ -356,12 +356,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
     def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
         self.dashcam_page.update_orientation(angle, is_landscape)
-        # Enable/disable OS screen rotation based on sensor — only while dashcam is open.
-        if self.view_stack.get_visible_child_name() == self.PAGE_DASHCAM:
-            if is_landscape:
-                self._enable_auto_rotation()
-            else:
-                self._disable_auto_rotation()
 
         # Idle-Erkennung + WAL-Checkpoint alle 30 s
         GLib.timeout_add_seconds(30, self._db_periodic_tick)
@@ -447,7 +441,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.dashcam_page.on_shown()
         elif prev == self.PAGE_DASHCAM:
             self.dashcam_page.on_hidden()
-            self._disable_auto_rotation()  # re-lock when leaving dashcam
         self._last_visible_page = page
 
     # Hold the simulated drive for this long after the tour starts, matching
@@ -550,30 +543,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 ["gsettings", "set", schema, key, previous],
                 timeout=2, capture_output=True,
             )
-        except Exception:
-            pass
-
-    def _enable_auto_rotation(self) -> None:
-        """Temporarily re-enable OS screen rotation for the dashcam page."""
-        if self._saved_rotation_setting is None:
-            return
-        import subprocess
-        schema, key, _original = self._saved_rotation_setting
-        unlock_value = "true" if schema == "org.gnome.settings-daemon.plugins.orientation" else "false"
-        try:
-            subprocess.run(["gsettings", "set", schema, key, unlock_value], timeout=2, capture_output=True)
-        except Exception:
-            pass
-
-    def _disable_auto_rotation(self) -> None:
-        """Re-lock screen rotation after leaving the dashcam page."""
-        if self._saved_rotation_setting is None:
-            return
-        import subprocess
-        schema, key, _original = self._saved_rotation_setting
-        lock_value = "false" if schema == "org.gnome.settings-daemon.plugins.orientation" else "true"
-        try:
-            subprocess.run(["gsettings", "set", schema, key, lock_value], timeout=2, capture_output=True)
         except Exception:
             pass
 
