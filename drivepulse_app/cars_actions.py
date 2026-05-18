@@ -71,6 +71,57 @@ class CarsActionsMixin:
 
     # ---------------------------------------------------- Fahrzeug löschen
 
+    def _confirm_add_live_vehicle(self) -> None:
+        vin = self._live_vin()
+        if not vin:
+            return
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "cars.live.add.title"),
+            body=_translate(self.language, "cars.live.add.body", vin=vin),
+        )
+        dialog.add_response("cancel", _translate(self.language, "cars.live.add.cancel"))
+        dialog.add_response("add", _translate(self.language, "cars.live.add.confirm"))
+        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("add")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "add":
+                return
+            self._add_live_vehicle()
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
+
+    def _add_live_vehicle(self) -> None:
+        if not self._live_vin():
+            return
+        car_id: int | None = None
+        if self.on_live_vehicle_add is not None:
+            try:
+                car_id = self.on_live_vehicle_add(dict(self._live_identity))
+            except Exception:
+                log.exception("Could not add live vehicle through callback")
+                return
+        elif self.db is not None:
+            try:
+                car_id = self.db.upsert_car(
+                    vin=self._live_vin(),
+                    brand=self._live_identity.get("brand"),
+                    cal_id=self._live_identity.get("CALIBRATION_ID"),
+                    cvn=self._live_identity.get("CVN"),
+                    protocol=self._live_identity.get("protocol"),
+                    profile_path=self._live_identity.get("profile_path"),
+                )
+            except Exception:
+                log.exception("Could not add live vehicle")
+                return
+        if car_id is None:
+            return
+        self.refresh_profiles()
+        self._selected_car_id = car_id
+        self._update_live_add_button()
+
     def _open_rename_dialog(self) -> None:
         car_id = self._selected_car_id
         if car_id is None:

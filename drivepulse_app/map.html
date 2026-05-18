@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
+    #map { position: absolute; inset: 0; }
+    .maplibregl-ctrl-bottom-left,
+    .maplibregl-ctrl-bottom-right { display: none; }
+    .car-icon {
+      width: 44px; height: 44px;
+      transform-origin: 50% 50%;
+      filter: drop-shadow(0 2px 5px rgba(0,0,0,0.55));
+      pointer-events: none;
+    }
+    #error {
+      display: none; position: absolute; inset: 0;
+      background: #1a1a2e; color: rgba(255,255,255,0.7);
+      font-family: sans-serif; font-size: 14px;
+      flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    }
+    #error.visible { display: flex; }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<div id="error">
+  <span style="font-size:2.5em">⚠</span>
+  <span>Map konnte nicht geladen werden.</span>
+  <span style="font-size:0.85em;opacity:0.6">Internetverbindung prüfen.</span>
+</div>
+<script>
+  window.addEventListener('error', (e) => {
+    if (e.target && e.target.tagName === 'SCRIPT')
+      document.getElementById('error').classList.add('visible');
+  }, true);
+</script>
+<script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+<script>
+'use strict';
+
+// ── Map styles (all raster — fast on mobile/embedded hardware) ────────────────
+function rasterStyle(tiles, attribution, maxzoom) {
+  return {
+    version: 8,
+    sources: { base: { type: 'raster', tiles, tileSize: 256, attribution, maxzoom } },
+    layers:  [{ id: 'base', type: 'raster', source: 'base' }],
+  };
+}
+
+const STYLES = {
+  street: rasterStyle(
+    ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+    '© OpenStreetMap contributors', 19
+  ),
+  dark: rasterStyle(
+    ['https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png'],
+    '© CartoDB', 19
+  ),
+  satellite: rasterStyle(
+    ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+    '© Esri', 18
+  ),
+};
+
+// ── Persistent state (survives style changes) ─────────────────────────────────
+let map = null;
+let carMarker = null;
+let carEl = null;
+let followMode = true;
+let initialized = false;
+
+let _routeCoords    = [];
+let _guideCoords    = [];
+let _wpStart        = null;   // [lat, lon]
+let _wpEnd          = null;
+let _trafficItems   = [];
+let _trafficVisible = false;
+let _gpsLon = null, _gpsLat = null;
+let _poiVisible     = false;
+let _poiLoading     = false;
+
+const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
+
+// ── Python bridge ─────────────────────────────────────────────────────────────
+function postToPython(data) {
+  try { window.webkit.messageHandlers.drivepulse.postMessage(data); } catch (_) {}
+}
+
+// ── GeoJSON helpers ───────────────────────────────────────────────────────────
+function lineGJ(coords) {
+  return {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coords.length >= 2 ? coords : [[0,0],[0.001,0.001]] }
+  };
+}
+function fcGJ(features) { return { type: 'FeatureCollection', features }; }
+function wpFeat(latlon, role) {
+  if (!latlon) return null;
+  return {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [latlon[1], latlon[0]] },
+    properties: { role }
+  };
+}
+
+// ── Custom data layers (re-created after every style.load) ────────────────────
+function addDataLayers() {
+  // Guide-to-start (dashed gray, shown below main route)
+  if (!map.getSource('guide')) {
+    map.addSource('guide', { type: 'geojson', data: lineGJ(_guideCoords) });
+    map.addLayer({ id: 'guide-line', type: 'line', source: 'guide',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#F5A623', 'line-width': 4, 'line-opacity': 0.85,
+               'line-dasharray': [2, 2] } });
+  }
+
+  // Route
+  if (!map.getSource('route')) {
+    map.addSource('route', { type: 'geojson', data: lineGJ(_routeCoords) });
+    map.addLayer({ id: 'route-case', type: 'line', source: 'route',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#1a6fa8', 'line-width': 10, 'line-opacity': 0.5 } });
+    map.addLayer({ id: 'route-line', type: 'line', source: 'route',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#3daee9', 'line-width': 5, 'line-opacity': 0.9 } });
+  }
+
+  // Waypoints
+  const wpFeats = [wpFeat(_wpStart, 'start'), wpFeat(_wpEnd, 'end')].filter(Boolean);
+  if (!map.getSource('waypoints')) {
+    map.addSource('waypoints', { type: 'geojson', data: fcGJ(wpFeats) });
+    map.addLayer({ id: 'waypoints', type: 'circle', source: 'waypoints',
+      paint: {
+        'circle-radius': 9,
+        'circle-color': ['match', ['get', 'role'], 'start', '#2ec06e', 'via', '#F29A0A', '#e53030'],
+        'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
+      }
+    });
+  }
+
+  // Traffic
+  const trafficFeats = _trafficItems.map(item => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
+    properties: { kind: item.kind, title: item.title }
+  }));
+  const vis = _trafficVisible ? 'visible' : 'none';
+  if (!map.getSource('traffic')) {
+    map.addSource('traffic', { type: 'geojson', data: fcGJ(trafficFeats) });
+    map.addLayer({ id: 'traffic-rw', type: 'circle', source: 'traffic',
+      filter: ['==', ['get', 'kind'], 'roadworks'],
+      paint: { 'circle-radius': 7, 'circle-color': '#F5990A',
+               'circle-stroke-color': '#B36000', 'circle-stroke-width': 2 },
+      layout: { visibility: vis } });
+    map.addLayer({ id: 'traffic-inc', type: 'circle', source: 'traffic',
+      filter: ['==', ['get', 'kind'], 'incidents'],
+      paint: { 'circle-radius': 7, 'circle-color': '#E53030',
+               'circle-stroke-color': '#9A1A1A', 'circle-stroke-width': 2 },
+      layout: { visibility: vis } });
+  }
+
+  // POI
+  const poiVis = _poiVisible ? 'visible' : 'none';
+  if (!map.getSource('poi')) {
+    map.addSource('poi', { type: 'geojson', data: fcGJ([]) });
+    map.addLayer({ id: 'poi-circle', type: 'circle', source: 'poi',
+      paint: {
+        'circle-radius': 6,
+        'circle-color': ['match', ['get', 'cat'],
+          'fuel',    '#2ecc71',
+          'parking', '#3498db',
+          'food',    '#e67e22',
+          'shop',    '#f1c40f',
+          'medical', '#e74c3c',
+          'tourism', '#9b59b6',
+          '#95a5a6'
+        ],
+        'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5,
+      },
+      layout: { visibility: poiVis }
+    });
+    map.addLayer({ id: 'poi-label', type: 'symbol', source: 'poi',
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-size': 10,
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-optional': true,
+        visibility: poiVis,
+      },
+      paint: { 'text-color': '#333', 'text-halo-color': '#fff', 'text-halo-width': 1 }
+    });
+  }
+}
+
+// ── Init (triggered by first GPS fix or explicit call) ────────────────────────
+function initMap(lat, lon) {
+  if (initialized) return;
+  initialized = true;
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style: STYLES.street,
+    center: [lon, lat],
+    zoom: 15,
+    pitch: 0,
+    bearing: 0,
+    antialias: false,        // faster rendering on mobile/embedded GPU
+    fadeDuration: 0,         // tiles appear instantly, no fade-in overhead
+    renderWorldCopies: false, // no duplicate world tiles
+  });
+
+  // Location dot (blue circle)
+  carEl = document.createElement('div');
+  carEl.className = 'car-icon';
+  carEl.innerHTML = `<svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="22" cy="22" r="16" fill="rgba(41,128,185,0.20)"/>
+    <circle cx="22" cy="22" r="9"  fill="white"/>
+    <circle cx="22" cy="22" r="7"  fill="#2980B9"/>
+  </svg>`;
+
+  carMarker = new maplibregl.Marker({ element: carEl, anchor: 'center' })
+    .setLngLat([lon, lat])
+    .addTo(map);
+
+  map.on('style.load', addDataLayers);
+
+  map.on('dragstart', () => {
+    if (followMode) {
+      followMode = false;
+      postToPython({ action: 'follow_off' });
+    }
+  });
+
+  let _poiMoveTimer = null;
+  map.on('moveend', () => {
+    if (!_poiVisible) return;
+    clearTimeout(_poiMoveTimer);
+    _poiMoveTimer = setTimeout(_fetchPoi, 800);
+  });
+}
+
+// ── POI helpers ───────────────────────────────────────────────────────────────
+function _poiCat(tags) {
+  const a = tags.amenity || '';
+  if (a === 'fuel')     return 'fuel';
+  if (a === 'parking')  return 'parking';
+  if (['restaurant','fast_food','cafe'].includes(a)) return 'food';
+  if (a === 'supermarket' || tags.shop) return 'shop';
+  if (['hospital','pharmacy'].includes(a)) return 'medical';
+  if (tags.tourism) return 'tourism';
+  return 'other';
+}
+
+function _fetchPoi() {
+  if (!map || _poiLoading) return;
+  const b = map.getBounds();
+  const bbox = `${b.getSouth().toFixed(5)},${b.getWest().toFixed(5)},${b.getNorth().toFixed(5)},${b.getEast().toFixed(5)}`;
+  const q = `[out:json][timeout:15][bbox:${bbox}];(node["amenity"~"fuel|parking|hospital|pharmacy|restaurant|fast_food|cafe|supermarket"];node["tourism"~"attraction|viewpoint"];node["shop"="convenience"];);out body;`;
+  _poiLoading = true;
+  fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`)
+    .then(r => r.json())
+    .then(data => {
+      const feats = (data.elements || []).map(el => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [el.lon, el.lat] },
+        properties: { name: el.tags.name || '', cat: _poiCat(el.tags) }
+      }));
+      if (map.getSource('poi')) map.getSource('poi').setData(fcGJ(feats));
+    })
+    .catch(() => {})
+    .finally(() => { _poiLoading = false; });
+}
+
+// ── Public API (called from Python) ──────────────────────────────────────────
+function mapSetCar(lat, lon, heading) {
+  if (!initialized) initMap(lat, lon);
+  if (!map) return;
+  _gpsLat = lat; _gpsLon = lon;
+  if (carMarker) carMarker.setLngLat([lon, lat]);
+  if (followMode) {
+    map.easeTo({ center: [lon, lat], bearing: 0, pitch: 0, duration: 200 });
+  }
+}
+
+function mapSetFollow(active) {
+  followMode = active;
+}
+
+function mapSetRoute(coords) {
+  _routeCoords = coords;
+  if (map && map.getSource('route'))
+    map.getSource('route').setData(lineGJ(coords));
+}
+
+function mapSetWaypoints(points) {
+  // points = [[lat,lon], ...] — first=start, last=end, middle=via
+  _wpStart = points.length > 0 ? points[0] : null;
+  _wpEnd   = points.length > 1 ? points[points.length - 1] : null;
+  if (map && map.getSource('waypoints')) {
+    const feats = points.map((pt, i) => {
+      const role = i === 0 ? 'start' : (i === points.length - 1 ? 'end' : 'via');
+      return wpFeat(pt, role);
+    }).filter(Boolean);
+    map.getSource('waypoints').setData(fcGJ(feats));
+  }
+}
+
+function mapClearRoute() {
+  _routeCoords = []; _wpStart = null; _wpEnd = null;
+  mapClearGuideToStart();
+  if (map) {
+    if (map.getSource('route'))     map.getSource('route').setData(lineGJ([]));
+    if (map.getSource('waypoints')) map.getSource('waypoints').setData(fcGJ([]));
+    map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
+  }
+}
+
+function mapSetGuideToStart(coords) {
+  _guideCoords = coords;
+  if (map && map.getSource('guide'))
+    map.getSource('guide').setData(lineGJ(coords));
+}
+
+function mapClearGuideToStart() {
+  _guideCoords = [];
+  if (map && map.getSource('guide'))
+    map.getSource('guide').setData(lineGJ([]));
+}
+
+function mapGoTo(lat, lon, zoom) {
+  if (!initialized) initMap(lat, lon);
+  if (!map) return;
+  map.flyTo({ center: [lon, lat], zoom: zoom, pitch: 0, duration: 900 });
+}
+
+function mapSetRouteVisible(visible) {
+  if (!map) return;
+  const v = visible ? 'visible' : 'none';
+  ['route-case', 'route-line', 'waypoints'].forEach(id => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v);
+  });
+}
+
+function mapFitBounds(minLat, minLon, maxLat, maxLon) {
+  if (!initialized) return;
+  if (!map) return;
+  map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 48, pitch: 0, duration: 900 });
+}
+
+function mapSetStyle(key) {
+  if (!map) return;
+  const style = STYLES[key] || STYLES.street;
+  map.setStyle(style);
+}
+
+function mapSetTraffic(items) {
+  _trafficItems = items;
+  if (map && map.getSource('traffic')) {
+    map.getSource('traffic').setData(fcGJ(items.map(item => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
+      properties: { kind: item.kind, title: item.title }
+    }))));
+  }
+}
+
+function mapSetTrafficVisible(visible) {
+  _trafficVisible = visible;
+  if (!map) return;
+  ['traffic-rw', 'traffic-inc'].forEach(id => {
+    if (map.getLayer(id))
+      map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+  });
+}
+
+function mapSetPoiVisible(visible) {
+  _poiVisible = visible;
+  if (!map) return;
+  ['poi-circle', 'poi-label'].forEach(id => {
+    if (map.getLayer(id))
+      map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+  });
+  if (visible) _fetchPoi();
+}
+
+function mapResize() {
+  if (map) map.resize();
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const mapEl = document.getElementById('map');
+
+  function tryInit() {
+    if (!initialized && mapEl.clientWidth > 0 && mapEl.clientHeight > 0) {
+      initMap(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
+    }
+  }
+
+  // Observe container size — init as soon as we have real dimensions,
+  // then keep resizing on every layout change (tab switch, window resize).
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => {
+      if (!initialized) {
+        tryInit();
+      } else if (map) {
+        map.resize();
+      }
+    }).observe(mapEl);
+  }
+
+  // Also try immediately (works when map tab is the default/active tab).
+  tryInit();
+
+  // Last-resort fallback: poll for a real size during the first 2 s.
+  let _initTries = 0;
+  const _initTimer = setInterval(() => {
+    if (initialized || ++_initTries > 20) { clearInterval(_initTimer); return; }
+    tryInit();
+  }, 100);
+});
+</script>
+</body>
+</html>

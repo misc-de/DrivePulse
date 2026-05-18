@@ -66,7 +66,10 @@ from .dashboard_window import DashboardWindow
 from .icon_registry import register_local_icon
 from .obd_reader import ObdReader
 from .startup_info import print_required_python_packages
+from .diagnostics import get_logger
 
+
+log = get_logger(__name__)
 
 
 class ObdDashboardApp(Adw.Application):
@@ -102,8 +105,10 @@ def _acquire_lock() -> bool:
 
 
 def main() -> int:
+    log.info("DrivePulse startup pid=%s argv=%s cwd=%s", os.getpid(), sys.argv, os.getcwd())
     print_required_python_packages()
     if not _acquire_lock():
+        log.info("DrivePulse startup refused because another instance holds the lock")
         print("DrivePulse is already running.", file=sys.stderr)
         return 1
     signal.signal(signal.SIGINT, signal.SIG_DFL)

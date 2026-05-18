@@ -63,6 +63,7 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
                     entry["total_km"] = float(row["total_km"] or 0.0)
                     entry["label"] = row["label"] or ""
                     break
+        entries = [entry for entry in entries if entry.get("car_id") is not None]
         for row in db_cars:
             vin = row["vin"] or ""
             if vin and vin in seen_vins:
