@@ -61,7 +61,7 @@ from .common import (
 )
 from .gauge import Gauge, GAUGE_THEMES, load_user_themes
 from .dashboard import DashboardCanvas, DASHBOARD_THEMES
-from .acceleration import AccelerationPage
+from .stopwatch import StopWatchPage
 from .dashboard_window import DashboardWindow
 from .icon_registry import register_local_icon
 from .obd_reader import ObdReader

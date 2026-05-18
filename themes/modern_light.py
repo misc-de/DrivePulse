@@ -1,0 +1,20 @@
+"""Modern Light dashboard theme for DrivePulse — inverted palette of Modern."""
+from typing import Any
+
+THEME_TYPE = "dashboard"
+LABEL = {"en": "Modern Light", "de": "Modern Hell"}
+CSS = """
+window.dp-theme-modern-light,
+window.dp-theme-modern-light toolbarview,
+window.dp-theme-modern-light scrolledwindow,
+window.dp-theme-modern-light scrolledwindow > viewport,
+window.dp-theme-modern-light .dp-gauge-bg,
+window.dp-theme-modern-light .dp-gauge-bg > * {
+  background-color: #f0f1f3;
+}"""
+
+from _dp_builtin_modern import _draw_impl
+
+
+def draw(cr: Any, width: int, height: int, data: Any) -> None:
+    _draw_impl(cr, width, height, data, dark=False)

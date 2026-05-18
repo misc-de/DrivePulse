@@ -53,13 +53,13 @@ class DashboardSettingsMixin:
         self.engage_threshold = value
         self._save_settings()
 
-    def _on_acceleration_run_complete(self, results: dict, samples: list) -> None:
+    def _on_stopwatch_run_complete(self, results: dict, samples: list) -> None:
         trip_recorder = getattr(self, "trip_recorder", None)
         car_id = trip_recorder.car_id if trip_recorder else None
         if car_id is None:
             return
         try:
-            self.db.add_acceleration_run(
+            self.db.add_stopwatch_run(
                 car_id=car_id,
                 results=results,
                 samples=samples,
@@ -68,7 +68,7 @@ class DashboardSettingsMixin:
             )
             self.cars_page.refresh_if_showing_car(car_id)
         except Exception:
-            log.exception("Could not persist acceleration run")
+            log.exception("Could not persist stopwatch run")
 
     def _save_units(self) -> None:
         self._save_settings()
@@ -267,7 +267,7 @@ class DashboardSettingsMixin:
         else:
             for gauge in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
                 gauge.set_theme(theme)
-        self.acceleration_page.set_theme(theme)
+        self.stopwatch_page.set_theme(theme)
         self._apply_window_theme(theme)
 
     def _set_mock_mode(self, mock_mode: bool) -> None:
@@ -330,11 +330,11 @@ class DashboardSettingsMixin:
         self.obd_indicator["label"].set_text(_translate(self.language, "status.obd"))
         self.gps_indicator["label"].set_text(_translate(self.language, "status.gps"))
         self.dashboard_stack_page.set_title(_translate(self.language, "nav.gauges"))
-        self.acceleration_stack_page.set_title(_translate(self.language, "nav.acceleration"))
+        self.stopwatch_stack_page.set_title(_translate(self.language, "nav.stopwatch"))
         self.cars_stack_page.set_title(_translate(self.language, "nav.cars"))
         self.map_stack_page.set_title(_translate(self.language, "nav.map"))
         self.dashcam_stack_page.set_title(_translate(self.language, "nav.dashcam"))
-        self.acceleration_page.set_language(self.language)
+        self.stopwatch_page.set_language(self.language)
         self.map_page.set_language(self.language)
         self.dashcam_page.set_language(self.language)
         self.dashboard_canvas.set_language(self.language)

@@ -22,7 +22,7 @@ from .cars_metadata import (
     _wmi_to_brand,
 )
 from .cars_profiles import _load_profiles
-from .cars_accel_runs import CarsAccelRunsMixin
+from .cars_stopwatch_runs import CarsStopWatchRunsMixin
 from .cars_scans import CarsScansMixin
 
 
@@ -38,7 +38,7 @@ class CarsPage(
     CarsDetailRenderMixin,
     CarsTripsMixin,
     CarsScansMixin,
-    CarsAccelRunsMixin,
+    CarsStopWatchRunsMixin,
     Gtk.Box,
 ):
     """Zweistufige Navigation: Fahrzeug-Liste → Werte-Detail."""
@@ -68,7 +68,7 @@ class CarsPage(
         self._scan_detail_pushed = False
         self._scan_detail_page: Adw.NavigationPage | None = None
         self._scan_id_shown: int | None = None
-        self._accel_run_detail_page: Adw.NavigationPage | None = None
+        self._stopwatch_run_detail_page: Adw.NavigationPage | None = None
         self._live_row: Adw.ActionRow | None = None
         self._add_live_vehicle_btn: Gtk.Button | None = None
         self._last_live_detail_render = -self.LIVE_DETAIL_RENDER_INTERVAL_S
@@ -274,7 +274,7 @@ class CarsPage(
 
     # ---------------------------------------------------- Detail-Navigation
 
-    _LIVE_HIDDEN_CATS = frozenset({"trips", "acceleration_runs", "scans"})
+    _LIVE_HIDDEN_CATS = frozenset({"trips", "stopwatch_runs", "scans"})
 
     def _update_category_visibility(self, is_live: bool) -> None:
         for row in self._cat_rows:
@@ -343,9 +343,9 @@ class CarsPage(
                 self._render_detail()
             if self._detail_pushed and self._selected_car_id is not None:
                 self._set_trash(self._confirm_delete_vehicle)
-        if page is self._accel_run_detail_page:
-            self._accel_run_detail_page = None
-            if self._detail_pushed and self._selected_category == "acceleration_runs":
+        if page is self._stopwatch_run_detail_page:
+            self._stopwatch_run_detail_page = None
+            if self._detail_pushed and self._selected_category == "stopwatch_runs":
                 self._render_detail()
             if self._detail_pushed and self._selected_car_id is not None:
                 self._set_trash(self._confirm_delete_vehicle)

@@ -20,7 +20,7 @@ def test_db_returns_empty_scan_data_for_invalid_json(tmp_path):
         db.close()
 
 
-def test_db_returns_empty_acceleration_run_for_invalid_json(tmp_path):
+def test_db_returns_empty_stopwatch_run_for_invalid_json(tmp_path):
     from drivepulse_app.db import DriveDB
 
     db = DriveDB(tmp_path / "drivepulse.sqlite3")
@@ -34,7 +34,7 @@ def test_db_returns_empty_acceleration_run_for_invalid_json(tmp_path):
             db._conn.commit()
             run_id = int(cur.lastrowid)
 
-        assert db.get_acceleration_run(run_id) == {}
+        assert db.get_stopwatch_run(run_id) == {}
     finally:
         db.close()
 

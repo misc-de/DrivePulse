@@ -1,4 +1,4 @@
-"""G-force canvas used by the acceleration page."""
+"""G-force canvas used by the StopWatch page."""
 from __future__ import annotations
 
 import math
