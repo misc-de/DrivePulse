@@ -218,6 +218,9 @@ class DashcamPage(Gtk.Box):
             on_error=lambda msg:       GLib.idle_add(self._show_error, msg),
         )
 
+        # Called on the GTK main thread whenever recording starts or stops.
+        self.on_recording_changed: "Callable[[bool], None] | None" = None
+
         self._tick_source:   int | None = None
         self._dim_source:    int | None = None
         self._dim_timeout_s: int = _DIM_DEFAULT_S
@@ -273,6 +276,7 @@ class DashcamPage(Gtk.Box):
         self._preview_pic.set_hexpand(True)
         self._preview_pic.set_vexpand(True)
         self._preview_pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+        self._preview_pic.set_can_shrink(True)
         cam_overlay.set_child(self._preview_pic)
 
         # "No camera" icon — hidden on first frame
@@ -314,15 +318,7 @@ class DashcamPage(Gtk.Box):
         bar_wrap.set_hexpand(True)
         inner_tv.add_bottom_bar(bar_wrap)
 
-        self._bottom_stack = Gtk.Stack()
-        self._bottom_stack.set_hexpand(True)
-        self._bottom_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        self._bottom_stack.set_transition_duration(120)
-        bar_wrap.append(self._bottom_stack)
-
-        self._bottom_stack.add_named(self._build_portrait_controls(), "portrait")
-        self._bottom_stack.add_named(self._build_landscape_controls(), "landscape")
-        self._bottom_stack.set_visible_child_name("portrait")
+        bar_wrap.append(self._build_controls())
         self._update_toggle_btn()
 
         # ── Lock / dim screen — covers entire outer overlay ───────────────────
@@ -334,20 +330,14 @@ class DashcamPage(Gtk.Box):
         self._lock_overlay.set_valign(Gtk.Align.FILL)
         self._lock_overlay.set_visible(False)
 
-        lock_icon = Gtk.Image.new_from_icon_name("starred-symbolic")
-        lock_icon.set_pixel_size(48)
         lock_btn_lbl = Gtk.Label()
         lock_btn_lbl.add_css_class("title-1")
         self._lock_btn_lbl = lock_btn_lbl
         self._update_lock_btn_label()
-        lock_btn_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        lock_btn_inner.set_halign(Gtk.Align.CENTER)
-        lock_btn_inner.append(lock_icon)
-        lock_btn_inner.append(lock_btn_lbl)
 
         self._lock_save_btn = Gtk.Button()
-        self._lock_save_btn.set_child(lock_btn_inner)
-        self._lock_save_btn.set_size_request(200, 140)
+        self._lock_save_btn.set_child(lock_btn_lbl)
+        self._lock_save_btn.set_size_request(200, 80)
         self._lock_save_btn.add_css_class("destructive-action")
         self._lock_save_btn.add_css_class("pill")
         self._lock_save_btn.set_halign(Gtk.Align.CENTER)
@@ -369,7 +359,7 @@ class DashcamPage(Gtk.Box):
         )
         self._preview.start()
 
-    def _build_portrait_controls(self) -> Gtk.Widget:
+    def _build_controls(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_hexpand(True)
 
@@ -397,74 +387,20 @@ class DashcamPage(Gtk.Box):
         self._toggle_btns.append(toggle_btn)
         btn_row.append(toggle_btn)
 
-        save_btn = Gtk.Button()
+        save_btn = Gtk.Button(label=_translate(self.language, "dashcam.btn.save"))
         save_btn.set_sensitive(False)
         save_btn.set_hexpand(True)
         save_btn.add_css_class("pill")
-        save_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        save_inner.append(Gtk.Image.new_from_icon_name("starred-symbolic"))
-        save_inner.append(Gtk.Label(label=_translate(self.language, "dashcam.btn.save")))
-        save_btn.set_child(save_inner)
         save_btn.connect("clicked", self._on_save_event)
         self._save_btns.append(save_btn)
         btn_row.append(save_btn)
 
         self._clips_popover = self._build_clips_popover()
-        clips_btn = Gtk.MenuButton()
+        clips_btn = Gtk.MenuButton(label=_translate(self.language, "dashcam.saved.title"))
         clips_btn.set_popover(self._clips_popover)
         self._clips_popover.connect("show", lambda _: self._update_saved_list())
-        clips_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        clips_inner.append(Gtk.Image.new_from_icon_name("folder-videos-symbolic"))
-        clips_inner.append(Gtk.Label(label=_translate(self.language, "dashcam.saved.title")))
-        clips_btn.set_child(clips_inner)
         clips_btn.add_css_class("pill")
         btn_row.append(clips_btn)
-
-        box.append(btn_row)
-        return box
-
-    def _build_landscape_controls(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.set_hexpand(True)
-
-        info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        info_box.set_valign(Gtk.Align.CENTER)
-        info_box.set_hexpand(True)
-
-        status_lbl = Gtk.Label()
-        status_lbl.add_css_class("dc-status")
-        status_lbl.set_halign(Gtk.Align.START)
-        self._status_lbls.append(status_lbl)
-        info_box.append(status_lbl)
-
-        elapsed_lbl = Gtk.Label()
-        elapsed_lbl.add_css_class("dc-status")
-        elapsed_lbl.set_halign(Gtk.Align.START)
-        elapsed_lbl.set_visible(False)
-        self._elapsed_lbls.append(elapsed_lbl)
-        info_box.append(elapsed_lbl)
-
-        box.append(info_box)
-
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_row.set_valign(Gtk.Align.CENTER)
-
-        toggle_btn = Gtk.Button()
-        toggle_btn.add_css_class("pill")
-        toggle_btn.connect("clicked", self._on_toggle)
-        self._toggle_btns.append(toggle_btn)
-        btn_row.append(toggle_btn)
-
-        save_btn = Gtk.Button()
-        save_btn.set_sensitive(False)
-        save_btn.add_css_class("pill")
-        save_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        save_inner.append(Gtk.Image.new_from_icon_name("starred-symbolic"))
-        save_inner.append(Gtk.Label(label=_translate(self.language, "dashcam.btn.save")))
-        save_btn.set_child(save_inner)
-        save_btn.connect("clicked", self._on_save_event)
-        self._save_btns.append(save_btn)
-        btn_row.append(save_btn)
 
         box.append(btn_row)
         return box
@@ -529,17 +465,22 @@ class DashcamPage(Gtk.Box):
         if path:
             self._recorder.protected_dir = Path(path)
 
+    def set_gps_osd(self, enabled: bool) -> None:
+        self._recorder.gps_osd = enabled
+
+    def set_units(self, units: str) -> None:
+        self._recorder.units = units
+
+    def update_gps(self, lat: float | None, lon: float | None, speed_kmh: float | None) -> None:
+        self._recorder.update_gps(lat, lon, speed_kmh)
+
     # ── Orientation (from dashboard_window orientation sensor) ────────────────
 
     def update_orientation(self, angle: int, is_landscape: bool) -> None:
         # Only update recording metadata so video players show the file upright.
         # The live preview is never rotated — "Quer bleibt Quer".
         self._recorder.rotation = angle
-        if is_landscape != self._is_landscape:
-            self._is_landscape = is_landscape
-            self._bottom_stack.set_visible_child_name(
-                "landscape" if is_landscape else "portrait"
-            )
+        self._is_landscape = is_landscape
 
     # ── Dim / lock screen ─────────────────────────────────────────────────────
 
@@ -606,6 +547,8 @@ class DashcamPage(Gtk.Box):
             self._rec_bar.set_visible(True)
         self._update_toggle_btn()
         self._update_status()
+        if self.on_recording_changed is not None:
+            self.on_recording_changed(self._recorder.is_recording)
 
     def _on_save_event(self, _btn: Gtk.Button) -> None:
         self._do_save_event()
@@ -671,13 +614,9 @@ class DashcamPage(Gtk.Box):
 
     def _update_toggle_btn(self) -> None:
         rec = self._recorder.is_recording
-        icon_name = "media-playback-stop-symbolic" if rec else "media-record-symbolic"
-        label_key = "dashcam.btn.stop" if rec else "dashcam.btn.start"
+        label = _translate(self.language, "dashcam.btn.stop" if rec else "dashcam.btn.start")
         for btn in self._toggle_btns:
-            inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            inner.append(Gtk.Image.new_from_icon_name(icon_name))
-            inner.append(Gtk.Label(label=_translate(self.language, label_key)))
-            btn.set_child(inner)
+            btn.set_label(label)
             if rec:
                 btn.remove_css_class("suggested-action")
                 btn.add_css_class("destructive-action")

@@ -138,17 +138,23 @@ class DashboardTelemetryMixin:
                 self._last_gps_lat = lat
             if lon is not None:
                 self._last_gps_lon = lon
+            # Connected when we have a position fix — speed may be absent at standstill.
+            gps_has_fix = lat is not None
+            if gps_has_fix or gps_speed_kmh is not None:
+                self._gps_last_seen = time.monotonic()
+            self._set_link_indicator(self.gps_indicator, gps_has_fix or gps_speed_kmh is not None, False)
             trip_recorder = getattr(self, "trip_recorder", None)
             if trip_recorder is not None:
                 trip_recorder.update_gps(
                     lat=lat, lon=lon, altitude_m=altitude_m,
                     heading_deg=gps_heading, gps_speed_kmh=gps_speed_kmh,
                 )
-            self._set_link_indicator(self.gps_indicator, self._gps_connected_with_holdover(gps_speed_kmh), False)
             self.acceleration_page.update_payload(payload, self._plain_number)
             self.cars_page.update_live(payload)
             if hasattr(self, "map_page"):
                 self.map_page.update_gps(lat, lon, gps_heading)
+            if hasattr(self, "dashcam_page"):
+                self.dashcam_page.update_gps(lat, lon, gps_speed_kmh)
             if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
                 display = self._display_speed(gps_speed_kmh)
                 src_gps = _translate(self.language, "gauge.source.gps")
