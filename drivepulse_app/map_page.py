@@ -707,8 +707,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._set_tour_button("resume")
         if self._backend == "webkit":
             self._js("mapSetTourActive(false)")
-        if self._maneuver_overlay is not None:
-            self._maneuver_overlay.set_visible(False)
+        # Maneuver overlay stays visible so the driver can still see the next
+        # instruction while paused.
         if self._on_tour_stopped is not None:
             self._on_tour_stopped()
 
