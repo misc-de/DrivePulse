@@ -372,5 +372,18 @@
   "settings.app.update_btn": "Update {version} einspielen",
   "settings.app.updating": "Aktualisiere…",
   "settings.app.update_done": "Update eingespielt – Neustart empfohlen",
-  "settings.app.update_error": "Update fehlgeschlagen"
+  "settings.app.update_error": "Update fehlgeschlagen",
+  "settings.tts": "Sprachführung",
+  "settings.tts.enabled": "Sprachführung aktivieren",
+  "settings.tts.enabled.subtitle": "Liest Navigationshinweise per espeak-ng vor",
+  "settings.tts.language": "Sprachausgabe-Sprache",
+  "settings.tts.language.auto": "App-Sprache verwenden",
+  "settings.tts.language.en": "Englisch",
+  "settings.tts.language.de": "Deutsch",
+  "settings.tts.voice": "Stimme",
+  "settings.tts.voice.male": "Männlich",
+  "settings.tts.voice.female": "Weiblich",
+  "tts.in_distance": "In {distance},",
+  "tts.distance.m": "{n} Metern",
+  "tts.distance.km": "{n} Kilometern"
 }

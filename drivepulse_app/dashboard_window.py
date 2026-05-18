@@ -80,6 +80,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.nav_position: str = self.settings.get("nav_position", "bottom")
         self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
         self.rotation_mode: str = self.settings.get("rotation_mode", "follow_sensor")
+        self.tts_enabled: bool = bool(self.settings.get("tts_enabled", False))
+        self.tts_language: str = self.settings.get("tts_language", "auto")
+        self.tts_voice: str = self.settings.get("tts_voice", "female")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -221,6 +224,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             on_tour_stopped=self._on_tour_stopped,
             on_tour_resumed=self._on_tour_resumed,
         )
+        self.map_page.set_tts_enabled(bool(self.settings.get("tts_enabled", False)))
+        self.map_page.set_tts_language(self.settings.get("tts_language", "auto"))
+        self.map_page.set_tts_voice(self.settings.get("tts_voice", "female"))
         self._map_rotator = RotatedContainer()
         self._map_rotator.set_child(self.map_page)
         self._map_rotator.set_hexpand(True)
