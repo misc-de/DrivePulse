@@ -32,11 +32,15 @@ except Exception:
 
 
 class _CameraPreview:
-    """GStreamer appsink preview. Polls frames at ~15 fps into a Gtk.Picture."""
+    """
+    GStreamer camera preview wired into a Gtk.Picture.
 
-    _FPS_MS = 67   # ~15 fps
-    _CAP_W  = 640
-    _CAP_H  = 480
+    Tries pipelines in order — gtk4paintablesink (GPU, no CPU copy) first,
+    appsink (CPU frame-poll) as fallback — across multiple source elements
+    so it works on V4L2, PipeWire (Furios/Halium) and libcamera devices.
+    """
+
+    _FPS_MS = 67   # appsink poll interval ≈15 fps
 
     # device rotation angle → videoflip method index
     _FLIP_MAP = {0: 0, 90: 1, 180: 2, 270: 3}
@@ -45,16 +49,18 @@ class _CameraPreview:
         self,
         picture: Gtk.Picture,
         on_first_frame: "Callable[[], None] | None" = None,
+        on_all_failed:  "Callable[[str], None] | None" = None,
     ) -> None:
-        self._picture       = picture
+        self._picture        = picture
         self._on_first_frame = on_first_frame
-        self._pipeline      = None
-        self._sink          = None
-        self._timer:  int | None = None
-        self._camera = "/dev/video0"
-        self._flip   = 0
+        self._on_all_failed  = on_all_failed
+        self._pipeline       = None
+        self._sink           = None        # only set for appsink mode
+        self._timer: int | None = None
+        self._camera    = "/dev/video0"
+        self._flip      = 0
         self._got_frame = False
-        self._pending_sources: list[str] = []
+        self._attempts: list[tuple[str, bool]] = []   # (desc, is_paintable)
 
     def set_camera(self, device: str) -> None:
         was_running = self._pipeline is not None
@@ -74,56 +80,99 @@ class _CameraPreview:
         if not _GST_OK or self._pipeline is not None:
             return
         self._got_frame = False
-        # v4l2src for direct V4L2 nodes; autovideosrc auto-picks PipeWire on Furios
-        self._pending_sources = [f"v4l2src device={self._camera}", "autovideosrc"]
-        self._try_next_source()
+        self._attempts  = self._build_attempts()
+        log.debug("Camera preview: %d pipeline(s) to try", len(self._attempts))
+        self._try_next()
 
-    def _try_next_source(self) -> None:
-        if not self._pending_sources:
-            log.warning("No working camera source found for preview")
-            return
-        src = self._pending_sources.pop(0)
+    def _build_attempts(self) -> "list[tuple[str, bool]]":
+        cam  = self._camera
         flip = f"videoflip method={self._flip} ! " if self._flip else ""
-        desc = (
-            f"{src} ! videoconvert "
-            f"! video/x-raw,format=RGB,width={self._CAP_W},height={self._CAP_H},framerate=15/1 "
-            f"! {flip}appsink name=sink max-buffers=1 drop=true sync=false"
-        )
+        # Sources in priority order: PipeWire (Furios/Halium) → libcamera → V4L2 → auto
+        sources = [
+            "pipewiresrc",
+            "libcamerasrc",
+            f"v4l2src device={cam}",
+            "autovideosrc",
+        ]
+        out: list[tuple[str, bool]] = []
+        for src in sources:
+            # gtk4paintablesink: GPU-native GTK4 rendering, no CPU copy
+            out.append((
+                f"{src} ! videoconvert ! {flip}"
+                f"gtk4paintablesink name=sink sync=false",
+                True,
+            ))
+            # appsink: CPU frame-copy fallback
+            out.append((
+                f"{src} ! videoconvert ! video/x-raw,format=RGB ! {flip}"
+                f"appsink name=sink max-buffers=1 drop=true sync=false",
+                False,
+            ))
+        return out
+
+    def _try_next(self) -> None:
+        if not self._attempts:
+            msg = "Keine Kameraquelle gefunden"
+            log.warning("Camera preview: all pipelines exhausted")
+            if self._on_all_failed:
+                self._on_all_failed(msg)
+            return
+
+        desc, is_paintable = self._attempts.pop(0)
+        log.debug("Trying pipeline: %s", desc)
         try:
             pipeline = Gst.parse_launch(desc)
-            bus = pipeline.get_bus()
-            bus.add_signal_watch()
-            bus.connect("message::error", self._on_bus_error)
-            pipeline.set_state(Gst.State.PLAYING)
-            self._pipeline = pipeline
-            self._sink = pipeline.get_by_name("sink")
-            self._timer = GLib.timeout_add(self._FPS_MS, self._pull)
-            log.debug("Camera preview started with: %s", src)
         except Exception as exc:
-            log.warning("Camera preview pipeline failed (%s): %s", src, exc)
-            GLib.idle_add(self._try_next_source)
+            log.debug("parse_launch failed: %s", exc)
+            GLib.idle_add(self._try_next)
+            return
+
+        sink_el = pipeline.get_by_name("sink")
+
+        if is_paintable:
+            try:
+                paintable = sink_el.get_property("paintable")
+                self._picture.set_paintable(paintable)
+                paintable.connect("invalidate-contents", self._on_paintable_updated)
+            except Exception as exc:
+                log.debug("gtk4paintablesink property error: %s", exc)
+                pipeline.set_state(Gst.State.NULL)
+                GLib.idle_add(self._try_next)
+                return
+        else:
+            self._sink  = sink_el
+            self._timer = GLib.timeout_add(self._FPS_MS, self._pull)
+
+        bus = pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message::error", self._on_bus_error)
+        pipeline.set_state(Gst.State.PLAYING)
+        self._pipeline = pipeline
+        log.info("Camera preview running: %s", desc.split("!")[0].strip())
+
+    def _on_paintable_updated(self, _paintable: Any) -> None:
+        if not self._got_frame:
+            self._got_frame = True
+            if self._on_first_frame:
+                GLib.idle_add(self._on_first_frame)
 
     def _on_bus_error(self, _bus: Any, msg: Any) -> None:
-        err, debug = msg.parse_error()
-        log.warning("GStreamer pipeline error: %s — %s", err, debug)
-        # Tear down current pipeline and try the next source
+        err, _debug = msg.parse_error()
+        log.debug("Pipeline error: %s — trying next", err)
+        self._teardown_pipeline()
+        GLib.idle_add(self._try_next)
+
+    def _teardown_pipeline(self) -> None:
         if self._timer is not None:
             GLib.source_remove(self._timer)
             self._timer = None
         if self._pipeline is not None:
             self._pipeline.set_state(Gst.State.NULL)
             self._pipeline = None
-            self._sink = None
-        GLib.idle_add(self._try_next_source)
+        self._sink = None
 
     def stop(self) -> None:
-        if self._timer is not None:
-            GLib.source_remove(self._timer)
-            self._timer = None
-        if self._pipeline is not None:
-            self._pipeline.set_state(Gst.State.NULL)
-            self._pipeline = None
-            self._sink = None
+        self._teardown_pipeline()
 
     def _pull(self) -> bool:
         if self._sink is None:
@@ -331,7 +380,11 @@ class DashcamPage(Gtk.Box):
         overlay.add_overlay(self._lock_overlay)
 
         # ── GStreamer preview ─────────────────────────────────────────────────
-        self._preview = _CameraPreview(self._preview_pic, on_first_frame=self._on_first_frame)
+        self._preview = _CameraPreview(
+            self._preview_pic,
+            on_first_frame=self._on_first_frame,
+            on_all_failed=self._on_preview_failed,
+        )
         self._preview.start()
 
     def _build_clips_popover(self) -> Gtk.Popover:
@@ -360,6 +413,9 @@ class DashcamPage(Gtk.Box):
 
     def _on_first_frame(self) -> None:
         self._no_cam_icon.set_visible(False)
+
+    def _on_preview_failed(self, msg: str) -> None:
+        self._status_lbl.set_text(msg)
 
     # ── Public setters (called from dashboard_settings) ───────────────────────
 

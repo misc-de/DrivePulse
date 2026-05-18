@@ -265,7 +265,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.header = header
         self.switcher_bar = switcher_bar
         toolbar_view.add_top_bar(header)
-        toolbar_view.add_bottom_bar(switcher_bar)
+        toolbar_view.add_top_bar(switcher_bar)
         toolbar_view.set_content(self.view_stack)
 
         self._nav_visible = True
