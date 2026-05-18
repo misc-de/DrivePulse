@@ -20,6 +20,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "engage_threshold": 0.20,
     "theme_mode": "auto",
     "force_webkit_map": False,
+    "dashcam_camera": "/dev/video0",
+    "dashcam_resolution": "1280x720",
+    "dashcam_seg_minutes": 3,
+    "dashcam_max_segments": 10,
+    "dashcam_dim_timeout": 30,
 }
 
 
@@ -54,6 +59,11 @@ def load_settings() -> dict[str, Any]:
         "force_webkit_map": bool(data.get("force_webkit_map", DEFAULT_SETTINGS["force_webkit_map"])),
         "sidebar_side": data.get("sidebar_side", "left") if data.get("sidebar_side") in {"left", "right"} else "left",
         "last_update_check": data.get("last_update_check") or None,
+        "dashcam_camera": data.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
+        "dashcam_resolution": data.get("dashcam_resolution") or DEFAULT_SETTINGS["dashcam_resolution"],
+        "dashcam_seg_minutes": max(1, min(30, int(data.get("dashcam_seg_minutes", 3)))),
+        "dashcam_max_segments": max(2, min(60, int(data.get("dashcam_max_segments", 10)))),
+        "dashcam_dim_timeout": max(0, min(300, int(data.get("dashcam_dim_timeout", 30)))),
     }
 
 
@@ -73,6 +83,11 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "force_webkit_map": bool(settings.get("force_webkit_map", False)),
                 "sidebar_side": settings.get("sidebar_side", "left") if settings.get("sidebar_side") in {"left", "right"} else "left",
                 "last_update_check": settings.get("last_update_check") or None,
+                "dashcam_camera": settings.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
+                "dashcam_resolution": settings.get("dashcam_resolution") or DEFAULT_SETTINGS["dashcam_resolution"],
+                "dashcam_seg_minutes": max(1, min(30, int(settings.get("dashcam_seg_minutes", 3)))),
+                "dashcam_max_segments": max(2, min(60, int(settings.get("dashcam_max_segments", 10)))),
+                "dashcam_dim_timeout": max(0, min(300, int(settings.get("dashcam_dim_timeout", 30)))),
             },
             indent=2,
         ),

@@ -12,7 +12,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
-from .dashcam_recorder import RESOLUTIONS, DashcamRecorder, list_cameras
+from .dashcam_recorder import DashcamRecorder, list_cameras
 from .diagnostics import get_logger
 
 log = get_logger(__name__)
@@ -71,7 +71,6 @@ class DashcamPage(Gtk.Box):
         root.append(self._build_indicator())
         root.append(self._build_actions())
         root.append(self._build_status_card())
-        root.append(self._build_settings_group())
         root.append(self._build_saved_group())
 
         # Activity detection on the normal UI
@@ -214,57 +213,25 @@ class DashcamPage(Gtk.Box):
         frame.set_child(grid)
         return frame
 
-    def _build_settings_group(self) -> Gtk.Widget:
-        grp = Adw.PreferencesGroup()
-        grp.set_title(_translate(self.language, "dashcam.settings.title"))
+    # ── Public setters (called by dashboard_settings via settings dialog) ────
 
-        # Camera
-        self._cam_row = Adw.ComboRow()
-        self._cam_row.set_title(_translate(self.language, "dashcam.settings.camera"))
-        grp.add(self._cam_row)
+    def set_camera(self, camera: str) -> None:
+        self._recorder.camera = camera
 
-        # Resolution
-        self._res_row = Adw.ComboRow()
-        self._res_row.set_title(_translate(self.language, "dashcam.settings.resolution"))
-        self._res_row.set_model(Gtk.StringList.new(RESOLUTIONS))
-        self._res_row.set_selected(1)
-        self._res_row.connect("notify::selected", self._on_res_changed)
-        grp.add(self._res_row)
+    def set_resolution(self, resolution: str) -> None:
+        self._recorder.resolution = resolution
 
-        # Segment length
-        seg_adj = Gtk.Adjustment(value=3, lower=1, upper=30, step_increment=1)
-        self._seg_spin = Gtk.SpinButton(adjustment=seg_adj, climb_rate=1, digits=0)
-        self._seg_spin.connect("value-changed", self._on_seg_len_changed)
-        seg_row = Adw.ActionRow()
-        seg_row.set_title(_translate(self.language, "dashcam.settings.seg_len"))
-        seg_row.set_subtitle(_translate(self.language, "dashcam.settings.seg_len_sub"))
-        seg_row.add_suffix(self._seg_spin)
-        seg_row.set_activatable_widget(self._seg_spin)
-        grp.add(seg_row)
+    def set_segment_minutes(self, minutes: int) -> None:
+        self._recorder.segment_minutes = minutes
 
-        # Max segments
-        max_adj = Gtk.Adjustment(value=10, lower=2, upper=60, step_increment=1)
-        self._max_spin = Gtk.SpinButton(adjustment=max_adj, climb_rate=1, digits=0)
-        self._max_spin.connect("value-changed", self._on_max_seg_changed)
-        max_row = Adw.ActionRow()
-        max_row.set_title(_translate(self.language, "dashcam.settings.max_seg"))
-        max_row.set_subtitle(_translate(self.language, "dashcam.settings.max_seg_sub"))
-        max_row.add_suffix(self._max_spin)
-        max_row.set_activatable_widget(self._max_spin)
-        grp.add(max_row)
+    def set_max_segments(self, max_seg: int) -> None:
+        self._recorder.max_segments = max_seg
 
-        # Screen dim timeout
-        dim_adj = Gtk.Adjustment(value=_DIM_DEFAULT_S, lower=0, upper=300, step_increment=5)
-        self._dim_spin = Gtk.SpinButton(adjustment=dim_adj, climb_rate=1, digits=0)
-        self._dim_spin.connect("value-changed", self._on_dim_timeout_changed)
-        dim_row = Adw.ActionRow()
-        dim_row.set_title(_translate(self.language, "dashcam.settings.dim_timeout"))
-        dim_row.set_subtitle(_translate(self.language, "dashcam.settings.dim_timeout_sub"))
-        dim_row.add_suffix(self._dim_spin)
-        dim_row.set_activatable_widget(self._dim_spin)
-        grp.add(dim_row)
-
-        return grp
+    def set_dim_timeout(self, seconds: int) -> None:
+        self._dim_timeout_s = seconds
+        self._stop_dim_timer()
+        if self._recorder.is_recording:
+            self._reset_dim_timer()
 
     def _build_saved_group(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
