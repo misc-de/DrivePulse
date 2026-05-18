@@ -438,9 +438,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # tour is recorded end-to-end regardless of which tab is in front.
         prev = getattr(self, "_last_visible_page", None)
         if page == self.PAGE_DASHCAM:
+            self._enable_auto_rotation()
             self.dashcam_page.on_shown()
         elif prev == self.PAGE_DASHCAM:
             self.dashcam_page.on_hidden()
+            self._disable_auto_rotation()
         self._last_visible_page = page
 
     # Hold the simulated drive for this long after the tour starts, matching
@@ -543,6 +545,30 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 ["gsettings", "set", schema, key, previous],
                 timeout=2, capture_output=True,
             )
+        except Exception:
+            pass
+
+    def _enable_auto_rotation(self) -> None:
+        """Temporarily re-enable OS screen rotation for the dashcam page."""
+        if self._saved_rotation_setting is None:
+            return
+        import subprocess
+        schema, key, _original = self._saved_rotation_setting
+        unlock_value = "true" if schema == "org.gnome.settings-daemon.plugins.orientation" else "false"
+        try:
+            subprocess.run(["gsettings", "set", schema, key, unlock_value], timeout=2, capture_output=True)
+        except Exception:
+            pass
+
+    def _disable_auto_rotation(self) -> None:
+        """Re-lock screen rotation after leaving the dashcam page."""
+        if self._saved_rotation_setting is None:
+            return
+        import subprocess
+        schema, key, _original = self._saved_rotation_setting
+        lock_value = "false" if schema == "org.gnome.settings-daemon.plugins.orientation" else "true"
+        try:
+            subprocess.run(["gsettings", "set", schema, key, lock_value], timeout=2, capture_output=True)
         except Exception:
             pass
 
