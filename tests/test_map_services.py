@@ -10,6 +10,14 @@ def test_format_duration():
     assert format_distance(30_000) == "30 km"
     assert format_distance(12_500) == "12.5 km"
     assert format_distance(1_250) == "1.2 km"
+    # Sub-kilometre distances render in metres, not "0.x km".
+    assert format_distance(820) == "820 m"
+    assert format_distance(47) == "50 m"
+    assert format_distance(999) == "1000 m"
+    # Imperial: feet under ~0.2 mi, miles otherwise.
+    assert format_distance(150, "imperial") == "490 ft"
+    assert format_distance(2_500, "imperial") == "1.6 mi"
+    assert format_distance(50_000, "imperial") == "31.1 mi"
 
 
 def test_geocode_handles_empty_and_malformed_responses():

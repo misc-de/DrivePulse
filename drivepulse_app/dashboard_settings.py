@@ -219,6 +219,8 @@ class DashboardSettingsMixin:
         self._save_units()
         self.dashboard_canvas.set_units(units)
         self.dashcam_page.set_units(units)
+        if hasattr(self, "map_page"):
+            self.map_page.set_units(units)
 
         if self.units == "metric":
             self.speed_gauge.state.unit = "km/h"

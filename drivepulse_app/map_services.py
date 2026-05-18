@@ -170,8 +170,22 @@ def format_duration(seconds: float) -> str:
     return f"{m}min"
 
 
-def format_distance(meters: float) -> str:
-    km = max(0.0, meters / 1000.0)
+def format_distance(meters: float, units: str = "metric") -> str:
+    meters = max(0.0, meters)
+    if units == "imperial":
+        miles = meters / 1609.344
+        if miles < 0.2:
+            # Below ~320 m, switch to feet rounded to a friendly 10 ft step.
+            feet = meters * 3.28084
+            return f"{int(round(feet / 10) * 10)} ft"
+        if miles >= 10 and abs(miles - round(miles)) < 0.05:
+            return f"{miles:.0f} mi"
+        return f"{miles:.1f} mi"
+    # metric
+    if meters < 1000:
+        # Show metres directly (rounded to 10 m) instead of "0.x km".
+        return f"{int(round(meters / 10) * 10)} m"
+    km = meters / 1000.0
     if km >= 10 and abs(km - round(km)) < 0.05:
         return f"{km:.0f} km"
     return f"{km:.1f} km"
