@@ -70,6 +70,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_dim_timeout: int = int(self.settings.get("dashcam_dim_timeout", 30))
         self.dashcam_rolling_dir: str = self.settings.get("dashcam_rolling_dir", "")
         self.dashcam_saved_dir: str = self.settings.get("dashcam_saved_dir", "")
+        self.nav_position: str = self.settings.get("nav_position", "bottom")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -262,10 +263,17 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         header.pack_end(self._sync_btn)
         header.pack_end(self._ctx_trash_btn)
 
-        self.header = header
-        self.switcher_bar = switcher_bar
+        switcher_top = Adw.ViewSwitcherBar()
+        switcher_top.set_stack(self.view_stack)
+
+        self.header        = header
+        self.switcher_bar  = switcher_bar        # bottom bar (default)
+        self.switcher_top  = switcher_top
+        self.toolbar_view  = toolbar_view
         toolbar_view.add_top_bar(header)
-        toolbar_view.add_top_bar(switcher_bar)
+        toolbar_view.add_top_bar(switcher_top)
+        toolbar_view.add_bottom_bar(switcher_bar)
+        self._apply_nav_position(self.nav_position)
         toolbar_view.set_content(self.view_stack)
 
         self._nav_visible = True
@@ -406,6 +414,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
         else:
             manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
+
+    def _apply_nav_position(self, position: str) -> None:
+        at_top = position == "top"
+        self.switcher_top.set_reveal(at_top)
+        self.switcher_bar.set_reveal(not at_top)
 
     def _apply_window_theme(self, theme: str) -> None:
         for cls in list(self.get_css_classes()):

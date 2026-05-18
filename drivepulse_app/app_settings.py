@@ -29,6 +29,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "dashcam_dim_timeout": 30,
     "dashcam_rolling_dir": str(_DASHCAM_BASE / "rolling"),
     "dashcam_saved_dir": str(_DASHCAM_BASE / "saved"),
+    "nav_position": "bottom",
 }
 
 
@@ -70,6 +71,7 @@ def load_settings() -> dict[str, Any]:
         "dashcam_dim_timeout": max(0, min(300, int(data.get("dashcam_dim_timeout", 30)))),
         "dashcam_rolling_dir": data.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
         "dashcam_saved_dir": data.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
+        "nav_position": data.get("nav_position", "bottom") if data.get("nav_position") in {"top", "bottom"} else "bottom",
     }
 
 
@@ -96,6 +98,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "dashcam_dim_timeout": max(0, min(300, int(settings.get("dashcam_dim_timeout", 30)))),
                 "dashcam_rolling_dir": settings.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
                 "dashcam_saved_dir": settings.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
+                "nav_position": settings.get("nav_position", "bottom") if settings.get("nav_position") in {"top", "bottom"} else "bottom",
             },
             indent=2,
         ),
