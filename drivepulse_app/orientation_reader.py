@@ -30,9 +30,9 @@ class OrientationReader:
 
     _MAP: dict[str, tuple[int, bool]] = {
         "normal":    (0,   False),
-        "right-up":  (90,  True),
+        "right-up":  (270, True),
         "bottom-up": (180, False),
-        "left-up":   (270, True),
+        "left-up":   (90,  True),
     }
 
     # Binary protocol constants for sensorfwd socket
