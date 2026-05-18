@@ -78,3 +78,4 @@ def test_load_settings_ignores_invalid_json(monkeypatch, tmp_path, drivepulse_mo
 
     assert settings["units"] == "metric"
     assert settings["language"] in {"en", "de"}
+    assert settings["force_webkit_map"] is False
