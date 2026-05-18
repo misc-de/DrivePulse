@@ -574,8 +574,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def _refresh_3d_btn(self) -> None:
         if self._3d_btn is None:
             return
-        # Show the *current* mode on the button face — clicking flips it.
-        self._3d_btn.set_label("3D" if self._map_3d_view else "2D")
+        # Show what you'd switch TO — "2D" while we're in 3D, "3D" while flat.
+        self._3d_btn.set_label("2D" if self._map_3d_view else "3D")
         self._3d_btn.set_tooltip_text(self._view_3d_tooltip(self._map_3d_view))
 
     def _on_3d_clicked(self, _btn: Gtk.Button) -> None:
