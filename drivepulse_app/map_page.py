@@ -96,7 +96,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         # POI layer
         self._poi_btn: Gtk.ToggleButton | None = None
         self._poi_layer: Any = None
-        self._poi_visible: bool = False
+        self._poi_visible: bool = True
 
         # Entry rows: flat list of (row_box, entry, remove_btn)
         self._entry_rows: list[tuple[Gtk.Box, Gtk.Entry, Gtk.Button]] = []
@@ -283,12 +283,12 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         overlay.set_halign(Gtk.Align.FILL)
         overlay.set_valign(Gtk.Align.FILL)
 
-        if SHUMATE_OK:
-            self._backend = "shumate"
-            content = self._setup_shumate()
-        elif WEBKIT_OK:
+        if WEBKIT_OK:
             self._backend = "webkit"
             content = self._setup_webview()
+        elif SHUMATE_OK:
+            self._backend = "shumate"
+            content = self._setup_shumate()
         else:
             self._backend = "none"
             content = self._build_placeholder()
@@ -333,6 +333,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._poi_btn = Gtk.ToggleButton(icon_name="mark-location-symbolic")
         self._poi_btn.add_css_class("circular")
         self._poi_btn.add_css_class("osd")
+        self._poi_btn.set_active(True)
         self._poi_btn.set_tooltip_text(_translate(self.language, "map.poi"))
         self._poi_btn.connect("toggled", self._on_poi_toggled)
 
