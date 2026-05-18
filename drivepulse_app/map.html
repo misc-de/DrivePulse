@@ -217,7 +217,7 @@ function initMap(lat, lon) {
   const _pushCamState = () => {
     try {
       postToPython({
-        action: 'camera',
+        action: 'map_state',
         zoom: map.getZoom(),
         pitch: map.getPitch(),
         bearing: map.getBearing(),
@@ -325,7 +325,7 @@ function mapSetCar(lat, lon, heading) {
   // Push current camera state to Python (mock-mode debug overlay reads this).
   try {
     postToPython({
-      action: 'camera',
+      action: 'map_state',
       zoom: map.getZoom(),
       pitch: map.getPitch(),
       bearing: map.getBearing(),

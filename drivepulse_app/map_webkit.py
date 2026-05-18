@@ -110,11 +110,11 @@ class MapWebKitMixin:
             action = data.get("action")
             if action == "follow_off":
                 GLib.idle_add(self._set_follow, False)
-            elif action == "camera":
+            elif action == "map_state":
                 z = data.get("zoom")
                 p = data.get("pitch")
                 b = data.get("bearing")
                 if z is not None and p is not None and b is not None:
-                    GLib.idle_add(self._on_js_camera_state, float(z), float(p), float(b))
+                    GLib.idle_add(self._on_js_map_state, float(z), float(p), float(b))
         except Exception as exc:
             log.debug("JS message error: %s", exc)

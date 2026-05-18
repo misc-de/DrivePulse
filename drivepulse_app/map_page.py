@@ -63,15 +63,6 @@ _MANEUVER_CSS = b"""
   font-weight: 500;
   opacity: 0.95;
 }
-.dp-mock-debug {
-  background-color: rgba(60, 60, 60, 0.78);
-  color: #ffffff;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-family: monospace;
-}
-.dp-mock-debug label { color: #ffffff; }
 """
 _maneuver_css_installed = False
 
@@ -123,13 +114,11 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self.force_webkit = force_webkit
         self.units = units if units in {"metric", "imperial"} else "metric"
         self.mock_mode = bool(mock_mode)
-        # Latest camera state pushed from the JS side (zoom/pitch/bearing).
-        # Rendered in a dedicated bottom-left overlay when mock_mode is on.
-        self._cam_zoom: float | None = None
-        self._cam_pitch: float | None = None
-        self._cam_bearing: float | None = None
-        self._mock_debug_overlay: Gtk.Box | None = None
-        self._mock_debug_lbl: Gtk.Label | None = None
+        # Latest map view state pushed from the JS side (zoom/pitch/bearing).
+        # Rendered into the status row above the map when mock_mode is on.
+        self._map_zoom: float | None = None
+        self._map_pitch: float | None = None
+        self._map_bearing: float | None = None
         self._on_poi_visible_changed = on_poi_visible_changed
         self._on_traffic_visible_changed = on_traffic_visible_changed
         self._on_tour_started = on_tour_started
@@ -436,7 +425,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             overlay.add_overlay(self._build_zoom_controls())
             overlay.add_overlay(self._build_tour_start_btn())
             overlay.add_overlay(self._build_maneuver_overlay())
-            overlay.add_overlay(self._build_mock_debug_overlay())
 
         self.append(overlay)
 
@@ -499,24 +487,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         fab.append(self._layer_btn)
         fab.append(self._center_btn)
         return fab
-
-    def _build_mock_debug_overlay(self) -> Gtk.Widget:
-        wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        wrap.set_halign(Gtk.Align.START)
-        wrap.set_valign(Gtk.Align.END)
-        wrap.set_margin_start(8)
-        # Sit above the MapLibre scale bar (~24 px tall) anchored at bottom-left.
-        wrap.set_margin_bottom(36)
-        wrap.set_can_target(False)
-
-        self._mock_debug_lbl = Gtk.Label(label="")
-        self._mock_debug_lbl.add_css_class("dp-mock-debug")
-        self._mock_debug_lbl.set_xalign(0.0)
-        wrap.append(self._mock_debug_lbl)
-
-        wrap.set_visible(False)
-        self._mock_debug_overlay = wrap
-        return wrap
 
     def _build_zoom_controls(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -1061,33 +1031,32 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     def set_mock_mode(self, mock_mode: bool) -> None:
         self.mock_mode = bool(mock_mode)
-        self._refresh_mock_debug_overlay()
+        if not self.mock_mode and self._status_lbl is not None:
+            # Don't keep stale debug text around after mock mode is disabled.
+            self._status_lbl.set_text("")
+        else:
+            self._refresh_map_state_status()
 
-    def _refresh_mock_debug_overlay(self) -> None:
-        """When mock_mode is on, surface live camera state in the bottom-left."""
-        if self._mock_debug_overlay is None or self._mock_debug_lbl is None:
+    def _refresh_map_state_status(self) -> None:
+        """In mock mode, overwrite the status row with the live map view state."""
+        if not self.mock_mode or self._status_lbl is None:
             return
-        if not self.mock_mode:
-            self._mock_debug_overlay.set_visible(False)
-            return
-        if self._cam_zoom is None and self._cam_pitch is None:
-            self._mock_debug_overlay.set_visible(False)
+        if self._map_zoom is None and self._map_pitch is None:
             return
         parts: list[str] = []
-        if self._cam_zoom is not None:
-            parts.append(f"zoom {self._cam_zoom:.1f}")
-        if self._cam_pitch is not None:
-            parts.append(f"pitch {self._cam_pitch:.0f}°")
-        if self._cam_bearing is not None:
-            parts.append(f"bearing {self._cam_bearing:.0f}°")
-        self._mock_debug_lbl.set_text("  ".join(parts))
-        self._mock_debug_overlay.set_visible(True)
+        if self._map_zoom is not None:
+            parts.append(f"zoom {self._map_zoom:.1f}")
+        if self._map_pitch is not None:
+            parts.append(f"pitch {self._map_pitch:.0f}°")
+        if self._map_bearing is not None:
+            parts.append(f"bearing {self._map_bearing:.0f}°")
+        self._status_lbl.set_text("  ".join(parts))
 
-    def _on_js_camera_state(self, zoom: float, pitch: float, bearing: float) -> None:
-        self._cam_zoom = zoom
-        self._cam_pitch = pitch
-        self._cam_bearing = bearing
-        self._refresh_mock_debug_overlay()
+    def _on_js_map_state(self, zoom: float, pitch: float, bearing: float) -> None:
+        self._map_zoom = zoom
+        self._map_pitch = pitch
+        self._map_bearing = bearing
+        self._refresh_map_state_status()
 
     def _compute_route(self, start_text: str, wp_texts: list[str], end_text: str) -> None:
         try:
