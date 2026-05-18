@@ -84,6 +84,7 @@ let _trafficItems   = [];
 let _trafficVisible = false;
 let _gpsLon = null, _gpsLat = null;
 let _poiVisible     = true;
+let _tourActive     = false;
 
 const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
 
@@ -144,12 +145,8 @@ function addDataLayers() {
     });
   }
 
-  // Traffic
-  const trafficFeats = _trafficItems.map(item => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
-    properties: { kind: item.kind, title: item.title }
-  }));
+  // Traffic — filtered to route bounding box (+ ~5 km pad) for performance
+  const trafficFeats = _trafficNearRoute();
   const vis = _trafficVisible ? 'visible' : 'none';
   if (!map.getSource('traffic')) {
     map.addSource('traffic', { type: 'geojson', data: fcGJ(trafficFeats) });
@@ -246,10 +243,17 @@ function mapSetCar(lat, lon, heading) {
   if (!initialized) initMap(lat, lon);
   if (!map) return;
   _gpsLat = lat; _gpsLon = lon;
+  const hdg = Number(heading || 0);
   if (carMarker) carMarker.setLngLat([lon, lat]);
-  if (carArrowEl) carArrowEl.style.transform = `rotate(${Number(heading || 0)}deg)`;
+  // Arrow: relative to map bearing. In follow-mode the map rotates with heading,
+  // so the arrow always points straight up (0°). Otherwise show absolute heading.
+  if (carArrowEl) carArrowEl.style.transform = `rotate(${followMode ? 0 : hdg}deg)`;
   if (followMode) {
-    map.easeTo({ center: [lon, lat], bearing: 0, pitch: 0, duration: 200 });
+    // Tour mode: shift car into lower third so more road ahead is visible.
+    const pad = _tourActive
+      ? { top: Math.round(window.innerHeight * 0.38), bottom: 0, left: 0, right: 0 }
+      : { top: 0, bottom: 0, left: 0, right: 0 };
+    map.easeTo({ center: [lon, lat], bearing: hdg, pitch: 0, duration: 200, padding: pad });
   }
 }
 
@@ -257,10 +261,20 @@ function mapSetFollow(active) {
   followMode = active;
 }
 
+function mapSetTourActive(active) {
+  _tourActive = active;
+  if (!active && map) {
+    map.easeTo({ bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 400 });
+  }
+}
+
 function mapSetRoute(coords) {
   _routeCoords = coords;
   if (map && map.getSource('route'))
     map.getSource('route').setData(lineGJ(coords));
+  // Refresh traffic to show only items near the new route
+  if (map && map.getSource('traffic'))
+    map.getSource('traffic').setData(fcGJ(_trafficNearRoute()));
 }
 
 function mapSetWaypoints(points) {
@@ -277,12 +291,13 @@ function mapSetWaypoints(points) {
 }
 
 function mapClearRoute() {
-  _routeCoords = []; _wpStart = null; _wpEnd = null;
+  _routeCoords = []; _wpStart = null; _wpEnd = null; _tourActive = false;
   mapClearGuideToStart();
   if (map) {
     if (map.getSource('route'))     map.getSource('route').setData(lineGJ([]));
     if (map.getSource('waypoints')) map.getSource('waypoints').setData(fcGJ([]));
-    map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
+    if (map.getSource('traffic'))   map.getSource('traffic').setData(fcGJ([]));
+    map.easeTo({ bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, pitch: 0, duration: 600 });
   }
 }
 
@@ -324,15 +339,30 @@ function mapSetStyle(key) {
   map.setStyle(style);
 }
 
+function _trafficNearRoute() {
+  if (_routeCoords.length === 0) return [];
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const [lon, lat] of _routeCoords) {
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+  }
+  const pad = 0.05; // ~5 km bounding-box padding
+  return _trafficItems
+    .filter(i => i.lat >= minLat - pad && i.lat <= maxLat + pad &&
+                 i.lon >= minLon - pad && i.lon <= maxLon + pad)
+    .map(i => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [i.lon, i.lat] },
+      properties: { kind: i.kind, title: i.title }
+    }));
+}
+
 function mapSetTraffic(items) {
   _trafficItems = items;
-  if (map && map.getSource('traffic')) {
-    map.getSource('traffic').setData(fcGJ(items.map(item => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
-      properties: { kind: item.kind, title: item.title }
-    }))));
-  }
+  if (map && map.getSource('traffic'))
+    map.getSource('traffic').setData(fcGJ(_trafficNearRoute()));
 }
 
 function mapSetTrafficVisible(visible) {
