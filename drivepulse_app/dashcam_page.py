@@ -619,7 +619,7 @@ class DashcamPage(Gtk.Box):
             rot.set_margin_end(8)
             rot.set_margin_top(8)
             rot.set_margin_bottom(8)
-            rot.set_rotation(90)
+            rot.set_rotation(270)
         elif is_landscape and angle == 270:
             rot.set_valign(Gtk.Align.CENTER)
             rot.set_halign(Gtk.Align.START)
@@ -629,7 +629,7 @@ class DashcamPage(Gtk.Box):
             rot.set_margin_end(0)
             rot.set_margin_top(8)
             rot.set_margin_bottom(8)
-            rot.set_rotation(270)
+            rot.set_rotation(90)
         elif angle == 180:
             rot.set_valign(Gtk.Align.START)
             rot.set_halign(Gtk.Align.FILL)
