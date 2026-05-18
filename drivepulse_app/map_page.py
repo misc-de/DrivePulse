@@ -72,6 +72,21 @@ _MANEUVER_CSS = b"""
   font-size: 13px;
 }
 .dp-map-state label { color: #ffffff; }
+.dp-steps-panel {
+  background-color: rgba(20, 24, 32, 0.88);
+  border-radius: 14px;
+  padding: 6px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.40);
+}
+.dp-steps-panel, .dp-steps-panel label { color: #ffffff; }
+.dp-steps-panel list,
+.dp-steps-panel list > row { background: transparent; }
+.dp-steps-row { padding: 8px 10px; border-radius: 10px; }
+.dp-steps-row image { color: #8FCFFF; }
+.dp-steps-row-active { background-color: rgba(143, 207, 255, 0.22); }
+.dp-steps-row-done { opacity: 0.55; }
+.dp-steps-distance { font-weight: 700; }
+.dp-steps-instr { opacity: 0.92; }
 """
 _maneuver_css_installed = False
 
@@ -200,6 +215,11 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_start_btn: Gtk.Button | None = None
         self._tour_start_lbl: Gtk.Label | None = None
         self._tour_btn_icon: Gtk.Image | None = None
+        self._tour_controls_box: Gtk.Box | None = None
+        self._steps_toggle_btn: Gtk.ToggleButton | None = None
+        self._steps_panel: Gtk.Box | None = None
+        self._steps_listbox: Gtk.ListBox | None = None
+        self._steps_row_widgets: list[Gtk.Widget] = []
 
         # Traffic layer (Shumate only)
         self._traffic_layer: Any = None
@@ -447,7 +467,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._backend != "none":
             overlay.add_overlay(self._build_fab())
             overlay.add_overlay(self._build_zoom_controls())
-            overlay.add_overlay(self._build_tour_start_btn())
+            overlay.add_overlay(self._build_tour_controls())
+            overlay.add_overlay(self._build_steps_panel())
             overlay.add_overlay(self._build_maneuver_overlay())
             overlay.add_overlay(self._build_map_state_overlay())
 
@@ -639,7 +660,15 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._maneuver_overlay = outer
         return outer
 
-    def _build_tour_start_btn(self) -> Gtk.Widget:
+    def _build_tour_controls(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_halign(Gtk.Align.START)
+        box.set_valign(Gtk.Align.START)
+        box.set_margin_start(12)
+        box.set_margin_top(12)
+        box.set_visible(False)
+        self._tour_controls_box = box
+
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self._tour_btn_icon = Gtk.Image.new_from_icon_name("media-playback-start-symbolic")
         inner.append(self._tour_btn_icon)
@@ -649,13 +678,125 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_start_btn = Gtk.Button()
         self._tour_start_btn.set_child(inner)
         self._tour_start_btn.add_css_class("osd")
-        self._tour_start_btn.set_halign(Gtk.Align.START)
-        self._tour_start_btn.set_valign(Gtk.Align.START)
-        self._tour_start_btn.set_margin_start(12)
-        self._tour_start_btn.set_margin_top(12)
-        self._tour_start_btn.set_visible(False)
         self._tour_start_btn.connect("clicked", self._on_tour_start_clicked)
-        return self._tour_start_btn
+        box.append(self._tour_start_btn)
+
+        self._steps_toggle_btn = Gtk.ToggleButton(icon_name="info-symbolic")
+        self._steps_toggle_btn.add_css_class("osd")
+        self._steps_toggle_btn.add_css_class("circular")
+        self._steps_toggle_btn.set_halign(Gtk.Align.START)
+        self._steps_toggle_btn.set_tooltip_text(_translate(self.language, "map.steps.toggle"))
+        self._steps_toggle_btn.connect("toggled", self._on_steps_toggle)
+        box.append(self._steps_toggle_btn)
+
+        return box
+
+    def _build_steps_panel(self) -> Gtk.Widget:
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        wrap.add_css_class("dp-steps-panel")
+        wrap.set_halign(Gtk.Align.START)
+        wrap.set_valign(Gtk.Align.FILL)
+        wrap.set_margin_start(12)
+        # Sit below the stacked tour-controls column
+        # (start button + info button + spacing + top margin ≈ 105 px).
+        wrap.set_margin_top(105)
+        wrap.set_margin_bottom(12)
+        wrap.set_size_request(280, -1)
+        wrap.set_visible(False)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+
+        listbox = Gtk.ListBox()
+        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        listbox.add_css_class("navigation-sidebar")
+        scrolled.set_child(listbox)
+        wrap.append(scrolled)
+
+        self._steps_panel = wrap
+        self._steps_listbox = listbox
+        return wrap
+
+    def _on_steps_toggle(self, btn: Gtk.ToggleButton) -> None:
+        if self._steps_panel is None:
+            return
+        show = btn.get_active() and bool(self._tour_steps)
+        if show:
+            self._rebuild_steps_list()
+        self._steps_panel.set_visible(show)
+
+    def _rebuild_steps_list(self) -> None:
+        if self._steps_listbox is None:
+            return
+        child = self._steps_listbox.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self._steps_listbox.remove(child)
+            child = nxt
+        self._steps_row_widgets = []
+
+        for idx, step in enumerate(self._tour_steps):
+            m_type = step.get("type", "")
+            m_modifier = step.get("modifier", "")
+            name = step.get("name", "") or ""
+            icon_name = maneuver_icon(m_type, m_modifier)
+            text = _translate(self.language, maneuver_text_key(m_type, m_modifier))
+            if name and m_type not in {"arrive", "depart"}:
+                text += _translate(self.language, "map.maneuver.on_street").format(name=name)
+
+            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            row_box.add_css_class("dp-steps-row")
+
+            icon = Gtk.Image.new_from_icon_name(icon_name)
+            icon.set_pixel_size(28)
+            row_box.append(icon)
+
+            text_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            text_col.set_hexpand(True)
+            instr_lbl = Gtk.Label(label=text, xalign=0.0)
+            instr_lbl.add_css_class("dp-steps-instr")
+            instr_lbl.set_wrap(True)
+            instr_lbl.set_max_width_chars(24)
+            text_col.append(instr_lbl)
+            dist_m = float(step.get("distance") or 0.0)
+            if dist_m > 0:
+                dist_lbl = Gtk.Label(label=format_distance(dist_m, self.units), xalign=0.0)
+                dist_lbl.add_css_class("dp-steps-distance")
+                dist_lbl.add_css_class("dim-label")
+                text_col.append(dist_lbl)
+            row_box.append(text_col)
+
+            row = Gtk.ListBoxRow()
+            row.set_activatable(False)
+            row.set_selectable(False)
+            row.set_child(row_box)
+            self._steps_listbox.append(row)
+            self._steps_row_widgets.append(row_box)
+
+        self._highlight_active_step()
+
+    def _highlight_active_step(self) -> None:
+        active = self._tour_step_idx if (self._tour_active or self._tour_paused) else -1
+        for idx, row_box in enumerate(self._steps_row_widgets):
+            row_box.remove_css_class("dp-steps-row-active")
+            row_box.remove_css_class("dp-steps-row-done")
+            if active < 0:
+                continue
+            if idx < active:
+                row_box.add_css_class("dp-steps-row-done")
+            elif idx == active:
+                row_box.add_css_class("dp-steps-row-active")
+
+    def _set_tour_controls_visible(self, visible: bool) -> None:
+        if self._tour_controls_box is not None:
+            self._tour_controls_box.set_visible(visible)
+        if not visible:
+            if self._steps_toggle_btn is not None:
+                self._steps_toggle_btn.set_active(False)
+            if self._steps_panel is not None:
+                self._steps_panel.set_visible(False)
 
     def _on_tour_start_clicked(self, _btn: Gtk.Button) -> None:
         if self._start_coord is None:
@@ -679,6 +820,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._step_min_dist = None
         self._set_tour_button("stop")
         self._update_maneuver_overlay()
+        self._highlight_active_step()
         if self._on_tour_started is not None and self._tour_coords:
             self._on_tour_started(self._tour_coords)
         self._set_follow(True)
@@ -740,6 +882,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._guide_path_layer.remove_all()
         if self._maneuver_overlay is not None:
             self._maneuver_overlay.set_visible(False)
+        self._highlight_active_step()
         if was_running and self._on_tour_stopped is not None:
             self._on_tour_stopped()
 
@@ -904,6 +1047,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._maneuver_instr_lbl is not None:
             self._maneuver_instr_lbl.set_text(text)
         self._maneuver_overlay.set_visible(True)
+        self._highlight_active_step()
 
     def _goto(self, lat: float, lon: float) -> None:
         if self._backend == "webkit":
@@ -1092,8 +1236,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_step_idx = 0
         self._tour_coords = []
         self._abort_tour()
-        if self._tour_start_btn is not None:
-            self._tour_start_btn.set_visible(False)
+        self._set_tour_controls_visible(False)
         if self._backend == "webkit":
             self._js("mapClearRoute()")
         else:
@@ -1285,8 +1428,11 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             f"{prefix}{format_duration(duration_s)} / "
             f"{distance_prefix}{format_distance(distance_m, self.units)}"
         )
-        if self._tour_start_btn is not None:
-            self._tour_start_btn.set_visible(True)
+        self._set_tour_controls_visible(True)
+        if self._steps_toggle_btn is not None and self._steps_toggle_btn.get_active():
+            self._rebuild_steps_list()
+            if self._steps_panel is not None:
+                self._steps_panel.set_visible(bool(self._tour_steps))
 
         if coords:
             lats = [c[1] for c in coords]
@@ -1334,3 +1480,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
                 self._set_tour_button("resume")
             else:
                 self._set_tour_button("start")
+        if self._steps_toggle_btn is not None:
+            self._steps_toggle_btn.set_tooltip_text(
+                _translate(self.language, "map.steps.toggle")
+            )
+        if self._tour_steps and self._steps_listbox is not None:
+            self._rebuild_steps_list()
