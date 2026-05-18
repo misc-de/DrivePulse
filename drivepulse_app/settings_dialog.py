@@ -104,12 +104,7 @@ class SettingsDialog(Adw.Dialog):
         self.set_title(_translate(self.language, "settings.title"))
         self.set_content_width(540)
 
-        page = Adw.PreferencesPage(
-            title=_translate(self.language, "settings.display"),
-            icon_name="preferences-system-symbolic",
-        )
-        group = Adw.PreferencesGroup(title=_translate(self.language, "settings.units"))
-
+        # ── Build all option rows (assigned to pages further below) ──────────
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
         model = Gtk.StringList()
         model.append(_translate(self.language, "settings.metric"))
@@ -197,17 +192,6 @@ class SettingsDialog(Adw.Dialog):
         self.rotation_mode_row.set_selected(sel_rot)
         self.rotation_mode_row.connect("notify::selected", self._on_rotation_mode_selected)
 
-        group.add(self.unit_row)
-        group.add(self.language_row)
-        group.add(self.theme_mode_row)
-        group.add(self.gauge_theme_row)
-        group.add(self.sidebar_side_row)
-        group.add(self.nav_position_row)
-        group.add(self.rotation_mode_row)
-        group.add(self.force_webkit_map_row)
-        group.add(self.mock_row)
-        page.add(group)
-
         # OBD hardware group
         obd_devices = scan_obd_devices()  # (label, port, is_present)
         self._obd_port_values: list[str | None] = [None]
@@ -280,12 +264,9 @@ class SettingsDialog(Adw.Dialog):
         self.dongle_row.connect("notify::selected", self._on_dongle_selected)
         obd_group.add(self.dongle_row)
 
-        display_page = page
-
         # ── App page ──────────────────────────────────────────────────────────
         app_page = Adw.PreferencesPage(
             title=_translate(self.language, "settings.page.app"),
-            icon_name="software-update-available-symbolic",
         )
 
         app_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.app.group"))
@@ -313,18 +294,47 @@ class SettingsDialog(Adw.Dialog):
         )
         self._update_btn.connect("clicked", self._on_check_update)
         self._update_row.add_suffix(self._update_btn)
+        app_group.add(self.language_row)
+        app_group.add(self.mock_row)
         app_group.add(self._update_row)
         app_page.add(app_group)
 
-        # OBD group (moved from display page)
+        # OBD group
         app_page.add(obd_group)
+
+        # ── Display page ──────────────────────────────────────────────────────
+        display_page = Adw.PreferencesPage(
+            title=_translate(self.language, "settings.page.display"),
+        )
+        display_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.display"))
+        display_group.add(self.theme_mode_row)
+        display_group.add(self.sidebar_side_row)
+        display_group.add(self.nav_position_row)
+        display_group.add(self.rotation_mode_row)
+        display_page.add(display_group)
+
+        # ── Tour page ─────────────────────────────────────────────────────────
+        tour_page = Adw.PreferencesPage(
+            title=_translate(self.language, "settings.page.tour"),
+        )
+        tour_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.page.tour"))
+        tour_group.add(self.force_webkit_map_row)
+        tour_page.add(tour_group)
+
+        # ── Tacho page ────────────────────────────────────────────────────────
+        tacho_page = Adw.PreferencesPage(
+            title=_translate(self.language, "settings.page.tacho"),
+        )
+        tacho_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.page.tacho"))
+        tacho_group.add(self.gauge_theme_row)
+        tacho_group.add(self.unit_row)
+        tacho_page.add(tacho_group)
 
         # ── Dashcam page ──────────────────────────────────────────────────────
         from .dashcam_recorder import RESOLUTIONS, list_cameras  # lazy import
 
         dc_page = Adw.PreferencesPage(
             title=_translate(self.language, "settings.page.dashcam"),
-            icon_name="camera-video-symbolic",
         )
         dc_group = Adw.PreferencesGroup(title=_translate(self.language, "dashcam.settings.title"))
 
@@ -416,27 +426,16 @@ class SettingsDialog(Adw.Dialog):
         gps_group.add(gps_osd_row)
         dc_page.add(gps_group)
 
-        # ── Build ViewStack + ViewSwitcher header ─────────────────────────────
-        view_stack = Adw.ViewStack()
-        view_stack.add_titled_with_icon(
-            display_page, "display",
-            _translate(self.language, "settings.display"),
-            "preferences-system-symbolic",
-        )
-        view_stack.add_titled_with_icon(
-            app_page, "app",
-            _translate(self.language, "settings.page.app"),
-            "software-update-available-symbolic",
-        )
-        view_stack.add_titled_with_icon(
-            dc_page, "dashcam",
-            _translate(self.language, "settings.page.dashcam"),
-            "camera-video-symbolic",
-        )
+        # ── Build Stack + StackSwitcher header (no icons) ─────────────────────
+        view_stack = Gtk.Stack()
+        view_stack.add_titled(app_page, "app", _translate(self.language, "settings.page.app"))
+        view_stack.add_titled(display_page, "display", _translate(self.language, "settings.page.display"))
+        view_stack.add_titled(tour_page, "tour", _translate(self.language, "settings.page.tour"))
+        view_stack.add_titled(dc_page, "dashcam", _translate(self.language, "settings.page.dashcam"))
+        view_stack.add_titled(tacho_page, "tacho", _translate(self.language, "settings.page.tacho"))
 
-        switcher = Adw.ViewSwitcher()
+        switcher = Gtk.StackSwitcher()
         switcher.set_stack(view_stack)
-        switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
 
         dlg_header = Adw.HeaderBar()
         dlg_header.set_title_widget(switcher)

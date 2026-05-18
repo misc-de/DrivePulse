@@ -675,7 +675,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         box.set_valign(Gtk.Align.START)
         box.set_margin_start(12)
         box.set_margin_top(12)
-        box.set_visible(False)
         self._tour_controls_box = box
 
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -690,14 +689,19 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_start_btn.connect("clicked", self._on_tour_start_clicked)
         box.append(self._tour_start_btn)
 
-        self._steps_toggle_btn = Gtk.ToggleButton(icon_name="info-symbolic")
+        steps_icon = Gtk.Image.new_from_icon_name("info-symbolic")
+        steps_icon.set_pixel_size(20)
+        self._steps_toggle_btn = Gtk.ToggleButton()
+        self._steps_toggle_btn.set_child(steps_icon)
         self._steps_toggle_btn.add_css_class("osd")
         self._steps_toggle_btn.add_css_class("circular")
         self._steps_toggle_btn.set_halign(Gtk.Align.START)
+        self._steps_toggle_btn.set_size_request(40, 40)
         self._steps_toggle_btn.set_tooltip_text(_translate(self.language, "map.steps.toggle"))
         self._steps_toggle_btn.connect("toggled", self._on_steps_toggle)
         box.append(self._steps_toggle_btn)
 
+        box.set_visible(False)
         return box
 
     def _build_steps_panel(self) -> Gtk.Widget:
@@ -841,7 +845,12 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def _set_tour_controls_visible(self, visible: bool) -> None:
         if self._tour_controls_box is not None:
             self._tour_controls_box.set_visible(visible)
-        if not visible:
+        if visible:
+            if self._tour_start_btn is not None:
+                self._tour_start_btn.set_visible(True)
+            if self._steps_toggle_btn is not None:
+                self._steps_toggle_btn.set_visible(True)
+        else:
             if self._steps_toggle_btn is not None:
                 self._steps_toggle_btn.set_active(False)
             if self._steps_panel is not None:

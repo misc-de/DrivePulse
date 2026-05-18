@@ -306,6 +306,22 @@ class _ViewStack(_Widget):
         return self.visible_child_name
 
 
+class _Stack(_Widget):
+    def add_titled(self, child: object, name: str, title: str):
+        self.children.append((child, name, title))
+        if self.visible_child_name is None:
+            self.visible_child_name = name
+        return _Widget(child=child, name=name, title=title)
+
+    def set_visible_child_name(self, name: str) -> None:
+        self.visible_child_name = name
+
+
+class _StackSwitcher(_Widget):
+    def set_stack(self, stack: object) -> None:
+        self.props["stack"] = stack
+
+
 class _ToolbarView(_Widget):
     def add_top_bar(self, widget: object) -> None:
         self.children.append(widget)
@@ -340,6 +356,8 @@ def drivepulse_module(monkeypatch):
         SignalListItemFactory=_SignalListItemFactory,
         SpinButton=_SpinButton,
         Spinner=_Spinner,
+        Stack=_Stack,
+        StackSwitcher=_StackSwitcher,
         StringList=_StringList,
         StyleContext=types.SimpleNamespace(add_provider_for_display=lambda *a: None),
         Switch=_Switch,
