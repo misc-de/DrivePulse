@@ -2,18 +2,15 @@
 from __future__ import annotations
 
 import math
-import threading
-import urllib.parse
 from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, Gtk  # noqa: E402
 
 from .diagnostics import get_logger
-from .http_client import http_get
-from .map_services import TILE_URLS, poi_category, zoom_for_bbox
+from .map_services import TILE_URLS, zoom_for_bbox
 
 log = get_logger(__name__)
 
@@ -28,16 +25,6 @@ except (ValueError, ImportError):
 
 class MapShumateMixin:
     """Shumate-specific setup, layers and marker drawing."""
-
-    _POI_CAT_COLORS: dict[str, tuple[float, float, float, float]] = {
-        "fuel":    (0.18, 0.80, 0.44, 1.0),
-        "parking": (0.20, 0.52, 0.86, 1.0),
-        "food":    (0.95, 0.50, 0.10, 1.0),
-        "shop":    (0.95, 0.80, 0.10, 1.0),
-        "medical": (0.90, 0.20, 0.24, 1.0),
-        "tourism": (0.60, 0.20, 0.80, 1.0),
-        "other":   (0.55, 0.55, 0.55, 1.0),
-    }
 
     def _setup_shumate(self) -> Gtk.Widget:
         self._shumate_map = Shumate.SimpleMap()
@@ -207,49 +194,6 @@ class MapShumateMixin:
         if self._poi_layer is None:
             return
         self._poi_layer.set_visible(visible)
-        if visible and self._shumate_map is not None:
-            viewport = self._shumate_map.get_viewport()
-            lat, lon = viewport.get_latitude(), viewport.get_longitude()
-            threading.Thread(target=self._fetch_poi_shumate, args=(lat, lon), daemon=True).start()
-
-    def _fetch_poi_shumate(self, lat: float, lon: float) -> None:
-        delta = 0.06
-        s, w, n, e = lat - delta, lon - delta, lat + delta, lon + delta
-        query = (
-            f"[out:json][timeout:15][bbox:{s:.5f},{w:.5f},{n:.5f},{e:.5f}];"
-            "(node[\"amenity\"~\"fuel|parking|hospital|pharmacy|restaurant|fast_food|cafe|supermarket\"];"
-            "node[\"tourism\"~\"attraction|viewpoint\"];"
-            "node[\"shop\"=\"convenience\"];);"
-            "out body;"
-        )
-        url = f"https://overpass-api.de/api/interpreter?data={urllib.parse.quote(query)}"
-        data = http_get(url)
-        GLib.idle_add(self._poi_result_shumate, data)
-
-    def _poi_result_shumate(self, data: Any) -> bool:
-        if data is None or self._poi_layer is None:
-            return False
-        self._poi_layer.remove_all()
-        for el in data.get("elements", []):
-            lat = el.get("lat")
-            lon = el.get("lon")
-            if lat is None or lon is None:
-                continue
-            tags = el.get("tags", {})
-            cat = poi_category(tags)
-            name = tags.get("name", "")
-            colors = self._POI_CAT_COLORS.get(cat, self._POI_CAT_COLORS["other"])
-            border = tuple(max(0.0, c - 0.2) for c in colors[:3]) + (1.0,)
-            da = Gtk.DrawingArea()
-            da.set_size_request(12, 12)
-            da.set_draw_func(self._draw_dot, (colors, border))
-            if name:
-                da.set_tooltip_text(name)
-            marker = Shumate.Marker.new()
-            marker.set_child(da)
-            marker.set_location(lat, lon)
-            self._poi_layer.add_marker(marker)
-        return False
 
     def _make_wp_marker(self, lat: float, lon: float, role: str) -> Any:
         if role == "start":
