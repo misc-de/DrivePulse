@@ -397,7 +397,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             css = (
                 f".dp-nav-rotated button {{ padding: 0; }}"
                 f".dp-nav-rotated button > * {{ margin: auto; }}"
-                f".dp-nav-rotated button image {{ transform: rotate({angle}deg); margin: auto; }}"
+                f".dp-nav-rotated button image {{ transform: rotate({angle}deg); margin: auto; padding: 5px; }}"
                 f".dp-nav-rotated button label {{ opacity: 0; font-size: 0; min-width: 0; min-height: 0; margin: 0; padding: 0; }}"
             ).encode()
         self._nav_rotation_css.load_from_data(css)
