@@ -281,7 +281,7 @@ class DashcamPage(Gtk.Box):
         clips_btn.set_tooltip_text(_translate(self.language, "dashcam.saved.title"))
         self._clips_popover = self._build_clips_popover()
         clips_btn.set_popover(self._clips_popover)
-        clips_btn.connect("clicked", lambda _: self._update_saved_list())
+        self._clips_popover.connect("show", lambda _: self._update_saved_list())
         btn_row.append(clips_btn)
 
         bottom.append(btn_row)
