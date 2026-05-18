@@ -73,6 +73,8 @@ class SettingsDialog(Adw.Dialog):
         on_dashcam_gps_osd_changed: Callable[[bool], None] | None = None,
         current_nav_position: str = "bottom",
         on_nav_position_changed: Callable[[str], None] | None = None,
+        current_rotation_mode: str = "follow_sensor",
+        on_rotation_mode_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -97,6 +99,7 @@ class SettingsDialog(Adw.Dialog):
         self.on_dashcam_gps_osd_changed = on_dashcam_gps_osd_changed
         self._current_dashcam_gps_osd = current_dashcam_gps_osd
         self.on_nav_position_changed = on_nav_position_changed
+        self.on_rotation_mode_changed = on_rotation_mode_changed
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
         self.set_content_width(540)
@@ -184,12 +187,23 @@ class SettingsDialog(Adw.Dialog):
         self.nav_position_row.set_selected(sel_nav)
         self.nav_position_row.connect("notify::selected", self._on_nav_position_selected)
 
+        self._ROTATION_MODES = ["follow_sensor", "follow_system"]
+        rotation_model = Gtk.StringList()
+        for key in self._ROTATION_MODES:
+            rotation_model.append(_translate(self.language, f"settings.rotation_mode.{key}"))
+        self.rotation_mode_row = Adw.ComboRow(title=_translate(self.language, "settings.rotation_mode"))
+        self.rotation_mode_row.set_model(rotation_model)
+        sel_rot = self._ROTATION_MODES.index(current_rotation_mode) if current_rotation_mode in self._ROTATION_MODES else 0
+        self.rotation_mode_row.set_selected(sel_rot)
+        self.rotation_mode_row.connect("notify::selected", self._on_rotation_mode_selected)
+
         group.add(self.unit_row)
         group.add(self.language_row)
         group.add(self.theme_mode_row)
         group.add(self.gauge_theme_row)
         group.add(self.sidebar_side_row)
         group.add(self.nav_position_row)
+        group.add(self.rotation_mode_row)
         group.add(self.force_webkit_map_row)
         group.add(self.mock_row)
         page.add(group)
@@ -542,6 +556,11 @@ class SettingsDialog(Adw.Dialog):
         if self.on_nav_position_changed is not None:
             pos = "top" if self.nav_position_row.get_selected() == 1 else "bottom"
             self.on_nav_position_changed(pos)
+
+    def _on_rotation_mode_selected(self, *_args: Any) -> None:
+        if self.on_rotation_mode_changed is not None:
+            idx = self.rotation_mode_row.get_selected()
+            self.on_rotation_mode_changed(self._ROTATION_MODES[idx])
 
     # ── Update check ──────────────────────────────────────────────────────────
 

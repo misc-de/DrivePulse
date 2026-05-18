@@ -78,6 +78,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_saved_dir: str = self.settings.get("dashcam_saved_dir", "")
         self.nav_position: str = self.settings.get("nav_position", "bottom")
         self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
+        self.rotation_mode: str = self.settings.get("rotation_mode", "follow_sensor")
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -86,7 +87,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # Rotation state: pages can bind to either "follow_sensor"
         # (compensates for the compositor transform) or "follow_system"
         # (lets the compositor handle rotation). See drivepulse_app/rotation.py.
-        self.rotation = RotationProvider()
+        self.rotation = RotationProvider(mode=self.rotation_mode)
 
         # Persistente Fahrten-Datenbank (cars/trips/samples) — vor allen Pages,
         # weil CarsPage sie injiziert bekommt.
