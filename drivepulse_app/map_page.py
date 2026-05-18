@@ -219,7 +219,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._steps_toggle_btn: Gtk.ToggleButton | None = None
         self._steps_panel: Gtk.Box | None = None
         self._steps_listbox: Gtk.ListBox | None = None
+        self._steps_scrolled: Gtk.ScrolledWindow | None = None
         self._steps_row_widgets: list[Gtk.Widget] = []
+        self._steps_row_listbox_rows: list[Gtk.ListBoxRow] = []
 
         # Traffic layer (Shumate only)
         self._traffic_layer: Any = None
@@ -718,6 +720,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
         self._steps_panel = wrap
         self._steps_listbox = listbox
+        self._steps_scrolled = scrolled
         return wrap
 
     def _on_steps_toggle(self, btn: Gtk.ToggleButton) -> None:
@@ -727,6 +730,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if show:
             self._rebuild_steps_list()
         self._steps_panel.set_visible(show)
+        if show:
+            self._scroll_steps_to_active()
 
     def _rebuild_steps_list(self) -> None:
         if self._steps_listbox is None:
@@ -737,6 +742,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._steps_listbox.remove(child)
             child = nxt
         self._steps_row_widgets = []
+        self._steps_row_listbox_rows = []
 
         for idx, step in enumerate(self._tour_steps):
             m_type = step.get("type", "")
@@ -775,6 +781,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             row.set_child(row_box)
             self._steps_listbox.append(row)
             self._steps_row_widgets.append(row_box)
+            self._steps_row_listbox_rows.append(row)
 
         self._highlight_active_step()
 
@@ -789,6 +796,41 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
                 row_box.add_css_class("dp-steps-row-done")
             elif idx == active:
                 row_box.add_css_class("dp-steps-row-active")
+        if active >= 0:
+            self._scroll_steps_to_active()
+
+    def _scroll_steps_to_active(self) -> None:
+        """Auto-scroll the steps panel so the active step is near the top
+        — gives the driver a preview of upcoming maneuvers below it."""
+        if (
+            self._steps_scrolled is None
+            or self._steps_panel is None
+            or not self._steps_panel.get_visible()
+            or not self._steps_row_listbox_rows
+        ):
+            return
+        idx = self._tour_step_idx
+        if idx < 0 or idx >= len(self._steps_row_listbox_rows):
+            return
+        # Defer until after GTK has allocated the rows, otherwise heights are 0.
+        GLib.idle_add(self._do_scroll_to_active, idx)
+
+    def _do_scroll_to_active(self, idx: int) -> bool:
+        if self._steps_scrolled is None or idx >= len(self._steps_row_listbox_rows):
+            return False
+        adj = self._steps_scrolled.get_vadjustment()
+        if adj is None:
+            return False
+        upper = adj.get_upper()
+        page = adj.get_page_size()
+        if upper <= page:
+            return False  # all rows already fit
+        n = max(1, len(self._steps_row_listbox_rows))
+        row_h = upper / n
+        # Pin the active step ~one row down from the top of the viewport.
+        target = max(0.0, min(upper - page, idx * row_h - row_h))
+        adj.set_value(target)
+        return False
 
     def _set_tour_controls_visible(self, visible: bool) -> None:
         if self._tour_controls_box is not None:
@@ -1267,9 +1309,13 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         return box
 
     def _filter_traffic_by_route(self, items: list[dict]) -> list[dict]:
-        """Keep only items within ~5 km of the route bounding box."""
+        """Keep only items within ~5 km of the route bounding box.
+
+        When no route is loaded yet, return everything — otherwise the user
+        toggles traffic on, sees nothing, and assumes the feature is broken.
+        """
         if not self._route_coords:
-            return []
+            return list(items)
         lats = [c[1] for c in self._route_coords]
         lons = [c[0] for c in self._route_coords]
         pad = 0.05  # ~5 km

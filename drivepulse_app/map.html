@@ -31,24 +31,28 @@
     .dp-traffic-popup .maplibregl-popup-content {
       background: rgba(20, 24, 32, 0.94);
       color: #fff;
-      border-radius: 12px;
-      padding: 12px 14px;
+      border-radius: 10px;
+      padding: 10px 28px 10px 12px;  /* room on right for the × button */
       font-family: -apple-system, system-ui, sans-serif;
-      font-size: 13px;
-      line-height: 1.4;
+      font-size: 12px;
+      line-height: 1.35;
       box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
-      max-width: 320px;
+      width: 260px;
+      max-height: 280px;
+      overflow-y: auto;
     }
     .dp-traffic-popup .maplibregl-popup-tip { border-top-color: rgba(20, 24, 32, 0.94); }
-    .dp-traffic-popup .maplibregl-popup-close-button { color: #fff; font-size: 18px; }
-    .dp-traffic-popup h3 { font-size: 14px; margin-bottom: 4px; }
-    .dp-traffic-popup .sub { opacity: 0.8; margin-bottom: 6px; }
-    .dp-traffic-popup .blocked { color: #ff7676; font-weight: 700; margin-bottom: 4px; }
-    .dp-traffic-popup .delay { margin-bottom: 4px; }
-    .dp-traffic-popup .since { opacity: 0.7; font-size: 12px; margin-bottom: 6px; }
+    .dp-traffic-popup .maplibregl-popup-close-button {
+      color: #fff; font-size: 18px; padding: 2px 6px;
+    }
+    .dp-traffic-popup h3 { font-size: 13px; margin-bottom: 3px; }
+    .dp-traffic-popup .sub { opacity: 0.8; margin-bottom: 4px; }
+    .dp-traffic-popup .blocked { color: #ff7676; font-weight: 700; margin-bottom: 3px; }
+    .dp-traffic-popup .delay { margin-bottom: 3px; }
+    .dp-traffic-popup .since { opacity: 0.7; font-size: 11px; margin-bottom: 4px; }
     .dp-traffic-popup .desc {
       border-top: 1px solid rgba(255,255,255,0.18);
-      padding-top: 6px; white-space: pre-line; opacity: 0.92;
+      padding-top: 4px; white-space: pre-line; opacity: 0.92;
     }
   </style>
 </head>
@@ -376,10 +380,10 @@ function mapSetCar(lat, lon, heading) {
       // Keep the strong tilt while a tour is active; flatten view otherwise.
       if (!_tourActive) opts.pitch = 0;
       map.easeTo(opts);
-    } else if (_tourActive) {
-      // Follow was disabled (e.g. user panned), but during a tour we still
-      // want the map oriented in the driving direction — rotate without
-      // recentring so the user's pan is preserved.
+    } else {
+      // Follow was disabled (user panned) — but the map should still stay
+      // aligned to the direction of travel.  Rotate around the current view
+      // centre without recentring, so the user's pan is preserved.
       map.easeTo(opts);
     }
   }
@@ -544,18 +548,23 @@ function mapSetStyle(key) {
 }
 
 function _trafficNearRoute() {
-  if (_routeCoords.length === 0) return [];
-  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-  for (const [lon, lat] of _routeCoords) {
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lon < minLon) minLon = lon;
-    if (lon > maxLon) maxLon = lon;
+  // No route loaded → show everything so the toggle isn't a silent no-op.
+  let filtered = _trafficItems;
+  if (_routeCoords.length > 0) {
+    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    for (const [lon, lat] of _routeCoords) {
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+    }
+    const pad = 0.05; // ~5 km bounding-box padding
+    filtered = _trafficItems.filter(
+      i => i.lat >= minLat - pad && i.lat <= maxLat + pad &&
+           i.lon >= minLon - pad && i.lon <= maxLon + pad
+    );
   }
-  const pad = 0.05; // ~5 km bounding-box padding
-  return _trafficItems
-    .filter(i => i.lat >= minLat - pad && i.lat <= maxLat + pad &&
-                 i.lon >= minLon - pad && i.lon <= maxLon + pad)
+  return filtered
     .map(i => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [i.lon, i.lat] },
@@ -627,7 +636,13 @@ function _buildTrafficPopupHTML(props) {
     html += `<div class="since">${_escapeHtml(_trafficLabel('since', {t: startStr}))}</div>`;
   }
   if (descList.length) {
-    html += `<div class="desc">${_escapeHtml(descList.join('\n'))}</div>`;
+    // Cap to 18 lines (autobahn detour lists can run 50+ lines).
+    let lines = descList;
+    let truncated = false;
+    if (lines.length > 18) { lines = lines.slice(0, 18); truncated = true; }
+    let text = lines.join('\n');
+    if (truncated) text += '\n…';
+    html += `<div class="desc">${_escapeHtml(text)}</div>`;
   }
   return html || `<div>${_escapeHtml(title || props.kind || '')}</div>`;
 }
@@ -636,7 +651,12 @@ function _attachTrafficClick(layerId) {
   map.on('click', layerId, (e) => {
     const f = e.features && e.features[0];
     if (!f) return;
-    new maplibregl.Popup({ className: 'dp-traffic-popup', maxWidth: '320px' })
+    new maplibregl.Popup({
+        className: 'dp-traffic-popup',
+        maxWidth: '260px',
+        closeOnMove: true,
+        offset: 14,
+      })
       .setLngLat(f.geometry.coordinates.slice())
       .setHTML(_buildTrafficPopupHTML(f.properties || {}))
       .addTo(map);
