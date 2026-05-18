@@ -244,75 +244,83 @@ class DashcamPage(Gtk.Box):
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-        overlay = Gtk.Overlay()
-        overlay.set_hexpand(True)
-        overlay.set_vexpand(True)
-        self.append(overlay)
+        # Outer overlay wraps everything so the lock screen can cover both
+        # the camera area AND the bottom bar.
+        outer = Gtk.Overlay()
+        outer.set_hexpand(True)
+        outer.set_vexpand(True)
+        self.append(outer)
 
-        # ── Base: camera preview (always visible; shows frames when available) ──
+        # Inner ToolbarView: camera = content, controls = bottom_bar.
+        # Adw.ToolbarView always places the bottom_bar at the physical bottom
+        # regardless of portrait/landscape window shape.
+        inner_tv = Adw.ToolbarView()
+        inner_tv.set_hexpand(True)
+        inner_tv.set_vexpand(True)
+        outer.set_child(inner_tv)
+
+        # ── Camera area (ToolbarView content) ─────────────────────────────────
+        cam_overlay = Gtk.Overlay()
+        cam_overlay.set_hexpand(True)
+        cam_overlay.set_vexpand(True)
+        inner_tv.set_content(cam_overlay)
+
         self._preview_pic = Gtk.Picture()
         self._preview_pic.set_hexpand(True)
         self._preview_pic.set_vexpand(True)
         self._preview_pic.set_content_fit(Gtk.ContentFit.CONTAIN)
-        overlay.set_child(self._preview_pic)
+        cam_overlay.set_child(self._preview_pic)
 
-        # "No camera" icon sits on top and hides itself once the first frame arrives
+        # "No camera" icon — hidden on first frame
         self._no_cam_icon = Gtk.Image.new_from_icon_name("camera-video-symbolic")
         self._no_cam_icon.set_pixel_size(64)
         self._no_cam_icon.add_css_class("dim-label")
         self._no_cam_icon.set_halign(Gtk.Align.CENTER)
         self._no_cam_icon.set_valign(Gtk.Align.CENTER)
-        overlay.add_overlay(self._no_cam_icon)
+        cam_overlay.add_overlay(self._no_cam_icon)
 
-        # Activity detection resets dim timer
-        for ctrl_cls, sig in (
-            (Gtk.EventControllerMotion, "motion"),
-            (Gtk.GestureClick,          "pressed"),
-        ):
-            ctrl = ctrl_cls()
-            ctrl.connect(sig, lambda *_: self._reset_dim_timer())
-            overlay.add_controller(ctrl)
-
-        # ── Overlay: top-left REC indicator ──────────────────────────────────
+        # REC indicator — top-left of camera area
         self._rec_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self._rec_bar.set_halign(Gtk.Align.START)
         self._rec_bar.set_valign(Gtk.Align.START)
         self._rec_bar.set_margin_top(12)
         self._rec_bar.set_margin_start(12)
         self._rec_bar.set_visible(False)
-
         self._rec_dot = Gtk.DrawingArea()
         self._rec_dot.set_size_request(16, 16)
         self._rec_dot.set_draw_func(self._draw_rec_dot, None)
         self._rec_bar.append(self._rec_dot)
-
         self._rec_lbl = Gtk.Label(label="REC")
         self._rec_lbl.add_css_class("dc-status")
         self._rec_bar.append(self._rec_lbl)
-        overlay.add_overlay(self._rec_bar)
+        cam_overlay.add_overlay(self._rec_bar)
 
-        # ── Overlay: bottom bar ───────────────────────────────────────────────
+        # Activity detection (resets dim timer) on the camera area
+        for ctrl_cls, sig in (
+            (Gtk.EventControllerMotion, "motion"),
+            (Gtk.GestureClick,          "pressed"),
+        ):
+            ctrl = ctrl_cls()
+            ctrl.connect(sig, lambda *_: self._reset_dim_timer())
+            cam_overlay.add_controller(ctrl)
+
+        # ── Controls (ToolbarView bottom_bar) ─────────────────────────────────
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         bottom.add_css_class("dc-bottom")
-        bottom.set_halign(Gtk.Align.FILL)
-        bottom.set_valign(Gtk.Align.END)
         bottom.set_hexpand(True)
-        overlay.add_overlay(bottom)
+        inner_tv.add_bottom_bar(bottom)
 
-        # Status row
         self._status_lbl = Gtk.Label(label="")
         self._status_lbl.add_css_class("dc-status")
         self._status_lbl.set_halign(Gtk.Align.CENTER)
         bottom.append(self._status_lbl)
 
-        # Elapsed row (hidden when idle)
         self._elapsed_lbl = Gtk.Label(label="")
         self._elapsed_lbl.add_css_class("dc-status")
         self._elapsed_lbl.set_halign(Gtk.Align.CENTER)
         self._elapsed_lbl.set_visible(False)
         bottom.append(self._elapsed_lbl)
 
-        # Action buttons row
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         btn_row.set_halign(Gtk.Align.CENTER)
 
@@ -336,7 +344,6 @@ class DashcamPage(Gtk.Box):
         self._save_btn.connect("clicked", self._on_save_event)
         btn_row.append(self._save_btn)
 
-        # Clips popover button
         clips_btn = Gtk.MenuButton()
         clips_btn.set_icon_name("view-list-symbolic")
         clips_btn.add_css_class("flat")
@@ -349,7 +356,7 @@ class DashcamPage(Gtk.Box):
 
         bottom.append(btn_row)
 
-        # ── Overlay: lock / dim screen ────────────────────────────────────────
+        # ── Lock / dim screen — covers entire outer overlay ───────────────────
         self._lock_overlay = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self._lock_overlay.add_css_class("dc-lock-bg")
         self._lock_overlay.set_hexpand(True)
@@ -377,7 +384,7 @@ class DashcamPage(Gtk.Box):
         wake = Gtk.GestureClick()
         wake.connect("pressed", self._on_lock_tap)
         self._lock_overlay.add_controller(wake)
-        overlay.add_overlay(self._lock_overlay)
+        outer.add_overlay(self._lock_overlay)
 
         # ── GStreamer preview ─────────────────────────────────────────────────
         self._preview = _CameraPreview(
