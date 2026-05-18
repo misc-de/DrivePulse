@@ -12,14 +12,14 @@ def _payload(speed: float | None = None, gps_speed: float | None = None, g: floa
     return data
 
 
-def test_acceleration_start_reset_and_target_capture(monkeypatch, drivepulse_module):
+def test_stopwatch_start_reset_and_target_capture(monkeypatch, drivepulse_module):
     # t=0.0: speed=0, no g  → armed, no trigger (no data)
     # t=0.5: speed=2, g=0.25 → _engage_since=0.5, _prestart_since=0.5; sustained=0 s → no trigger
     # t=0.8: speed=8, g=0.25 → sustained=0.3 s ≥ 0.15, speed=8 ≥ 1 → TRIGGER; start_monotonic=0.5
     # t=1.75: speed=50 → elapsed=1.25 s → records 30/50 km/h targets
     times = iter([0.0, 0.5, 0.8, 1.75])
     monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
-    page = drivepulse_module.AccelerationPage()
+    page = drivepulse_module.StopWatchPage()
 
     page.start_measurement()
     assert page.armed is True
@@ -50,14 +50,14 @@ def test_acceleration_start_reset_and_target_capture(monkeypatch, drivepulse_mod
     assert page.abort_button.get_visible() is False
 
 
-def test_acceleration_finishes_when_all_targets_have_a_source(monkeypatch, drivepulse_module):
+def test_stopwatch_finishes_when_all_targets_have_a_source(monkeypatch, drivepulse_module):
     # t=0.0: speed=0           → armed, no g data
     # t=0.5: speed=5, g=0.25  → engage starts, not sustained yet
     # t=0.8: speed=10, g=0.25 → sustained 0.3 s, speed gate → TRIGGER; start_monotonic=0.5
     # t=2.0: speed=220, gps=220 → all targets hit → done
     times = iter([0.0, 0.5, 0.8, 2.0])
     monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
-    page = drivepulse_module.AccelerationPage()
+    page = drivepulse_module.StopWatchPage()
     page.start_measurement()
 
     rn = lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key)
@@ -71,8 +71,8 @@ def test_acceleration_finishes_when_all_targets_have_a_source(monkeypatch, drive
     assert page.status_label.get_text() == "Measurement complete."
 
 
-def test_acceleration_rotation_uses_dashboard_layout_decision(drivepulse_module):
-    page = drivepulse_module.AccelerationPage()
+def test_stopwatch_rotation_uses_dashboard_layout_decision(drivepulse_module):
+    page = drivepulse_module.StopWatchPage()
 
     page.set_device_rotation(90)
 

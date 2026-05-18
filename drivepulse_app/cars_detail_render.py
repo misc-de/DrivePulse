@@ -114,8 +114,8 @@ class CarsDetailRenderMixin:
             self._render_scans_into_value_list()
             return
 
-        if cat_key == "acceleration_runs":
-            self._render_accel_runs_into_value_list()
+        if cat_key == "stopwatch_runs":
+            self._render_stopwatch_runs_into_value_list()
             return
 
         for pid_key, label_key in items:

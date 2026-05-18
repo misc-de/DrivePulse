@@ -9,7 +9,9 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
+gi.require_version("Gsk", "4.0")
+gi.require_version("Graphene", "1.0")
+from gi.repository import Adw, Gdk, GLib, Graphene, Gsk, Gtk  # noqa: E402
 
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 from .dashcam_recorder import DashcamRecorder
@@ -201,6 +203,79 @@ class _CameraPreview:
         return True
 
 
+# ── Rotated single-child container ────────────────────────────────────────────
+
+class _RotatedBar(Gtk.Widget):
+    """Single-child container that rotates its child by 0/90/180/270°.
+
+    For 90/270 the child is allocated with its width and height swapped, then
+    a Gsk.Transform is applied so the child's contents (labels, buttons) render
+    upright for the user when the device is held in landscape.
+    """
+    __gtype_name__ = "DPDashcamRotatedBar"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._child: Gtk.Widget | None = None
+        self._angle: int = 0
+
+    def set_child(self, child: Gtk.Widget | None) -> None:
+        if self._child is not None:
+            self._child.unparent()
+        self._child = child
+        if child is not None:
+            child.set_parent(self)
+
+    def set_rotation(self, angle: int) -> None:
+        a = angle % 360
+        if a not in (0, 90, 180, 270):
+            a = 0
+        if a == self._angle:
+            return
+        self._angle = a
+        self.queue_resize()
+
+    def do_measure(self, orientation: Gtk.Orientation, for_size: int):
+        if self._child is None:
+            return (0, 0, -1, -1)
+        if self._angle in (0, 180):
+            return self._child.measure(orientation, for_size)
+        other = (Gtk.Orientation.HORIZONTAL
+                 if orientation == Gtk.Orientation.VERTICAL
+                 else Gtk.Orientation.VERTICAL)
+        return self._child.measure(other, for_size)
+
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
+        if self._child is None:
+            return
+        a = self._angle
+        if a == 0:
+            self._child.allocate(width, height, baseline, None)
+            return
+        if a == 180:
+            tr = (Gsk.Transform.new()
+                  .translate(Graphene.Point.alloc().init(width, height))
+                  .rotate(180))
+            self._child.allocate(width, height, baseline, tr)
+            return
+        if a == 90:
+            tr = (Gsk.Transform.new()
+                  .translate(Graphene.Point.alloc().init(width, 0))
+                  .rotate(90))
+            self._child.allocate(height, width, baseline, tr)
+            return
+        # 270
+        tr = (Gsk.Transform.new()
+              .translate(Graphene.Point.alloc().init(0, height))
+              .rotate(-90))
+        self._child.allocate(height, width, baseline, tr)
+
+    def do_dispose(self) -> None:
+        if self._child is not None:
+            self._child.unparent()
+            self._child = None
+
+
 # ── Page widget ───────────────────────────────────────────────────────────────
 
 class DashcamPage(Gtk.Box):
@@ -313,22 +388,27 @@ class DashcamPage(Gtk.Box):
             ctrl.connect(sig, lambda *_: self._reset_dim_timer())
             cam_overlay.add_controller(ctrl)
 
-        # ── Controls overlay — always at the bottom of the video ──────────────
-        # Floating over the preview as an overlay (with a gray translucent
-        # backdrop) instead of a separate bar.  This guarantees the buttons
-        # sit at the screen bottom in both portrait and landscape; nothing
-        # can flip them to a side rail.
+        # ── Controls overlay — always at the user's visual bottom ─────────────
+        # The inner `bar_wrap` carries the styled translucent backdrop and the
+        # controls. It is wrapped in `_RotatedBar`, which moves/rotates the
+        # whole thing as the device orientation changes so the buttons stay
+        # reachable at the user's visual bottom edge and read upright.
         bar_wrap = Gtk.Box()
         bar_wrap.add_css_class("dc-bottom")
         bar_wrap.set_hexpand(True)
-        bar_wrap.set_valign(Gtk.Align.END)
-        bar_wrap.set_halign(Gtk.Align.FILL)
-        bar_wrap.set_margin_start(8)
-        bar_wrap.set_margin_end(8)
-        bar_wrap.set_margin_bottom(8)
         bar_wrap.append(self._build_controls())
-        cam_overlay.add_overlay(bar_wrap)
+
+        rotator = _RotatedBar()
+        rotator.set_child(bar_wrap)
+        rotator.set_valign(Gtk.Align.END)
+        rotator.set_halign(Gtk.Align.FILL)
+        rotator.set_hexpand(True)
+        rotator.set_margin_start(8)
+        rotator.set_margin_end(8)
+        rotator.set_margin_bottom(8)
+        cam_overlay.add_overlay(rotator)
         self._bar_wrap = bar_wrap
+        self._bar_rotator = rotator
         self._update_toggle_btn()
 
         # ── Lock / dim screen — covers entire outer overlay ───────────────────
@@ -518,37 +598,58 @@ class DashcamPage(Gtk.Box):
         self._apply_bar_position(angle, is_landscape)
 
     def _apply_bar_position(self, angle: int, is_landscape: bool) -> None:
-        """Reposition the control bar based on physical device orientation.
+        """Reposition + rotate the control bar to follow physical orientation.
 
-        Screen is always portrait-locked. When the sensor reports landscape,
-        the bar moves to whichever portrait edge corresponds to the physical
-        bottom so the buttons stay reachable without touching gsettings.
+        Screen is portrait-locked. The bar is moved to whichever portrait edge
+        is at the user's visual bottom and the whole bar is rotated so labels
+        and buttons read upright.
 
-        angle=90  (right-up / CCW rotation) → portrait LEFT  = physical bottom
-        angle=270 (left-up  / CW  rotation) → portrait RIGHT = physical bottom
+        angle=0   (normal)                       → portrait BOTTOM, no rotation
+        angle=90  (right-up / CCW device tilt)   → portrait LEFT,   rotate 90°
+        angle=180 (bottom-up)                    → portrait TOP,    rotate 180°
+        angle=270 (left-up  / CW  device tilt)   → portrait RIGHT,  rotate -90°
         """
-        wrap = self._bar_wrap
-        if not is_landscape:
-            wrap.set_valign(Gtk.Align.END)
-            wrap.set_halign(Gtk.Align.FILL)
-            wrap.set_hexpand(True)
-            wrap.set_margin_start(8)
-            wrap.set_margin_end(8)
-            wrap.set_margin_bottom(8)
-            wrap.set_margin_top(0)
+        rot = self._bar_rotator
+        if is_landscape and angle == 90:
+            rot.set_valign(Gtk.Align.FILL)
+            rot.set_halign(Gtk.Align.START)
+            rot.set_hexpand(False)
+            rot.set_vexpand(True)
+            rot.set_margin_start(8)
+            rot.set_margin_end(0)
+            rot.set_margin_top(8)
+            rot.set_margin_bottom(8)
+            rot.set_rotation(90)
+        elif is_landscape and angle == 270:
+            rot.set_valign(Gtk.Align.FILL)
+            rot.set_halign(Gtk.Align.END)
+            rot.set_hexpand(False)
+            rot.set_vexpand(True)
+            rot.set_margin_start(0)
+            rot.set_margin_end(8)
+            rot.set_margin_top(8)
+            rot.set_margin_bottom(8)
+            rot.set_rotation(270)
+        elif angle == 180:
+            rot.set_valign(Gtk.Align.START)
+            rot.set_halign(Gtk.Align.FILL)
+            rot.set_hexpand(True)
+            rot.set_vexpand(False)
+            rot.set_margin_start(8)
+            rot.set_margin_end(8)
+            rot.set_margin_top(8)
+            rot.set_margin_bottom(0)
+            rot.set_rotation(180)
         else:
-            wrap.set_valign(Gtk.Align.FILL)
-            wrap.set_hexpand(False)
-            wrap.set_margin_bottom(8)
-            wrap.set_margin_top(8)
-            if angle == 90:
-                wrap.set_halign(Gtk.Align.START)
-                wrap.set_margin_start(8)
-                wrap.set_margin_end(0)
-            else:
-                wrap.set_halign(Gtk.Align.END)
-                wrap.set_margin_start(0)
-                wrap.set_margin_end(8)
+            rot.set_valign(Gtk.Align.END)
+            rot.set_halign(Gtk.Align.FILL)
+            rot.set_hexpand(True)
+            rot.set_vexpand(False)
+            rot.set_margin_start(8)
+            rot.set_margin_end(8)
+            rot.set_margin_bottom(8)
+            rot.set_margin_top(0)
+            rot.set_rotation(0)
 
     # ── Dim / lock screen ─────────────────────────────────────────────────────
 

@@ -21,7 +21,7 @@ from .common import (
 from .gauge import Gauge, GAUGE_THEMES, all_theme_options, get_theme_css
 from .dashboard import DashboardCanvas, DASHBOARD_THEMES
 from .dashboard_layout import DashboardLayoutMixin
-from .acceleration import AccelerationPage
+from .stopwatch import StopWatchPage
 from .cars import CarsPage
 from .map_page import MapPage
 from .dashcam_page import DashcamPage
@@ -40,7 +40,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     __gtype_name__ = "DashboardWindow"
 
     PAGE_DASHBOARD = "dashboard"
-    PAGE_ACCELERATION = "acceleration"
+    PAGE_STOPWATCH = "stopwatch"
     PAGE_CARS = "cars"
     PAGE_MAP = "map"
     PAGE_DASHCAM = "dashcam"
@@ -172,18 +172,18 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         dashboard_scroller.set_propagate_natural_height(False)
         dashboard_scroller.set_child(self.dashboard_page)
 
-        self.acceleration_page = AccelerationPage(self.language)
-        self.acceleration_page.set_theme(self.gauge_theme)
-        self.acceleration_page.set_engage_threshold(self.settings.get("engage_threshold", 0.20))
-        self.acceleration_page.on_engage_threshold_changed = self._on_engage_threshold_changed
-        self.acceleration_page.on_run_complete = self._on_acceleration_run_complete
-        acceleration_scroller = Gtk.ScrolledWindow()
-        acceleration_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        acceleration_scroller.set_propagate_natural_width(False)
-        acceleration_scroller.set_propagate_natural_height(False)
-        acceleration_scroller.set_hexpand(True)
-        acceleration_scroller.set_vexpand(True)
-        acceleration_scroller.set_child(self.acceleration_page)
+        self.stopwatch_page = StopWatchPage(self.language)
+        self.stopwatch_page.set_theme(self.gauge_theme)
+        self.stopwatch_page.set_engage_threshold(self.settings.get("engage_threshold", 0.20))
+        self.stopwatch_page.on_engage_threshold_changed = self._on_engage_threshold_changed
+        self.stopwatch_page.on_run_complete = self._on_stopwatch_run_complete
+        stopwatch_scroller = Gtk.ScrolledWindow()
+        stopwatch_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        stopwatch_scroller.set_propagate_natural_width(False)
+        stopwatch_scroller.set_propagate_natural_height(False)
+        stopwatch_scroller.set_hexpand(True)
+        stopwatch_scroller.set_vexpand(True)
+        stopwatch_scroller.set_child(self.stopwatch_page)
 
         self.cars_page = CarsPage(self.language, db=self.db, sidebar_side=self.sidebar_side)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
@@ -252,10 +252,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             _translate(self.language, "nav.gauges"),
             "speedometer4-symbolic",
         )
-        self.acceleration_stack_page = self.view_stack.add_titled_with_icon(
-            acceleration_scroller,
-            self.PAGE_ACCELERATION,
-            _translate(self.language, "nav.acceleration"),
+        self.stopwatch_stack_page = self.view_stack.add_titled_with_icon(
+            stopwatch_scroller,
+            self.PAGE_STOPWATCH,
+            _translate(self.language, "nav.stopwatch"),
             "stopwatch-symbolic",
         )
 
@@ -345,12 +345,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader._configured_port = self.obd_port
-        self.acceleration_page.on_mock_start = self.reader.trigger_mock_acceleration
+        self.stopwatch_page.on_mock_start = self.reader.trigger_mock_stopwatch
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)
         self.gps_reader.start()
         self.orientation_reader = OrientationReader(self._on_orientation_changed)
-        self.orientation_reader.on_gforce = self.acceleration_page.update_gforce_raw
+        self.orientation_reader.on_gforce = self.stopwatch_page.update_gforce_raw
 
     def _on_dashcam_recording_changed(self, recording: bool) -> None:
         self._dashcam_rec_box.set_visible(recording)
@@ -479,15 +479,15 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.mock_tour_sim.resume()
 
     def _on_cars_back_swipe(self) -> None:
-        """Vom Autos-Tab (Übersicht) per Wisch nach rechts → Acceleration.
+        """Vom Autos-Tab (Übersicht) per Wisch nach rechts → StopWatch.
 
         Cars ist der erste Tab; ein Wisch nach rechts hätte sonst kein Ziel.
         Statt der Endlosschleife des ViewSwitchers springen wir direkt zum
-        gegenüberliegenden Ende (Acceleration), damit die Geste nicht ins
+        gegenüberliegenden Ende (StopWatch), damit die Geste nicht ins
         Leere läuft.
         """
         if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
-            self.view_stack.set_visible_child_name(self.PAGE_ACCELERATION)
+            self.view_stack.set_visible_child_name(self.PAGE_STOPWATCH)
             self._last_swipe_time = time.monotonic()
 
     def _on_cars_forward_swipe(self) -> None:
@@ -513,8 +513,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
         else:
             manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
-        if hasattr(self, "acceleration_page"):
-            self.acceleration_page.set_theme_mode(mode)
+        if hasattr(self, "stopwatch_page"):
+            self.stopwatch_page.set_theme_mode(mode)
 
     def _apply_nav_position(self, position: str) -> None:
         at_top = position == "top"
@@ -572,7 +572,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # Zurück-Swipe (Detail → Liste). Wir schalten dann nicht zusätzlich den Tab um.
         if current == self.PAGE_CARS and velocity_x > 0 and self.cars_page.is_detail_open():
             return
-        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHCAM, self.PAGE_DASHBOARD, self.PAGE_ACCELERATION]
+        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHCAM, self.PAGE_DASHBOARD, self.PAGE_STOPWATCH]
         try:
             index = pages.index(current)
         except ValueError:
