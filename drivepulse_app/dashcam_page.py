@@ -88,14 +88,16 @@ class _CameraPreview:
         ]
         out: list[tuple[str, bool]] = []
         for src in sources:
+            # videoflip method=0 forces identity — strips any upstream orientation
+            # metadata that pipewiresrc/libcamerasrc may inject on mobile devices.
             # gtk4paintablesink: GPU-native GTK4 rendering, no CPU copy
             out.append((
-                f"{src} ! videoconvert ! gtk4paintablesink name=sink sync=false",
+                f"{src} ! videoconvert ! videoflip method=0 ! gtk4paintablesink name=sink sync=false",
                 True,
             ))
             # appsink: CPU frame-copy fallback
             out.append((
-                f"{src} ! videoconvert ! video/x-raw,format=RGB ! "
+                f"{src} ! videoconvert ! videoflip method=0 ! video/x-raw,format=RGB ! "
                 f"appsink name=sink max-buffers=1 drop=true sync=false",
                 False,
             ))
