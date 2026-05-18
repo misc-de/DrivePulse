@@ -175,20 +175,36 @@ class GpsReader:
         speed_ms = data.get("speed")
         if speed_ms is None:
             return
+        speed_value = self._finite_float(speed_ms)
+        if speed_value is None or speed_value < 0:
+            return
         gps_payload: dict[str, Any] = {
             "source": "gps",
-            "gps_speed": {"value": float(speed_ms) * 3.6, "unit": "km/h"},
+            "gps_speed": {"value": speed_value * 3.6, "unit": "km/h"},
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         track = data.get("track")
-        if track is not None:
-            gps_payload["gps_heading"] = {"value": float(track), "unit": "deg"}
+        track_value = self._finite_float(track)
+        if track_value is not None and 0 <= track_value < 360:
+            gps_payload["gps_heading"] = {"value": track_value, "unit": "deg"}
         lat = data.get("lat")
         lon = data.get("lon")
-        if lat is not None and lon is not None:
-            gps_payload["gps_lat"] = {"value": float(lat), "unit": "degree"}
-            gps_payload["gps_lon"] = {"value": float(lon), "unit": "degree"}
+        lat_value = self._finite_float(lat)
+        lon_value = self._finite_float(lon)
+        if lat_value is not None and lon_value is not None:
+            gps_payload["gps_lat"] = {"value": lat_value, "unit": "degree"}
+            gps_payload["gps_lon"] = {"value": lon_value, "unit": "degree"}
         altitude = data.get("alt")
-        if altitude is not None:
-            gps_payload["gps_altitude"] = {"value": float(altitude), "unit": "meter"}
+        altitude_value = self._finite_float(altitude)
+        if altitude_value is not None:
+            gps_payload["gps_altitude"] = {"value": altitude_value, "unit": "meter"}
         GLib.idle_add(self.on_update, gps_payload)
+
+    def _finite_float(self, value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) else None

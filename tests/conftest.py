@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import types
 from pathlib import Path
+from html import escape
 
 import pytest
 
@@ -280,6 +281,10 @@ class _ListItem(_Widget):
     pass
 
 
+class _ListBox(_Widget):
+    pass
+
+
 class _ApplicationWindow(_Widget):
     pass
 
@@ -348,6 +353,7 @@ def drivepulse_module(monkeypatch):
         Grid=_Grid,
         Image=_Image,
         Label=_Label,
+        ListBox=_ListBox,
         ListItem=_ListItem,
         Orientation=_Orientation,
         PolicyType=_PolicyType,
@@ -380,9 +386,15 @@ def drivepulse_module(monkeypatch):
         ViewStack=_ViewStack,
         ViewSwitcher=_Widget,
         ViewSwitcherBar=_Widget,
-        ViewSwitcherPolicy=types.SimpleNamespace(WIDE=_EnumValue("wide")),
+        ViewSwitcherPolicy=types.SimpleNamespace(
+            NARROW=_EnumValue("narrow"),
+            WIDE=_EnumValue("wide"),
+        ),
     )
-    glib = types.SimpleNamespace(idle_add=lambda callback, *args: callback(*args))
+    glib = types.SimpleNamespace(
+        idle_add=lambda callback, *args: callback(*args),
+        markup_escape_text=lambda text: escape(str(text)),
+    )
     gobject = types.SimpleNamespace(Object=object)
     gio = types.SimpleNamespace(ListStore=_ListStore)
     pango = types.SimpleNamespace(WrapMode=_WrapMode)

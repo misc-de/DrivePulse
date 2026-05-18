@@ -167,10 +167,12 @@ class ObdScanner:
         }
         try:
             PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-            profile_path.write_text(
+            tmp_path = profile_path.with_suffix(profile_path.suffix + ".tmp")
+            tmp_path.write_text(
                 json.dumps(profile, indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
+            tmp_path.replace(profile_path)
             self._session_cache.add(identity)
         except Exception as exc:
             self._emit("error", 1.0, str(exc))

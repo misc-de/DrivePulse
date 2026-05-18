@@ -540,7 +540,9 @@ class SettingsDialog(Adw.Dialog):
         self.on_units_changed("metric" if self.unit_row.get_selected() == 0 else "imperial")
 
     def _on_language_selected(self, *_args: Any) -> None:
-        self.on_language_changed(SUPPORTED_LANGUAGES[self.language_row.get_selected()])
+        idx = self.language_row.get_selected()
+        language = SUPPORTED_LANGUAGES[idx] if 0 <= idx < len(SUPPORTED_LANGUAGES) else SUPPORTED_LANGUAGES[0]
+        self.on_language_changed(language)
 
     def _on_mock_changed(self, *_args: Any) -> None:
         if self.on_mock_mode_changed is not None:
@@ -549,13 +551,13 @@ class SettingsDialog(Adw.Dialog):
     def _on_dongle_selected(self, *_args: Any) -> None:
         if self.on_obd_port_changed is not None:
             idx = self.dongle_row.get_selected()
-            port = self._obd_port_values[idx] if idx < len(self._obd_port_values) else None
+            port = self._obd_port_values[idx] if 0 <= idx < len(self._obd_port_values) else None
             self.on_obd_port_changed(port)
 
     def _on_gauge_theme_selected(self, *_args: Any) -> None:
         if self.on_gauge_theme_changed is not None:
             idx = self.gauge_theme_row.get_selected()
-            theme = self._theme_options[idx][0] if idx < len(self._theme_options) else "cockpit"
+            theme = self._theme_options[idx][0] if 0 <= idx < len(self._theme_options) else "cockpit"
             self.on_gauge_theme_changed(theme)
 
     def _on_sidebar_side_selected(self, *_args: Any) -> None:
@@ -566,7 +568,8 @@ class SettingsDialog(Adw.Dialog):
     def _on_theme_mode_selected(self, *_args: Any) -> None:
         if self.on_theme_mode_changed is not None:
             modes = ["auto", "dark", "light"]
-            self.on_theme_mode_changed(modes[self.theme_mode_row.get_selected()])
+            idx = self.theme_mode_row.get_selected()
+            self.on_theme_mode_changed(modes[idx] if 0 <= idx < len(modes) else "auto")
 
     def _on_force_webkit_map_changed(self, *_args: Any) -> None:
         if self.on_force_webkit_map_changed is not None:
@@ -580,7 +583,8 @@ class SettingsDialog(Adw.Dialog):
     def _on_rotation_mode_selected(self, *_args: Any) -> None:
         if self.on_rotation_mode_changed is not None:
             idx = self.rotation_mode_row.get_selected()
-            self.on_rotation_mode_changed(self._ROTATION_MODES[idx])
+            mode = self._ROTATION_MODES[idx] if 0 <= idx < len(self._ROTATION_MODES) else self._ROTATION_MODES[0]
+            self.on_rotation_mode_changed(mode)
 
     # ── Update check ──────────────────────────────────────────────────────────
 

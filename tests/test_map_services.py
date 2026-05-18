@@ -62,6 +62,21 @@ def test_osrm_route_rejects_missing_waypoints():
     assert osrm_route([(48.0, 11.0)], "car", lambda _url: {}) is None
 
 
+def test_osrm_route_rejects_malformed_success_response():
+    from drivepulse_app.map_services import osrm_route
+
+    assert osrm_route(
+        [(48.0, 11.0), (49.0, 12.0)],
+        "car",
+        lambda _url: {"code": "Ok", "routes": [{"duration": "bad"}]},
+    ) is None
+    assert osrm_route(
+        [(48.0, 11.0), (49.0, 12.0)],
+        "car",
+        lambda _url: {"code": "Ok", "routes": [{"geometry": {"coordinates": "bad"}}]},
+    ) is None
+
+
 def test_resolve_route_points_uses_gps_as_empty_start_and_skips_empty_waypoints():
     from drivepulse_app.map_services import resolve_route_points
 

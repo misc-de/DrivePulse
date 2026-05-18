@@ -51,6 +51,71 @@ def test_import_data_skips_malformed_entries(tmp_path):
         db.close()
 
 
+def test_sync_preserves_profile_path_and_deduplicates_vinless_cars(tmp_path):
+    from drivepulse_app.db import DriveDB
+    from drivepulse_app.sync_data import export_all, import_data
+
+    source = DriveDB(tmp_path / "source.sqlite3")
+    target = DriveDB(tmp_path / "target.sqlite3")
+    try:
+        source.upsert_car(profile_path="/tmp/profile.json", label="Profile car")
+        payload = export_all(source)
+
+        assert payload["cars"][0]["profile_path"] == "/tmp/profile.json"
+
+        first = import_data(target, payload, mode="merge")
+        second = import_data(target, payload, mode="merge")
+
+        assert first["cars_added"] == 1
+        assert second["cars_added"] == 0
+        assert second["cars_updated"] == 1
+        assert len(target.list_cars()) == 1
+        assert target.list_cars()[0]["profile_path"] == "/tmp/profile.json"
+    finally:
+        source.close()
+        target.close()
+
+
+def test_import_data_reports_actual_inserted_samples_for_duplicate_timestamps(tmp_path):
+    from drivepulse_app.db import DriveDB
+    from drivepulse_app.sync_data import import_data
+
+    db = DriveDB(tmp_path / "drivepulse.sqlite3")
+    try:
+        result = import_data(
+            db,
+            {
+                "version": 1,
+                "cars": [
+                    {
+                        "vin": "DUPETS",
+                        "trips": [
+                            {
+                                "started_at": "2026-01-01T00:00:00+00:00",
+                                "samples_count": 99,
+                                "samples": [
+                                    {"ts": 1.0, "speed_kmh": 10},
+                                    {"ts": 1.0, "speed_kmh": 20},
+                                    {"ts": 2.0, "speed_kmh": 30},
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+            mode="merge",
+        )
+
+        car = db.list_cars()[0]
+        trip = db.list_trips_for_car(car["id"])[0]
+
+        assert result["samples_added"] == 2
+        assert trip["samples_count"] == 2
+        assert len(db.samples_for_trip(trip["id"])) == 2
+    finally:
+        db.close()
+
+
 def test_parse_pairing_url_validates_expiry():
     from drivepulse_app.sync_flow import parse_pairing_url
 
@@ -75,6 +140,60 @@ def test_parse_pairing_url_validates_expiry():
         pass
     else:
         raise AssertionError("expired pairing URL should raise TimeoutError")
+
+
+def test_sync_client_refuses_pairing_before_fingerprint_verification():
+    from drivepulse_app.sync_client import SyncClient
+
+    client = SyncClient("127.0.0.1", 8765, "fingerprint", "device")
+
+    assert client.pair("token") is False
+    assert client.export_from_server() is None
+    assert client.import_to_server({"version": 1, "cars": []}) is False
+
+
+def test_get_local_ip_uses_timeout_and_fallback(monkeypatch):
+    import socket
+
+    from drivepulse_app import sync_crypto
+
+    calls = []
+
+    class FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            calls.append(("closed",))
+
+        def settimeout(self, timeout):
+            calls.append(("timeout", timeout))
+
+        def connect(self, address):
+            calls.append(("connect", address))
+            raise OSError("offline")
+
+    monkeypatch.setattr(socket, "socket", lambda *args, **kwargs: FakeSocket())
+
+    assert sync_crypto.get_local_ip() == "127.0.0.1"
+    assert ("timeout", 1.0) in calls
+    assert ("closed",) in calls
+
+
+def test_sync_identity_replaces_empty_persisted_device_id(monkeypatch, tmp_path):
+    from drivepulse_app import sync_identity
+
+    sync_dir = tmp_path / "sync"
+    device_file = sync_dir / "device_id.txt"
+    sync_dir.mkdir()
+    device_file.write_text("\n", encoding="utf-8")
+
+    monkeypatch.setattr(sync_identity, "SYNC_DIR", sync_dir)
+    monkeypatch.setattr(sync_identity, "DEVICE_ID_FILE", device_file)
+    monkeypatch.setattr(sync_identity, "generate_device_id", lambda: "new-device")
+
+    assert sync_identity.get_or_create_device_id() == "new-device"
+    assert device_file.read_text(encoding="utf-8") == "new-device"
 
 
 def test_perform_sync_reports_server_import_failure(tmp_path):

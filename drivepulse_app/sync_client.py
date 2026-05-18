@@ -20,6 +20,7 @@ class SyncClient:
         self._spki_fingerprint = spki_fingerprint
         self._device_id = device_id
         self._session_token: str | None = None
+        self._fingerprint_verified = False
 
     def _make_ssl_context(self) -> ssl.SSLContext:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -32,19 +33,26 @@ class SyncClient:
 
     def verify_fingerprint(self) -> bool:
         try:
-            sock = socket.create_connection((self._host, self._port), timeout=10)
             ctx = self._make_ssl_context()
-            ssock = ctx.wrap_socket(sock, server_hostname=self._host)
-            cert_der = ssock.getpeercert(binary_form=True)
-            ssock.close()
+            sock = socket.create_connection((self._host, self._port), timeout=10)
+            with ctx.wrap_socket(sock, server_hostname=self._host) as ssock:
+                cert_der = ssock.getpeercert(binary_form=True)
             if cert_der is None:
                 return False
-            return verify_spki_fingerprint(cert_der, self._spki_fingerprint)
+            self._fingerprint_verified = verify_spki_fingerprint(
+                cert_der,
+                self._spki_fingerprint,
+            )
+            return self._fingerprint_verified
         except Exception:
             log.exception("Could not verify sync peer fingerprint for %s:%s", self._host, self._port)
+            self._fingerprint_verified = False
             return False
 
     def pair(self, pairing_token: str) -> bool:
+        if not self._fingerprint_verified:
+            log.warning("Refusing sync pairing before peer fingerprint was verified")
+            return False
         try:
             body = json.dumps({"token": pairing_token, "device_id": self._device_id}).encode()
             req = urllib.request.Request(
@@ -68,7 +76,7 @@ class SyncClient:
         return {"Authorization": f"Bearer {self._session_token}"}
 
     def export_from_server(self) -> dict | None:
-        if not self._session_token:
+        if not self._fingerprint_verified or not self._session_token:
             return None
         try:
             req = urllib.request.Request(
@@ -84,7 +92,7 @@ class SyncClient:
             return None
 
     def import_to_server(self, data: dict) -> bool:
-        if not self._session_token:
+        if not self._fingerprint_verified or not self._session_token:
             return False
         try:
             body = json.dumps(data).encode()
