@@ -14,7 +14,7 @@ from datetime import datetime
 
 from gi.repository import GLib  # noqa: E402
 
-from .common import SUPPORTED_LANGUAGES, _normalize_language, _translate
+from .common import SUPPORTED_LANGUAGES, _normalize_language, _translate, language_name
 from .gauge import all_theme_options
 from .obd_devices import scan_obd_devices
 from . import updater
@@ -115,8 +115,8 @@ class SettingsDialog(Adw.Dialog):
 
         self.language_row = Adw.ComboRow(title=_translate(self.language, "settings.language"))
         language_model = Gtk.StringList()
-        language_model.append(_translate(self.language, "settings.language.en"))
-        language_model.append(_translate(self.language, "settings.language.de"))
+        for code in SUPPORTED_LANGUAGES:
+            language_model.append(language_name(code))
         self.language_row.set_model(language_model)
         self.language_row.set_selected(SUPPORTED_LANGUAGES.index(self.language))
         self.language_row.connect("notify::selected", self._on_language_selected)
