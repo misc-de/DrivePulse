@@ -19,6 +19,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "gauge_theme": "cockpit",
     "engage_threshold": 0.20,
     "theme_mode": "auto",
+    "force_webkit_map": False,
 }
 
 
@@ -50,6 +51,7 @@ def load_settings() -> dict[str, Any]:
         "gauge_theme": data.get("gauge_theme", DEFAULT_SETTINGS["gauge_theme"]) or "cockpit",
         "engage_threshold": engage_threshold,
         "theme_mode": data.get("theme_mode", "auto") if data.get("theme_mode") in {"auto", "dark", "light"} else "auto",
+        "force_webkit_map": bool(data.get("force_webkit_map", DEFAULT_SETTINGS["force_webkit_map"])),
         "sidebar_side": data.get("sidebar_side", "left") if data.get("sidebar_side") in {"left", "right"} else "left",
         "last_update_check": data.get("last_update_check") or None,
     }
@@ -68,6 +70,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "gauge_theme": settings.get("gauge_theme", "cockpit") or "cockpit",
                 "engage_threshold": float(settings.get("engage_threshold", DEFAULT_SETTINGS["engage_threshold"])),
                 "theme_mode": settings.get("theme_mode", "auto") if settings.get("theme_mode") in {"auto", "dark", "light"} else "auto",
+                "force_webkit_map": bool(settings.get("force_webkit_map", False)),
                 "sidebar_side": settings.get("sidebar_side", "left") if settings.get("sidebar_side") in {"left", "right"} else "left",
                 "last_update_check": settings.get("last_update_check") or None,
             },
