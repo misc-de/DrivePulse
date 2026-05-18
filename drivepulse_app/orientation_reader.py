@@ -42,11 +42,17 @@ class OrientationReader:
     # Axis threshold for orientation detection (mg)
     _THRESHOLD = 600
 
+    # Seconds the accelerometer must report a new orientation before we accept it.
+    # Prevents pipeline restarts from road vibration.
+    _DEBOUNCE_MS = 1800
+
     def __init__(self, on_changed: Callable[[str, int, bool], None], enabled: bool = True) -> None:
         self.on_changed = on_changed
         self.on_gforce: Callable[[float, float, float], None] | None = None
         self._enabled = enabled
         self._current = "normal"
+        self._debounce_id: int | None = None
+        self._debounce_target: str = "normal"
         # sensorfwd state
         self._bus: Any = None
         self._session_id: int = -1
@@ -193,10 +199,28 @@ class OrientationReader:
 
     def _emit(self, orientation: str) -> None:
         if not self._enabled or orientation == self._current:
+            # If a pending debounce points at something that's been reverted, cancel it
+            if self._debounce_id is not None and orientation == self._current:
+                GLib.source_remove(self._debounce_id)
+                self._debounce_id = None
             return
+        if orientation == self._debounce_target and self._debounce_id is not None:
+            return  # already waiting for this orientation
+        # New target — restart the debounce window
+        if self._debounce_id is not None:
+            GLib.source_remove(self._debounce_id)
+        self._debounce_target = orientation
+        self._debounce_id = GLib.timeout_add(self._DEBOUNCE_MS, self._emit_stable)
+
+    def _emit_stable(self) -> bool:
+        self._debounce_id = None
+        orientation = self._debounce_target
+        if orientation == self._current or not self._enabled:
+            return False
         self._current = orientation
         angle, landscape = self._MAP.get(orientation, (0, False))
         GLib.idle_add(self.on_changed, orientation, angle, landscape)
+        return False
 
     def set_enabled(self, enabled: bool) -> None:
         if enabled == self._enabled:
