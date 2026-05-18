@@ -39,22 +39,82 @@ from .map_services import (
 
 log = get_logger(__name__)
 
+# Inline CSS for the in-tour navigation banner.  Adwaita's ".osd"/".card" classes
+# on a Box don't reliably paint a dark translucent background under the labels —
+# we inject our own so the white text always reads against the map underneath.
+_MANEUVER_CSS = b"""
+.dp-maneuver-banner {
+  background-color: rgba(20, 24, 32, 0.82);
+  color: #ffffff;
+  border-radius: 18px;
+  padding: 16px 26px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.40);
+}
+.dp-maneuver-banner label { color: #ffffff; }
+/* Symbolic icons recolor via the widget's CSS color - tint the arrows light
+   blue so they pop against the dark banner without inheriting the label white. */
+.dp-maneuver-banner image { color: #8FCFFF; }
+.dp-maneuver-banner .dp-maneuver-distance {
+  font-size: 32px;
+  font-weight: 800;
+}
+.dp-maneuver-banner .dp-maneuver-instr {
+  font-size: 20px;
+  font-weight: 500;
+  opacity: 0.95;
+}
+.dp-map-state {
+  background-color: rgba(50, 50, 50, 0.80);
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: monospace;
+  font-size: 13px;
+}
+.dp-map-state label { color: #ffffff; }
+"""
+_maneuver_css_installed = False
+
+
+def _install_maneuver_css() -> None:
+    global _maneuver_css_installed
+    if _maneuver_css_installed:
+        return
+    display = Gdk.Display.get_default()
+    if display is None:
+        return
+    provider = Gtk.CssProvider()
+    provider.load_from_data(_MANEUVER_CSS)
+    Gtk.StyleContext.add_provider_for_display(
+        display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+    _maneuver_css_installed = True
+
 # ── MapPage widget ────────────────────────────────────────────────────────────
 
 class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     """OpenStreetMap navigation page — WebKit/MapLibre (3D) or Shumate (2D)."""
     __gtype_name__ = "MapPage"
 
+    # Comfortable street-level zoom for tour following; max zoom (22) was
+    # too close to be useful for navigation.
+    _TOUR_ZOOM = 18.0
+
     def __init__(
         self,
         language: str = SOURCE_LANGUAGE,
         force_webkit: bool = False,
+        units: str = "metric",
+        mock_mode: bool = False,
         poi_visible: bool = False,
         traffic_visible: bool = False,
+        map_3d_view: bool = True,
         on_poi_visible_changed: Callable[[bool], None] | None = None,
         on_traffic_visible_changed: Callable[[bool], None] | None = None,
+        on_3d_view_changed: Callable[[bool], None] | None = None,
         on_tour_started: Callable[[list[list[float]]], None] | None = None,
         on_tour_stopped: Callable[[], None] | None = None,
+        on_tour_resumed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
@@ -63,24 +123,47 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self.set_valign(Gtk.Align.FILL)
         self.language = _normalize_language(language)
         self.force_webkit = force_webkit
+        self.units = units if units in {"metric", "imperial"} else "metric"
+        self.mock_mode = bool(mock_mode)
+        # Latest map view state pushed from the JS side (zoom/pitch/bearing).
+        # Rendered into the status row above the map AND a bottom-left overlay
+        # whenever mock_mode is on.
+        self._map_zoom: float | None = None
+        self._map_pitch: float | None = None
+        self._map_bearing: float | None = None
+        self._map_state_overlay: Gtk.Box | None = None
+        self._map_state_lbl: Gtk.Label | None = None
+        self._map_state_poll_id: int | None = None
         self._on_poi_visible_changed = on_poi_visible_changed
         self._on_traffic_visible_changed = on_traffic_visible_changed
+        self._on_3d_view_changed = on_3d_view_changed
+        self._map_3d_view: bool = bool(map_3d_view)
+        self._3d_btn: Gtk.ToggleButton | None = None
         self._on_tour_started = on_tour_started
         self._on_tour_stopped = on_tour_stopped
+        self._on_tour_resumed = on_tour_resumed
 
         self._gps_lat: float | None = None
         self._gps_lon: float | None = None
         self._gps_heading: float = 0.0
         self._follow_gps: bool = True
         self._last_map_js: float = 0.0   # throttle: last time mapSetCar was sent
+        # Route coords [[lon, lat], ...] — kept for traffic proximity filtering
+        self._route_coords: list[list[float]] = []
         self._map_type_idx: int = 0
         self._routing_mode: str = "car"
         self._start_coord: tuple[float, float] | None = None
         self._end_coord: tuple[float, float] | None = None
         self._tour_active: bool = False
+        self._tour_paused: bool = False
+        self._tour_completed: bool = False
         self._tour_steps: list[dict] = []
         self._tour_step_idx: int = 0
         self._tour_coords: list[list[float]] = []
+        # Last measured distance to the current step's maneuver point; used to
+        # detect "passed" via distance growth instead of a flat radius threshold
+        # (the old radius logic was skipping past stacked close-together steps).
+        self._last_step_dist: float | None = None
         self._dnd_src_idx: int = -1
 
         # Maneuver overlay widgets
@@ -111,6 +194,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._center_btn: Gtk.Button | None = None
         self._layer_btn: Gtk.Button | None = None
         self._traffic_btn: Gtk.ToggleButton | None = None
+        self._zoom_in_btn: Gtk.Button | None = None
+        self._zoom_out_btn: Gtk.Button | None = None
         self._tour_start_btn: Gtk.Button | None = None
         self._tour_start_lbl: Gtk.Label | None = None
         self._tour_btn_icon: Gtk.Image | None = None
@@ -135,16 +220,21 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
         self.connect("map", self._on_mapped)
 
+        if self.mock_mode:
+            self._ensure_map_state_poll()
+
     def _on_mapped(self, _widget: Any) -> None:
         GLib.idle_add(self._drop_focus)
 
     def _apply_initial_overlay_state(self) -> None:
-        """Sync POI/traffic visibility from settings to the active backend."""
+        """Sync POI/traffic visibility + 3D preference from settings."""
         if self._backend == "webkit":
             poi = "true" if self._poi_visible else "false"
             traffic = "true" if self._traffic_visible else "false"
+            view3d = "true" if self._map_3d_view else "false"
             self._js(f"mapSetPoiVisible({poi})")
             self._js(f"mapSetTrafficVisible({traffic})")
+            self._js(f"mapSet3DView({view3d})")
         elif self._backend == "shumate":
             self._shumate_set_poi_visible(self._poi_visible)
             self._shumate_set_traffic_visible(self._traffic_visible)
@@ -355,8 +445,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
         if self._backend != "none":
             overlay.add_overlay(self._build_fab())
+            overlay.add_overlay(self._build_zoom_controls())
             overlay.add_overlay(self._build_tour_start_btn())
             overlay.add_overlay(self._build_maneuver_overlay())
+            overlay.add_overlay(self._build_map_state_overlay())
 
         self.append(overlay)
 
@@ -408,13 +500,6 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS["map"]))
         self._layer_btn.connect("clicked", self._on_layer_clicked)
 
-        self._follow_btn = Gtk.ToggleButton(icon_name="kstars_satellites-symbolic")
-        self._follow_btn.add_css_class("circular")
-        self._follow_btn.add_css_class("osd")
-        self._follow_btn.set_active(True)
-        self._follow_btn.set_tooltip_text(_translate(self.language, "map.follow"))
-        self._follow_btn.connect("toggled", self._on_follow_toggled)
-
         self._center_btn = Gtk.Button(icon_name="find-location-symbolic")
         self._center_btn.add_css_class("circular")
         self._center_btn.add_css_class("osd")
@@ -424,46 +509,125 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         fab.append(self._poi_btn)
         fab.append(self._traffic_btn)
         fab.append(self._layer_btn)
-        fab.append(self._follow_btn)
         fab.append(self._center_btn)
+
+        # 3D/2D toggle — text label instead of icon so the current mode is
+        # always readable at a glance.  WebKit-only (Shumate is flat).
+        if self._backend == "webkit":
+            self._3d_btn = Gtk.Button()
+            self._3d_btn.add_css_class("circular")
+            self._3d_btn.add_css_class("osd")
+            self._3d_btn.connect("clicked", self._on_3d_clicked)
+            self._refresh_3d_btn()
+            fab.append(self._3d_btn)
         return fab
 
+    def _build_map_state_overlay(self) -> Gtk.Widget:
+        wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        wrap.set_halign(Gtk.Align.START)
+        wrap.set_valign(Gtk.Align.END)
+        wrap.set_margin_start(8)
+        # Sit above the MapLibre scale bar (~24 px tall).
+        wrap.set_margin_bottom(36)
+        wrap.set_can_target(False)
+        wrap.set_visible(False)
+
+        self._map_state_lbl = Gtk.Label(label="")
+        self._map_state_lbl.add_css_class("dp-map-state")
+        self._map_state_lbl.set_xalign(0.0)
+        wrap.append(self._map_state_lbl)
+
+        self._map_state_overlay = wrap
+        return wrap
+
+    def _build_zoom_controls(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_halign(Gtk.Align.END)
+        box.set_valign(Gtk.Align.START)
+        box.set_margin_top(12)
+        box.set_margin_end(12)
+
+        zoom_in = Gtk.Button(icon_name="zoom-in-symbolic")
+        zoom_in.add_css_class("circular")
+        zoom_in.add_css_class("osd")
+        zoom_in.set_tooltip_text(_translate(self.language, "map.zoom_in"))
+        zoom_in.connect("clicked", lambda _b: self._zoom_step(+1))
+
+        zoom_out = Gtk.Button(icon_name="zoom-out-symbolic")
+        zoom_out.add_css_class("circular")
+        zoom_out.add_css_class("osd")
+        zoom_out.set_tooltip_text(_translate(self.language, "map.zoom_out"))
+        zoom_out.connect("clicked", lambda _b: self._zoom_step(-1))
+
+        self._zoom_in_btn = zoom_in
+        self._zoom_out_btn = zoom_out
+        box.append(zoom_in)
+        box.append(zoom_out)
+        return box
+
+    def _view_3d_tooltip(self, active: bool) -> str:
+        return _translate(
+            self.language,
+            "map.view.switch_to_2d" if active else "map.view.switch_to_3d",
+        )
+
+    def _refresh_3d_btn(self) -> None:
+        if self._3d_btn is None:
+            return
+        # Show what you'd switch TO — "2D" while we're in 3D, "3D" while flat.
+        self._3d_btn.set_label("2D" if self._map_3d_view else "3D")
+        self._3d_btn.set_tooltip_text(self._view_3d_tooltip(self._map_3d_view))
+
+    def _on_3d_clicked(self, _btn: Gtk.Button) -> None:
+        active = not self._map_3d_view
+        self._map_3d_view = active
+        self._refresh_3d_btn()
+        if self._backend == "webkit":
+            self._js("mapSet3DView(true)" if active else "mapSet3DView(false)")
+        if self._on_3d_view_changed is not None:
+            self._on_3d_view_changed(active)
+
+    def _zoom_step(self, delta: int) -> None:
+        if self._backend == "webkit":
+            self._js("mapZoomIn()" if delta > 0 else "mapZoomOut()")
+        elif self._shumate_map is not None:
+            viewport = self._shumate_map.get_viewport()
+            current = viewport.get_zoom_level()
+            self._setting_pos = True
+            viewport.set_zoom_level(max(1.0, min(self._shumate_max_zoom(), current + delta)))
+            self._setting_pos = False
+
     def _build_maneuver_overlay(self) -> Gtk.Widget:
+        _install_maneuver_css()
+
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         outer.set_halign(Gtk.Align.CENTER)
         outer.set_valign(Gtk.Align.START)
-        outer.set_margin_top(48)
+        # Sits visibly in the upper third of the map area, below the search bar.
+        outer.set_margin_top(72)
         outer.set_margin_start(12)
         outer.set_margin_end(12)
         outer.set_can_target(False)
         outer.set_visible(False)
 
-        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
-        card.add_css_class("osd")
-        card.add_css_class("card")
-        card.set_margin_top(0)
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=22)
+        card.add_css_class("dp-maneuver-banner")
 
-        self._maneuver_icon = Gtk.Image.new_from_icon_name("go-up-symbolic")
-        self._maneuver_icon.set_pixel_size(56)
-        self._maneuver_icon.set_margin_start(14)
-        self._maneuver_icon.set_margin_end(4)
-        self._maneuver_icon.set_margin_top(10)
-        self._maneuver_icon.set_margin_bottom(10)
+        self._maneuver_icon = Gtk.Image.new_from_icon_name("dp-nav-straight-symbolic")
+        self._maneuver_icon.set_pixel_size(96)
         card.append(self._maneuver_icon)
 
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         text_box.set_valign(Gtk.Align.CENTER)
-        text_box.set_margin_end(16)
-        text_box.set_margin_top(8)
-        text_box.set_margin_bottom(8)
 
         self._maneuver_distance_lbl = Gtk.Label(label="")
-        self._maneuver_distance_lbl.add_css_class("title-2")
+        self._maneuver_distance_lbl.add_css_class("dp-maneuver-distance")
         self._maneuver_distance_lbl.set_halign(Gtk.Align.START)
 
         self._maneuver_instr_lbl = Gtk.Label(label="")
+        self._maneuver_instr_lbl.add_css_class("dp-maneuver-instr")
         self._maneuver_instr_lbl.set_halign(Gtk.Align.START)
-        self._maneuver_instr_lbl.set_max_width_chars(32)
+        self._maneuver_instr_lbl.set_max_width_chars(28)
         self._maneuver_instr_lbl.set_wrap(True)
 
         text_box.append(self._maneuver_distance_lbl)
@@ -496,25 +660,33 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._start_coord is None:
             return
         if self._tour_active:
-            self._stop_tour()
+            self._pause_tour()
+            return
+        if self._tour_paused:
+            self._resume_tour()
+            return
+        self._begin_tour()
+
+    def _begin_tour(self) -> None:
+        if self._start_coord is None:
             return
         lat, lon = self._start_coord
         self._tour_active = True
+        self._tour_paused = False
+        self._tour_completed = False
         self._tour_step_idx = 0
+        self._last_step_dist = None
+        self._set_tour_button("stop")
         self._update_maneuver_overlay()
         if self._on_tour_started is not None and self._tour_coords:
             self._on_tour_started(self._tour_coords)
-        if self._tour_start_lbl is not None:
-            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_stop"))
-        if self._tour_btn_icon is not None:
-            self._tour_btn_icon.set_from_icon_name("media-playback-stop-symbolic")
-        self._set_follow(False)
+        self._set_follow(True)
         if self._backend == "webkit":
-            self._js(f"mapGoTo({lat}, {lon}, 17)")
+            self._js(f"mapStartTour({lat}, {lon})")
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
             self._setting_pos = True
-            viewport.set_zoom_level(17.0)
+            viewport.set_zoom_level(min(self._TOUR_ZOOM, self._shumate_max_zoom()))
             viewport.set_location(lat, lon)
             self._setting_pos = False
         if self._gps_lat is not None and self._gps_lon is not None:
@@ -527,20 +699,61 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
                     daemon=True,
                 ).start()
 
-    def _stop_tour(self) -> None:
+    def _pause_tour(self) -> None:
+        """Pause an active tour — keep route and progress so it can resume."""
         self._tour_active = False
-        if self._tour_start_lbl is not None:
-            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
-        if self._tour_btn_icon is not None:
-            self._tour_btn_icon.set_from_icon_name("media-playback-start-symbolic")
+        self._tour_paused = True
+        self._set_tour_button("resume")
         if self._backend == "webkit":
+            self._js("mapSetTourActive(false)")
+        if self._maneuver_overlay is not None:
+            self._maneuver_overlay.set_visible(False)
+        if self._on_tour_stopped is not None:
+            self._on_tour_stopped()
+
+    def _resume_tour(self) -> None:
+        """Resume a paused tour without recomputing or recentring."""
+        self._tour_active = True
+        self._tour_paused = False
+        self._set_tour_button("stop")
+        self._set_follow(True)
+        if self._backend == "webkit":
+            self._js("mapSetTourActive(true)")
+        self._update_maneuver_overlay()
+        if self._on_tour_resumed is not None:
+            self._on_tour_resumed()
+
+    def _abort_tour(self) -> None:
+        """Full reset — used when the route is cleared or replaced."""
+        was_running = self._tour_active or self._tour_paused
+        self._tour_active = False
+        self._tour_paused = False
+        self._tour_completed = False
+        self._last_step_dist = None
+        self._set_tour_button("start")
+        if self._backend == "webkit":
+            self._js("mapSetTourActive(false)")
+            self._js("mapResetView()")
             self._js("mapClearGuideToStart()")
         elif self._guide_path_layer is not None:
             self._guide_path_layer.remove_all()
         if self._maneuver_overlay is not None:
             self._maneuver_overlay.set_visible(False)
-        if self._on_tour_stopped is not None:
+        if was_running and self._on_tour_stopped is not None:
             self._on_tour_stopped()
+
+    def _set_tour_button(self, mode: str) -> None:
+        """mode: 'start' | 'stop' | 'resume'."""
+        label_key = {
+            "start":  "map.tour_start",
+            "stop":   "map.tour_stop",
+            "resume": "map.tour_resume",
+        }.get(mode, "map.tour_start")
+        icon_name = "media-playback-stop-symbolic" if mode == "stop" else "media-playback-start-symbolic"
+        if self._tour_start_lbl is not None:
+            self._tour_start_lbl.set_label(_translate(self.language, label_key))
+        if self._tour_btn_icon is not None:
+            self._tour_btn_icon.set_from_icon_name(icon_name)
 
     def _fetch_guide_to_start(
         self, gps_lat: float, gps_lon: float, start_lat: float, start_lon: float
@@ -563,8 +776,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     # ── GPS position updates ──────────────────────────────────────────────────
 
-    # Max rate at which position updates are pushed to the map renderer (seconds)
-    _MAP_JS_INTERVAL = 0.25  # 4 Hz
+    # Minimum interval between mapSetCar JS pushes. Slightly below the mock
+    # tour's 250 ms tick so a tick that arrives a few ms early isn't dropped —
+    # dropped ticks were the main source of the arrow's "step-pause-step" feel.
+    _MAP_JS_INTERVAL = 0.18  # ≈ 5.5 Hz cap
 
     def update_gps(
         self,
@@ -577,6 +792,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._gps_lat = lat
         self._gps_lon = lon
         self._gps_heading = heading or 0.0
+
+        # During an active tour always re-engage follow so the map tracks the driver.
+        if self._tour_active and not self._follow_gps:
+            self._set_follow(True)
 
         if self._backend == "webkit":
             now = time.monotonic()
@@ -591,8 +810,29 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._tour_active:
             self._update_maneuver_overlay()
 
-    # Advance step when the user gets within this many meters of its maneuver point.
-    _MANEUVER_ADVANCE_M = 25.0
+    # Distance at which we consider the user "approaching" the next maneuver
+    # point. We don't advance just by being inside this zone — we wait until
+    # the user has actually moved past, detected by distance growth.
+    _MANEUVER_APPROACH_M = 45.0
+    # Minimum distance growth between ticks before we declare a maneuver passed.
+    # Larger than typical GPS noise but smaller than a single 4 Hz tick's travel.
+    _MANEUVER_PASS_GROWTH_M = 4.0
+
+    # OSRM step types that don't represent an actionable maneuver — they're
+    # bookkeeping entries (road name change, info-only). Skip past them so the
+    # banner always shows a real turn/merge/etc.
+    _NON_ACTIONABLE_STEP_TYPES = frozenset({
+        "depart", "new name", "notification", "use lane",
+    })
+
+    def _skip_non_actionable_steps(self) -> None:
+        while (
+            self._tour_step_idx < len(self._tour_steps) - 1
+            and self._tour_steps[self._tour_step_idx].get("type")
+            in self._NON_ACTIONABLE_STEP_TYPES
+        ):
+            self._tour_step_idx += 1
+            self._last_step_dist = None
 
     def _update_maneuver_overlay(self) -> None:
         if self._maneuver_overlay is None:
@@ -600,26 +840,46 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if (
             not self._tour_active
             or not self._tour_steps
+            or self._tour_completed
             or self._gps_lat is None
             or self._gps_lon is None
         ):
             self._maneuver_overlay.set_visible(False)
             return
 
-        # Advance past "depart" and any maneuver we've already reached.
-        while self._tour_step_idx < len(self._tour_steps) - 1:
-            cur = self._tour_steps[self._tour_step_idx]
-            if cur.get("type") == "depart":
-                self._tour_step_idx += 1
-                continue
-            d_cur = haversine(self._gps_lat, self._gps_lon, cur["lat"], cur["lon"])
-            if d_cur <= self._MANEUVER_ADVANCE_M:
-                self._tour_step_idx += 1
-                continue
-            break
+        self._skip_non_actionable_steps()
 
         step = self._tour_steps[self._tour_step_idx]
         distance_m = haversine(self._gps_lat, self._gps_lon, step["lat"], step["lon"])
+
+        # "Passed" detection: previous tick was within the approach zone AND
+        # current distance has grown by more than the noise threshold.  This
+        # advances exactly one step per call and never skips over a maneuver
+        # that's stacked close to the previous one (e.g. roundabout exits).
+        passed = (
+            self._last_step_dist is not None
+            and self._last_step_dist <= self._MANEUVER_APPROACH_M
+            and distance_m > self._last_step_dist + self._MANEUVER_PASS_GROWTH_M
+        )
+
+        if passed and self._tour_step_idx < len(self._tour_steps) - 1:
+            self._tour_step_idx += 1
+            self._last_step_dist = None
+            self._skip_non_actionable_steps()
+            step = self._tour_steps[self._tour_step_idx]
+            distance_m = haversine(
+                self._gps_lat, self._gps_lon, step["lat"], step["lon"]
+            )
+        elif passed and self._tour_step_idx == len(self._tour_steps) - 1:
+            # Final maneuver — usually "arrive" — has been reached and passed.
+            # The route is complete; hide the banner and mark the tour done so
+            # we don't keep redisplaying stale instructions.
+            self._tour_completed = True
+            self._maneuver_overlay.set_visible(False)
+            return
+        else:
+            self._last_step_dist = distance_m
+
         m_type = step.get("type", "")
         m_modifier = step.get("modifier", "")
         name = step.get("name", "") or ""
@@ -632,7 +892,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._maneuver_icon is not None:
             self._maneuver_icon.set_from_icon_name(icon)
         if self._maneuver_distance_lbl is not None:
-            self._maneuver_distance_lbl.set_text(format_distance(distance_m))
+            self._maneuver_distance_lbl.set_text(format_distance(distance_m, self.units))
         if self._maneuver_instr_lbl is not None:
             self._maneuver_instr_lbl.set_text(text)
         self._maneuver_overlay.set_visible(True)
@@ -673,14 +933,14 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def _on_center_clicked(self, _btn: Gtk.Button) -> None:
         if self._gps_lat is None:
             return
+        self._set_follow(True)
         if self._backend == "webkit":
-            self._js(f"mapGoTo({self._gps_lat}, {self._gps_lon}, 15)")
+            self._js(f"mapGoTo({self._gps_lat}, {self._gps_lon}, 17)")
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
             self._setting_pos = True
             viewport.set_location(self._gps_lat, self._gps_lon)
-            if viewport.get_zoom_level() < 15.0:
-                viewport.set_zoom_level(15.0)
+            viewport.set_zoom_level(17.0)
             self._setting_pos = False
 
     def _on_layer_clicked(self, _btn: Gtk.Button) -> None:
@@ -741,9 +1001,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     def _show_traffic(self, items: list[dict]) -> bool:
         parsed = self._parse_traffic_items(items)
-        count = len(parsed)
 
         if self._backend == "webkit":
+            # WebKit filters by route bounding box inside JS (mapSetTraffic).
             js_items = [
                 {"lat": lat, "lon": lon, "kind": kind, "title": title}
                 for lat, lon, kind, title in parsed
@@ -752,13 +1012,30 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             if self._traffic_btn is not None and self._traffic_btn.get_active():
                 self._js("mapSetTrafficVisible(true)")
         else:
-            self._shumate_show_traffic(parsed)
+            filtered = self._filter_traffic_by_route(parsed)
+            self._shumate_show_traffic(filtered)
 
         if self._traffic_btn is not None and self._traffic_btn.get_active():
             self._status_lbl.set_text(
-                _translate(self.language, "map.traffic.count").format(count=count)
+                _translate(self.language, "map.traffic.count").format(count=len(parsed))
             )
         return False
+
+    def _filter_traffic_by_route(
+        self, items: list[tuple[float, float, str, str]]
+    ) -> list[tuple[float, float, str, str]]:
+        """Keep only items within ~5 km of the route bounding box."""
+        if not self._route_coords:
+            return []
+        lats = [c[1] for c in self._route_coords]
+        lons = [c[0] for c in self._route_coords]
+        pad = 0.05  # ~5 km
+        min_lat, max_lat = min(lats) - pad, max(lats) + pad
+        min_lon, max_lon = min(lons) - pad, max(lons) + pad
+        return [
+            item for item in items
+            if min_lat <= item[0] <= max_lat and min_lon <= item[1] <= max_lon
+        ]
 
     # ── POI layer (Overpass API) ──────────────────────────────────────────────
 
@@ -803,19 +1080,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._status_lbl.set_text("")
         self._start_coord = None
         self._end_coord = None
-        was_tour_active = self._tour_active
-        self._tour_active = False
         self._tour_steps = []
         self._tour_step_idx = 0
         self._tour_coords = []
-        if self._maneuver_overlay is not None:
-            self._maneuver_overlay.set_visible(False)
-        if was_tour_active and self._on_tour_stopped is not None:
-            self._on_tour_stopped()
-        if self._tour_start_lbl is not None:
-            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
-        if self._tour_btn_icon is not None:
-            self._tour_btn_icon.set_from_icon_name("media-playback-start-symbolic")
+        self._abort_tour()
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_visible(False)
         if self._backend == "webkit":
@@ -826,6 +1094,139 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def set_nav_visible(self, visible: bool) -> None:
         if self._search_bar is not None:
             self._search_bar.set_visible(visible)
+        # Showing/hiding the search bar changes the map widget's allocated
+        # height — MapLibre's WebGL canvas doesn't notice on its own, and
+        # Shumate's viewport also needs a queue_draw to repaint the freshly
+        # exposed area.  Defer until after GTK has allocated the new layout.
+        GLib.idle_add(self._nudge_map_resize)
+
+    def _nudge_map_resize(self) -> bool:
+        if self._backend == "webkit":
+            # mapResize() calls map.resize() inside MapLibre, which recomputes
+            # the canvas size and triggers a re-render at the new dimensions.
+            self._do_map_resize()
+            # A second nudge after the GTK layout has fully settled catches
+            # the case where the first call ran before the search bar's
+            # disappearance had propagated through the size cycle.
+            GLib.timeout_add(150, self._do_map_resize)
+        elif self._backend == "shumate" and self._shumate_map is not None:
+            self._shumate_map.queue_resize()
+            self._shumate_map.queue_draw()
+        return False
+
+    def set_units(self, units: str) -> None:
+        units = units if units in {"metric", "imperial"} else "metric"
+        if units == self.units:
+            return
+        self.units = units
+        # Re-render whatever's currently on screen using the new unit system.
+        if self._tour_active:
+            self._update_maneuver_overlay()
+
+    def set_mock_mode(self, mock_mode: bool) -> None:
+        self.mock_mode = bool(mock_mode)
+        if self.mock_mode:
+            self._ensure_map_state_poll()
+        self._refresh_map_state_status()
+
+    def _ensure_map_state_poll(self) -> None:
+        if self._map_state_poll_id is not None:
+            return
+        # 1 s tick — independent of the JS bridge, so it works for Shumate too.
+        self._map_state_poll_id = GLib.timeout_add(1000, self._poll_map_state)
+
+    def _poll_map_state(self) -> bool:
+        if not self.mock_mode:
+            self._map_state_poll_id = None
+            return False
+        # Shumate: read directly from the viewport (2D, no pitch/bearing).
+        if self._backend == "shumate" and self._shumate_map is not None:
+            try:
+                viewport = self._shumate_map.get_viewport()
+                self._map_zoom = float(viewport.get_zoom_level())
+                self._map_pitch = None
+                self._map_bearing = None
+            except Exception:
+                pass
+        # WebKit: query via evaluate_javascript — the script-message-handler
+        # bridge proved unreliable in our deployment, so we just RPC the values
+        # out directly. The callback updates the cached fields.
+        elif self._backend == "webkit" and self._webview is not None:
+            self._evaluate_webkit_state()
+        self._refresh_map_state_status()
+        return True
+
+    def _evaluate_webkit_state(self) -> None:
+        script = (
+            "(function(){try{if(typeof map==='undefined'||!map)return null;"
+            "return JSON.stringify([map.getZoom(),map.getPitch(),map.getBearing()]);"
+            "}catch(e){return null;}})()"
+        )
+        try:
+            if hasattr(self._webview, "evaluate_javascript"):
+                # WebKit 6: 7 args incl. callback
+                self._webview.evaluate_javascript(
+                    script, -1, None, None, None,
+                    self._on_webkit_state_eval, None,
+                )
+            else:
+                # WebKit2: run_javascript(script, cancellable, callback, user_data)
+                self._webview.run_javascript(
+                    script, None, self._on_webkit_state_eval, None,
+                )
+        except Exception:
+            log.debug("evaluate_javascript failed", exc_info=True)
+
+    def _on_webkit_state_eval(self, webview: Any, result: Any, _user: Any) -> None:
+        try:
+            if hasattr(webview, "evaluate_javascript_finish"):
+                js_val = webview.evaluate_javascript_finish(result)
+            else:
+                js_val = webview.run_javascript_finish(result).get_js_value()
+            raw = js_val.to_string() if js_val is not None else None
+            if not raw or raw == "null":
+                return
+            import json as _json
+            try:
+                z, p, b = _json.loads(raw)
+            except Exception:
+                return
+            self._map_zoom = float(z)
+            self._map_pitch = float(p)
+            self._map_bearing = float(b)
+            self._refresh_map_state_status()
+        except Exception:
+            log.debug("evaluate_javascript_finish failed", exc_info=True)
+
+    def _refresh_map_state_status(self) -> None:
+        """In mock mode, render live map view state in the status row and a
+        dedicated bottom-left overlay on the map."""
+        if not self.mock_mode:
+            if self._map_state_overlay is not None:
+                self._map_state_overlay.set_visible(False)
+            return
+        # Tag with the active backend so it's obvious which path is feeding
+        # the readout (e.g. "shumate" never has pitch).
+        parts: list[str] = [self._backend or "none"]
+        if self._map_zoom is not None:
+            parts.append(f"zoom {self._map_zoom:.1f}")
+        if self._map_pitch is not None:
+            parts.append(f"pitch {self._map_pitch:.0f}°")
+        if self._map_bearing is not None:
+            parts.append(f"bearing {self._map_bearing:.0f}°")
+        text = "  ".join(parts)
+        # Status row (Duration / Distance) stays free for routing info even in
+        # mock mode now that the bottom-left overlay is working.
+        if self._map_state_lbl is not None:
+            self._map_state_lbl.set_text(text)
+        if self._map_state_overlay is not None:
+            self._map_state_overlay.set_visible(True)
+
+    def _on_js_map_state(self, zoom: float, pitch: float, bearing: float) -> None:
+        self._map_zoom = zoom
+        self._map_pitch = pitch
+        self._map_bearing = bearing
+        self._refresh_map_state_status()
 
     def _compute_route(self, start_text: str, wp_texts: list[str], end_text: str) -> None:
         try:
@@ -861,6 +1262,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             return False
 
         coords, duration_s, distance_m, steps = result
+        # New route invalidates any paused tour state from a prior route.
+        if self._tour_paused or self._tour_active:
+            self._abort_tour()
         self._tour_steps = steps
         self._tour_step_idx = 0
         self._tour_coords = list(coords) if coords else []
@@ -870,7 +1274,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         distance_prefix = _translate(self.language, "map.distance_prefix")
         self._status_lbl.set_text(
             f"{prefix}{format_duration(duration_s)} / "
-            f"{distance_prefix}{format_distance(distance_m)}"
+            f"{distance_prefix}{format_distance(distance_m, self.units)}"
         )
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_visible(True)
@@ -879,6 +1283,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             lats = [c[1] for c in coords]
             lons = [c[0] for c in coords]
             self._set_follow(False)
+
+        self._route_coords = coords  # store for traffic proximity filter
 
         if self._backend == "webkit":
             self._js(f"mapSetRoute({json.dumps(coords)})")
@@ -908,5 +1314,14 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
         if self._traffic_btn is not None:
             self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
+        if self._zoom_in_btn is not None:
+            self._zoom_in_btn.set_tooltip_text(_translate(self.language, "map.zoom_in"))
+        if self._zoom_out_btn is not None:
+            self._zoom_out_btn.set_tooltip_text(_translate(self.language, "map.zoom_out"))
         if self._tour_start_lbl is not None:
-            self._tour_start_lbl.set_label(_translate(self.language, "map.tour_start"))
+            if self._tour_active:
+                self._set_tour_button("stop")
+            elif self._tour_paused:
+                self._set_tour_button("resume")
+            else:
+                self._set_tour_button("start")
