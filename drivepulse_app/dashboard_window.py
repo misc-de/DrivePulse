@@ -550,6 +550,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self._last_swipe_time = time.monotonic()
 
     def _on_realize_install_css(self, *_args: Any) -> None:
+        from gi.repository import Adw
         display = self.get_display()
         Gtk.StyleContext.add_provider_for_display(
             display, self._theme_css_provider,
@@ -561,6 +562,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         )
         self._apply_theme_mode(self.theme_mode)
         self._apply_window_theme(self.gauge_theme)
+        Adw.StyleManager.get_default().connect("notify::dark", self._on_system_dark_changed)
 
     def _apply_theme_mode(self, mode: str) -> None:
         from gi.repository import Adw
@@ -572,7 +574,16 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         else:
             manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
         if hasattr(self, "stopwatch_page"):
-            self.stopwatch_page.set_theme_mode(mode)
+            effective = "dark" if manager.get_dark() else "light"
+            self.stopwatch_page.set_theme_mode(effective)
+
+    def _on_system_dark_changed(self, _manager: Any, _param: Any) -> None:
+        if getattr(self, "theme_mode", "auto") == "auto":
+            self._apply_window_theme(self.gauge_theme)
+            if hasattr(self, "stopwatch_page"):
+                from gi.repository import Adw
+                effective = "dark" if Adw.StyleManager.get_default().get_dark() else "light"
+                self.stopwatch_page.set_theme_mode(effective)
 
     def _apply_nav_position(self, position: str) -> None:
         at_top = position == "top"
@@ -580,18 +591,23 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.switcher_bar.set_reveal(not at_top)
 
     def _apply_window_theme(self, theme: str) -> None:
+        from gi.repository import Adw
         for cls in list(self.get_css_classes()):
             if cls.startswith("dp-theme-"):
                 self.remove_css_class(cls)
         safe = theme.replace(":", "-").replace("_", "-")
         self.add_css_class(f"dp-theme-{safe}")
-        # In light mode, don't override Libadwaita's natural light colours with
-        # the gauge theme's hardcoded dark backgrounds.
-        if getattr(self, "theme_mode", "auto") == "light":
-            self._theme_css_provider.load_from_data(b"")
-        else:
+        # Only override backgrounds with the gauge-theme's dark CSS when the
+        # dark colour scheme is actually in effect.  Loading dark backgrounds
+        # while Libadwaita renders in light mode makes the content widgets
+        # (list rows, header bar, …) appear white on a dark background.
+        mode = getattr(self, "theme_mode", "auto")
+        is_dark = mode == "dark" or (mode == "auto" and Adw.StyleManager.get_default().get_dark())
+        if is_dark:
             css = get_theme_css(theme)
             self._theme_css_provider.load_from_data(css.encode() if css else b"")
+        else:
+            self._theme_css_provider.load_from_data(b"")
 
     def close(self) -> bool:
         self.reader.stop()
