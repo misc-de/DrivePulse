@@ -63,6 +63,15 @@ _MANEUVER_CSS = b"""
   font-weight: 500;
   opacity: 0.95;
 }
+.dp-map-state {
+  background-color: rgba(50, 50, 50, 0.80);
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: monospace;
+  font-size: 13px;
+}
+.dp-map-state label { color: #ffffff; }
 """
 _maneuver_css_installed = False
 
@@ -115,10 +124,13 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self.units = units if units in {"metric", "imperial"} else "metric"
         self.mock_mode = bool(mock_mode)
         # Latest map view state pushed from the JS side (zoom/pitch/bearing).
-        # Rendered into the status row above the map when mock_mode is on.
+        # Rendered into the status row above the map AND a bottom-left overlay
+        # whenever mock_mode is on.
         self._map_zoom: float | None = None
         self._map_pitch: float | None = None
         self._map_bearing: float | None = None
+        self._map_state_overlay: Gtk.Box | None = None
+        self._map_state_lbl: Gtk.Label | None = None
         self._on_poi_visible_changed = on_poi_visible_changed
         self._on_traffic_visible_changed = on_traffic_visible_changed
         self._on_tour_started = on_tour_started
@@ -425,6 +437,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             overlay.add_overlay(self._build_zoom_controls())
             overlay.add_overlay(self._build_tour_start_btn())
             overlay.add_overlay(self._build_maneuver_overlay())
+            overlay.add_overlay(self._build_map_state_overlay())
 
         self.append(overlay)
 
@@ -487,6 +500,24 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         fab.append(self._layer_btn)
         fab.append(self._center_btn)
         return fab
+
+    def _build_map_state_overlay(self) -> Gtk.Widget:
+        wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        wrap.set_halign(Gtk.Align.START)
+        wrap.set_valign(Gtk.Align.END)
+        wrap.set_margin_start(8)
+        # Sit above the MapLibre scale bar (~24 px tall).
+        wrap.set_margin_bottom(36)
+        wrap.set_can_target(False)
+        wrap.set_visible(False)
+
+        self._map_state_lbl = Gtk.Label(label="")
+        self._map_state_lbl.add_css_class("dp-map-state")
+        self._map_state_lbl.set_xalign(0.0)
+        wrap.append(self._map_state_lbl)
+
+        self._map_state_overlay = wrap
+        return wrap
 
     def _build_zoom_controls(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -659,6 +690,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._set_tour_button("start")
         if self._backend == "webkit":
             self._js("mapSetTourActive(false)")
+            self._js("mapResetView()")
             self._js("mapClearGuideToStart()")
         elif self._guide_path_layer is not None:
             self._guide_path_layer.remove_all()
@@ -1038,8 +1070,11 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._refresh_map_state_status()
 
     def _refresh_map_state_status(self) -> None:
-        """In mock mode, overwrite the status row with the live map view state."""
-        if not self.mock_mode or self._status_lbl is None:
+        """In mock mode, render live map view state in the status row and a
+        dedicated bottom-left overlay on the map."""
+        if not self.mock_mode:
+            if self._map_state_overlay is not None:
+                self._map_state_overlay.set_visible(False)
             return
         if self._map_zoom is None and self._map_pitch is None:
             return
@@ -1050,7 +1085,13 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             parts.append(f"pitch {self._map_pitch:.0f}°")
         if self._map_bearing is not None:
             parts.append(f"bearing {self._map_bearing:.0f}°")
-        self._status_lbl.set_text("  ".join(parts))
+        text = "  ".join(parts)
+        if self._status_lbl is not None:
+            self._status_lbl.set_text(text)
+        if self._map_state_lbl is not None:
+            self._map_state_lbl.set_text(text)
+        if self._map_state_overlay is not None:
+            self._map_state_overlay.set_visible(True)
 
     def _on_js_map_state(self, zoom: float, pitch: float, bearing: float) -> None:
         self._map_zoom = zoom
