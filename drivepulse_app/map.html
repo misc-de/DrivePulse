@@ -211,6 +211,28 @@ function initMap(lat, lon) {
 
   map.on('style.load', addDataLayers);
 
+  // Push camera state to Python whenever the map settles after a movement
+  // (zoom, pitch, rotate, pan). This drives the mock-mode debug overlay so
+  // values appear even without GPS / tour activity.
+  const _pushCamState = () => {
+    try {
+      postToPython({
+        action: 'camera',
+        zoom: map.getZoom(),
+        pitch: map.getPitch(),
+        bearing: map.getBearing(),
+      });
+    } catch (_) {}
+  };
+  map.on('idle', _pushCamState);
+  map.on('zoomend', _pushCamState);
+  map.on('pitchend', _pushCamState);
+  map.on('rotateend', _pushCamState);
+  map.on('moveend', _pushCamState);
+  // Initial push once the map has its first frame, so values show up
+  // before the user does anything.
+  map.once('load', _pushCamState);
+
   map.on('dragstart', () => {
     // While a tour is active the map must stay oriented to the driving
     // direction — let the user pan but keep follow logically on so the
