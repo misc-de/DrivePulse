@@ -372,5 +372,18 @@
   "settings.app.update_btn": "Install update {version}",
   "settings.app.updating": "Updating…",
   "settings.app.update_done": "Update installed – please restart",
-  "settings.app.update_error": "Update failed"
+  "settings.app.update_error": "Update failed",
+  "settings.tts": "Voice Guidance",
+  "settings.tts.enabled": "Enable voice guidance",
+  "settings.tts.enabled.subtitle": "Reads out navigation instructions via espeak-ng",
+  "settings.tts.language": "Voice language",
+  "settings.tts.language.auto": "Follow app language",
+  "settings.tts.language.en": "English",
+  "settings.tts.language.de": "German",
+  "settings.tts.voice": "Voice",
+  "settings.tts.voice.male": "Male",
+  "settings.tts.voice.female": "Female",
+  "tts.in_distance": "In {distance},",
+  "tts.distance.m": "{n} meters",
+  "tts.distance.km": "{n} kilometers"
 }

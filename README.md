@@ -37,6 +37,12 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
 - **Device sync**
   - transfer the full database between two devices over a local Wi-Fi connection
   - server generates a QR code, client scans it in local networks; TLS-encrypted
+- **Voice navigation (TTS)**
+  - Reads out OSRM maneuver instructions via `espeak-ng` (no street names, just direction + distance)
+  - Announces at 500 m, 200 m and 50 m before each maneuver
+  - Language: English or German (or follow app language)
+  - Voice: male or female
+  - Configurable in Settings → Tour
 - Settings: units (km/h / mph), language (English / German), gauge theme, mock mode toggle
 
 ---
@@ -46,9 +52,11 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
 ### System
 
 ```bash
-sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-webkit-6.0 python3-pip
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-webkit-6.0 python3-pip espeak-ng
 python3 -m pip install --user obd
 ```
+
+> `espeak-ng` is only required for voice navigation. The app runs without it — voice guidance will simply stay silent if the binary is missing.
 
 ### GPS
 
@@ -148,6 +156,7 @@ drivepulse_app/
   sync_qr_scanner.py       Webcam QR scanner via GStreamer + zxing
 
   settings_dialog.py       Settings UI (Adw.PreferencesDialog)
+  tts_service.py           Text-to-speech service (espeak-ng backend, non-blocking)
   icon_registry.py         Bundled SVG icon registration
   startup_info.py          Python package dependency checker
   telemetry_utils.py       Telemetry helpers

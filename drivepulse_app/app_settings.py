@@ -34,9 +34,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "map_traffic_visible": False,
     "map_3d_view": True,
     "rotation_mode": "follow_sensor",
+    "tts_enabled": False,
+    "tts_language": "auto",
+    "tts_voice": "female",
 }
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
+_VALID_TTS_LANGUAGES = {"auto", "en", "de"}
+_VALID_TTS_VOICES = {"male", "female"}
 
 
 def _bounded_int(value: Any, default: int, lower: int, upper: int) -> int:
@@ -99,6 +104,9 @@ def load_settings() -> dict[str, Any]:
         "nav_position": data.get("nav_position", "bottom") if data.get("nav_position") in {"top", "bottom"} else "bottom",
         "dashcam_gps_osd": bool(data.get("dashcam_gps_osd", False)),
         "rotation_mode": data.get("rotation_mode") if data.get("rotation_mode") in _VALID_ROTATION_MODES else DEFAULT_SETTINGS["rotation_mode"],
+        "tts_enabled": bool(data.get("tts_enabled", DEFAULT_SETTINGS["tts_enabled"])),
+        "tts_language": data.get("tts_language") if data.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
+        "tts_voice": data.get("tts_voice") if data.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
     }
 
 
@@ -135,6 +143,9 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "nav_position": settings.get("nav_position", "bottom") if settings.get("nav_position") in {"top", "bottom"} else "bottom",
                 "dashcam_gps_osd": bool(settings.get("dashcam_gps_osd", False)),
                 "rotation_mode": settings.get("rotation_mode") if settings.get("rotation_mode") in _VALID_ROTATION_MODES else DEFAULT_SETTINGS["rotation_mode"],
+                "tts_enabled": bool(settings.get("tts_enabled", False)),
+                "tts_language": settings.get("tts_language") if settings.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
+                "tts_voice": settings.get("tts_voice") if settings.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
             },
             indent=2,
         ),

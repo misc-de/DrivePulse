@@ -20,6 +20,7 @@ from gi.repository import Gdk, GLib, GObject, Gtk  # noqa: E402
 
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 from .diagnostics import get_logger
+from . import tts_service
 from .map_shumate import SHUMATE_OK, MapShumateMixin
 from .map_webkit import WEBKIT_OK, MapWebKitMixin
 from .map_services import (
@@ -195,6 +196,12 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         # doesn't undo progress.
         self._gps_route_idx: int = 0
         self._dnd_src_idx: int = -1
+        # TTS state
+        self._tts_enabled: bool = False
+        self._tts_language: str = "auto"
+        self._tts_voice: str = "female"
+        self._tts_last_step_idx: int = -1
+        self._tts_spoken_thresholds: set[int] = set()
 
         # Maneuver overlay widgets
         self._maneuver_overlay: Gtk.Box | None = None
@@ -933,6 +940,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_completed = False
         self._step_min_dist = None
         self._gps_route_idx = 0
+        self._tts_last_step_idx = -1
+        self._tts_spoken_thresholds = set()
+        tts_service.stop()
         self._set_tour_button("start")
         if self._backend == "webkit":
             self._js("mapSetTourActive(false)")
@@ -1180,6 +1190,60 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._maneuver_instr_lbl.set_text(text)
         self._maneuver_overlay.set_visible(True)
         self._highlight_active_step()
+        self._update_tts(step, distance_m)
+
+    def _update_tts(self, step: dict, distance_m: float) -> None:
+        if not self._tts_enabled:
+            return
+        current_idx = self._tour_step_idx
+        if current_idx != self._tts_last_step_idx:
+            self._tts_last_step_idx = current_idx
+            self._tts_spoken_thresholds = set()
+            # Announce immediately when a new step becomes active,
+            # but only if we're already close enough (< 600 m) to be useful.
+            if distance_m < 600:
+                self._tts_announce(step, distance_m)
+                # Mark whichever threshold we're already inside as spoken.
+                for thr in self._TTS_THRESHOLDS:
+                    if distance_m <= thr:
+                        self._tts_spoken_thresholds.add(thr)
+            return
+
+        for threshold in self._TTS_THRESHOLDS:
+            if threshold in self._tts_spoken_thresholds:
+                continue
+            if distance_m <= threshold:
+                self._tts_announce(step, distance_m)
+                self._tts_spoken_thresholds.add(threshold)
+                break
+
+    # ── TTS helpers ───────────────────────────────────────────────────────────
+
+    _TTS_THRESHOLDS = (500, 200, 50)
+
+    def _tts_effective_language(self) -> str:
+        if self._tts_language != "auto":
+            return self._tts_language
+        return self.language if self.language in {"en", "de"} else "en"
+
+    def _tts_distance_text(self, meters: float, lang: str) -> str:
+        if meters < 950:
+            n = int(round(meters / 10) * 10) or 10
+            return _translate(lang, "tts.distance.m").format(n=n)
+        km = round(meters / 1000, 1)
+        return _translate(lang, "tts.distance.km").format(n=km)
+
+    def _tts_announce(self, step: dict, distance_m: float) -> None:
+        if not self._tts_enabled:
+            return
+        lang = self._tts_effective_language()
+        maneuver_text = _translate(lang, maneuver_text_key(step.get("type", ""), step.get("modifier", "")))
+        if distance_m > 60:
+            dist_text = self._tts_distance_text(distance_m, lang)
+            text = _translate(lang, "tts.in_distance").format(distance=dist_text) + " " + maneuver_text
+        else:
+            text = maneuver_text
+        tts_service.speak(text, lang, self._tts_voice)
 
     def _goto(self, lat: float, lon: float) -> None:
         if self._backend == "webkit":
@@ -1499,6 +1563,17 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         # Re-render whatever's currently on screen using the new unit system.
         if self._tour_active:
             self._update_maneuver_overlay()
+
+    def set_tts_enabled(self, enabled: bool) -> None:
+        self._tts_enabled = bool(enabled)
+        if not enabled:
+            tts_service.stop()
+
+    def set_tts_language(self, language: str) -> None:
+        self._tts_language = language if language in {"auto", "en", "de"} else "auto"
+
+    def set_tts_voice(self, voice: str) -> None:
+        self._tts_voice = voice if voice in {"male", "female"} else "female"
 
     def set_mock_mode(self, mock_mode: bool) -> None:
         self.mock_mode = bool(mock_mode)

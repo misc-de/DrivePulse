@@ -75,6 +75,12 @@ class SettingsDialog(Adw.Dialog):
         on_nav_position_changed: Callable[[str], None] | None = None,
         current_rotation_mode: str = "follow_sensor",
         on_rotation_mode_changed: Callable[[str], None] | None = None,
+        current_tts_enabled: bool = False,
+        on_tts_enabled_changed: Callable[[bool], None] | None = None,
+        current_tts_language: str = "auto",
+        on_tts_language_changed: Callable[[str], None] | None = None,
+        current_tts_voice: str = "female",
+        on_tts_voice_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -100,6 +106,9 @@ class SettingsDialog(Adw.Dialog):
         self._current_dashcam_gps_osd = current_dashcam_gps_osd
         self.on_nav_position_changed = on_nav_position_changed
         self.on_rotation_mode_changed = on_rotation_mode_changed
+        self.on_tts_enabled_changed = on_tts_enabled_changed
+        self.on_tts_language_changed = on_tts_language_changed
+        self.on_tts_voice_changed = on_tts_voice_changed
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
         self.set_content_width(380)
@@ -191,6 +200,35 @@ class SettingsDialog(Adw.Dialog):
         sel_rot = self._ROTATION_MODES.index(current_rotation_mode) if current_rotation_mode in self._ROTATION_MODES else 0
         self.rotation_mode_row.set_selected(sel_rot)
         self.rotation_mode_row.connect("notify::selected", self._on_rotation_mode_selected)
+
+        # TTS rows
+        self._TTS_LANGUAGES = ["auto", "en", "de"]
+        self._TTS_VOICES = ["male", "female"]
+
+        self.tts_enabled_row = Adw.SwitchRow(
+            title=_translate(self.language, "settings.tts.enabled"),
+            subtitle=_translate(self.language, "settings.tts.enabled.subtitle"),
+        )
+        self.tts_enabled_row.set_active(current_tts_enabled)
+        self.tts_enabled_row.connect("notify::active", self._on_tts_enabled_toggled)
+
+        tts_lang_model = Gtk.StringList()
+        for key in self._TTS_LANGUAGES:
+            tts_lang_model.append(_translate(self.language, f"settings.tts.language.{key}"))
+        self.tts_language_row = Adw.ComboRow(title=_translate(self.language, "settings.tts.language"))
+        self.tts_language_row.set_model(tts_lang_model)
+        sel_tts_lang = self._TTS_LANGUAGES.index(current_tts_language) if current_tts_language in self._TTS_LANGUAGES else 0
+        self.tts_language_row.set_selected(sel_tts_lang)
+        self.tts_language_row.connect("notify::selected", self._on_tts_language_selected)
+
+        tts_voice_model = Gtk.StringList()
+        for key in self._TTS_VOICES:
+            tts_voice_model.append(_translate(self.language, f"settings.tts.voice.{key}"))
+        self.tts_voice_row = Adw.ComboRow(title=_translate(self.language, "settings.tts.voice"))
+        self.tts_voice_row.set_model(tts_voice_model)
+        sel_tts_voice = self._TTS_VOICES.index(current_tts_voice) if current_tts_voice in self._TTS_VOICES else 1
+        self.tts_voice_row.set_selected(sel_tts_voice)
+        self.tts_voice_row.connect("notify::selected", self._on_tts_voice_selected)
 
         # OBD hardware group
         obd_devices = scan_obd_devices()  # (label, port, is_present)
@@ -320,6 +358,12 @@ class SettingsDialog(Adw.Dialog):
         tour_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.page.tour"))
         tour_group.add(self.force_webkit_map_row)
         tour_page.add(tour_group)
+
+        tts_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.tts"))
+        tts_group.add(self.tts_enabled_row)
+        tts_group.add(self.tts_language_row)
+        tts_group.add(self.tts_voice_row)
+        tour_page.add(tts_group)
 
         # ── Tacho page ────────────────────────────────────────────────────────
         tacho_page = Adw.PreferencesPage(
@@ -585,6 +629,22 @@ class SettingsDialog(Adw.Dialog):
             idx = self.rotation_mode_row.get_selected()
             mode = self._ROTATION_MODES[idx] if 0 <= idx < len(self._ROTATION_MODES) else self._ROTATION_MODES[0]
             self.on_rotation_mode_changed(mode)
+
+    def _on_tts_enabled_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
+        if self.on_tts_enabled_changed is not None:
+            self.on_tts_enabled_changed(row.get_active())
+
+    def _on_tts_language_selected(self, *_args: Any) -> None:
+        if self.on_tts_language_changed is not None:
+            idx = self.tts_language_row.get_selected()
+            lang = self._TTS_LANGUAGES[idx] if 0 <= idx < len(self._TTS_LANGUAGES) else "auto"
+            self.on_tts_language_changed(lang)
+
+    def _on_tts_voice_selected(self, *_args: Any) -> None:
+        if self.on_tts_voice_changed is not None:
+            idx = self.tts_voice_row.get_selected()
+            voice = self._TTS_VOICES[idx] if 0 <= idx < len(self._TTS_VOICES) else "female"
+            self.on_tts_voice_changed(voice)
 
     # ── Update check ──────────────────────────────────────────────────────────
 
