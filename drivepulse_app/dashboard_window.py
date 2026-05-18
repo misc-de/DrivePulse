@@ -71,6 +71,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_rolling_dir: str = self.settings.get("dashcam_rolling_dir", "")
         self.dashcam_saved_dir: str = self.settings.get("dashcam_saved_dir", "")
         self.nav_position: str = self.settings.get("nav_position", "bottom")
+        self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -193,6 +194,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_page.set_dim_timeout(self.dashcam_dim_timeout)
         self.dashcam_page.set_rolling_dir(self.dashcam_rolling_dir)
         self.dashcam_page.set_saved_dir(self.dashcam_saved_dir)
+        self.dashcam_page.set_gps_osd(
+            bool(self.settings.get("dashcam_gps_osd", False))
+        )
+        self.dashcam_page.set_units(self.units)
+        self.dashcam_page.on_recording_changed = self._on_dashcam_recording_changed
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
@@ -263,8 +269,19 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._sync_btn.set_tooltip_text(_translate(self.language, "sync.tooltip"))
         self._sync_btn.connect("clicked", self._open_sync)
 
+        # REC indicator — shown when dashcam is recording in the background
+        self._dashcam_rec_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self._dashcam_rec_box.set_visible(False)
+        _rec_dot = Gtk.Label(label="●")
+        _rec_dot.add_css_class("error")
+        self._dashcam_rec_box.append(_rec_dot)
+        _rec_lbl = Gtk.Label(label="REC")
+        _rec_lbl.add_css_class("caption-heading")
+        self._dashcam_rec_box.append(_rec_lbl)
+
         header.pack_start(self.obd_indicator["box"])
         header.pack_start(self.gps_indicator["box"])
+        header.pack_start(self._dashcam_rec_box)
         header.pack_end(settings_button)
         header.pack_end(self._sync_btn)
         header.pack_end(self._ctx_trash_btn)
@@ -313,6 +330,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.gps_reader.start()
         self.orientation_reader = OrientationReader(self._on_orientation_changed)
         self.orientation_reader.on_gforce = self.acceleration_page.update_gforce_raw
+
+    def _on_dashcam_recording_changed(self, recording: bool) -> None:
+        self._dashcam_rec_box.set_visible(recording)
 
     def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
         self.dashcam_page.update_orientation(angle, is_landscape)

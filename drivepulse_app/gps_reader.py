@@ -106,25 +106,28 @@ class GpsReader:
                 self._geoclue_bus, Gio.DBusProxyFlags.NONE, None,
                 self._GEOCLUE_BUS, location_path, self._GEOCLUE_LOCATION_IFACE, None,
             )
+            lat = self._geoclue_double(location, "Latitude")
+            lon = self._geoclue_double(location, "Longitude")
+            # Require a valid position fix — speed alone is not sufficient.
+            if lat is None or lon is None:
+                return
+            gps_payload: dict[str, Any] = {
+                "source": "gps",
+                "gps_lat": {"value": lat, "unit": "degree"},
+                "gps_lon": {"value": lon, "unit": "degree"},
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            # Speed: GeoClue reports -1 when unavailable; only include valid values.
             speed = self._geoclue_double(location, "Speed")
             if speed is not None and speed >= 0:
-                gps_payload: dict[str, Any] = {
-                    "source": "gps",
-                    "gps_speed": {"value": speed * 3.6, "unit": "km/h"},
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                heading = self._geoclue_double(location, "Heading")
-                if heading is not None and 0 <= heading < 360:
-                    gps_payload["gps_heading"] = {"value": heading, "unit": "deg"}
-                lat = self._geoclue_double(location, "Latitude")
-                lon = self._geoclue_double(location, "Longitude")
-                if lat is not None and lon is not None:
-                    gps_payload["gps_lat"] = {"value": lat, "unit": "degree"}
-                    gps_payload["gps_lon"] = {"value": lon, "unit": "degree"}
-                altitude = self._geoclue_double(location, "Altitude")
-                if altitude is not None:
-                    gps_payload["gps_altitude"] = {"value": altitude, "unit": "meter"}
-                self.on_update(gps_payload)
+                gps_payload["gps_speed"] = {"value": speed * 3.6, "unit": "km/h"}
+            heading = self._geoclue_double(location, "Heading")
+            if heading is not None and 0 <= heading < 360:
+                gps_payload["gps_heading"] = {"value": heading, "unit": "deg"}
+            altitude = self._geoclue_double(location, "Altitude")
+            if altitude is not None:
+                gps_payload["gps_altitude"] = {"value": altitude, "unit": "meter"}
+            self.on_update(gps_payload)
         except Exception:
             log.exception("Could not process GeoClue location update")
 

@@ -50,6 +50,13 @@ class DashcamRecorder:
         # Clockwise rotation in degrees written as MP4 display-matrix metadata.
         # Mirrors what phone cameras embed so players show the video upright.
         self.rotation:        int  = 0
+        # GPS state updated from the main thread; read at segment-start in the record thread.
+        # Python's GIL makes float/None stores effectively atomic here.
+        self.lat:       float | None = None
+        self.lon:       float | None = None
+        self.speed_kmh: float | None = None
+        self.gps_osd:   bool = False
+        self.units:     str  = "metric"
 
         self._proc:        subprocess.Popen | None = None
         self._thread:      threading.Thread | None = None
@@ -99,6 +106,11 @@ class DashcamRecorder:
                 except Exception as exc:
                     log.warning("Could not save event clip %s: %s", src, exc)
         return saved
+
+    def update_gps(self, lat: float | None, lon: float | None, speed_kmh: float | None) -> None:
+        self.lat       = lat
+        self.lon       = lon
+        self.speed_kmh = speed_kmh
 
     def delete_protected(self, path: Path) -> None:
         try:
@@ -156,6 +168,8 @@ class DashcamRecorder:
         return self.rolling_dir / f"dc_{ts}.mp4"
 
     def _run_ffmpeg(self, out: Path) -> bool:
+        lat, lon, speed = self.lat, self.lon, self.speed_kmh
+
         cmd = [
             "ffmpeg", "-y",
             "-f", "v4l2",
@@ -168,11 +182,39 @@ class DashcamRecorder:
             "-crf", "28",
             "-movflags", "+faststart",
             "-an",
-            # Embed display-matrix rotation so players show the video upright
-            # regardless of whether the camera was held in portrait or landscape.
+            # Embed display-matrix rotation so players show the video upright.
             "-metadata:s:v:0", f"rotate={self.rotation}",
-            str(out),
         ]
+
+        # GPS location metadata (ISO 6709 / ©xyz atom — readable by VLC, Android, etc.)
+        if lat is not None and lon is not None:
+            loc = f"{lat:+.4f}{lon:+.4f}/"
+            cmd += ["-metadata", f"location={loc}", "-metadata", f"location-eng={loc}"]
+
+        # OSD: burn GPS coordinates + speed into the bottom-left corner
+        osd_txt: Path | None = None
+        if self.gps_osd and lat is not None and lon is not None:
+            ns = "N" if lat >= 0 else "S"
+            ew = "E" if lon >= 0 else "W"
+            text = f"GPS {abs(lat):.4f}{ns} {abs(lon):.4f}{ew}"
+            if speed is not None:
+                if self.units == "imperial":
+                    text += f"  {speed * 0.621371:.0f} mph"
+                else:
+                    text += f"  {speed:.0f} km/h"
+            # Write to sidecar file — avoids ffmpeg filter-string escaping issues
+            osd_txt = out.with_suffix(".osd")
+            osd_txt.write_text(text, encoding="utf-8")
+            vf = (
+                f"drawtext=textfile={osd_txt}"
+                ":x=10:y=H-th-10"
+                ":fontcolor=white:fontsize=22"
+                ":box=1:boxcolor=black@0.6:boxborderw=6"
+            )
+            cmd += ["-vf", vf]
+
+        cmd.append(str(out))
+
         try:
             self._proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             rc = self._proc.wait()
@@ -189,6 +231,8 @@ class DashcamRecorder:
             return False
         finally:
             self._proc = None
+            if osd_txt is not None:
+                osd_txt.unlink(missing_ok=True)
 
     def _kill_ffmpeg(self) -> None:
         proc = self._proc

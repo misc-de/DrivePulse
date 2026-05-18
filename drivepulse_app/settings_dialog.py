@@ -69,6 +69,8 @@ class SettingsDialog(Adw.Dialog):
         on_dashcam_rolling_dir_changed: Callable[[str], None] | None = None,
         current_dashcam_saved_dir: str = "",
         on_dashcam_saved_dir_changed: Callable[[str], None] | None = None,
+        current_dashcam_gps_osd: bool = False,
+        on_dashcam_gps_osd_changed: Callable[[bool], None] | None = None,
         current_nav_position: str = "bottom",
         on_nav_position_changed: Callable[[str], None] | None = None,
     ) -> None:
@@ -92,6 +94,8 @@ class SettingsDialog(Adw.Dialog):
         self.on_dashcam_saved_dir_changed = on_dashcam_saved_dir_changed
         self._current_dashcam_rolling_dir = current_dashcam_rolling_dir
         self._current_dashcam_saved_dir = current_dashcam_saved_dir
+        self.on_dashcam_gps_osd_changed = on_dashcam_gps_osd_changed
+        self._current_dashcam_gps_osd = current_dashcam_gps_osd
         self.on_nav_position_changed = on_nav_position_changed
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
@@ -383,6 +387,17 @@ class SettingsDialog(Adw.Dialog):
         storage_group.add(self._dc_saved_row)
         dc_page.add(storage_group)
 
+        # GPS / OSD group
+        gps_group = Adw.PreferencesGroup(title=_translate(self.language, "dashcam.settings.gps"))
+        gps_osd_row = Adw.SwitchRow(
+            title=_translate(self.language, "dashcam.settings.gps_osd"),
+            subtitle=_translate(self.language, "dashcam.settings.gps_osd_sub"),
+        )
+        gps_osd_row.set_active(current_dashcam_gps_osd)
+        gps_osd_row.connect("notify::active", self._on_dc_gps_osd_toggled)
+        gps_group.add(gps_osd_row)
+        dc_page.add(gps_group)
+
         # ── Build ViewStack + ViewSwitcher header ─────────────────────────────
         view_stack = Adw.ViewStack()
         view_stack.add_titled_with_icon(
@@ -448,6 +463,10 @@ class SettingsDialog(Adw.Dialog):
             if path:
                 row.set_subtitle(path)
                 callback(path)
+
+    def _on_dc_gps_osd_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
+        if self.on_dashcam_gps_osd_changed:
+            self.on_dashcam_gps_osd_changed(row.get_active())
 
     def _on_dc_rolling_dir_chosen(self, path: str) -> None:
         if self.on_dashcam_rolling_dir_changed:

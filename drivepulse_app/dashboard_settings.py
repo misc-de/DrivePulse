@@ -41,6 +41,7 @@ class DashboardSettingsMixin:
                 "dashcam_rolling_dir": getattr(self, "dashcam_rolling_dir", ""),
                 "dashcam_saved_dir": getattr(self, "dashcam_saved_dir", ""),
                 "nav_position": getattr(self, "nav_position", "bottom"),
+                "dashcam_gps_osd": getattr(self, "dashcam_gps_osd", False),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -102,6 +103,8 @@ class DashboardSettingsMixin:
             on_dashcam_saved_dir_changed=self._set_dashcam_saved_dir,
             current_nav_position=getattr(self, "nav_position", "bottom"),
             on_nav_position_changed=self._set_nav_position,
+            current_dashcam_gps_osd=getattr(self, "dashcam_gps_osd", False),
+            on_dashcam_gps_osd_changed=self._set_dashcam_gps_osd,
         )
         dialog.present(self)
 
@@ -139,6 +142,11 @@ class DashboardSettingsMixin:
         self.dashcam_saved_dir = value
         self._save_settings()
         self.dashcam_page.set_saved_dir(value)
+
+    def _set_dashcam_gps_osd(self, enabled: bool) -> None:
+        self.dashcam_gps_osd = enabled
+        self._save_settings()
+        self.dashcam_page.set_gps_osd(enabled)
 
     def _set_nav_position(self, position: str) -> None:
         if position == getattr(self, "nav_position", "bottom"):
@@ -209,6 +217,7 @@ class DashboardSettingsMixin:
         self.units = units
         self._save_units()
         self.dashboard_canvas.set_units(units)
+        self.dashcam_page.set_units(units)
 
         if self.units == "metric":
             self.speed_gauge.state.unit = "km/h"
