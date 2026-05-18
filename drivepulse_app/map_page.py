@@ -180,6 +180,15 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         # tracking only the last distance: sparse GPS can jump from 60 m to 80 m
         # without ever registering an approach, which the old logic missed.
         self._step_min_dist: float | None = None
+        # Geometry-vertex index along the route for each step's maneuver
+        # location.  Populated when a route is computed and used to detect
+        # "passed" via route-progress — robust when OSRM places the maneuver
+        # marker slightly off the actual road geometry (the haversine-based
+        # check can never get within its 80 m approach threshold then).
+        self._step_geom_indices: list[int] = []
+        # Latest projected route index for the GPS position; rises monotonically
+        # along the route so a single backwards GPS jitter doesn't undo progress.
+        self._gps_route_idx: int = 0
         self._dnd_src_idx: int = -1
 
         # Maneuver overlay widgets
@@ -861,6 +870,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_completed = False
         self._tour_step_idx = 0
         self._step_min_dist = None
+        self._gps_route_idx = 0
         self._set_tour_button("stop")
         self._update_maneuver_overlay()
         self._highlight_active_step()
@@ -916,6 +926,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_paused = False
         self._tour_completed = False
         self._step_min_dist = None
+        self._gps_route_idx = 0
         self._set_tour_button("start")
         if self._backend == "webkit":
             self._js("mapSetTourActive(false)")
@@ -1021,6 +1032,51 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             self._tour_step_idx += 1
             self._step_min_dist = None
 
+    def _compute_step_geom_indices(self) -> None:
+        """For each maneuver step, find the index of its closest vertex on
+        the route geometry — used by the route-progress advance check."""
+        self._step_geom_indices = []
+        if not self._tour_coords:
+            return
+        for step in self._tour_steps:
+            slat = step.get("lat", 0.0)
+            slon = step.get("lon", 0.0)
+            best_i = 0
+            best_d = float("inf")
+            for i, coord in enumerate(self._tour_coords):
+                # coord is [lon, lat] (OSRM convention)
+                dx = coord[0] - slon
+                dy = coord[1] - slat
+                d = dx * dx + dy * dy
+                if d < best_d:
+                    best_d = d
+                    best_i = i
+            self._step_geom_indices.append(best_i)
+
+    def _gps_geom_index(self) -> int:
+        """Find the index of the route vertex closest to the current GPS fix.
+
+        Monotonic: never returns less than the previously tracked index, so
+        a backwards GPS jitter can't undo route progress.
+        """
+        if not self._tour_coords or self._gps_lat is None or self._gps_lon is None:
+            return self._gps_route_idx
+        best_i = self._gps_route_idx
+        best_d = float("inf")
+        # Only scan forward from the last known position — far cheaper and
+        # avoids matching a coincidentally-close earlier vertex on a route
+        # that doubles back on itself.
+        for i in range(self._gps_route_idx, len(self._tour_coords)):
+            coord = self._tour_coords[i]
+            dx = coord[0] - self._gps_lon
+            dy = coord[1] - self._gps_lat
+            d = dx * dx + dy * dy
+            if d < best_d:
+                best_d = d
+                best_i = i
+        self._gps_route_idx = best_i
+        return best_i
+
     def _update_maneuver_overlay(self) -> None:
         if self._maneuver_overlay is None:
             return
@@ -1035,6 +1091,13 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             return
 
         self._skip_non_actionable_steps()
+
+        # Project the GPS fix onto the route geometry once per call.  This
+        # index is the primary "have we passed step N yet?" signal — it's
+        # robust against OSRM placing the maneuver marker a few metres off
+        # the actual road, which can prevent the haversine-based approach
+        # check from ever satisfying its 80 m threshold.
+        gps_idx = self._gps_geom_index()
 
         # Multi-step advance loop: if the car passed several close-together
         # maneuvers between GPS ticks (e.g. city-centre roundabout exits) we
@@ -1055,6 +1118,15 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
                 self._step_min_dist <= self._MANEUVER_CLOSEST_M
                 and distance_m > self._step_min_dist + self._MANEUVER_PASS_GROWTH_M
             )
+
+            # Route-progress fallback: if the GPS has already moved past
+            # this step's vertex on the route geometry, the maneuver is
+            # behind us no matter what the haversine math says.
+            if not passed and self._step_geom_indices:
+                idx = self._tour_step_idx
+                if idx < len(self._step_geom_indices):
+                    if gps_idx > self._step_geom_indices[idx]:
+                        passed = True
 
             if not passed:
                 break  # still approaching — show this step
@@ -1557,6 +1629,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_step_idx = 0
         self._step_min_dist = None
         self._tour_coords = list(coords) if coords else []
+        self._gps_route_idx = 0
+        self._compute_step_geom_indices()
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
         prefix = _translate(self.language, "map.duration_prefix")
