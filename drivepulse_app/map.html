@@ -232,6 +232,9 @@ function initMap(lat, lon) {
   // Initial push once the map has its first frame, so values show up
   // before the user does anything.
   map.once('load', _pushCamState);
+  // Safety net — fire on a 1 s interval too, in case the *end events
+  // don't trigger (e.g. continuous animation, tour fly-in).
+  setInterval(_pushCamState, 1000);
 
   map.on('dragstart', () => {
     // While a tour is active the map must stay oriented to the driving
@@ -338,12 +341,25 @@ function mapSetFollow(active) {
 }
 
 function mapSetTourActive(active) {
+  // Just flip the flag — DO NOT mutate the camera here.  Pausing a tour must
+  // leave the view exactly as the driver had it (zoomed, tilted, rotated).
+  // Aborting/clearing the route is what calls mapResetView() explicitly.
   _tourActive = active;
-  if (!active && map) {
+  if (!active) {
     _smoothedBearing = null;
     _tourFlying = false;
-    map.easeTo({ bearing: 0, pitch: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 400 });
   }
+}
+
+function mapResetView() {
+  if (!map) return;
+  _smoothedBearing = null;
+  _tourFlying = false;
+  map.easeTo({
+    bearing: 0, pitch: 0,
+    padding: { top: 0, bottom: 0, left: 0, right: 0 },
+    duration: 400,
+  });
 }
 
 // Comfortable street-level tour zoom — close enough to read shop fronts but
