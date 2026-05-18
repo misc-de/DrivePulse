@@ -4,12 +4,12 @@ from typing import Any
 THEME_TYPE = "dashboard"
 LABEL = {"en": "Analog Light", "de": "Analog Hell"}
 CSS = """
-window.dp-theme-analog_light,
-window.dp-theme-analog_light toolbarview,
-window.dp-theme-analog_light scrolledwindow,
-window.dp-theme-analog_light scrolledwindow > viewport,
-window.dp-theme-analog_light .dp-gauge-bg,
-window.dp-theme-analog_light .dp-gauge-bg > * {
+window.dp-theme-analog-light,
+window.dp-theme-analog-light toolbarview,
+window.dp-theme-analog-light scrolledwindow,
+window.dp-theme-analog-light scrolledwindow > viewport,
+window.dp-theme-analog-light .dp-gauge-bg,
+window.dp-theme-analog-light .dp-gauge-bg > * {
   background-color: #ebedf2;
 }"""
 
