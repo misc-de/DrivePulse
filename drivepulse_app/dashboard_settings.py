@@ -198,6 +198,7 @@ class DashboardSettingsMixin:
         self.theme_mode = mode
         self._save_settings()
         self._apply_theme_mode(mode)
+        self._apply_window_theme(self.gauge_theme)
 
     def _set_last_update_check(self, timestamp: str) -> None:
         self.last_update_check = timestamp
