@@ -530,6 +530,8 @@ class DashcamPage(Gtk.Box):
 
     def update_orientation(self, angle: int, is_landscape: bool) -> None:
         self._recorder.rotation = angle
+
+    def set_preview_rotation(self, angle: int) -> None:
         self._preview.set_rotation(angle)
 
     def update_ui_rotation(self, angle: int) -> None:
