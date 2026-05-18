@@ -44,6 +44,7 @@ class DashboardSettingsMixin:
                 "dashcam_saved_dir": getattr(self, "dashcam_saved_dir", ""),
                 "nav_position": getattr(self, "nav_position", "bottom"),
                 "dashcam_gps_osd": getattr(self, "dashcam_gps_osd", False),
+                "rotation_mode": getattr(self, "rotation_mode", "follow_sensor"),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -107,6 +108,8 @@ class DashboardSettingsMixin:
             on_nav_position_changed=self._set_nav_position,
             current_dashcam_gps_osd=getattr(self, "dashcam_gps_osd", False),
             on_dashcam_gps_osd_changed=self._set_dashcam_gps_osd,
+            current_rotation_mode=getattr(self, "rotation_mode", "follow_sensor"),
+            on_rotation_mode_changed=self._set_rotation_mode,
         )
         dialog.present(self)
 
@@ -156,6 +159,13 @@ class DashboardSettingsMixin:
         self.nav_position = position
         self._save_settings()
         self._apply_nav_position(position)
+
+    def _set_rotation_mode(self, mode: str) -> None:
+        if mode == getattr(self, "rotation_mode", "follow_sensor"):
+            return
+        self.rotation_mode = mode
+        self._save_settings()
+        self.rotation.set_mode(mode)
 
     def _open_sync(self, *_args: Any) -> None:
         import gi

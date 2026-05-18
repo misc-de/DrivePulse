@@ -33,7 +33,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "dashcam_gps_osd": False,
     "map_traffic_visible": False,
     "map_3d_view": True,
+    "rotation_mode": "follow_sensor",
 }
+
+_VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
 
 
 def load_settings() -> dict[str, Any]:
@@ -78,6 +81,7 @@ def load_settings() -> dict[str, Any]:
         "dashcam_saved_dir": data.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
         "nav_position": data.get("nav_position", "bottom") if data.get("nav_position") in {"top", "bottom"} else "bottom",
         "dashcam_gps_osd": bool(data.get("dashcam_gps_osd", False)),
+        "rotation_mode": data.get("rotation_mode") if data.get("rotation_mode") in _VALID_ROTATION_MODES else DEFAULT_SETTINGS["rotation_mode"],
     }
 
 
@@ -108,6 +112,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "dashcam_saved_dir": settings.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
                 "nav_position": settings.get("nav_position", "bottom") if settings.get("nav_position") in {"top", "bottom"} else "bottom",
                 "dashcam_gps_osd": bool(settings.get("dashcam_gps_osd", False)),
+                "rotation_mode": settings.get("rotation_mode") if settings.get("rotation_mode") in _VALID_ROTATION_MODES else DEFAULT_SETTINGS["rotation_mode"],
             },
             indent=2,
         ),

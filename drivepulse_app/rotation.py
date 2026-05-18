@@ -5,15 +5,17 @@ Two independent sources are tracked:
 - sensor: physical accelerometer orientation (set by OrientationReader)
 - system: compositor output transform (read live from Mutter DisplayConfig)
 
-Consumers bind to one of two modes:
+Consumers either lock to a specific source or follow the *active mode*:
 
-- "follow_sensor": widget rotation = (sensor - system) % 360
-  Keeps the widget upright relative to the world. Compensates for the
-  compositor transform so the widget never double-rotates.
+- "follow_sensor": effective = (sensor - system) % 360
+  Compensates for the compositor transform so the widget never double-
+  rotates. Stays upright relative to the world.
 
-- "follow_system": widget rotation = 0
-  The compositor already applied its transform to the framebuffer, so the
-  widget just renders normally and follows along.
+- "follow_system": effective = 0
+  Compositor already rendered the transform; widget renders normally.
+
+`bind(cb)` (no source) follows the active mode and re-fires when the user
+switches it via `set_mode(...)`. `bind(cb, source=...)` locks to that mode.
 """
 from __future__ import annotations
 
@@ -31,9 +33,9 @@ from .diagnostics import get_logger
 log = get_logger(__name__)
 
 Source = Literal["follow_sensor", "follow_system"]
+VALID_MODES: tuple[Source, ...] = ("follow_sensor", "follow_system")
 
 # Mutter DisplayConfig encodes transform as 0..7 (4..7 = flipped variants).
-# We only care about the rotation portion.
 _TRANSFORM_TO_ANGLE: dict[int, int] = {
     0: 0, 1: 90, 2: 180, 3: 270,
     4: 0, 5: 90, 6: 180, 7: 270,
@@ -41,46 +43,66 @@ _TRANSFORM_TO_ANGLE: dict[int, int] = {
 
 
 class RotationProvider:
-    """Holds sensor + system rotation and notifies subscribers per source."""
-
-    def __init__(self) -> None:
+    def __init__(self, mode: Source = "follow_sensor") -> None:
+        self._mode: Source = mode if mode in VALID_MODES else "follow_sensor"
         self._sensor: int = 0
         self._system: int = 0
-        self._subs: dict[Source, list[Callable[[int], None]]] = {
-            "follow_sensor": [],
-            "follow_system": [],
-        }
+        self._subs: list[tuple[Callable[[int], None], Source | None]] = []
         self._display_proxy: Any = None
         GLib.idle_add(self._start_display_watch)
 
     # ── public API ────────────────────────────────────────────────────
 
-    def get(self, source: Source) -> int:
-        """Return the effective rotation angle for the given mode."""
-        if source == "follow_sensor":
-            return (self._sensor - self._system) % 360
-        return 0
+    @property
+    def mode(self) -> Source:
+        return self._mode
 
-    def bind(self, source: Source, cb: Callable[[int], None]) -> None:
-        """Subscribe to changes. Fires immediately with the current value."""
-        self._subs[source].append(cb)
-        cb(self.get(source))
+    def set_mode(self, mode: Source) -> None:
+        if mode not in VALID_MODES or mode == self._mode:
+            return
+        self._mode = mode
+        self._notify()
+
+    def get(self, source: Source | None = None) -> int:
+        return self._effective(source)
+
+    def bind(self, cb: Callable[[int], None], source: Source | None = None) -> None:
+        """Subscribe. If `source` is None, follows the active mode. Fires once now."""
+        self._subs.append((cb, source))
+        self._safe_call(cb, self._effective(source))
 
     def set_sensor(self, angle: int) -> None:
         angle %= 360
         if angle == self._sensor:
             return
         self._sensor = angle
-        self._notify("follow_sensor")
+        self._notify()
 
     def set_system(self, angle: int) -> None:
         angle %= 360
         if angle == self._system:
             return
         self._system = angle
-        # follow_sensor depends on system, so it changes too.
-        self._notify("follow_system")
-        self._notify("follow_sensor")
+        self._notify()
+
+    # ── internals ─────────────────────────────────────────────────────
+
+    def _effective(self, source: Source | None) -> int:
+        eff = source if source is not None else self._mode
+        if eff == "follow_sensor":
+            return (self._sensor - self._system) % 360
+        return 0
+
+    def _notify(self) -> None:
+        for cb, source in list(self._subs):
+            self._safe_call(cb, self._effective(source))
+
+    @staticmethod
+    def _safe_call(cb: Callable[[int], None], angle: int) -> None:
+        try:
+            cb(angle)
+        except Exception:
+            log.exception("Rotation subscriber raised")
 
     # ── Mutter DisplayConfig watcher ──────────────────────────────────
 
@@ -113,21 +135,11 @@ class RotationProvider:
         except Exception:
             log.exception("Failed to query Mutter DisplayConfig state")
             return
-        # GetCurrentState returns (u, a(...), a(iiduba(ssss)a{sv}), a{sv})
-        # Logical monitors are the 3rd member. Each entry: (x, y, scale, transform, primary, monitors, props)
+        # GetCurrentState returns (u, a(...), a(iiduba(ssss)a{sv}), a{sv}).
+        # Logical monitors (3rd member): each is (x, y, scale, transform, primary, monitors, props).
         logical_monitors = state.get_child_value(2)
         if logical_monitors.n_children() == 0:
             return
         primary = logical_monitors.get_child_value(0)
         transform = primary.get_child_value(3).get_uint32()
         self.set_system(_TRANSFORM_TO_ANGLE.get(transform, 0))
-
-    # ── notification ──────────────────────────────────────────────────
-
-    def _notify(self, source: Source) -> None:
-        angle = self.get(source)
-        for cb in list(self._subs[source]):
-            try:
-                cb(angle)
-            except Exception:
-                log.exception("Rotation subscriber raised")
