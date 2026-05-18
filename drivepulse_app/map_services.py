@@ -82,24 +82,50 @@ def osrm_route(
     waypoints: list[tuple[float, float]],
     mode: str,
     http_get_fn: HttpGet = http_get,
-) -> tuple[list[list[float]], float, float] | None:
+) -> tuple[list[list[float]], float, float, list[dict]] | None:
     if len(waypoints) < 2:
         return None
     profile = OSRM_PROFILE.get(mode, "driving")
     coord_str = ";".join(f"{lon},{lat}" for lat, lon in waypoints)
     url = (
         f"https://router.project-osrm.org/route/v1/{profile}/{coord_str}"
-        "?overview=full&geometries=geojson"
+        "?overview=full&geometries=geojson&steps=true"
     )
     data = http_get_fn(url)
     if data and data.get("code") == "Ok" and data.get("routes"):
         route = data["routes"][0]
+        steps = _flatten_route_steps(route.get("legs", []))
         return (
             route["geometry"]["coordinates"],
             float(route.get("duration", 0)),
             float(route.get("distance", 0)),
+            steps,
         )
     return None
+
+
+def _flatten_route_steps(legs: list[dict]) -> list[dict]:
+    """Reduce OSRM legs/steps to a flat list of upcoming maneuvers."""
+    result: list[dict] = []
+    for leg in legs:
+        for step in leg.get("steps", []) or []:
+            man = step.get("maneuver") or {}
+            loc = man.get("location") or [0.0, 0.0]
+            try:
+                lon = float(loc[0])
+                lat = float(loc[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            result.append({
+                "lat": lat,
+                "lon": lon,
+                "type": str(man.get("type") or ""),
+                "modifier": str(man.get("modifier") or ""),
+                "name": str(step.get("name") or ""),
+                "distance": float(step.get("distance") or 0.0),
+                "exit": man.get("exit"),
+            })
+    return result
 
 
 def resolve_route_points(
@@ -166,6 +192,66 @@ def poi_category(tags: dict) -> str:
     if tags.get("tourism"):
         return "tourism"
     return "other"
+
+
+def maneuver_icon(maneuver_type: str, modifier: str) -> str:
+    """Map an OSRM maneuver type+modifier to a GTK icon name."""
+    if maneuver_type == "depart":
+        return "media-playback-start-symbolic"
+    if maneuver_type == "arrive":
+        return "mark-location-symbolic"
+    if maneuver_type in {"roundabout", "rotary", "roundabout turn"}:
+        return "object-rotate-right-symbolic"
+    if maneuver_type in {"exit roundabout", "exit rotary"}:
+        return "go-next-symbolic"
+    if maneuver_type == "merge":
+        return "list-add-symbolic"
+    if modifier == "uturn":
+        return "edit-undo-symbolic"
+    if modifier in {"left", "slight left", "sharp left"}:
+        return "go-previous-symbolic"
+    if modifier in {"right", "slight right", "sharp right"}:
+        return "go-next-symbolic"
+    if modifier == "straight":
+        return "go-up-symbolic"
+    return "go-up-symbolic"
+
+
+def maneuver_text_key(maneuver_type: str, modifier: str) -> str:
+    """Map an OSRM maneuver to a translation key."""
+    if maneuver_type == "depart":
+        return "map.maneuver.depart"
+    if maneuver_type == "arrive":
+        return "map.maneuver.arrive"
+    if maneuver_type in {"roundabout", "rotary", "roundabout turn"}:
+        return "map.maneuver.roundabout"
+    if maneuver_type in {"exit roundabout", "exit rotary"}:
+        return "map.maneuver.exit_roundabout"
+    if maneuver_type == "merge":
+        return "map.maneuver.merge"
+    if maneuver_type == "fork":
+        if modifier in {"left", "slight left", "sharp left"}:
+            return "map.maneuver.fork.left"
+        return "map.maneuver.fork.right"
+    if maneuver_type == "on ramp":
+        return "map.maneuver.on_ramp"
+    if maneuver_type == "off ramp":
+        return "map.maneuver.off_ramp"
+    if modifier == "uturn":
+        return "map.maneuver.uturn"
+    if modifier == "sharp left":
+        return "map.maneuver.turn.sharp_left"
+    if modifier == "sharp right":
+        return "map.maneuver.turn.sharp_right"
+    if modifier == "slight left":
+        return "map.maneuver.turn.slight_left"
+    if modifier == "slight right":
+        return "map.maneuver.turn.slight_right"
+    if modifier == "left":
+        return "map.maneuver.turn.left"
+    if modifier == "right":
+        return "map.maneuver.turn.right"
+    return "map.maneuver.straight"
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
