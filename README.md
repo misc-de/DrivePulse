@@ -37,12 +37,25 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
 - **Device sync**
   - transfer the full database between two devices over a local Wi-Fi connection
   - server generates a QR code, client scans it in local networks; TLS-encrypted
+- **Navigation (Tour)**
+  - Address search via Nominatim geocoding, up to 5 waypoints
+  - Routing via OSRM (car, bicycle, motorcycle)
+  - Turn-by-turn maneuver overlay with icon, distance and instruction
+  - Scrollable step list panel
+  - GPS tracking with auto-follow and map rotation
+  - 2D / 3D map view toggle, satellite and night map types
+  - Traffic incidents on German motorways (Autobahn)
 - **Voice navigation (TTS)**
   - Reads out OSRM maneuver instructions via `espeak-ng` (no street names, just direction + distance)
   - Announces at 500 m, 200 m and 50 m before each maneuver
   - Language: English or German (or follow app language)
   - Voice: male or female
   - Configurable in Settings → Tour
+- **Dashcam**
+  - Continuous rolling buffer recording (configurable segment length and count)
+  - One-tap event save to preserve clips around an incident
+  - Configurable camera, resolution and screen dim timeout
+  - Optional GPS/speed OSD burned into the video
 - Settings: units (km/h / mph), language (English / German), gauge theme, mock mode toggle
 
 ---
