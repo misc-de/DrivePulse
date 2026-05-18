@@ -316,7 +316,9 @@ class SettingsDialog(Adw.Dialog):
 
         # Camera selector
         cameras = list_cameras() or [current_dashcam_camera]
-        cam_model = Gtk.StringList.new(cameras)
+        cam_model = Gtk.StringList()
+        for camera in cameras:
+            cam_model.append(camera)
         self._dc_cam_row = Adw.ComboRow(title=_translate(self.language, "dashcam.settings.camera"))
         self._dc_cam_row.set_model(cam_model)
         sel_cam = cameras.index(current_dashcam_camera) if current_dashcam_camera in cameras else 0
@@ -325,7 +327,9 @@ class SettingsDialog(Adw.Dialog):
         dc_group.add(self._dc_cam_row)
 
         # Resolution
-        res_model = Gtk.StringList.new(RESOLUTIONS)
+        res_model = Gtk.StringList()
+        for resolution in RESOLUTIONS:
+            res_model.append(resolution)
         self._dc_res_row = Adw.ComboRow(title=_translate(self.language, "dashcam.settings.resolution"))
         self._dc_res_row.set_model(res_model)
         sel_res = RESOLUTIONS.index(current_dashcam_resolution) if current_dashcam_resolution in RESOLUTIONS else 1
