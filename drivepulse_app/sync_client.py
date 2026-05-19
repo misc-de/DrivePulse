@@ -21,6 +21,7 @@ class SyncClient:
         self._device_id = device_id
         self._session_token: str | None = None
         self._fingerprint_verified = False
+        self.server_hostname: str = ""
 
     def _make_ssl_context(self) -> ssl.SSLContext:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -54,7 +55,11 @@ class SyncClient:
             log.warning("Refusing sync pairing before peer fingerprint was verified")
             return False
         try:
-            body = json.dumps({"token": pairing_token, "device_id": self._device_id}).encode()
+            body = json.dumps({
+                "token": pairing_token,
+                "device_id": self._device_id,
+                "hostname": socket.gethostname(),
+            }).encode()
             req = urllib.request.Request(
                 f"{self._base_url()}/pair",
                 data=body,
@@ -66,6 +71,7 @@ class SyncClient:
                 data: dict[str, Any] = json.loads(resp.read())
             if data.get("ok"):
                 self._session_token = data.get("session_token")
+                self.server_hostname = data.get("hostname", "")
                 return True
             return False
         except Exception:
