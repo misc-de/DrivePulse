@@ -42,6 +42,7 @@ class WebcamQRScanner:
         on_error: Callable[[str], None],
         language: str = "de",
         timeout_seconds: int = 120,
+        filter_fn: Callable[[str], bool] | None = None,
     ) -> None:
         import gi
         gi.require_version("Gtk", "4.0")
@@ -56,6 +57,7 @@ class WebcamQRScanner:
         self._pipeline: Any = None
         self._bus: Any = None
         self._timeout_id: int | None = None
+        self._filter_fn = filter_fn
         self._finished = False
 
         self._picture = Gtk.Picture()
@@ -165,6 +167,9 @@ class WebcamQRScanner:
                 return
             text = str(symbol).strip()
             if not text:
+                return
+            if self._filter_fn and not self._filter_fn(text):
+                log.debug("QR-Code ignoriert (kein Match): %s…", text[:40])
                 return
             log.info("QR-Code erkannt: %s…", text[:60])
             self._finished = True
