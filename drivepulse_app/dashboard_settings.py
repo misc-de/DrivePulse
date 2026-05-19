@@ -4,9 +4,10 @@ from __future__ import annotations
 from typing import Any
 
 from .app_settings import load_settings, save_settings
-from .common import _detect_language, _normalize_language, _translate
+from .common import _detect_language, _normalize_language, _translate, LOG_DIR
 from .dashboard import DASHBOARD_THEMES
 from .diagnostics import get_logger, set_log_enabled
+from .gauge import load_user_themes
 from .settings_dialog import SettingsDialog
 
 
@@ -86,6 +87,8 @@ class DashboardSettingsMixin:
             existing.present()
             return
         self._settings_window = None
+        # Reload user themes so files added since startup appear immediately.
+        load_user_themes(LOG_DIR / "themes", self.language)
         dialog = SettingsDialog(
             self, self.units, self.language,
             self._set_units, self._set_language,
