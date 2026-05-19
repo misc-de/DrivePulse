@@ -25,3 +25,11 @@ def get_logger(name: str) -> logging.Logger:
     logger.addHandler(handler)
     logger.propagate = False
     return logger
+
+
+def set_log_enabled(enabled: bool) -> None:
+    """Enable or disable file logging for all drivepulse_app loggers."""
+    level = logging.INFO if enabled else logging.CRITICAL
+    for name, logger in logging.Logger.manager.loggerDict.items():
+        if name.startswith("drivepulse_app") and isinstance(logger, logging.Logger):
+            logger.setLevel(level)
