@@ -398,6 +398,7 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
     def _make_result_row(self, label_text: str, key: Any) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         row.add_css_class("card")
+        row.add_css_class("dp-table-row")
         row.set_margin_top(2)
         row.set_margin_bottom(2)
 

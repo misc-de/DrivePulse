@@ -377,8 +377,8 @@ function mapSetCar(lat, lon, heading) {
         : { top: 0, bottom: 0, left: 0, right: 0 };
       opts.center = [lon, lat];
       opts.padding = pad;
-      // Keep the strong tilt while a tour is active; flatten view otherwise.
-      if (!_tourActive) opts.pitch = 0;
+      // Flatten only when no tour is active AND user has not selected 3D.
+      if (!_tourActive && !_view3D) opts.pitch = 0;
       map.easeTo(opts);
     } else {
       // Follow was disabled (user panned) — but the map should still stay
