@@ -28,6 +28,7 @@ from .dashcam_page import DashcamPage
 from .dashboard_telemetry import DashboardTelemetryMixin
 from .db import DriveDB
 from .dashboard_settings import DashboardSettingsMixin
+from .diagnostics import set_log_enabled
 from .gps_reader import GpsReader
 from .mock_tour import MockTourSimulator
 from .orientation_reader import OrientationReader
@@ -83,6 +84,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.tts_enabled: bool = bool(self.settings.get("tts_enabled", False))
         self.tts_language: str = self.settings.get("tts_language", "auto")
         self.tts_voice: str = self.settings.get("tts_voice", "female")
+        self.log_app_enabled: bool = bool(self.settings.get("log_app_enabled", True))
+        self.log_obd_enabled: bool = bool(self.settings.get("log_obd_enabled", True))
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -376,6 +379,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
         self.reader = ObdReader(self._update_from_payload, force_mock=self.mock_mode)
         self.reader._configured_port = self.obd_port
+        self.reader.set_obd_log_enabled(self.log_obd_enabled)
+        set_log_enabled(self.log_app_enabled)
         self.stopwatch_page.on_mock_start = self.reader.trigger_mock_stopwatch
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload)

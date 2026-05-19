@@ -6,7 +6,7 @@ from typing import Any
 from .app_settings import load_settings, save_settings
 from .common import _detect_language, _normalize_language, _translate
 from .dashboard import DASHBOARD_THEMES
-from .diagnostics import get_logger
+from .diagnostics import get_logger, set_log_enabled
 from .settings_dialog import SettingsDialog
 
 
@@ -48,6 +48,8 @@ class DashboardSettingsMixin:
                 "tts_enabled": getattr(self, "tts_enabled", False),
                 "tts_language": getattr(self, "tts_language", "auto"),
                 "tts_voice": getattr(self, "tts_voice", "female"),
+                "log_app_enabled": getattr(self, "log_app_enabled", True),
+                "log_obd_enabled": getattr(self, "log_obd_enabled", True),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -119,6 +121,10 @@ class DashboardSettingsMixin:
             on_tts_language_changed=self._set_tts_language,
             current_tts_voice=getattr(self, "tts_voice", "female"),
             on_tts_voice_changed=self._set_tts_voice,
+            current_log_app_enabled=getattr(self, "log_app_enabled", True),
+            on_log_app_enabled_changed=self._set_log_app_enabled,
+            current_log_obd_enabled=getattr(self, "log_obd_enabled", True),
+            on_log_obd_enabled_changed=self._set_log_obd_enabled,
         )
         dialog.present(self)
 
@@ -193,6 +199,16 @@ class DashboardSettingsMixin:
         self._save_settings()
         if hasattr(self, "map_page"):
             self.map_page.set_tts_voice(voice)
+
+    def _set_log_app_enabled(self, enabled: bool) -> None:
+        self.log_app_enabled = enabled
+        self._save_settings()
+        set_log_enabled(enabled)
+
+    def _set_log_obd_enabled(self, enabled: bool) -> None:
+        self.log_obd_enabled = enabled
+        self._save_settings()
+        self.reader.set_obd_log_enabled(enabled)
 
     def _open_sync(self, *_args: Any) -> None:
         import gi

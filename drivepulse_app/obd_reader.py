@@ -76,6 +76,7 @@ class ObdReader(GObject.Object):
         self._scan_thread: threading.Thread | None = None
         self._obd_value_cache: dict[str, Any] = {}
         self._obd_last_query: dict[str, float] = {}
+        self._obd_log_enabled: bool = True
         self._mock_simulator = MockObdSimulator()
         if obd is None:
             self.mock_reason = "python-obd fehlt"
@@ -85,8 +86,13 @@ class ObdReader(GObject.Object):
             self.mock_reason = ""
         self.mock = obd is None or force_mock
 
+    def set_obd_log_enabled(self, enabled: bool) -> None:
+        self._obd_log_enabled = enabled
+
     def _connection_log(self, event: str, **fields: Any) -> None:
         """Schreibt jeden Verbindungsversuch sofort in ein separates Debug-Log."""
+        if not self._obd_log_enabled:
+            return
         try:
             LOG_DIR.mkdir(parents=True, exist_ok=True)
             payload = {
@@ -529,6 +535,8 @@ class ObdReader(GObject.Object):
         return self._mock_simulator.read()
 
     def _write_log(self, payload: dict[str, Any]) -> None:
+        if not self._obd_log_enabled:
+            return
         try:
             LOG_DIR.mkdir(parents=True, exist_ok=True)
             with LOG_FILE.open("a", encoding="utf-8") as handle:
