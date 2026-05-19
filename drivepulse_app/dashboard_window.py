@@ -226,8 +226,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             on_tour_started=self._on_tour_started,
             on_tour_stopped=self._on_tour_stopped,
             on_tour_resumed=self._on_tour_resumed,
+            on_tts_enabled_changed=self._set_tts_enabled,
         )
-        self.map_page.set_tts_enabled(bool(self.settings.get("tts_enabled", False)))
+        self.map_page.set_tts_enabled(bool(self.settings.get("tts_enabled", True)))
         self.map_page.set_tts_language(self.settings.get("tts_language", "auto"))
         self.map_page.set_tts_voice(self.settings.get("tts_voice", "female"))
         self._map_rotator = RotatedContainer()

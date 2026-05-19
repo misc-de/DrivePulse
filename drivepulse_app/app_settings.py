@@ -34,7 +34,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "map_traffic_visible": False,
     "map_3d_view": True,
     "rotation_mode": "follow_sensor",
-    "tts_enabled": False,
+    "tts_enabled": True,
     "tts_language": "auto",
     "tts_voice": "female",
     "log_app_enabled": True,
