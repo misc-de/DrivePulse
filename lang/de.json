@@ -391,6 +391,7 @@
   "settings.tts": "Sprachführung",
   "settings.tts.enabled": "Sprachführung aktivieren",
   "settings.tts.enabled.subtitle": "Liest Navigationshinweise laut vor",
+  "settings.tts.dl.cancel": "Download abbrechen",
   "settings.tts.backend": "TTS-Engine",
   "settings.tts.backend.espeak": "espeak-ng (einfach, immer verfügbar)",
   "settings.tts.backend.piper": "Piper (natürliche Stimmen, empfohlen)",
