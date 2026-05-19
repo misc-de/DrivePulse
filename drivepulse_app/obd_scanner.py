@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import threading
 import time
 from datetime import datetime, timezone
@@ -14,7 +13,6 @@ import gi
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib  # noqa: E402
 
-from .common import PROFILES_DIR
 from .diagnostics import get_logger
 
 
@@ -71,29 +69,10 @@ class ObdScanner:
             fp = hashlib.md5(",".join(supported_names).encode()).hexdigest()[:8]
             identity = f"port_{Path(self.port).name}_{fp}"
 
-        profile_path = PROFILES_DIR / f"{identity}.json"
-
         # Identität für die Trip-DB immer mitteilen, auch wenn der Scan ansonsten geskippt wird.
-        self._emit_identity(vin, profile_path)
+        self._emit_identity(vin, identity)
 
         if identity in self._session_cache and not self.force_rescan:
-            self._emit("skipped", 1.0)
-            return
-
-        if profile_path.exists() and not self.force_rescan:
-            self._session_cache.add(identity)
-            # Schnellscan: Cal-ID/CVN aus dem vorhandenen Profil nachreichen
-            try:
-                cached = json.loads(profile_path.read_text(encoding="utf-8"))
-                self._emit_identity(
-                    vin,
-                    profile_path,
-                    cal_id=(cached.get("vehicle_info") or {}).get("CALIBRATION_ID"),
-                    cvn=(cached.get("vehicle_info") or {}).get("CVN"),
-                    protocol=cached.get("protocol"),
-                )
-            except Exception:
-                log.exception("Could not read cached OBD profile %s", profile_path)
             self._emit("skipped", 1.0)
             return
 
@@ -150,7 +129,6 @@ class ObdScanner:
             if self._yield:
                 time.sleep(self._yield)
 
-        # Save profile
         done += 1
         self._emit("saving", done / total_steps, "Profil speichern")
         profile = {
@@ -165,30 +143,19 @@ class ObdScanner:
             "pending_dtcs": pending_dtcs,
             "vehicle_info": vehicle_info,
         }
-        try:
-            PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-            tmp_path = profile_path.with_suffix(profile_path.suffix + ".tmp")
-            tmp_path.write_text(
-                json.dumps(profile, indent=2, ensure_ascii=False, default=str),
-                encoding="utf-8",
-            )
-            tmp_path.replace(profile_path)
-            self._session_cache.add(identity)
-        except Exception as exc:
-            self._emit("error", 1.0, str(exc))
-            return
+        self._session_cache.add(identity)
 
         # Volle Identität (inkl. Cal-ID/CVN) nach dem Scan an die App schicken.
         self._emit_identity(
             vin,
-            profile_path,
+            identity,
             cal_id=vehicle_info.get("CALIBRATION_ID"),
             cvn=vehicle_info.get("CVN"),
             protocol=profile.get("protocol"),
         )
-        self._emit("complete", 1.0, str(profile_path))
+        self._emit_complete(profile)
 
-    def _emit_identity(self, vin: str | None, profile_path: Path,
+    def _emit_identity(self, vin: str | None, identity: str,
                        cal_id: Any = None, cvn: Any = None, protocol: Any = None) -> None:
         GLib.idle_add(self.on_update, {
             "source": "obd_scan_identity",
@@ -196,7 +163,17 @@ class ObdScanner:
             "cal_id": cal_id,
             "cvn": cvn,
             "protocol": protocol,
-            "profile_path": str(profile_path),
+            "profile_path": identity,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def _emit_complete(self, profile: dict[str, Any]) -> None:
+        GLib.idle_add(self.on_update, {
+            "source": "obd_scan",
+            "scan_status": "complete",
+            "scan_progress": 1.0,
+            "scan_current": "",
+            "scan_profile": profile,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
