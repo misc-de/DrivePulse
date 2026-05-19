@@ -224,7 +224,8 @@ icons.gresource            Compiled icon bundle
 
 ## Database schema
 
-SQLite file at `~/.local/share/DrivePulse/drivepulse.db`:
+SQLite file at `~/.local/state/drivepulse/drives.sqlite3` by default
+(`OBD_LOG_DIR` can override the base directory):
 
 | Table | Contents |
 |---|---|
