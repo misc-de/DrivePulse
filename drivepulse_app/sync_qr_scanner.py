@@ -172,16 +172,34 @@ class WebcamQRScanner:
             return
         if message.type == Gst.MessageType.ELEMENT:
             structure = message.get_structure()
-            if structure is None or structure.get_name() != "barcode":
+            if structure is None:
                 return
-            symbol = structure.get_value("symbol")
-            if not symbol:
+            sname = structure.get_name()
+            if sname != "barcode":
+                log.debug("GStreamer ELEMENT message: %s", sname)
                 return
-            candidates = _barcode_text_candidates(symbol) or [str(symbol).strip()]
-            text = candidates[0] if candidates else ""
+            # "symbol" ist in gst-plugins-bad ein G_TYPE_STRING; get_string() ist
+            # in PyGObject zuverlässiger als get_value() für String-Felder.
+            text = ""
+            for field in ("symbol", "text"):
+                try:
+                    val = structure.get_string(field)
+                    # PyGObject gibt get_string als reinen str zurück (oder None)
+                    if isinstance(val, str) and val.strip():
+                        text = val.strip()
+                        break
+                except Exception:
+                    pass
             if not text:
+                # Fallback über get_value für ältere Bindungen
+                raw = structure.get_value("symbol")
+                if raw:
+                    candidates = _barcode_text_candidates(raw) or [str(raw).strip()]
+                    text = candidates[0].strip() if candidates else ""
+            if not text:
+                log.warning("barcode message ohne lesbaren Text: %s", structure.to_string())
                 return
-            log.info("QR code scanned: %s…", text[:40])
+            log.info("QR-Code erkannt: %s…", text[:60])
             self._finished = True
             self._stop_pipeline()
             self.on_success(text)
