@@ -251,6 +251,32 @@ class SettingsDialog(Adw.Window):
         self.tts_voice_row.set_selected(sel_tts_voice)
         self.tts_voice_row.connect("notify::selected", self._on_tts_voice_selected)
 
+        # Piper download progress row — hidden until a download is active.
+        self._piper_dl_row = Adw.ActionRow()
+        self._piper_dl_row.set_visible(False)
+        self._piper_dl_bar = Gtk.ProgressBar()
+        self._piper_dl_bar.set_valign(Gtk.Align.CENTER)
+        self._piper_dl_bar.set_hexpand(True)
+        self._piper_dl_bar.set_show_text(True)
+        _dl_cancel_btn = Gtk.Button(icon_name="process-stop-symbolic")
+        _dl_cancel_btn.set_valign(Gtk.Align.CENTER)
+        _dl_cancel_btn.add_css_class("flat")
+        _dl_cancel_btn.set_tooltip_text(_translate(self.language, "settings.tts.dl.cancel"))
+        _dl_cancel_btn.connect("clicked", self._on_piper_dl_cancel)
+        _dl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        _dl_box.set_hexpand(True)
+        _dl_box.set_valign(Gtk.Align.CENTER)
+        _dl_box.append(self._piper_dl_bar)
+        _dl_box.append(_dl_cancel_btn)
+        self._piper_dl_row.add_suffix(_dl_box)
+
+        # Register callback and show any already-running download immediately.
+        tts_service.set_download_callback(self._on_piper_dl_progress)
+        for model in tts_service.active_downloads():
+            self._on_piper_dl_progress(model, 0.0)
+
+        self.connect("destroy", lambda _w: tts_service.set_download_callback(None))
+
         # Logging rows
         self.log_app_row = Adw.SwitchRow(
             title=_translate(self.language, "settings.log_app"),
@@ -451,6 +477,7 @@ class SettingsDialog(Adw.Window):
         tts_group.add(self.tts_backend_row)
         tts_group.add(self.tts_language_row)
         tts_group.add(self.tts_voice_row)
+        tts_group.add(self._piper_dl_row)
         tour_page.add(tts_group)
 
         # ── Tacho page ────────────────────────────────────────────────────────
@@ -739,6 +766,26 @@ class SettingsDialog(Adw.Window):
             idx = self.tts_voice_row.get_selected()
             voice = self._TTS_VOICES[idx] if 0 <= idx < len(self._TTS_VOICES) else "female"
             self.on_tts_voice_changed(voice)
+
+    def _on_piper_dl_progress(self, model_name: str, fraction: float) -> None:
+        """Callback from tts_service — runs on GLib main loop."""
+        if fraction == 2.0:
+            self._piper_dl_row.set_visible(False)
+            self._piper_dl_bar.set_fraction(0.0)
+            self._piper_dl_bar.set_text(None)
+        elif fraction == -1.0:
+            self._piper_dl_row.set_visible(False)
+            self._piper_dl_bar.set_text(None)
+        else:
+            self._piper_dl_row.set_title(f"Piper: {model_name}")
+            self._piper_dl_bar.set_fraction(max(0.0, min(1.0, fraction)))
+            pct = int(fraction * 100)
+            self._piper_dl_bar.set_text(f"{pct} %")
+            self._piper_dl_row.set_visible(True)
+
+    def _on_piper_dl_cancel(self, _btn: Gtk.Button) -> None:
+        for model in tts_service.active_downloads():
+            tts_service.cancel_download(model)
 
     def _on_log_app_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_log_app_enabled_changed is not None:

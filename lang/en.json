@@ -391,6 +391,7 @@
   "settings.tts": "Voice Guidance",
   "settings.tts.enabled": "Enable voice guidance",
   "settings.tts.enabled.subtitle": "Reads out navigation instructions aloud",
+  "settings.tts.dl.cancel": "Cancel download",
   "settings.tts.backend": "TTS engine",
   "settings.tts.backend.espeak": "espeak-ng (simple, always available)",
   "settings.tts.backend.piper": "Piper (natural voices, recommended)",
