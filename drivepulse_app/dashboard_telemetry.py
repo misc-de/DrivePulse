@@ -103,9 +103,9 @@ class DashboardTelemetryMixin:
     def _has_obd_data(self, payload: dict[str, Any]) -> bool:
         return has_obd_data(payload)
 
-    def _gps_connected_with_holdover(self, gps_speed_kmh: float | None) -> bool:
+    def _gps_connected_with_holdover(self, gps_has_fix: bool) -> bool:
         now = time.monotonic()
-        if gps_speed_kmh is not None:
+        if gps_has_fix:
             self._gps_last_seen = now
             return True
         return (now - getattr(self, "_gps_last_seen", 0.0)) < self.GPS_UNAVAIL_HOLDOVER
@@ -178,20 +178,25 @@ class DashboardTelemetryMixin:
         obd_connected = active and self._has_obd_data(payload)
         self._obd_active = obd_connected
         obd_connecting = bool(payload.get("obd_connecting"))
-        gps_connected = self._gps_connected_with_holdover(gps_speed_kmh if active else None)
+        gps_connected = self._gps_connected_with_holdover(gps_speed_kmh is not None if active else False)
 
         self._set_link_indicator(self.obd_indicator, obd_connected, obd_connecting)
         self._set_link_indicator(self.gps_indicator, gps_connected, False)
 
         self.rpm_gauge.set_value(rpm, None if rpm is None else f"{rpm:.0f}")
-        self.speed_gauge.set_value(speed, None if speed is None else f"{speed:.0f}")
-        if obd_speed_kmh is not None:
-            _spd_src = _translate(self.language, "gauge.source.obd")
-        elif gps_speed_kmh is not None:
-            _spd_src = _translate(self.language, "gauge.source.gps")
+        if obd_connected:
+            # Only update speed gauge from OBD payloads when OBD data is actually present.
+            # When OBD is disconnected, the GPS branch owns the speed gauge.
+            self.speed_gauge.set_value(speed, None if speed is None else f"{speed:.0f}")
+            if obd_speed_kmh is not None:
+                _spd_src = _translate(self.language, "gauge.source.obd")
+            elif gps_speed_kmh is not None:
+                _spd_src = _translate(self.language, "gauge.source.gps")
+            else:
+                _spd_src = ""
+            self.speed_gauge.set_source_label(_spd_src)
         else:
             _spd_src = ""
-        self.speed_gauge.set_source_label(_spd_src)
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
         self.stopwatch_page.update_payload(payload, self._plain_number)
         self.cars_page.update_live(payload)
