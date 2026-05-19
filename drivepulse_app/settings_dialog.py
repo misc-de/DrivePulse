@@ -121,12 +121,11 @@ class SettingsDialog(Adw.Window):
         self._remote_version: str | None = None
         self._closing = False
         self.set_title(_translate(self.language, "settings.title"))
-        self.set_modal(True)
-        # Returning False lets GTK run its default close handler, which calls
-        # gtk_widget_hide().  That releases the modal grab on the parent before
-        # we destroy the window in the next main-loop frame.  Never skip this
-        # step — destroying a modal window without releasing its grab leaves the
-        # parent completely unresponsive.
+        # Do NOT set_modal(True): on Wayland/Phosh the compositor manages the
+        # input grab for modal windows.  If the grab is ever not released
+        # cleanly the entire parent window becomes untouchable.  The settings
+        # window is fullscreen anyway so it is visually modal without needing
+        # a real compositor grab.
         self.connect("close-request", self._on_close_request)
 
         # ── Build all option rows (assigned to pages further below) ──────────

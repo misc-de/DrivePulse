@@ -155,7 +155,8 @@ class DashboardSettingsMixin:
 
         dialog.connect("close-request", _on_settings_closing)
         dialog.connect("destroy", _on_settings_closed)
-        dialog.set_transient_for(self)
+        # No set_transient_for + no set_modal → no Wayland compositor grab.
+        # The window is fullscreen so it is effectively modal without a grab.
         dialog.fullscreen()
         dialog.present()
 
