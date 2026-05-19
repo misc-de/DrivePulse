@@ -251,7 +251,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         )
         self.dashcam_page.set_units(self.units)
         self.dashcam_page.on_recording_changed = self._on_dashcam_recording_changed
-        self.rotation.bind(self._apply_page_rotation)
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
@@ -391,6 +390,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.gps_reader.start()
         self.orientation_reader = OrientationReader(self._on_orientation_changed)
         self.orientation_reader.on_gforce = self.stopwatch_page.update_gforce_raw
+        self.rotation.bind(self._apply_page_rotation)
 
     def _on_dashcam_recording_changed(self, recording: bool) -> None:
         self._dashcam_rec_box.set_visible(recording)
