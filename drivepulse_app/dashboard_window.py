@@ -81,7 +81,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.nav_position: str = self.settings.get("nav_position", "bottom")
         self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
         self.rotation_mode: str = self.settings.get("rotation_mode", "follow_sensor")
-        self.tts_enabled: bool = bool(self.settings.get("tts_enabled", False))
+        self.tts_enabled: bool = bool(self.settings.get("tts_enabled", True))
+        self.tts_backend: str = self.settings.get("tts_backend", "espeak")
         self.tts_language: str = self.settings.get("tts_language", "auto")
         self.tts_voice: str = self.settings.get("tts_voice", "female")
         self.log_app_enabled: bool = bool(self.settings.get("log_app_enabled", True))
@@ -228,9 +229,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             on_tour_resumed=self._on_tour_resumed,
             on_tts_enabled_changed=self._set_tts_enabled,
         )
-        self.map_page.set_tts_enabled(bool(self.settings.get("tts_enabled", True)))
-        self.map_page.set_tts_language(self.settings.get("tts_language", "auto"))
-        self.map_page.set_tts_voice(self.settings.get("tts_voice", "female"))
+        from . import tts_service as _tts_svc
+        _tts_svc.set_backend(self.tts_backend)
+        self.map_page.set_tts_enabled(self.tts_enabled)
+        self.map_page.set_tts_language(self.tts_language)
+        self.map_page.set_tts_voice(self.tts_voice)
         self._map_rotator = RotatedContainer()
         self._map_rotator.set_child(self.map_page)
         self._map_rotator.set_hexpand(True)
@@ -384,7 +387,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         set_log_enabled(self.log_app_enabled)
         self.stopwatch_page.on_mock_start = self.reader.trigger_mock_stopwatch
         self.reader.start()
-        self.gps_reader = GpsReader(self._update_from_payload)
+        self.gps_reader = GpsReader(self._update_from_payload, mock_mode=self.mock_mode)
         self.gps_reader.start()
         self.orientation_reader = OrientationReader(self._on_orientation_changed)
         self.orientation_reader.on_gforce = self.stopwatch_page.update_gforce_raw

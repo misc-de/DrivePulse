@@ -5,6 +5,16 @@ import shutil
 from importlib import metadata, util
 
 from .common import OBD_BAUDRATE, OBD_FAST, OBD_PORT, OBD_TIMEOUT_SECONDS
+from .diagnostics import get_logger
+
+
+log = get_logger(__name__)
+
+
+def _emit(line: str) -> None:
+    """Print to stdout and write the same line to drivepulse.log."""
+    print(line)
+    log.info("%s", line)
 
 
 REQUIRED_PYTHON_PACKAGES = (
@@ -31,7 +41,9 @@ GI_LIBRARIES = (
 )
 
 SYSTEM_BINARIES = (
-    ("espeak-ng", "Sprachausgabe (Navigationshinweise)", False),
+    ("espeak-ng", "Sprachausgabe — einfach, immer verfügbar (Fallback)", False),
+    ("piper",     "Sprachausgabe — natürliche neuronale Stimmen (empfohlen)", False),
+    ("aplay",     "Audio-Wiedergabe für Piper TTS (ALSA)", False),
 )
 
 
@@ -56,22 +68,22 @@ def _gi_status(namespace: str, version: str) -> tuple[bool, str]:
 
 
 def print_required_python_packages() -> None:
-    print("Python-Pakete (erforderlich):")
+    _emit("Python-Pakete (erforderlich):")
     all_ok = True
     for pkg, mod, desc in REQUIRED_PYTHON_PACKAGES:
         ok, status = _py_status(pkg, mod)
         if not ok:
             all_ok = False
         mark = "✓" if ok else "✗"
-        print(f"  {mark} {pkg}: {status} — {desc}")
+        _emit(f"  {mark} {pkg}: {status} — {desc}")
 
-    print("Python-Pakete (optional):")
+    _emit("Python-Pakete (optional):")
     for pkg, mod, desc in OPTIONAL_PYTHON_PACKAGES:
         ok, status = _py_status(pkg, mod)
         mark = "✓" if ok else "–"
-        print(f"  {mark} {pkg}: {status} — {desc}")
+        _emit(f"  {mark} {pkg}: {status} — {desc}")
 
-    print("GI-Bibliotheken:")
+    _emit("GI-Bibliotheken:")
     for name, ns, ver, apt, desc, required in GI_LIBRARIES:
         ok, status = _gi_status(ns, ver)
         if required and not ok:
@@ -86,28 +98,35 @@ def print_required_python_packages() -> None:
             mark = "–"
             hint = f"  →  sudo apt install {apt}"
         label = "erforderlich" if required else "optional"
-        print(f"  {mark} {name} ({label}): {status} — {desc}{hint}")
+        _emit(f"  {mark} {name} ({label}): {status} — {desc}{hint}")
 
-    print("Systemprogramme:")
+    _emit("Systemprogramme:")
+    piper_found = False
     for binary, desc, required in SYSTEM_BINARIES:
         found = shutil.which(binary) is not None
+        if binary == "piper":
+            piper_found = found
         if required and not found:
             all_ok = False
         mark = "✓" if found else ("✗" if required else "–")
         status = "gefunden" if found else "nicht installiert"
         label = "erforderlich" if required else "optional"
-        hint = f"  →  sudo apt install {binary}" if not found else ""
-        print(f"  {mark} {binary} ({label}): {status} — {desc}{hint}")
+        hint = f"  →  sudo apt install {binary}" if not found and binary != "piper" else ""
+        _emit(f"  {mark} {binary} ({label}): {status} — {desc}{hint}")
+    if not piper_found:
+        _emit("  ℹ  Piper (empfohlen): pip install piper-tts")
+        _emit("     Stimmen: https://huggingface.co/rhasspy/piper-voices/tree/main")
+        _emit("     Ablage:  ~/.local/share/piper/<modell>.onnx")
 
     if not all_ok:
-        print("  ⚠  Einige erforderliche Pakete fehlen – die App startet möglicherweise nicht korrekt.")
+        _emit("  ⚠  Einige erforderliche Pakete fehlen – die App startet möglicherweise nicht korrekt.")
 
-    print("OBD-Konfiguration:")
-    print(f"  - OBD_PORT: {OBD_PORT or 'auto (/dev/rfcomm*, /dev/ttyUSB*, /dev/ttyACM*)'}")
-    print(f"  - OBD_BAUDRATE: {OBD_BAUDRATE or 'auto'}")
-    print(f"  - OBD_TIMEOUT: {OBD_TIMEOUT_SECONDS:.1f}s")
-    print(f"  - OBD_FAST: {'an' if OBD_FAST else 'aus'}")
+    _emit("OBD-Konfiguration:")
+    _emit(f"  - OBD_PORT: {OBD_PORT or 'auto (/dev/rfcomm*, /dev/ttyUSB*, /dev/ttyACM*)'}")
+    _emit(f"  - OBD_BAUDRATE: {OBD_BAUDRATE or 'auto'}")
+    _emit(f"  - OBD_TIMEOUT: {OBD_TIMEOUT_SECONDS:.1f}s")
+    _emit(f"  - OBD_FAST: {'an' if OBD_FAST else 'aus'}")
     if OBD_PORT is None:
-        print("  - Bluetooth-Hinweis: ELM327 koppeln und z. B. mit OBD_PORT=/dev/rfcomm0 starten.")
-        print("  - Direktes BT: OBD_BT_ADDR=AA:BB:CC:DD:EE:FF (oder AA:BB:CC:DD:EE:FF:Kanal)")
-        print("  - socat-Brücke: OBD_SOCKET_URL=socket://localhost:35000")
+        _emit("  - Bluetooth-Hinweis: ELM327 koppeln und z. B. mit OBD_PORT=/dev/rfcomm0 starten.")
+        _emit("  - Direktes BT: OBD_BT_ADDR=AA:BB:CC:DD:EE:FF (oder AA:BB:CC:DD:EE:FF:Kanal)")
+        _emit("  - socat-Brücke: OBD_SOCKET_URL=socket://localhost:35000")

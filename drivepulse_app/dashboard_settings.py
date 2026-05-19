@@ -46,6 +46,7 @@ class DashboardSettingsMixin:
                 "dashcam_gps_osd": getattr(self, "dashcam_gps_osd", False),
                 "rotation_mode": getattr(self, "rotation_mode", "follow_sensor"),
                 "tts_enabled": getattr(self, "tts_enabled", False),
+                "tts_backend": getattr(self, "tts_backend", "espeak"),
                 "tts_language": getattr(self, "tts_language", "auto"),
                 "tts_voice": getattr(self, "tts_voice", "female"),
                 "log_app_enabled": getattr(self, "log_app_enabled", True),
@@ -117,6 +118,8 @@ class DashboardSettingsMixin:
             on_rotation_mode_changed=self._set_rotation_mode,
             current_tts_enabled=getattr(self, "tts_enabled", False),
             on_tts_enabled_changed=self._set_tts_enabled,
+            current_tts_backend=getattr(self, "tts_backend", "espeak"),
+            on_tts_backend_changed=self._set_tts_backend,
             current_tts_language=getattr(self, "tts_language", "auto"),
             on_tts_language_changed=self._set_tts_language,
             current_tts_voice=getattr(self, "tts_voice", "female"),
@@ -187,6 +190,12 @@ class DashboardSettingsMixin:
         self._save_settings()
         if hasattr(self, "map_page"):
             self.map_page.set_tts_enabled(enabled)
+
+    def _set_tts_backend(self, backend: str) -> None:
+        self.tts_backend = backend
+        self._save_settings()
+        from . import tts_service
+        tts_service.set_backend(backend)
 
     def _set_tts_language(self, language: str) -> None:
         self.tts_language = language

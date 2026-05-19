@@ -17,7 +17,7 @@ from gi.repository import GLib  # noqa: E402
 from .common import SUPPORTED_LANGUAGES, _normalize_language, _translate, language_name
 from .gauge import all_theme_options
 from .obd_devices import scan_obd_devices
-from . import updater
+from . import tts_service, updater
 
 
 class DeviceItem(GObject.Object):
@@ -77,6 +77,8 @@ class SettingsDialog(Adw.Dialog):
         on_rotation_mode_changed: Callable[[str], None] | None = None,
         current_tts_enabled: bool = False,
         on_tts_enabled_changed: Callable[[bool], None] | None = None,
+        current_tts_backend: str = "espeak",
+        on_tts_backend_changed: Callable[[str], None] | None = None,
         current_tts_language: str = "auto",
         on_tts_language_changed: Callable[[str], None] | None = None,
         current_tts_voice: str = "female",
@@ -111,6 +113,7 @@ class SettingsDialog(Adw.Dialog):
         self.on_nav_position_changed = on_nav_position_changed
         self.on_rotation_mode_changed = on_rotation_mode_changed
         self.on_tts_enabled_changed = on_tts_enabled_changed
+        self.on_tts_backend_changed = on_tts_backend_changed
         self.on_tts_language_changed = on_tts_language_changed
         self.on_tts_voice_changed = on_tts_voice_changed
         self.on_log_app_enabled_changed = on_log_app_enabled_changed
@@ -210,6 +213,8 @@ class SettingsDialog(Adw.Dialog):
         # TTS rows
         self._TTS_LANGUAGES = ["auto", "en", "de"]
         self._TTS_VOICES = ["male", "female"]
+        # Backend list: always include espeak; add piper only when available.
+        self._TTS_BACKENDS = ["espeak"] + (["piper"] if tts_service.PIPER_AVAILABLE else [])
 
         self.tts_enabled_row = Adw.SwitchRow(
             title=_translate(self.language, "settings.tts.enabled"),
@@ -217,6 +222,15 @@ class SettingsDialog(Adw.Dialog):
         )
         self.tts_enabled_row.set_active(current_tts_enabled)
         self.tts_enabled_row.connect("notify::active", self._on_tts_enabled_toggled)
+
+        tts_backend_model = Gtk.StringList()
+        for key in self._TTS_BACKENDS:
+            tts_backend_model.append(_translate(self.language, f"settings.tts.backend.{key}"))
+        self.tts_backend_row = Adw.ComboRow(title=_translate(self.language, "settings.tts.backend"))
+        self.tts_backend_row.set_model(tts_backend_model)
+        _safe_backend = current_tts_backend if current_tts_backend in self._TTS_BACKENDS else "espeak"
+        self.tts_backend_row.set_selected(self._TTS_BACKENDS.index(_safe_backend))
+        self.tts_backend_row.connect("notify::selected", self._on_tts_backend_selected)
 
         tts_lang_model = Gtk.StringList()
         for key in self._TTS_LANGUAGES:
@@ -387,6 +401,7 @@ class SettingsDialog(Adw.Dialog):
 
         tts_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.tts"))
         tts_group.add(self.tts_enabled_row)
+        tts_group.add(self.tts_backend_row)
         tts_group.add(self.tts_language_row)
         tts_group.add(self.tts_voice_row)
         tour_page.add(tts_group)
@@ -659,6 +674,12 @@ class SettingsDialog(Adw.Dialog):
     def _on_tts_enabled_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_tts_enabled_changed is not None:
             self.on_tts_enabled_changed(row.get_active())
+
+    def _on_tts_backend_selected(self, *_args: Any) -> None:
+        if self.on_tts_backend_changed is not None:
+            idx = self.tts_backend_row.get_selected()
+            backend = self._TTS_BACKENDS[idx] if 0 <= idx < len(self._TTS_BACKENDS) else "espeak"
+            self.on_tts_backend_changed(backend)
 
     def _on_tts_language_selected(self, *_args: Any) -> None:
         if self.on_tts_language_changed is not None:

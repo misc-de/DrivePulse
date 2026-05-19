@@ -35,6 +35,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "map_3d_view": True,
     "rotation_mode": "follow_sensor",
     "tts_enabled": True,
+    "tts_backend": "espeak",
     "tts_language": "auto",
     "tts_voice": "female",
     "log_app_enabled": True,
@@ -42,6 +43,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
+_VALID_TTS_BACKENDS = {"espeak", "piper"}
 _VALID_TTS_LANGUAGES = {"auto", "en", "de"}
 _VALID_TTS_VOICES = {"male", "female"}
 
@@ -107,6 +109,7 @@ def load_settings() -> dict[str, Any]:
         "dashcam_gps_osd": bool(data.get("dashcam_gps_osd", False)),
         "rotation_mode": data.get("rotation_mode") if data.get("rotation_mode") in _VALID_ROTATION_MODES else DEFAULT_SETTINGS["rotation_mode"],
         "tts_enabled": bool(data.get("tts_enabled", DEFAULT_SETTINGS["tts_enabled"])),
+        "tts_backend": data.get("tts_backend") if data.get("tts_backend") in _VALID_TTS_BACKENDS else DEFAULT_SETTINGS["tts_backend"],
         "tts_language": data.get("tts_language") if data.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
         "tts_voice": data.get("tts_voice") if data.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
         "log_app_enabled": bool(data.get("log_app_enabled", DEFAULT_SETTINGS["log_app_enabled"])),
@@ -148,6 +151,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "dashcam_gps_osd": bool(settings.get("dashcam_gps_osd", False)),
                 "rotation_mode": settings.get("rotation_mode") if settings.get("rotation_mode") in _VALID_ROTATION_MODES else DEFAULT_SETTINGS["rotation_mode"],
                 "tts_enabled": bool(settings.get("tts_enabled", False)),
+                "tts_backend": settings.get("tts_backend") if settings.get("tts_backend") in _VALID_TTS_BACKENDS else DEFAULT_SETTINGS["tts_backend"],
                 "tts_language": settings.get("tts_language") if settings.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
                 "tts_voice": settings.get("tts_voice") if settings.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
                 "log_app_enabled": bool(settings.get("log_app_enabled", True)),

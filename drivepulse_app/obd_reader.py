@@ -91,7 +91,7 @@ class ObdReader(GObject.Object):
 
     def _connection_log(self, event: str, **fields: Any) -> None:
         """Schreibt jeden Verbindungsversuch sofort in ein separates Debug-Log."""
-        if not self._obd_log_enabled:
+        if not self._obd_log_enabled or self.mock:
             return
         try:
             LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -535,7 +535,7 @@ class ObdReader(GObject.Object):
         return self._mock_simulator.read()
 
     def _write_log(self, payload: dict[str, Any]) -> None:
-        if not self._obd_log_enabled:
+        if not self._obd_log_enabled or self.mock:
             return
         try:
             LOG_DIR.mkdir(parents=True, exist_ok=True)
