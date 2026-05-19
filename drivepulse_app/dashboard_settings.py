@@ -284,7 +284,7 @@ class DashboardSettingsMixin:
         import gi
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        from gi.repository import Adw, Gtk
+        from gi.repository import Adw, GLib, Gtk
 
         t = lambda key, **kw: _translate(self.language, key, **kw)
 
@@ -334,14 +334,24 @@ class DashboardSettingsMixin:
             time_row.set_subtitle(ts_str)
             group.add(time_row)
 
-        dialog = getattr(self, "_active_sync_dialog", None)
-        last_contact = dialog.get_last_contact() if dialog is not None else 0.0
-        if last_contact > 0:
-            lc_str = datetime.datetime.fromtimestamp(last_contact).strftime("%H:%M:%S")
-            lc_row = Adw.ActionRow()
-            lc_row.set_title(t("sync.status.last_contact"))
-            lc_row.set_subtitle(lc_str)
-            group.add(lc_row)
+        lc_row = Adw.ActionRow()
+        lc_row.set_title(t("sync.status.last_contact"))
+        lc_row.set_subtitle("—")
+        group.add(lc_row)
+
+        def _fmt_ts(ts: float) -> str:
+            return datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+
+        _timer_id: list[int] = [0]
+
+        def _refresh_last_contact() -> bool:
+            dialog = getattr(self, "_active_sync_dialog", None)
+            lc = dialog.get_last_contact() if dialog is not None else 0.0
+            lc_row.set_subtitle(_fmt_ts(lc) if lc > 0 else "—")
+            return True
+
+        _refresh_last_contact()
+        _timer_id[0] = GLib.timeout_add_seconds(1, _refresh_last_contact)
 
         disconnect_btn = Gtk.Button(label=t("sync.status.disconnect_btn"))
         disconnect_btn.add_css_class("destructive-action")
@@ -360,6 +370,13 @@ class DashboardSettingsMixin:
         page.set_tag("sync-status")
         page.set_title(t("sync.status.title"))
         page.set_child(toolbar_view)
+
+        def _on_page_hiding(_p: Any) -> None:
+            if _timer_id[0]:
+                GLib.source_remove(_timer_id[0])
+                _timer_id[0] = 0
+
+        page.connect("hiding", _on_page_hiding)
         return page
 
     def _disconnect_sync(self) -> None:

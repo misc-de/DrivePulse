@@ -83,10 +83,22 @@ class CarsLayoutMixin:
         self._add_live_vehicle_btn.set_tooltip_text(_translate(self.language, "cars.live.add.tooltip"))
         self._add_live_vehicle_btn.connect("clicked", lambda _b: self._confirm_add_live_vehicle())
 
+        self._detail_share_btn = Gtk.Button(icon_name="share-alt-symbolic")
+        self._detail_share_btn.add_css_class("flat")
+        self._detail_share_btn.set_visible(False)
+        self._detail_share_btn.connect("clicked", lambda _b: self._share_vehicle())
+
+        self._detail_trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        self._detail_trash_btn.add_css_class("flat")
+        self._detail_trash_btn.set_visible(False)
+        self._detail_trash_handler: int | None = None
+
         head.append(self._detail_back_btn)
         head.append(self._detail_title)
         head.append(self._add_live_vehicle_btn)
         head.append(self._rename_btn)
+        head.append(self._detail_share_btn)
+        head.append(self._detail_trash_btn)
         outer.append(head)
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 

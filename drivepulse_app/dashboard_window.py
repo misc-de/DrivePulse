@@ -206,7 +206,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
-        self.cars_page.set_header_trash_fn = self.set_ctx_trash
         self._cars_rotator = RotatedContainer()
         self._cars_rotator.set_child(self.cars_page)
         self._cars_rotator.set_hexpand(True)
@@ -317,11 +316,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         settings_button.set_tooltip_text(_translate(self.language, "settings.tooltip"))
         settings_button.connect("clicked", self._open_settings)
 
-        self._ctx_trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        self._ctx_trash_btn.add_css_class("flat")
-        self._ctx_trash_btn.set_visible(False)
-        self._ctx_trash_handler: int | None = None
-
         self._sync_btn = Gtk.Button(icon_name="arrows-loop-symbolic")
         self._sync_btn.set_tooltip_text(_translate(self.language, "sync.tooltip"))
         self._sync_btn.connect("clicked", self._open_sync)
@@ -342,7 +336,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         header.pack_start(self._dashcam_rec_box)
         header.pack_end(settings_button)
         header.pack_end(self._sync_btn)
-        header.pack_end(self._ctx_trash_btn)
 
         switcher_top = Adw.ViewSwitcherBar()
         switcher_top.set_stack(self.view_stack)
@@ -591,8 +584,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if page == self.PAGE_CARS:
             if not self._nav_visible:
                 self._set_nav_visible(True)
-        else:
-            self.set_ctx_trash(None)
         if page == self.PAGE_MAP:
             GLib.timeout_add(50, self.map_page.on_shown)
 
@@ -738,19 +729,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.gps_reader.stop()
         self.orientation_reader.stop()
         return super().close()
-
-    def set_ctx_trash(self, action_fn: Any) -> None:
-        """Show/hide the context trash button in the header and wire up its action."""
-        btn = self._ctx_trash_btn
-        if self._ctx_trash_handler is not None:
-            btn.disconnect(self._ctx_trash_handler)
-            self._ctx_trash_handler = None
-        if action_fn is not None:
-            self._ctx_trash_handler = btn.connect("clicked", lambda _b: action_fn())
-            btn.set_visible(True)
-        else:
-            btn.set_visible(False)
-
 
     def _on_swipe(self, _gesture: Gtk.GestureSwipe, velocity_x: float, velocity_y: float) -> None:
         ax, ay = abs(velocity_x), abs(velocity_y)

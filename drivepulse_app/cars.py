@@ -62,7 +62,6 @@ class CarsPage(
         self._selected_car_id: int | None = None
         self._selected_category: str = CATEGORIES[0][0]
         self._detail_pushed = False
-        self.set_header_trash_fn: Any = None
         self._trip_detail_pushed = False
         self._trip_detail_page: Adw.NavigationPage | None = None
         self._scan_detail_pushed = False
@@ -351,8 +350,20 @@ class CarsPage(
                 self._set_trash(self._confirm_delete_vehicle)
 
     def _set_trash(self, action_fn: Any) -> None:
-        if self.set_header_trash_fn is not None:
-            self.set_header_trash_fn(action_fn)
+        btn = self._detail_trash_btn
+        if self._detail_trash_handler is not None:
+            btn.disconnect(self._detail_trash_handler)
+            self._detail_trash_handler = None
+        if action_fn is not None:
+            self._detail_trash_handler = btn.connect("clicked", lambda _b: action_fn())
+            btn.set_visible(True)
+            self._detail_share_btn.set_visible(True)
+        else:
+            btn.set_visible(False)
+            self._detail_share_btn.set_visible(False)
+
+    def _share_vehicle(self) -> None:
+        pass
 
     def _on_category_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
