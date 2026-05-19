@@ -860,6 +860,12 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         adj.set_value(target)
         return False
 
+    def _set_nav_chrome_visible(self, visible: bool) -> None:
+        """Show/hide UI chrome that clutters the screen during active navigation."""
+        for btn in (self._zoom_in_btn, self._zoom_out_btn, self._steps_toggle_btn):
+            if btn is not None:
+                btn.set_visible(visible)
+
     def _set_tour_controls_visible(self, visible: bool) -> None:
         if self._tour_controls_box is not None:
             self._tour_controls_box.set_visible(visible)
@@ -867,7 +873,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             if self._tour_start_btn is not None:
                 self._tour_start_btn.set_visible(True)
             if self._steps_toggle_btn is not None:
-                self._steps_toggle_btn.set_visible(True)
+                self._steps_toggle_btn.set_visible(not self._tour_active)
         else:
             if self._steps_toggle_btn is not None:
                 self._steps_toggle_btn.set_active(False)
@@ -895,6 +901,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tour_step_idx = 0
         self._step_min_dist = None
         self._gps_route_idx = 0
+        self._set_nav_chrome_visible(False)
         self._set_tour_button("stop")
         self._update_maneuver_overlay()
         self._highlight_active_step()
@@ -954,6 +961,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._tts_last_step_idx = -1
         self._tts_spoken_thresholds = set()
         tts_service.stop()
+        self._set_nav_chrome_visible(True)
         self._set_tour_button("start")
         if self._backend == "webkit":
             self._js("mapSetTourActive(false)")
