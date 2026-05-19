@@ -36,7 +36,6 @@ from .obd_reader import ObdReader
 from .rotation import RotationProvider
 from .rotated_container import RotatedContainer
 from .trip_recorder import TripRecorder
-from .sync_poller import SyncPoller
 
 
 class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTelemetryMixin, Adw.ApplicationWindow):
@@ -400,8 +399,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload, mock_mode=self.mock_mode)
         self.gps_reader.start()
-        self._sync_poller = SyncPoller(on_status=self._on_sync_status)
-        self._sync_poller.start()
         self.orientation_reader = OrientationReader(self._on_orientation_changed)
         self.orientation_reader.on_gforce = self.stopwatch_page.update_gforce_raw
         self.rotation.bind(self._apply_page_rotation)
@@ -696,14 +693,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if hasattr(self, "stopwatch_page"):
             effective = "dark" if manager.get_dark() else "light"
             self.stopwatch_page.set_theme_mode(effective)
-
-    def _on_sync_status(self, reachable: bool) -> None:
-        if reachable:
-            self._sync_btn.remove_css_class("dp-sync-offline")
-            self._sync_btn.add_css_class("dp-sync-online")
-        else:
-            self._sync_btn.remove_css_class("dp-sync-online")
-            self._sync_btn.add_css_class("dp-sync-offline")
 
     def _on_system_dark_changed(self, _manager: Any, _param: Any) -> None:
         if getattr(self, "theme_mode", "auto") == "auto":
