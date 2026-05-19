@@ -39,7 +39,6 @@ APP_VERSION: str = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION
 LOG_DIR = Path(os.environ.get("OBD_LOG_DIR", Path.home() / ".local" / "state" / "drivepulse"))
 LOG_FILE = LOG_DIR / "obd-log.jsonl"
 CONNECTION_LOG_FILE = LOG_DIR / "connection-log.jsonl"
-PROFILES_DIR = LOG_DIR / "profiles"
 THEMES_DIR = LOG_DIR / "themes"
 POLL_INTERVAL_SECONDS = _env_float("OBD_POLL_INTERVAL", 0.5)
 OBD_PORT = os.environ.get("OBD_PORT")
