@@ -179,6 +179,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._gauge_rotator.set_hexpand(True)
         self._gauge_rotator.set_vexpand(True)
         dashboard_scroller = Gtk.ScrolledWindow()
+        dashboard_scroller.add_css_class("dp-gauge-bg")
         dashboard_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         dashboard_scroller.set_propagate_natural_width(False)
         dashboard_scroller.set_propagate_natural_height(False)
@@ -305,7 +306,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         switcher_bar.set_reveal(True)
 
         toolbar_view = Adw.ToolbarView()
-        toolbar_view.add_css_class("dp-main-nav")
         header = Adw.HeaderBar()
         self.title_label = Gtk.Label(label=_translate(self.language, "window.title"))
         header.set_title_widget(self.title_label)

@@ -7,10 +7,8 @@ import cairo
 THEME_TYPE = "dashboard"
 LABEL = {"en": "Digital", "de": "Digital"}
 CSS = """
-window.dp-theme-digital .dp-main-nav,
-window.dp-theme-digital .dp-main-nav scrolledwindow,
-window.dp-theme-digital .dp-main-nav scrolledwindow > viewport,
 window.dp-theme-digital .dp-gauge-bg,
+window.dp-theme-digital .dp-gauge-bg > viewport,
 window.dp-theme-digital .dp-gauge-bg > * {
   background-color: #000005;
 }"""
