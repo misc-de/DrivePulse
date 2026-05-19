@@ -31,7 +31,7 @@ class DeviceItem(GObject.Object):
         self._is_connected = is_connected
 
 
-class SettingsDialog(Adw.Dialog):
+class SettingsDialog(Adw.Window):
     __gtype_name__ = "SettingsDialog"
 
     def __init__(
@@ -120,8 +120,7 @@ class SettingsDialog(Adw.Dialog):
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
-        self.set_content_width(9999)
-        self.set_follows_content_size(False)
+        self.set_modal(True)
 
         # ── Build all option rows (assigned to pages further below) ──────────
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
@@ -392,11 +391,24 @@ class SettingsDialog(Adw.Dialog):
         )
         self._bt_expander.set_expanded(False)
         self._bt_expander.set_icon_name("dp-bluetooth-symbolic")
+        self._bt_expander.add_css_class("dp-bt-expander")
         self._bt_device_rows: list[Adw.ActionRow] = []
 
-        # Bundled chevron indicator — always visible regardless of system icon theme.
+        # Hide the built-in libadwaita expand arrow and replace it with our
+        # bundled chevron so the icon works on phones without the full adwaita theme.
+        _bt_css = Gtk.CssProvider()
+        _bt_css.load_from_data(b"""
+            .dp-bt-expander .expander-row-header > button.image-button {
+                opacity: 0;
+                min-width: 0;
+                padding: 0;
+            }
+        """)
+        self._bt_expander.get_style_context().add_provider(
+            _bt_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
         self._bt_chevron = Gtk.Image.new_from_icon_name("dp-chevron-down-symbolic")
-        self._bt_chevron.set_pixel_size(16)
+        self._bt_chevron.set_pixel_size(20)
         self._bt_expander.add_suffix(self._bt_chevron)
         self._bt_expander.connect("notify::expanded", self._on_bt_expander_toggled)
 
