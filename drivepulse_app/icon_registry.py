@@ -20,12 +20,16 @@ log = get_logger(__name__)
 
 
 def build_icon_gresource(app_dir: Path | None = None) -> Path | None:
-    """Compile icons.gresource.xml → icons.gresource if the source is newer."""
+    """Compile icons.gresource.xml → icons.gresource if the source is newer.
+
+    If glib-compile-resources is not installed (e.g. on mobile), the
+    pre-compiled .gresource shipped with the app is used as-is.
+    """
     app_dir = app_dir or PROJECT_ROOT
     src_xml = app_dir / "icons.gresource.xml"
     out_bin = app_dir / "icons.gresource"
     if not src_xml.exists():
-        return None
+        return out_bin if out_bin.exists() else None
     if out_bin.exists() and out_bin.stat().st_mtime >= src_xml.stat().st_mtime:
         return out_bin
     try:
@@ -36,9 +40,17 @@ def build_icon_gresource(app_dir: Path | None = None) -> Path | None:
             capture_output=True,
         )
         return out_bin
+    except FileNotFoundError:
+        # glib-compile-resources not available (typical on mobile); use the
+        # pre-compiled bundle that was shipped with the app.
+        if out_bin.exists():
+            log.debug("glib-compile-resources not found — using pre-compiled %s", out_bin)
+            return out_bin
+        log.warning("glib-compile-resources not found and no pre-compiled %s exists", out_bin)
+        return None
     except Exception:
         log.exception("Could not build icon gresource from %s", src_xml)
-        return None
+        return out_bin if out_bin.exists() else None
 
 
 def register_local_icon(app_dir: Path | None = None) -> None:
