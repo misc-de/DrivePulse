@@ -53,6 +53,32 @@ def scan_bt_paired_devices() -> list[tuple[str, str]]:
         return []
 
 
+def scan_bt_nearby_devices(scan_seconds: int = 6) -> list[tuple[str, str]]:
+    """Run a short BT discovery scan and return all visible devices (paired + new)."""
+    try:
+        subprocess.run(
+            ["timeout", str(scan_seconds), "bluetoothctl", "scan", "on"],
+            capture_output=True, timeout=scan_seconds + 5,
+        )
+    except Exception:
+        pass
+    try:
+        result = subprocess.run(
+            ["bluetoothctl", "devices"],
+            capture_output=True, text=True, timeout=5,
+        )
+        devices: list[tuple[str, str]] = []
+        for line in result.stdout.strip().splitlines():
+            parts = line.split(" ", 2)
+            if len(parts) >= 2 and parts[0] == "Device":
+                addr = parts[1].upper()
+                name = parts[2].strip() if len(parts) >= 3 else addr
+                devices.append((f"{name}  ({addr})", f"bt:{addr}"))
+        return devices
+    except Exception:
+        return []
+
+
 def bind_bt_to_rfcomm(addr: str, channel: int = 1) -> tuple[str, str] | tuple[None, str]:
     """Try to bind a BT address to /dev/rfcommN via rfcomm(1).
 
