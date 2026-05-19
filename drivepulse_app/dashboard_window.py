@@ -699,13 +699,16 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 self.remove_css_class(cls)
         safe = theme.replace(":", "-").replace("_", "-")
         self.add_css_class(f"dp-theme-{safe}")
-        # Only override backgrounds with the gauge-theme's dark CSS when the
-        # dark colour scheme is actually in effect.  Loading dark backgrounds
-        # while Libadwaita renders in light mode makes the content widgets
-        # (list rows, header bar, …) appear white on a dark background.
         mode = getattr(self, "theme_mode", "auto")
         is_dark = mode == "dark" or (mode == "auto" and Adw.StyleManager.get_default().get_dark())
-        if is_dark:
+        # Theme CSS contains broad window/toolbarview/scrolledwindow selectors that
+        # override the entire app background.  Only load it when the gauge theme
+        # variant matches the app colour scheme — a light gauge theme in a dark app
+        # (or vice versa) would otherwise repaint the whole UI the wrong colour.
+        # The gauge's Cairo drawing controls its own colours regardless of this CSS.
+        is_light_theme = "_light" in theme
+        themes_match = (is_dark and not is_light_theme) or (not is_dark and is_light_theme)
+        if themes_match:
             css = get_theme_css(theme)
             self._theme_css_provider.load_from_data(css.encode() if css else b"")
         else:
