@@ -426,6 +426,7 @@ class SyncDialog(Adw.NavigationPage):
                     self._server_spinner.set_visible(False)
                     self._server_instr_label.set_visible(True)
                     self._server_status_label.set_text(self._t("sync.server.waiting"))
+
                 except Exception as exc:
                     log.exception("Could not display sync QR image")
                     self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
@@ -576,17 +577,17 @@ class SyncDialog(Adw.NavigationPage):
         page.connect("hiding", lambda _p: self._cancel_scanner())
         self._push_nav(page)
 
+        def _on_success(text: str) -> None:
+            self._cancel_scanner()
+            status_label.set_text(self._t("sync.client.pairing"))
+            threading.Thread(target=self._do_pair, args=(text, status_label), daemon=True).start()
+
         if not scan_supported():
             fallback = Gtk.Label(label=self._t("sync.client.no_camera"))
             fallback.set_halign(Gtk.Align.CENTER)
             fallback.add_css_class("dim-label")
             scanner_box.append(fallback)
             return
-
-        def _on_success(text: str) -> None:
-            self._cancel_scanner()
-            status_label.set_text(self._t("sync.client.pairing"))
-            threading.Thread(target=self._do_pair, args=(text, status_label), daemon=True).start()
 
         def _on_error(msg: str) -> None:
             status_label.set_text(msg)
