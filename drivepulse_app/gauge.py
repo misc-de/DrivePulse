@@ -159,7 +159,7 @@ def _init_themes_dir(themes_dir: Path) -> None:
             log.exception("Could not write sample theme file %s", sample)
 
 
-def load_user_themes(themes_dir: Path) -> None:
+def load_user_themes(themes_dir: Path, language: str = "en") -> None:
     """Scan themes_dir for *.py files (no leading underscore) and register them."""
     _init_themes_dir(themes_dir)
     _user_themes.clear()
@@ -174,10 +174,15 @@ def load_user_themes(themes_dir: Path) -> None:
                 continue
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)  # type: ignore[union-attr]
-            label = str(getattr(mod, "LABEL", stem))
+            raw_label = getattr(mod, "LABEL", stem)
+            # LABEL may be a localised dict {"en": "...", "de": "..."} or a plain string.
+            if isinstance(raw_label, dict):
+                label = raw_label.get(language) or raw_label.get("en") or stem
+            else:
+                label = str(raw_label) or stem
             draw_fn = getattr(mod, "draw", None)
-            accel_css = str(getattr(mod, "acceleration_css", ""))
-            # Accept theme if it defines at least one of the two
+            accel_css = str(getattr(mod, "CSS", "") or getattr(mod, "acceleration_css", ""))
+            # Accept theme if it defines at least one of draw / CSS
             if callable(draw_fn) or accel_css:
                 _user_themes[stem] = (label, draw_fn if callable(draw_fn) else None, accel_css)
         except Exception:
