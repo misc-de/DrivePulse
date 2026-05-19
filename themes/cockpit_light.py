@@ -10,7 +10,7 @@ window.dp-theme-cockpit-light scrolledwindow,
 window.dp-theme-cockpit-light scrolledwindow > viewport,
 window.dp-theme-cockpit-light .dp-gauge-bg,
 window.dp-theme-cockpit-light .dp-gauge-bg > * {
-  background-color: #f0f1f3;
+  background-color: #ffffff;
 }
 .dp-accel-theme-cockpit-light .card {
   background-color: rgba(245, 246, 248, 0.85);
