@@ -145,7 +145,7 @@ class DashboardTelemetryMixin:
             self.stopwatch_page.update_payload(payload, self._plain_number)
             self.cars_page.update_live(payload)
             if hasattr(self, "map_page"):
-                self.map_page.update_gps(lat, lon, gps_heading)
+                self.map_page.update_gps(lat, lon, gps_heading, gps_speed_kmh)
             if hasattr(self, "dashcam_page"):
                 self.dashcam_page.update_gps(lat, lon, gps_speed_kmh)
             if not getattr(self, "_obd_active", False) and gps_has_fix:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -37,6 +38,22 @@ _current_proc: subprocess.Popen | None = None
 
 # Active backend — changed by set_backend() when the user picks one in Settings.
 _backend: str = "espeak"
+
+# Measured TTS launch latency in seconds (time from speak() call to audible output).
+# espeak is fast (~0.2s); piper needs ONNX inference (~1.0-2.0s on first call).
+# Updated via exponential moving average from actual measurements.
+_tts_latency_s: float = 1.0
+
+
+def get_latency_s() -> float:
+    """Return the estimated seconds from speak() call to audible output start."""
+    return _tts_latency_s
+
+
+def _record_launch_latency(seconds: float) -> None:
+    global _tts_latency_s
+    # EMA: weight recent measurement 30%, prior estimate 70%.
+    _tts_latency_s = 0.3 * seconds + 0.7 * _tts_latency_s
 
 # Standard directories where piper model files (.onnx) are searched.
 _PIPER_DIRS: list[Path] = [
@@ -342,6 +359,7 @@ def _speak_sync(
                 pass
             _current_proc = None
 
+    t0 = time.monotonic()
     if backend == "piper" and PIPER_AVAILABLE:
         proc = _launch_piper(text, language, gender)
         if proc is None:
@@ -358,6 +376,10 @@ def _speak_sync(
 
     with _lock:
         _current_proc = proc
+
+    # Record how long the subprocess pipeline took to launch.  This is a proxy
+    # for the TTS startup latency (time until the first audio sample plays).
+    _record_launch_latency(time.monotonic() - t0)
 
     proc.wait()
 
