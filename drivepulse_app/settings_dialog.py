@@ -121,6 +121,7 @@ class SettingsDialog(Adw.Window):
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
         self.set_modal(True)
+        self.connect("close-request", lambda _w: _w.destroy())
 
         # ── Build all option rows (assigned to pages further below) ──────────
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
