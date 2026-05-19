@@ -121,7 +121,10 @@ class SettingsDialog(Adw.Window):
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
         self.set_modal(True)
-        self.connect("close-request", lambda _w: _w.destroy())
+        def _on_close_request(w: Adw.Window) -> bool:
+            w.destroy()
+            return True  # prevent GTK default handler acting on the destroyed widget
+        self.connect("close-request", _on_close_request)
 
         # ── Build all option rows (assigned to pages further below) ──────────
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
