@@ -139,11 +139,21 @@ class DashboardSettingsMixin:
             on_log_obd_enabled_changed=self._set_log_obd_enabled,
         )
         self._settings_window = dialog
-        def _on_settings_closed(_w: object) -> None:
+
+        def _on_settings_closing(_w: object) -> bool:
+            # Clear the reference immediately when close starts — before hide()
+            # and before destroy().  This prevents a second tap on the settings
+            # button from calling present() on a window that is mid-teardown,
+            # which would trigger "A window is shown after it has been destroyed."
             setattr(self, "_settings_window", None)
-            # Restore the dashboard's own download progress callback.
+            return False  # don't block the close-request
+
+        def _on_settings_closed(_w: object) -> None:
+            setattr(self, "_settings_window", None)  # defensive: already None
             from . import tts_service as _tts
             _tts.set_download_callback(self._on_piper_dl_progress)
+
+        dialog.connect("close-request", _on_settings_closing)
         dialog.connect("destroy", _on_settings_closed)
         dialog.set_transient_for(self)
         dialog.fullscreen()
