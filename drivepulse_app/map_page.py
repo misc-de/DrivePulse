@@ -131,6 +131,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         on_tour_started: Callable[[list[list[float]]], None] | None = None,
         on_tour_stopped: Callable[[], None] | None = None,
         on_tour_resumed: Callable[[], None] | None = None,
+        on_tts_enabled_changed: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
@@ -158,6 +159,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._on_tour_started = on_tour_started
         self._on_tour_stopped = on_tour_stopped
         self._on_tour_resumed = on_tour_resumed
+        self._on_tts_enabled_changed = on_tts_enabled_changed
+        self._tts_btn: Gtk.ToggleButton | None = None
 
         self._gps_lat: float | None = None
         self._gps_lon: float | None = None
@@ -545,9 +548,17 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._center_btn.set_tooltip_text(_translate(self.language, "map.center"))
         self._center_btn.connect("clicked", self._on_center_clicked)
 
+        self._tts_btn = Gtk.ToggleButton()
+        self._tts_btn.add_css_class("circular")
+        self._tts_btn.add_css_class("osd")
+        self._tts_btn.set_active(self._tts_enabled)
+        self._refresh_tts_btn()
+        self._tts_btn.connect("toggled", self._on_tts_btn_toggled)
+
         fab.append(self._poi_btn)
         fab.append(self._layer_btn)
         fab.append(self._center_btn)
+        fab.append(self._tts_btn)
 
         # 3D/2D toggle — text label instead of icon so the current mode is
         # always readable at a glance.  WebKit-only (Shumate is flat).
@@ -1564,10 +1575,30 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if self._tour_active:
             self._update_maneuver_overlay()
 
+    def _refresh_tts_btn(self) -> None:
+        if self._tts_btn is None:
+            return
+        icon = "audio-volume-high-symbolic" if self._tts_enabled else "audio-volume-muted-symbolic"
+        self._tts_btn.set_icon_name(icon)
+
+    def _on_tts_btn_toggled(self, btn: Gtk.ToggleButton) -> None:
+        enabled = btn.get_active()
+        self._tts_enabled = enabled
+        if not enabled:
+            tts_service.stop()
+        self._refresh_tts_btn()
+        if self._on_tts_enabled_changed:
+            self._on_tts_enabled_changed(enabled)
+
     def set_tts_enabled(self, enabled: bool) -> None:
         self._tts_enabled = bool(enabled)
         if not enabled:
             tts_service.stop()
+        if self._tts_btn is not None:
+            self._tts_btn.handler_block_by_func(self._on_tts_btn_toggled)
+            self._tts_btn.set_active(self._tts_enabled)
+            self._tts_btn.handler_unblock_by_func(self._on_tts_btn_toggled)
+        self._refresh_tts_btn()
 
     def set_tts_language(self, language: str) -> None:
         self._tts_language = language if language in {"auto", "en", "de"} else "auto"
