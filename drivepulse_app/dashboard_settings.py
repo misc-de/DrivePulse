@@ -139,7 +139,12 @@ class DashboardSettingsMixin:
             on_log_obd_enabled_changed=self._set_log_obd_enabled,
         )
         self._settings_window = dialog
-        dialog.connect("destroy", lambda _w: setattr(self, "_settings_window", None))
+        def _on_settings_closed(_w: object) -> None:
+            setattr(self, "_settings_window", None)
+            # Restore the dashboard's own download progress callback.
+            from . import tts_service as _tts
+            _tts.set_download_callback(self._on_piper_dl_progress)
+        dialog.connect("destroy", _on_settings_closed)
         dialog.set_transient_for(self)
         dialog.fullscreen()
         dialog.present()
