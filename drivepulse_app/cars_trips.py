@@ -181,27 +181,25 @@ class CarsTripsMixin:
         self._trip_select_mode = True
         self._trip_selected_ids = {trip_id}
         self._render_detail()
-        self._update_select_bar()
-        self._select_revealer.set_reveal_child(True)
+        self._set_trash(lambda: self._confirm_delete_selected_trips())
+        self._detail_share_btn.set_visible(False)
 
     def _exit_trip_select_mode(self) -> None:
         self._trip_select_mode = False
         self._trip_selected_ids = set()
-        self._select_revealer.set_reveal_child(False)
         self._render_detail()
+        if self._selected_car_id is not None:
+            self._set_trash(self._confirm_delete_vehicle)
+        else:
+            self._set_trash(None)
 
     def _on_trip_checkbox_toggled(self, trip_id: int, active: bool) -> None:
         if active:
             self._trip_selected_ids.add(trip_id)
         else:
             self._trip_selected_ids.discard(trip_id)
-        self._update_select_bar()
-
-    def _update_select_bar(self) -> None:
-        n = len(self._trip_selected_ids)
-        self._select_delete_btn.set_label(_translate(self.language, "cars.trip.delete_confirm"))
-        self._select_delete_btn.set_sensitive(n > 0)
-        self._select_cancel_btn.set_label(_translate(self.language, "cars.trip.delete_cancel"))
+        if not self._trip_selected_ids:
+            self._exit_trip_select_mode()
 
     def _confirm_delete_selected_trips(self) -> None:
         n = len(self._trip_selected_ids)

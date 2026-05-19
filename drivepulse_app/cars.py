@@ -323,7 +323,6 @@ class CarsPage(
             self._detail_pushed = False
             self._trip_select_mode = False
             self._trip_selected_ids = set()
-            self._select_revealer.set_reveal_child(False)
             self._set_trash(None)
             self._rename_btn.set_visible(False)
         if page is self._trip_detail_page:
@@ -372,7 +371,11 @@ class CarsPage(
         if self._trip_select_mode and new_cat != "trips":
             self._trip_select_mode = False
             self._trip_selected_ids = set()
-            self._select_revealer.set_reveal_child(False)
+            if self._selected_car_id is not None:
+                self._set_trash(self._confirm_delete_vehicle)
+            else:
+                self._set_trash(None)
+            self._detail_share_btn.set_visible(self._selected_car_id is not None)
         self._selected_category = new_cat
         if self._detail_pushed:
             self._render_detail()
