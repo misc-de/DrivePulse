@@ -64,6 +64,7 @@ class SyncDialog(Adw.NavigationPage):
         self._server_start_requested = False
         self._server_start_generation = 0
         self._closed = False
+        self._pushing_subpage = False  # True während outer_nav.push() läuft
         self._scanner: WebcamQRScanner | None = None
         self._sync_mode: str = MODE_MERGE
         # Outer app NavigationView — all sub-pages are pushed here so swipe
@@ -109,6 +110,16 @@ class SyncDialog(Adw.NavigationPage):
     def _server_start_is_current(self, generation: int) -> bool:
         with self._server_lock:
             return not self._closed and self._server_start_generation == generation
+
+    def _push_nav(self, page: Adw.NavigationPage) -> None:
+        """Pusht eine Seite auf den outer_nav und schützt _on_hiding währenddessen."""
+        if self._outer_nav is None:
+            return
+        self._pushing_subpage = True
+        try:
+            self._outer_nav.push(page)
+        finally:
+            self._pushing_subpage = False
 
     # ------------------------------------------------------------------ home
 
@@ -240,7 +251,7 @@ class SyncDialog(Adw.NavigationPage):
         self._server_instr_label = result[4]
 
         page.connect("hiding", lambda _p: self._stop_server())
-        self._outer_nav.push(page)
+        self._push_nav(page)
 
         with self._server_lock:
             if self._closed:
@@ -436,7 +447,7 @@ class SyncDialog(Adw.NavigationPage):
             return
         if self._outer_nav.find_page("sync-client") is not None:
             return
-        self._outer_nav.push(self._build_known_devices_page())
+        self._push_nav(self._build_known_devices_page())
 
     def _build_known_devices_page(self) -> Adw.NavigationPage:
         toolbar_view = Adw.ToolbarView()
@@ -563,7 +574,7 @@ class SyncDialog(Adw.NavigationPage):
         page.set_title(self._t("sync.client.title"))
         page.set_child(toolbar_view)
         page.connect("hiding", lambda _p: self._cancel_scanner())
-        self._outer_nav.push(page)
+        self._push_nav(page)
 
         if not scan_supported():
             fallback = Gtk.Label(label=self._t("sync.client.no_camera"))
@@ -629,7 +640,7 @@ class SyncDialog(Adw.NavigationPage):
         if self._outer_nav.find_page("sync-paired") is not None:
             return False
         page, self._paired_status_label = self._build_paired_page(self._active_host)
-        self._outer_nav.push(page)
+        self._push_nav(page)
         return False
 
     def _build_paired_page(self, host: str) -> tuple[Adw.NavigationPage, Gtk.Label]:
@@ -800,21 +811,17 @@ class SyncDialog(Adw.NavigationPage):
 
     # ------------------------------------------------------------------ cleanup
 
-    _SUB_PAGE_TAGS = ("sync-server", "sync-client", "sync-qr-scan", "sync-paired")
-
     def _on_showing(self, *_args: Any) -> None:
         # Zurückgekehrt von einer Sub-Seite — closed-Flag zurücksetzen
         with self._server_lock:
             self._closed = False
 
     def _on_hiding(self, *_args: Any) -> None:
-        # Wenn wir nur hinter einer eigenen Sub-Seite verschwinden (z.B. sync-server
-        # wurde gepusht), NICHT aufräumen — sonst bricht der Server-Thread sofort ab.
-        outer = self._outer_nav
-        if outer is not None:
-            for tag in self._SUB_PAGE_TAGS:
-                if outer.find_page(tag) is not None:
-                    return
+        # _push_nav() setzt _pushing_subpage=True während push() läuft.
+        # In diesem Fall versteckt sich die sync-Seite hinter einer eigenen
+        # Sub-Seite — kein Cleanup, sonst bricht der Server-Thread sofort ab.
+        if self._pushing_subpage:
+            return
         with self._server_lock:
             self._closed = True
         self._stop_server()
