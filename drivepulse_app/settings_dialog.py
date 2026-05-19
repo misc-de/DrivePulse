@@ -585,72 +585,56 @@ class SettingsDialog(Adw.Window):
         gps_group.add(gps_osd_row)
         dc_page.add(gps_group)
 
-        # ── Build Carousel + bottom navigation ───────────────────────────────────
-        _pages = [
-            (app_page,     _translate(self.language, "settings.page.app"),     "applications-system-symbolic"),
-            (display_page, _translate(self.language, "settings.page.display"), "video-display-symbolic"),
-            (tour_page,    _translate(self.language, "settings.page.tour"),    "navigate-north-symbolic"),
-            (dc_page,      _translate(self.language, "settings.page.dashcam"), "camera-video-symbolic"),
-            (tacho_page,   _translate(self.language, "settings.page.tacho"),   "speedometer4-symbolic"),
-        ]
+        # ── ViewStack ─────────────────────────────────────────────────────────────
+        view_stack = Adw.ViewStack()
+        view_stack.add_titled_with_icon(
+            app_page, "app",
+            _translate(self.language, "settings.page.app"),
+            "applications-system-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            display_page, "display",
+            _translate(self.language, "settings.page.display"),
+            "video-display-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            tour_page, "tour",
+            _translate(self.language, "settings.page.tour"),
+            "navigate-north-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            dc_page, "dashcam",
+            _translate(self.language, "settings.page.dashcam"),
+            "camera-video-symbolic",
+        )
+        view_stack.add_titled_with_icon(
+            tacho_page, "tacho",
+            _translate(self.language, "settings.page.tacho"),
+            "speedometer4-symbolic",
+        )
 
-        carousel = Adw.Carousel()
-        carousel.set_allow_scroll_wheel(True)
-        carousel.set_spacing(0)
-        carousel.set_vexpand(True)
-        for page, _label, _icon in _pages:
-            carousel.append(page)
+        # ── Bottom navigation bar (standard GNOME pattern) ────────────────────
+        switcher_bar = Adw.ViewSwitcherBar()
+        switcher_bar.set_stack(view_stack)
+        switcher_bar.set_reveal(True)
 
-        # Bottom nav bar with icon buttons
-        nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        nav_box.add_css_class("linked")
-        nav_box.set_halign(Gtk.Align.CENTER)
-        nav_box.set_hexpand(True)
-        nav_box.set_margin_top(4)
-        nav_box.set_margin_bottom(4)
-
-        _nav_buttons: list[Gtk.ToggleButton] = []
-
-        def _scroll_to(idx: int, _btn: Gtk.ToggleButton | None = None) -> None:
-            carousel.scroll_to(carousel.get_nth_page(idx), True)
-
-        def _on_page_changed(car: Adw.Carousel, _pspec: object) -> None:
-            idx = int(round(car.get_position()))
-            for i, btn in enumerate(_nav_buttons):
-                btn.set_active(i == idx)
-
-        for i, (_page, label, icon) in enumerate(_pages):
-            btn = Gtk.ToggleButton()
-            btn.set_icon_name(icon)
-            btn.set_tooltip_text(label)
-            btn.add_css_class("flat")
-            btn.set_active(i == 0)
-            btn.connect("clicked", lambda _b, idx=i: _scroll_to(idx))
-            _nav_buttons.append(btn)
-            nav_box.append(btn)
-
-        carousel.connect("notify::position", _on_page_changed)
-
-        nav_bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        nav_bar.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
-        nav_bar.append(nav_box)
-
-        # Close button in header (needed because window is fullscreened)
-        close_btn = Gtk.Button()
-        close_btn.set_icon_name("window-close-symbolic")
+        # ── Header: title only + explicit close button ────────────────────────
+        close_btn = Gtk.Button(icon_name="window-close-symbolic")
         close_btn.add_css_class("flat")
         close_btn.connect("clicked", lambda _b: self.close())
 
         dlg_header = Adw.HeaderBar()
-        dlg_header.set_title_widget(Gtk.Label(label=_translate(self.language, "settings.title")))
-        dlg_header.pack_end(close_btn)
+        dlg_header.set_title_widget(
+            Gtk.Label(label=_translate(self.language, "settings.title"))
+        )
         dlg_header.set_show_start_title_buttons(False)
         dlg_header.set_show_end_title_buttons(False)
+        dlg_header.pack_end(close_btn)
 
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(dlg_header)
-        toolbar_view.add_bottom_bar(nav_bar)
-        toolbar_view.set_content(carousel)
+        toolbar_view.add_bottom_bar(switcher_bar)
+        toolbar_view.set_content(view_stack)
 
         self.set_content(toolbar_view)
 
