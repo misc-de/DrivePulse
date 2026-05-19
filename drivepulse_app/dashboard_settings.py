@@ -1,7 +1,11 @@
 """Settings and dialog callbacks for the dashboard window."""
 from __future__ import annotations
 
-from typing import Any
+import time
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .sync_dialog import SyncDialog
 
 from .app_settings import load_settings, save_settings
 from .common import _detect_language, _normalize_language, _translate, LOG_DIR
@@ -241,16 +245,121 @@ class DashboardSettingsMixin:
         self.reader.set_obd_log_enabled(enabled)
 
     def _open_sync(self, *_args: Any) -> None:
+        if getattr(self, "_sync_is_online", False):
+            self._push_sync_status_page()
+            return
         if self.nav_view.find_page("sync") is not None:
             return
         from .sync_dialog import SyncDialog
         page = SyncDialog(
             self, self.language, self.db,
             on_sync_complete=lambda: self.cars_page.refresh_profiles(),
-            on_connected=lambda: self._set_sync_icon_online(True),
-            on_disconnected=lambda: self._set_sync_icon_online(False),
+            on_connected=lambda name, ip: self._on_sync_connected(name, ip),
+            on_disconnected=lambda: self._on_sync_disconnected(),
         )
+        self._active_sync_dialog: SyncDialog | None = page
         self.nav_view.push(page)
+
+    def _on_sync_connected(self, name: str, ip: str) -> None:
+        self._sync_is_online = True
+        self._sync_connected_name = name
+        self._sync_connected_ip = ip
+        self._sync_connected_at = time.time()
+        self._set_sync_icon_online(True)
+
+    def _on_sync_disconnected(self) -> None:
+        self._sync_is_online = False
+        self._active_sync_dialog = None
+        self._set_sync_icon_online(False)
+        if self.nav_view.find_page("sync-status") is not None:
+            self.nav_view.pop()
+
+    def _push_sync_status_page(self) -> None:
+        if self.nav_view.find_page("sync-status") is not None:
+            return
+        self.nav_view.push(self._build_sync_status_page())
+
+    def _build_sync_status_page(self) -> "Any":
+        import datetime
+        import gi
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gtk
+
+        t = lambda key, **kw: _translate(self.language, key, **kw)
+
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Gtk.Label(label=t("sync.status.title")))
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
+        toolbar_view.add_top_bar(header)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
+
+        icon = Gtk.Image.new_from_icon_name("arrows-loop-symbolic")
+        icon.set_pixel_size(48)
+        icon.add_css_class("dp-sync-online")
+        icon.set_halign(Gtk.Align.CENTER)
+        box.append(icon)
+
+        name = getattr(self, "_sync_connected_name", "") or ""
+        if name:
+            name_label = Gtk.Label(label=name)
+            name_label.add_css_class("title-2")
+            name_label.set_halign(Gtk.Align.CENTER)
+            name_label.set_wrap(True)
+            name_label.set_justify(Gtk.Justification.CENTER)
+            box.append(name_label)
+
+        group = Adw.PreferencesGroup()
+        box.append(group)
+
+        ip = getattr(self, "_sync_connected_ip", "") or ""
+        if ip:
+            ip_row = Adw.ActionRow()
+            ip_row.set_title(t("sync.status.ip_label"))
+            ip_row.set_subtitle(ip)
+            group.add(ip_row)
+
+        connected_at = getattr(self, "_sync_connected_at", None)
+        if connected_at:
+            ts_str = datetime.datetime.fromtimestamp(connected_at).strftime("%H:%M:%S")
+            time_row = Adw.ActionRow()
+            time_row.set_title(t("sync.status.connected_since"))
+            time_row.set_subtitle(ts_str)
+            group.add(time_row)
+
+        disconnect_btn = Gtk.Button(label=t("sync.status.disconnect_btn"))
+        disconnect_btn.add_css_class("destructive-action")
+        disconnect_btn.set_halign(Gtk.Align.FILL)
+        disconnect_btn.set_margin_top(8)
+        disconnect_btn.connect("clicked", lambda _b: self._disconnect_sync())
+        box.append(disconnect_btn)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_child(box)
+        toolbar_view.set_content(scroll)
+
+        page = Adw.NavigationPage()
+        page.set_tag("sync-status")
+        page.set_title(t("sync.status.title"))
+        page.set_child(toolbar_view)
+        return page
+
+    def _disconnect_sync(self) -> None:
+        dialog = getattr(self, "_active_sync_dialog", None)
+        if dialog is not None:
+            self._active_sync_dialog = None
+            dialog.disconnect()
+        else:
+            self._on_sync_disconnected()
 
     def _set_sync_icon_online(self, online: bool) -> None:
         btn = getattr(self, "_sync_btn", None)

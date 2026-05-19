@@ -204,6 +204,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             device_info = {
                 "device_id": data.get("device_id", ""),
                 "hostname": data.get("hostname", ""),
+                "client_ip": self.client_address[0] if self.client_address else "",
             }
             try:
                 self._srv._on_paired_cb(device_info)
