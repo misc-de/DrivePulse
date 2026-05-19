@@ -1262,8 +1262,12 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             return
         lang = self._tts_effective_language()
         maneuver_text = _translate(lang, maneuver_text_key(step.get("type", ""), step.get("modifier", "")))
-        if distance_m > 60:
-            dist_text = self._tts_distance_text(distance_m, lang)
+        # Subtract look-ahead so the spoken distance matches reality at the
+        # moment the driver hears the announcement, not when it was triggered.
+        look_ahead_m = self._gps_speed_mps * tts_service.get_latency_s()
+        heard_dist = max(0.0, distance_m - look_ahead_m)
+        if heard_dist > 60:
+            dist_text = self._tts_distance_text(heard_dist, lang)
             text = _translate(lang, "tts.in_distance").format(distance=dist_text) + " " + maneuver_text
         else:
             text = maneuver_text
