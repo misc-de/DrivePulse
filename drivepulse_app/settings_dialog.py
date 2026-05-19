@@ -120,7 +120,8 @@ class SettingsDialog(Adw.Dialog):
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
-        self.set_content_width(380)
+        self.set_content_width(9999)
+        self.set_follows_content_size(False)
 
         # ── Build all option rows (assigned to pages further below) ──────────
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
@@ -390,7 +391,14 @@ class SettingsDialog(Adw.Dialog):
             subtitle=_translate(self.language, "settings.bt_obd.scan.subtitle"),
         )
         self._bt_expander.set_expanded(False)
+        self._bt_expander.set_icon_name("dp-bluetooth-symbolic")
         self._bt_device_rows: list[Adw.ActionRow] = []
+
+        # Bundled chevron indicator — always visible regardless of system icon theme.
+        self._bt_chevron = Gtk.Image.new_from_icon_name("dp-chevron-down-symbolic")
+        self._bt_chevron.set_pixel_size(16)
+        self._bt_expander.add_suffix(self._bt_chevron)
+        self._bt_expander.connect("notify::expanded", self._on_bt_expander_toggled)
 
         # Refresh button in the expander header
         _bt_refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
@@ -790,6 +798,10 @@ class SettingsDialog(Adw.Dialog):
 
     # ── Bluetooth OBD ─────────────────────────────────────────────────────────
 
+    def _on_bt_expander_toggled(self, expander: Adw.ExpanderRow, _param: object) -> None:
+        icon = "dp-chevron-up-symbolic" if expander.get_expanded() else "dp-chevron-down-symbolic"
+        self._bt_chevron.set_from_icon_name(icon)
+
     def _on_bt_refresh_clicked(self, _btn: Gtk.Button) -> None:
         self._bt_scan_async()
 
@@ -815,7 +827,6 @@ class SettingsDialog(Adw.Dialog):
         self._bt_expander.set_subtitle(
             _translate(self.language, "settings.bt_obd.found").format(n=count)
         )
-        self._bt_expander.set_expanded(True)
 
         for label, bt_port in devices:
             addr = bt_port[3:]  # strip "bt:"
