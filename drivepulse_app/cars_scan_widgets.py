@@ -13,6 +13,13 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 from .common import _translate
 
 
+def _decode(val: Any) -> str:
+    """Convert any value to a clean string, decoding bytes without the b'...' wrapper."""
+    if isinstance(val, bytes):
+        return val.decode("utf-8", errors="replace")
+    return str(val) if val is not None else "—"
+
+
 def _safe_int(value: Any) -> int:
     try:
         return int(value or 0)
@@ -63,6 +70,9 @@ def _build_scan_detail_widget(
             lbl = Gtk.Label(label=value_text, xalign=1.0)
             lbl.add_css_class("monospace")
             lbl.set_halign(Gtk.Align.END)
+            lbl.set_valign(Gtk.Align.CENTER)
+            lbl.set_wrap(True)
+            lbl.set_max_width_chars(28)
             r.add_suffix(lbl)
             lb.append(r)
         return lb
@@ -105,7 +115,7 @@ def _build_scan_detail_widget(
         dtc_lb.set_valign(Gtk.Align.START)
         for code in dtcs:
             r = Adw.ActionRow()
-            r.set_title(GLib.markup_escape_text(str(code)))
+            r.set_title(GLib.markup_escape_text(_decode(code)))
             r.add_css_class("error")
             dtc_lb.append(r)
         outer.append(dtc_lb)
@@ -125,7 +135,7 @@ def _build_scan_detail_widget(
         p_lb.set_valign(Gtk.Align.START)
         for code in pending_dtcs:
             r = Adw.ActionRow()
-            r.set_title(GLib.markup_escape_text(str(code)))
+            r.set_title(GLib.markup_escape_text(_decode(code)))
             p_lb.append(r)
         outer.append(p_lb)
 
@@ -140,16 +150,19 @@ def _build_scan_detail_widget(
         pid_lb.set_valign(Gtk.Align.START)
         for pid_name, val in sorted(live.items()):
             r = Adw.ActionRow()
-            r.set_title(GLib.markup_escape_text(str(pid_name)))
+            r.set_title(GLib.markup_escape_text(_decode(pid_name)))
             if isinstance(val, dict):
                 v = val.get("value")
                 u = val.get("unit", "")
-                display = f"{v} {u}".strip() if v is not None else str(val.get("error", "—"))
+                display = f"{_decode(v)} {_decode(u)}".strip() if v is not None else _decode(val.get("error", "—"))
             else:
-                display = str(val) if val is not None else "—"
+                display = _decode(val)
             lbl = Gtk.Label(label=display, xalign=1.0)
             lbl.add_css_class("monospace")
             lbl.set_halign(Gtk.Align.END)
+            lbl.set_valign(Gtk.Align.CENTER)
+            lbl.set_wrap(True)
+            lbl.set_max_width_chars(28)
             lbl.set_selectable(True)
             r.add_suffix(lbl)
             pid_lb.append(r)
