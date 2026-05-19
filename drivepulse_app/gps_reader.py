@@ -153,8 +153,12 @@ class GpsReader:
         while not self.stop_event.is_set():
             try:
                 self._connect_and_read_gpsd()
+            except ConnectionRefusedError:
+                log.debug("GPSD not available (connection refused); retrying in %.1fs", self.GPSD_RETRY_INTERVAL)
+            except OSError as exc:
+                log.debug("GPSD connection failed (%s); retrying in %.1fs", exc, self.GPSD_RETRY_INTERVAL)
             except Exception:
-                log.info("GPSD read failed; retrying in %.1fs", self.GPSD_RETRY_INTERVAL, exc_info=True)
+                log.warning("GPSD read failed; retrying in %.1fs", self.GPSD_RETRY_INTERVAL, exc_info=True)
             self.stop_event.wait(self.GPSD_RETRY_INTERVAL)
 
     def _connect_and_read_gpsd(self) -> None:

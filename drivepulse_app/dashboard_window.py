@@ -232,6 +232,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         _tts_svc.set_backend(self.tts_backend)
         _tts_svc.set_download_callback(self._on_piper_dl_progress)
         self._piper_dl_current_model: str | None = None
+        if self.tts_backend == "piper":
+            _tts_svc.ensure_models(self.tts_language, self.tts_voice)
         self.map_page.set_tts_enabled(self.tts_enabled)
         self.map_page.set_tts_language(self.tts_language)
         self.map_page.set_tts_voice(self.tts_voice)
