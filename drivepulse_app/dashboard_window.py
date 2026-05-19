@@ -200,7 +200,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         stopwatch_scroller.set_hexpand(True)
         stopwatch_scroller.set_vexpand(True)
         stopwatch_scroller.set_child(self._stopwatch_rotator)
-        self.rotation.bind(self._apply_page_rotation)
 
         self.cars_page = CarsPage(self.language, db=self.db, sidebar_side=self.sidebar_side)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
@@ -238,6 +237,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._map_rotator.set_child(self.map_page)
         self._map_rotator.set_hexpand(True)
         self._map_rotator.set_vexpand(True)
+        self.rotation.bind(self._apply_page_rotation)
 
         self.dashcam_page = DashcamPage(self.language)
         self.dashcam_page.set_camera(self.dashcam_camera)
