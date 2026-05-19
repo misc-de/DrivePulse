@@ -119,6 +119,7 @@ class SettingsDialog(Adw.Window):
         self.on_log_app_enabled_changed = on_log_app_enabled_changed
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self._remote_version: str | None = None
+        self._closing = False
         self.set_title(_translate(self.language, "settings.title"))
         self.set_modal(True)
         # Returning False lets GTK run its default close handler, which calls
@@ -659,10 +660,12 @@ class SettingsDialog(Adw.Window):
     # ── Window lifecycle ──────────────────────────────────────────────────────
 
     def _on_close_request(self, _w: "SettingsDialog") -> bool:
-        # Return False → GTK runs its default handler → gtk_widget_hide().
-        # hide() releases the modal grab on the parent window BEFORE we destroy,
-        # so the parent never gets stuck in an unresponsive grab state.
-        # Then we schedule destroy for the next frame (window is already hidden).
+        self._closing = True
+        # Return False → GTK default handler calls gtk_widget_hide().
+        # hide() releases the Wayland compositor's input routing to the parent
+        # window before we destroy.  Scheduling destroy via idle_add lets the
+        # hide signal propagate fully first, so no child widget is still
+        # animating when we tear down the tree.
         GLib.idle_add(self.destroy)
         return False
 
@@ -910,7 +913,8 @@ class SettingsDialog(Adw.Window):
         GLib.idle_add(self._bt_scan_done, devices)
 
     def _bt_scan_done(self, devices: list[tuple[str, str]]) -> bool:
-        # Remove old device rows
+        if self._closing:
+            return False
         for row in self._bt_device_rows:
             self._bt_expander.remove(row)
         self._bt_device_rows.clear()
@@ -997,6 +1001,8 @@ class SettingsDialog(Adw.Window):
         GLib.idle_add(self._bt_nearby_scan_done, devices)
 
     def _bt_nearby_scan_done(self, devices: list[tuple[str, str]]) -> bool:
+        if self._closing:
+            return False
         self._bt_nearby_scan_btn.set_sensitive(True)
         for row in self._bt_nearby_rows:
             self._bt_nearby_expander.remove(row)
