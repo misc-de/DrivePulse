@@ -31,7 +31,7 @@ class DeviceItem(GObject.Object):
         self._is_connected = is_connected
 
 
-class SettingsDialog(Adw.Window):
+class SettingsDialog(Adw.NavigationPage):
     __gtype_name__ = "SettingsDialog"
 
     def __init__(
@@ -88,7 +88,7 @@ class SettingsDialog(Adw.Window):
         current_log_obd_enabled: bool = True,
         on_log_obd_enabled_changed: Callable[[bool], None] | None = None,
     ) -> None:
-        super().__init__()
+        super().__init__(tag="settings")
         self.language = _normalize_language(current_language)
         self.on_units_changed = on_units_changed
         self.on_language_changed = on_language_changed
@@ -121,12 +121,7 @@ class SettingsDialog(Adw.Window):
         self._remote_version: str | None = None
         self._closing = False
         self.set_title(_translate(self.language, "settings.title"))
-        # Do NOT set_modal(True): on Wayland/Phosh the compositor manages the
-        # input grab for modal windows.  If the grab is ever not released
-        # cleanly the entire parent window becomes untouchable.  The settings
-        # window is fullscreen anyway so it is visually modal without needing
-        # a real compositor grab.
-        self.connect("close-request", self._on_close_request)
+        self.connect("hiding", self._on_hiding)
 
         # ── Build all option rows (assigned to pages further below) ──────────
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
@@ -636,37 +631,23 @@ class SettingsDialog(Adw.Window):
         switcher_bar.set_stack(view_stack)
         switcher_bar.set_reveal(True)
 
-        # ── Header: title only + explicit close button ────────────────────────
-        close_btn = Gtk.Button(icon_name="window-close-symbolic")
-        close_btn.add_css_class("flat")
-        close_btn.connect("clicked", lambda _b: self.close())
-
+        # ── Header: NavigationView injects the back-arrow automatically ──────
         dlg_header = Adw.HeaderBar()
-        dlg_header.set_title_widget(
-            Gtk.Label(label=_translate(self.language, "settings.title"))
-        )
         dlg_header.set_show_start_title_buttons(False)
         dlg_header.set_show_end_title_buttons(False)
-        dlg_header.pack_end(close_btn)
 
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(dlg_header)
         toolbar_view.add_bottom_bar(switcher_bar)
         toolbar_view.set_content(view_stack)
 
-        self.set_content(toolbar_view)
+        self.set_child(toolbar_view)
 
-    # ── Window lifecycle ──────────────────────────────────────────────────────
+    # ── Page lifecycle (NavigationPage signals) ───────────────────────────────
 
-    def _on_close_request(self, _w: "SettingsDialog") -> bool:
+    def _on_hiding(self, _page: "SettingsDialog") -> None:
         self._closing = True
-        # Return False → GTK default handler calls gtk_widget_hide().
-        # hide() releases the Wayland compositor's input routing to the parent
-        # window before we destroy.  Scheduling destroy via idle_add lets the
-        # hide signal propagate fully first, so no child widget is still
-        # animating when we tear down the tree.
-        GLib.idle_add(self.destroy)
-        return False
+        tts_service.set_download_callback(None)
 
     # ── Dashcam callbacks ─────────────────────────────────────────────────────
 

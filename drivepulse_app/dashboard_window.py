@@ -371,7 +371,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         tap.connect("released", self._on_content_tap)
         stack_overlay.add_controller(tap)
 
-        self.set_content(toolbar_view)
+        main_page = Adw.NavigationPage(tag="main")
+        main_page.set_child(toolbar_view)
+        self.nav_view = Adw.NavigationView()
+        self.nav_view.add(main_page)
+        self.set_content(self.nav_view)
         self.connect("notify::default-width", self._on_size_changed)
         self.connect("notify::default-height", self._on_size_changed)
         self.add_tick_callback(self._layout_tick)
