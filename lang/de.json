@@ -134,7 +134,7 @@
   "dashcam.settings.choose_dir": "Auswählen…",
   "dashcam.settings.dir_select": "Auswählen",
   "dashcam.settings.dir_cancel": "Abbrechen",
-  "dashcam.settings.gps": "GPS & Standort",
+  "dashcam.settings.gps": "GPS + Standort",
   "dashcam.settings.gps_osd": "GPS ins Video einbetten",
   "dashcam.settings.gps_osd_sub": "Koordinaten und Geschwindigkeit unten links ins Video einblenden",
   "map.search.start": "Von (leer = GPS)",

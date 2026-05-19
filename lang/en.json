@@ -134,7 +134,7 @@
   "dashcam.settings.choose_dir": "Choose…",
   "dashcam.settings.dir_select": "Select",
   "dashcam.settings.dir_cancel": "Cancel",
-  "dashcam.settings.gps": "GPS & Location",
+  "dashcam.settings.gps": "GPS + Location",
   "dashcam.settings.gps_osd": "Burn GPS into video",
   "dashcam.settings.gps_osd_sub": "Overlays coordinates and speed in the bottom-left corner of each recording",
   "map.search.start": "From (empty = GPS)",
