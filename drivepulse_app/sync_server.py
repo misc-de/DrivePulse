@@ -51,12 +51,7 @@ class SyncServer:
     def start(self) -> None:
         if self._cancelled:
             return
-        log.info(
-            "Sync server start requested in pid=%s thread=%s",
-            os.getpid(),
-            threading.current_thread().name,
-            stack_info=True,
-        )
+        log.info("Sync server starting in pid=%s thread=%s", os.getpid(), threading.current_thread().name)
         server = self
 
         def make_handler(*args: Any, **kwargs: Any) -> _SyncHandler:

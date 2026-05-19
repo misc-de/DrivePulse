@@ -323,21 +323,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._ctx_trash_btn.set_visible(False)
         self._ctx_trash_handler: int | None = None
 
-        self._sync_btn = Gtk.Button(icon_name="share-alt-symbolic")
+        self._sync_btn = Gtk.Button(icon_name="arrows-loop-symbolic")
         self._sync_btn.set_tooltip_text(_translate(self.language, "sync.tooltip"))
         self._sync_btn.connect("clicked", self._open_sync)
-
-        # Kleiner Verbindungs-Dot über dem Sync-Button (grün = erreichbar, grau = offline)
-        self._sync_dot = Gtk.Label(label="●")
-        self._sync_dot.add_css_class("dp-sync-dot")
-        self._sync_dot.add_css_class("dp-sync-dot-offline")
-        self._sync_dot.set_valign(Gtk.Align.END)
-        self._sync_dot.set_halign(Gtk.Align.END)
-        self._sync_dot.set_margin_end(2)
-        self._sync_dot.set_margin_bottom(2)
-        _sync_overlay = Gtk.Overlay()
-        _sync_overlay.set_child(self._sync_btn)
-        _sync_overlay.add_overlay(self._sync_dot)
 
         # REC indicator — shown when dashcam is recording in the background
         self._dashcam_rec_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -354,7 +342,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         header.pack_start(self.gps_indicator["box"])
         header.pack_start(self._dashcam_rec_box)
         header.pack_end(settings_button)
-        header.pack_end(_sync_overlay)
+        header.pack_end(self._sync_btn)
         header.pack_end(self._ctx_trash_btn)
 
         switcher_top = Adw.ViewSwitcherBar()
@@ -686,9 +674,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         _global_css = Gtk.CssProvider()
         _global_css.load_from_data(
             b".dp-table-row { border-radius: 0; }"
-            b".dp-sync-dot { font-size: 8px; }"
-            b".dp-sync-dot-online { color: #33d17a; }"
-            b".dp-sync-dot-offline { color: alpha(currentColor, 0.25); }"
+            b".dp-sync-online { color: #33d17a; }"
         )
         Gtk.StyleContext.add_provider_for_display(
             display, _global_css,
@@ -712,13 +698,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.stopwatch_page.set_theme_mode(effective)
 
     def _on_sync_status(self, reachable: bool) -> None:
-        dot = self._sync_dot
         if reachable:
-            dot.remove_css_class("dp-sync-dot-offline")
-            dot.add_css_class("dp-sync-dot-online")
+            self._sync_btn.remove_css_class("dp-sync-offline")
+            self._sync_btn.add_css_class("dp-sync-online")
         else:
-            dot.remove_css_class("dp-sync-dot-online")
-            dot.add_css_class("dp-sync-dot-offline")
+            self._sync_btn.remove_css_class("dp-sync-online")
+            self._sync_btn.add_css_class("dp-sync-offline")
 
     def _on_system_dark_changed(self, _manager: Any, _param: Any) -> None:
         if getattr(self, "theme_mode", "auto") == "auto":
