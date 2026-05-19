@@ -56,7 +56,7 @@ class SyncDialog(Adw.NavigationPage):
         db: DriveDB,
         initial_mode: str | None = None,
         on_sync_complete: Callable[[], None] | None = None,
-        on_connected: Callable[[], None] | None = None,
+        on_connected: Callable[[str, str], None] | None = None,
         on_disconnected: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(tag="sync")
@@ -72,6 +72,7 @@ class SyncDialog(Adw.NavigationPage):
         self._closed = False
         self._pushing_subpage = False  # True während outer_nav.push() läuft
         self._server_survived_dialog = False  # Server läuft weiter nach Dialog-Schließen
+        self._client_paired = False  # Client hat erfolgreich gepairt
         self._scanner: WebcamQRScanner | None = None
         self._sync_mode: str = MODE_MERGE
         # Outer app NavigationView — all sub-pages are pushed here so swipe
@@ -286,7 +287,9 @@ class SyncDialog(Adw.NavigationPage):
             def _on_paired(device_info: dict) -> None:
                 self._server_survived_dialog = True
                 if self._on_connected:
-                    GLib.idle_add(self._on_connected)
+                    _name = device_info.get("hostname") or local_ip
+                    _ip = device_info.get("client_ip", "")
+                    GLib.idle_add(self._on_connected, _name, _ip)
                 GLib.idle_add(self._close_sync_dialog)
 
             def _on_import(data: dict) -> None:
@@ -480,8 +483,10 @@ class SyncDialog(Adw.NavigationPage):
             self._active_port = pairing.port
             self._active_spki_fp = pairing.spki_fingerprint
             self._active_server_hostname = client.server_hostname or pairing.host
+            self._client_paired = True
             if self._on_connected:
-                GLib.idle_add(self._on_connected)
+                _name = self._active_server_hostname or self._active_host
+                GLib.idle_add(self._on_connected, _name, self._active_host)
             GLib.idle_add(self._push_paired_page)
 
         except Exception as exc:
@@ -567,8 +572,11 @@ class SyncDialog(Adw.NavigationPage):
 
     def _close_sync_dialog(self) -> bool:
         """Pop all sync sub-pages, then pop the sync home page itself."""
-        if not self._server_survived_dialog and self._on_disconnected:
-            self._on_disconnected()
+        # Nur grau schalten wenn kein Pairing stattgefunden hat (abgebrochen).
+        # Server-Disconnect wird über den Session-Timeout gemeldet.
+        if not self._server_survived_dialog and not self._client_paired:
+            if self._on_disconnected:
+                self._on_disconnected()
         if self._outer_nav is None:
             return False
         if self._outer_nav.find_page("sync") is not None:
@@ -707,6 +715,14 @@ class SyncDialog(Adw.NavigationPage):
         except Exception as exc:
             log.exception("Sync operation failed")
             GLib.idle_add(_done, self._t("sync.error", error=str(exc)))
+
+    def disconnect(self) -> None:
+        """Verbindung sofort trennen — stoppt den Server und benachrichtigt on_disconnected."""
+        self._stop_server()
+        self._server_survived_dialog = False
+        self._client_paired = False
+        if self._on_disconnected:
+            self._on_disconnected()
 
     # ------------------------------------------------------------------ cleanup
 
