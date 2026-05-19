@@ -36,8 +36,13 @@ class GpsReader:
     GPSD_PORT = 2947
     GPSD_RETRY_INTERVAL = 10.0
 
-    def __init__(self, on_update: Callable[[dict[str, Any]], None]) -> None:
+    def __init__(
+        self,
+        on_update: Callable[[dict[str, Any]], None],
+        mock_mode: bool = False,
+    ) -> None:
         self.on_update = on_update
+        self.mock_mode = mock_mode
         self.stop_event = threading.Event()
         self._gpsd_thread: threading.Thread | None = None
         self._geoclue_bus: Any = None
@@ -45,6 +50,8 @@ class GpsReader:
         self._geoclue_client_path: str | None = None
 
     def start(self) -> None:
+        if self.mock_mode:
+            return
         GLib.idle_add(self._start_geoclue)
         self._gpsd_thread = threading.Thread(target=self._run_gpsd, name="gps-gpsd", daemon=True)
         self._gpsd_thread.start()
