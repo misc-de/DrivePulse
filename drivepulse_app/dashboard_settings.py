@@ -81,15 +81,11 @@ class DashboardSettingsMixin:
         self._save_settings()
 
     def _open_settings(self, *_args: Any) -> None:
-        # Guard against stacking multiple fullscreen windows.
-        existing = getattr(self, "_settings_window", None)
-        if existing is not None:
-            existing.present()
+        # Guard: if already pushed, do nothing (NavigationView handles it)
+        if self.nav_view.find_page("settings") is not None:
             return
-        self._settings_window = None
-        # Reload user themes so files added since startup appear immediately.
         load_user_themes(LOG_DIR / "themes", self.language)
-        dialog = SettingsDialog(
+        page = SettingsDialog(
             self, self.units, self.language,
             self._set_units, self._set_language,
             self.mock_mode, self._set_mock_mode,
@@ -138,27 +134,13 @@ class DashboardSettingsMixin:
             current_log_obd_enabled=getattr(self, "log_obd_enabled", True),
             on_log_obd_enabled_changed=self._set_log_obd_enabled,
         )
-        self._settings_window = dialog
 
-        def _on_settings_closing(_w: object) -> bool:
-            # Clear the reference immediately when close starts — before hide()
-            # and before destroy().  This prevents a second tap on the settings
-            # button from calling present() on a window that is mid-teardown,
-            # which would trigger "A window is shown after it has been destroyed."
-            setattr(self, "_settings_window", None)
-            return False  # don't block the close-request
-
-        def _on_settings_closed(_w: object) -> None:
-            setattr(self, "_settings_window", None)  # defensive: already None
+        def _on_page_hidden(_p: object) -> None:
             from . import tts_service as _tts
             _tts.set_download_callback(self._on_piper_dl_progress)
 
-        dialog.connect("close-request", _on_settings_closing)
-        dialog.connect("destroy", _on_settings_closed)
-        # No set_transient_for + no set_modal → no Wayland compositor grab.
-        # The window is fullscreen so it is effectively modal without a grab.
-        dialog.fullscreen()
-        dialog.present()
+        page.connect("hidden", _on_page_hidden)
+        self.nav_view.push(page)
 
     def _set_dashcam_camera(self, value: str) -> None:
         self.dashcam_camera = value
