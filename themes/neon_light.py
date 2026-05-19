@@ -10,7 +10,7 @@ window.dp-theme-neon-light scrolledwindow,
 window.dp-theme-neon-light scrolledwindow > viewport,
 window.dp-theme-neon-light .dp-gauge-bg,
 window.dp-theme-neon-light .dp-gauge-bg > * {
-  background-color: #eef0f2;
+  background-color: #ffffff;
 }
 .dp-accel-theme-neon-light .card {
   background-color: rgba(248, 250, 252, 0.9);
