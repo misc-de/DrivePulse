@@ -80,6 +80,12 @@ class DashboardSettingsMixin:
         self._save_settings()
 
     def _open_settings(self, *_args: Any) -> None:
+        # Guard against stacking multiple fullscreen windows.
+        existing = getattr(self, "_settings_window", None)
+        if existing is not None:
+            existing.present()
+            return
+        self._settings_window = None
         dialog = SettingsDialog(
             self, self.units, self.language,
             self._set_units, self._set_language,
@@ -129,6 +135,8 @@ class DashboardSettingsMixin:
             current_log_obd_enabled=getattr(self, "log_obd_enabled", True),
             on_log_obd_enabled_changed=self._set_log_obd_enabled,
         )
+        self._settings_window = dialog
+        dialog.connect("destroy", lambda _w: setattr(self, "_settings_window", None))
         dialog.set_transient_for(self)
         dialog.fullscreen()
         dialog.present()
