@@ -121,10 +121,10 @@ class SettingsDialog(Adw.Window):
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
         self.set_modal(True)
-        def _on_close_request(w: Adw.Window) -> bool:
-            GLib.idle_add(w.destroy)  # schedule destroy after signal chain finishes
-            return True               # block GTK's default hide-on-close
-        self.connect("close-request", _on_close_request)
+        # System close (back gesture, window-manager X): hide first, then destroy.
+        # Never return True — some Wayland compositors stop sending close events
+        # to subsequent windows from the same process when an app "blocks" close.
+        self.connect("close-request", lambda w: bool(GLib.idle_add(w.destroy)) and False)
 
         # ── Build all option rows (assigned to pages further below) ──────────
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
@@ -422,11 +422,11 @@ class SettingsDialog(Adw.Window):
             exp.set_icon_name("dp-bluetooth-symbolic")
             exp.add_css_class(css_class)
             _css = Gtk.CssProvider()
-            _css.load_from_data(f"""
-                .{css_class} .expander-row-header > button.image-button {{
-                    opacity: 0; min-width: 0; padding: 0;
-                }}
-            """.encode())
+            _css.load_from_data(
+                f".{css_class} .expander-row-header > button.image-button {{"
+                f" opacity: 0; min-width: 0px; padding: 0px; }}"
+                .encode()
+            )
             exp.get_style_context().add_provider(_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
             chev = Gtk.Image.new_from_icon_name("dp-chevron-down-symbolic")
             chev.set_pixel_size(20)
@@ -637,7 +637,7 @@ class SettingsDialog(Adw.Window):
         # ── Header: title only + explicit close button ────────────────────────
         close_btn = Gtk.Button(icon_name="window-close-symbolic")
         close_btn.add_css_class("flat")
-        close_btn.connect("clicked", lambda _b: self.close())
+        close_btn.connect("clicked", lambda _b: self.destroy())
 
         dlg_header = Adw.HeaderBar()
         dlg_header.set_title_widget(
