@@ -28,6 +28,8 @@ def parse_pairing_url(url_text: str, default_port: int, now: float | None = None
         port = int((params.get("p") or [str(default_port)])[0])
     except (TypeError, ValueError) as exc:
         raise ValueError("Invalid port") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("Invalid port")
     spki_fp = (params.get("fp") or [""])[0]
     pairing_token = (params.get("t") or [""])[0]
     try:

@@ -142,6 +142,22 @@ def test_parse_pairing_url_validates_expiry():
         raise AssertionError("expired pairing URL should raise TimeoutError")
 
 
+def test_parse_pairing_url_rejects_out_of_range_port():
+    from drivepulse_app.sync_flow import parse_pairing_url
+
+    for port in ("0", "65536", "-1"):
+        try:
+            parse_pairing_url(
+                f"drivepulse://pair?v=1&h=192.0.2.10&p={port}&fp=fingerprint&t=token&exp=999",
+                default_port=8765,
+                now=100,
+            )
+        except ValueError as exc:
+            assert "port" in str(exc).lower()
+        else:
+            raise AssertionError(f"port {port} should be rejected")
+
+
 def test_sync_client_refuses_pairing_before_fingerprint_verification():
     from drivepulse_app.sync_client import SyncClient
 
@@ -285,6 +301,28 @@ def test_sync_server_pairing_cancels_timeout(monkeypatch, tmp_path):
 
     assert not timed_out.wait(0.15)
     server.stop()
+
+
+def test_sync_handler_rejects_oversized_body(monkeypatch):
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from drivepulse_app import sync_server
+    from drivepulse_app.sync_server import _SyncHandler
+
+    monkeypatch.setattr(sync_server, "MAX_SYNC_BODY_BYTES", 4)
+    handler = _SyncHandler.__new__(_SyncHandler)
+    handler.headers = {"Content-Length": "5"}
+    handler.rfile = BytesIO(b"12345")
+    responses = []
+    handler._send_json = lambda code, data: responses.append((code, data))
+
+    assert _SyncHandler._read_body(handler) is None
+    assert responses == [(413, {"ok": False, "error": "payload too large"})]
+
+    handler._srv = SimpleNamespace(_session_token="secret")
+    handler.headers = {"Authorization": "Bearer secret"}
+    assert _SyncHandler._check_bearer(handler) is True
 
 
 def test_sync_dialog_blocks_server_start_without_user_action(drivepulse_module):
