@@ -334,6 +334,15 @@ class DashboardSettingsMixin:
             time_row.set_subtitle(ts_str)
             group.add(time_row)
 
+        dialog = getattr(self, "_active_sync_dialog", None)
+        last_contact = dialog.get_last_contact() if dialog is not None else 0.0
+        if last_contact > 0:
+            lc_str = datetime.datetime.fromtimestamp(last_contact).strftime("%H:%M:%S")
+            lc_row = Adw.ActionRow()
+            lc_row.set_title(t("sync.status.last_contact"))
+            lc_row.set_subtitle(lc_str)
+            group.add(lc_row)
+
         disconnect_btn = Gtk.Button(label=t("sync.status.disconnect_btn"))
         disconnect_btn.add_css_class("destructive-action")
         disconnect_btn.set_halign(Gtk.Align.FILL)
