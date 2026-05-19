@@ -39,6 +39,51 @@ def test_db_returns_empty_stopwatch_run_for_invalid_json(tmp_path):
         db.close()
 
 
+def test_db_configures_lock_timeout_and_profile_path_index(tmp_path):
+    from drivepulse_app.db import DriveDB
+
+    db = DriveDB(tmp_path / "drivepulse.sqlite3")
+    try:
+        with db._lock:
+            busy_timeout = db._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+            indexes = {
+                row["name"]
+                for row in db._conn.execute("PRAGMA index_list('cars')").fetchall()
+            }
+
+        assert busy_timeout == 5000
+        assert "idx_cars_profile_path" in indexes
+    finally:
+        db.close()
+
+
+def test_db_bulk_sample_insert_skips_malformed_rows_and_duplicates(tmp_path):
+    from drivepulse_app.db import DriveDB
+
+    db = DriveDB(tmp_path / "drivepulse.sqlite3")
+    try:
+        car_id = db.upsert_car(vin="BULKTEST")
+        trip_id = db.start_trip(car_id)
+
+        submitted = db.add_samples(trip_id, [
+            {"ts": 1.0, "speed_kmh": 10, "rpm": 1000},
+            {"ts": 1.0, "speed_kmh": 20, "rpm": 2000},
+            {"ts": 2.0, "speed_kmh": "bad"},
+            {"speed_kmh": 30},
+            "not-a-sample",
+            {"ts": 3.0, "gps_speed_kmh": 30},
+        ])
+
+        rows = db.samples_for_trip(trip_id)
+
+        assert submitted == 3
+        assert len(rows) == 2
+        assert rows[0]["speed_kmh"] == 10
+        assert rows[1]["gps_speed_kmh"] == 30
+    finally:
+        db.close()
+
+
 def test_profiles_hide_scan_files_until_vehicle_is_registered(monkeypatch, tmp_path):
     import json
 

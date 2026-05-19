@@ -149,20 +149,10 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
                 db._conn.commit()
             trips_added += 1
 
-            for s in trip.get("samples") or []:
-                if not isinstance(s, dict):
-                    log.warning("Skipping malformed sample for trip started_at=%s", started_at)
-                    continue
-                ts = s.get("ts")
-                if ts is None:
-                    continue
-                try:
-                    db.add_sample(
-                        trip_id, float(ts),
-                        **{k: v for k, v in s.items() if k in _SAMPLE_COLS and v is not None},
-                    )
-                except Exception:
-                    log.exception("Could not import sample for trip started_at=%s", started_at)
+            try:
+                db.add_samples(trip_id, trip.get("samples") or [])
+            except Exception:
+                log.exception("Could not import samples for trip started_at=%s", started_at)
 
             with db._lock:
                 row = db._conn.execute(
