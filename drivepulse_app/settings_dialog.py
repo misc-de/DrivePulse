@@ -121,10 +121,12 @@ class SettingsDialog(Adw.Window):
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
         self.set_modal(True)
-        # System close (back gesture, window-manager X): hide first, then destroy.
-        # Never return True — some Wayland compositors stop sending close events
-        # to subsequent windows from the same process when an app "blocks" close.
-        self.connect("close-request", lambda w: bool(GLib.idle_add(w.destroy)) and False)
+        # Returning False lets GTK run its default close handler, which calls
+        # gtk_widget_hide().  That releases the modal grab on the parent before
+        # we destroy the window in the next main-loop frame.  Never skip this
+        # step — destroying a modal window without releasing its grab leaves the
+        # parent completely unresponsive.
+        self.connect("close-request", self._on_close_request)
 
         # ── Build all option rows (assigned to pages further below) ──────────
         self.unit_row = Adw.ComboRow(title=_translate(self.language, "settings.speed"))
@@ -637,7 +639,7 @@ class SettingsDialog(Adw.Window):
         # ── Header: title only + explicit close button ────────────────────────
         close_btn = Gtk.Button(icon_name="window-close-symbolic")
         close_btn.add_css_class("flat")
-        close_btn.connect("clicked", lambda _b: self.destroy())
+        close_btn.connect("clicked", lambda _b: self.close())
 
         dlg_header = Adw.HeaderBar()
         dlg_header.set_title_widget(
@@ -653,6 +655,16 @@ class SettingsDialog(Adw.Window):
         toolbar_view.set_content(view_stack)
 
         self.set_content(toolbar_view)
+
+    # ── Window lifecycle ──────────────────────────────────────────────────────
+
+    def _on_close_request(self, _w: "SettingsDialog") -> bool:
+        # Return False → GTK runs its default handler → gtk_widget_hide().
+        # hide() releases the modal grab on the parent window BEFORE we destroy,
+        # so the parent never gets stuck in an unresponsive grab state.
+        # Then we schedule destroy for the next frame (window is already hidden).
+        GLib.idle_add(self.destroy)
+        return False
 
     # ── Dashcam callbacks ─────────────────────────────────────────────────────
 
