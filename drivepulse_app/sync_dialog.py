@@ -70,8 +70,10 @@ class SyncDialog(Adw.NavigationPage):
         # always works; there is no inner NavigationView.
         self._outer_nav: Adw.NavigationView | None = getattr(parent, "nav_view", None)
 
+        self.set_title(self._t("sync.title"))
         self.set_child(self._build_home_content())
         self.connect("hiding", self._on_hiding)
+        self.connect("showing", self._on_showing)
 
         if initial_mode == "client":
             GLib.idle_add(self._push_client_page)
@@ -798,7 +800,21 @@ class SyncDialog(Adw.NavigationPage):
 
     # ------------------------------------------------------------------ cleanup
 
+    _SUB_PAGE_TAGS = ("sync-server", "sync-client", "sync-qr-scan", "sync-paired")
+
+    def _on_showing(self, *_args: Any) -> None:
+        # Zurückgekehrt von einer Sub-Seite — closed-Flag zurücksetzen
+        with self._server_lock:
+            self._closed = False
+
     def _on_hiding(self, *_args: Any) -> None:
+        # Wenn wir nur hinter einer eigenen Sub-Seite verschwinden (z.B. sync-server
+        # wurde gepusht), NICHT aufräumen — sonst bricht der Server-Thread sofort ab.
+        outer = self._outer_nav
+        if outer is not None:
+            for tag in self._SUB_PAGE_TAGS:
+                if outer.find_page(tag) is not None:
+                    return
         with self._server_lock:
             self._closed = True
         self._stop_server()
