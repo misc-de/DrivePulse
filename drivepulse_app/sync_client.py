@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import socket
 import ssl
+import time
 import urllib.request
 from typing import Any
 
@@ -22,6 +23,7 @@ class SyncClient:
         self._session_token: str | None = None
         self._fingerprint_verified = False
         self.server_hostname: str = ""
+        self.last_contact: float = 0.0
 
     def _make_ssl_context(self) -> ssl.SSLContext:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -72,6 +74,7 @@ class SyncClient:
             if data.get("ok"):
                 self._session_token = data.get("session_token")
                 self.server_hostname = data.get("hostname", "")
+                self.last_contact = time.time()
                 return True
             return False
         except Exception:
@@ -92,7 +95,9 @@ class SyncClient:
             )
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-                return json.loads(resp.read())
+                result = json.loads(resp.read())
+            self.last_contact = time.time()
+            return result
         except Exception:
             log.exception("Could not export data from sync peer %s:%s", self._host, self._port)
             return None
@@ -113,7 +118,26 @@ class SyncClient:
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
                 result: dict[str, Any] = json.loads(resp.read())
+            if result.get("ok"):
+                self.last_contact = time.time()
             return bool(result.get("ok"))
         except Exception:
             log.exception("Could not import data to sync peer %s:%s", self._host, self._port)
             return False
+
+    def disconnect(self) -> None:
+        """Benachrichtigt den Server dass dieser Client sich trennt."""
+        if not self._fingerprint_verified or not self._session_token:
+            return
+        try:
+            req = urllib.request.Request(
+                f"{self._base_url()}/disconnect",
+                data=b"{}",
+                headers={**self._auth_headers(), "Content-Type": "application/json"},
+                method="POST",
+            )
+            ctx = self._make_ssl_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=5) as _resp:
+                pass
+        except Exception:
+            log.debug("Could not notify server of disconnect (may already be gone)")

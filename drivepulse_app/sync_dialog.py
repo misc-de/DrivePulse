@@ -718,11 +718,25 @@ class SyncDialog(Adw.NavigationPage):
 
     def disconnect(self) -> None:
         """Verbindung sofort trennen — stoppt den Server und benachrichtigt on_disconnected."""
+        if self._client_paired:
+            client = getattr(self, "_active_client", None)
+            if client is not None:
+                threading.Thread(target=client.disconnect, daemon=True).start()
         self._stop_server()
         self._server_survived_dialog = False
         self._client_paired = False
         if self._on_disconnected:
             self._on_disconnected()
+
+    def get_last_contact(self) -> float:
+        """Gibt den Zeitstempel des letzten Datenaustausches zurück (0 = unbekannt)."""
+        server = getattr(self, "_server", None)
+        if server is not None and server.last_activity > 0:
+            return server.last_activity
+        client = getattr(self, "_active_client", None)
+        if client is not None and client.last_contact > 0:
+            return client.last_contact
+        return 0.0
 
     # ------------------------------------------------------------------ cleanup
 

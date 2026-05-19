@@ -51,6 +51,7 @@ class SyncServer:
         self._cancelled = False
         self._session_expiry: float = 0.0
         self.actual_port: int = self.PORT
+        self.last_activity: float = 0.0
 
     def start(self) -> None:
         if self._cancelled:
@@ -104,6 +105,7 @@ class SyncServer:
     def mark_paired(self) -> None:
         self._paired = True
         self._cancel_timeout()
+        self.last_activity = time.time()
         self._session_expiry = time.time() + SYNC_SESSION_TIMEOUT_S
         self._sync_timer = threading.Timer(SYNC_SESSION_TIMEOUT_S, self._on_session_timeout)
         self._sync_timer.daemon = True
@@ -119,6 +121,7 @@ class SyncServer:
         if not self._paired:
             return
         self._cancel_sync_timer()
+        self.last_activity = time.time()
         self._session_expiry = time.time() + SYNC_SESSION_TIMEOUT_S
         self._sync_timer = threading.Timer(SYNC_SESSION_TIMEOUT_S, self._on_session_timeout)
         self._sync_timer.daemon = True
@@ -230,6 +233,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             except Exception:
                 self._send_json(400, {"ok": False, "error": "bad json"})
                 return
+            self._srv.last_activity = time.time()
             try:
                 self._srv._on_import_fn(data)
             except Exception:
@@ -237,6 +241,14 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"ok": False, "error": "import failed"})
                 return
             self._send_json(200, {"ok": True})
+            return
+
+        if self.path == "/disconnect":
+            if not self._check_bearer():
+                self._send_json(403, {"ok": False, "error": "unauthorized"})
+                return
+            self._send_json(200, {"ok": True})
+            threading.Thread(target=self._srv._on_session_timeout, daemon=True).start()
             return
 
         self._send_json(404, {"ok": False, "error": "not found"})
@@ -251,6 +263,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             if not self._check_bearer():
                 self._send_json(403, {"ok": False, "error": "unauthorized"})
                 return
+            self._srv.last_activity = time.time()
             try:
                 payload = self._srv._get_export_fn()
             except Exception as exc:

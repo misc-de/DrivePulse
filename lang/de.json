@@ -383,6 +383,7 @@
   "sync.status.title": "Verbindungsstatus",
   "sync.status.ip_label": "IP-Adresse",
   "sync.status.connected_since": "Verbunden seit",
+  "sync.status.last_contact": "Letzter Kontakt",
   "sync.status.disconnect_btn": "Verbindung trennen",
   "window.title": "DrivePulse",
   "settings.tooltip": "Einstellungen",
