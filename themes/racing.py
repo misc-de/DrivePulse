@@ -5,10 +5,9 @@ from typing import Any
 THEME_TYPE = "dashboard"
 LABEL = {"en": "Racing", "de": "Racing"}
 CSS = """
-window.dp-theme-racing,
-window.dp-theme-racing toolbarview,
-window.dp-theme-racing scrolledwindow,
-window.dp-theme-racing scrolledwindow > viewport,
+window.dp-theme-racing .dp-main-nav,
+window.dp-theme-racing .dp-main-nav scrolledwindow,
+window.dp-theme-racing .dp-main-nav scrolledwindow > viewport,
 window.dp-theme-racing .dp-gauge-bg,
 window.dp-theme-racing .dp-gauge-bg > * {
   background-color: #0a0803;

@@ -305,6 +305,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         switcher_bar.set_reveal(True)
 
         toolbar_view = Adw.ToolbarView()
+        toolbar_view.add_css_class("dp-main-nav")
         header = Adw.HeaderBar()
         self.title_label = Gtk.Label(label=_translate(self.language, "window.title"))
         header.set_title_widget(self.title_label)
