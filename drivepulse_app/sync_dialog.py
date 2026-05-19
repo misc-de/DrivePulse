@@ -320,6 +320,14 @@ class SyncDialog(Adw.Dialog):
                 return
 
             def _on_paired(device_info: dict) -> None:
+                client_hostname = device_info.get("hostname", "") or device_info.get("device_id", "")[:12] or "Device"
+                upsert_paired_device(
+                    device_id=device_info.get("device_id", client_hostname),
+                    name=client_hostname,
+                    spki_fingerprint="",
+                    host="",
+                    port=0,
+                )
                 GLib.idle_add(
                     lambda: self._server_status_label.set_text(self._t("sync.server.connected"))
                 )
@@ -751,9 +759,10 @@ class SyncDialog(Adw.Dialog):
         try:
             result = perform_sync(self._db, client, mode)
 
+            server_name = getattr(client, "server_hostname", "") or self._active_host
             upsert_paired_device(
                 device_id=self._active_host,
-                name=self._active_host,
+                name=server_name,
                 spki_fingerprint=self._active_spki_fp,
                 host=self._active_host,
                 port=self._active_port,

@@ -160,12 +160,20 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 self._send_json(403, {"ok": False, "error": "invalid token"})
                 return
             self._srv.mark_paired()
-            device_info = {"device_id": data.get("device_id", "")}
+            device_info = {
+                "device_id": data.get("device_id", ""),
+                "hostname": data.get("hostname", ""),
+            }
             try:
                 self._srv._on_paired_cb(device_info)
             except Exception:
                 log.exception("Sync paired callback failed")
-            self._send_json(200, {"session_token": self._srv._session_token, "ok": True})
+            import socket as _socket
+            self._send_json(200, {
+                "session_token": self._srv._session_token,
+                "hostname": _socket.gethostname(),
+                "ok": True,
+            })
             return
 
         if self.path == "/sync/import":
