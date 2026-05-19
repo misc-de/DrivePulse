@@ -74,20 +74,28 @@ _MANEUVER_CSS = b"""
 }
 .dp-map-state label { color: #ffffff; }
 .dp-steps-panel {
-  background-color: rgba(20, 24, 32, 0.88);
+  background-color: rgba(160, 160, 160, 0.72);
   border-radius: 14px;
   padding: 6px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.40);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.20);
 }
-.dp-steps-panel, .dp-steps-panel label { color: #ffffff; }
+.dp-steps-panel, .dp-steps-panel label { color: #1a1a1a; }
 .dp-steps-panel list,
 .dp-steps-panel list > row { background: transparent; }
 .dp-steps-row { padding: 8px 10px; border-radius: 10px; }
-.dp-steps-row image { color: #8FCFFF; }
-.dp-steps-row-active { background-color: rgba(143, 207, 255, 0.22); }
-.dp-steps-row-done { opacity: 0.55; }
+.dp-steps-row image { color: #1E5FA8; }
+.dp-steps-row-active { background-color: rgba(0, 80, 160, 0.15); }
+.dp-steps-row-done { opacity: 0.50; }
 .dp-steps-distance { font-weight: 700; }
-.dp-steps-instr { opacity: 0.92; }
+.dp-steps-instr { opacity: 0.90; }
+.dark .dp-steps-panel {
+  background-color: rgba(20, 24, 32, 0.88);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.40);
+}
+.dark .dp-steps-panel, .dark .dp-steps-panel label { color: #ffffff; }
+.dark .dp-steps-row image { color: #8FCFFF; }
+.dark .dp-steps-row-active { background-color: rgba(143, 207, 255, 0.22); }
+.dark .dp-steps-row-done { opacity: 0.55; }
 """
 _maneuver_css_installed = False
 
