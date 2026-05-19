@@ -165,6 +165,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         self._gps_lat: float | None = None
         self._gps_lon: float | None = None
         self._gps_heading: float = 0.0
+        self._gps_speed_mps: float = 0.0
         self._follow_gps: bool = True
         self._last_map_js: float = 0.0   # throttle: last time mapSetCar was sent
         # Route coords [[lon, lat], ...] — kept for traffic proximity filtering
@@ -1019,12 +1020,14 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         lat: float | None,
         lon: float | None,
         heading: float | None,
+        speed_kmh: float | None = None,
     ) -> None:
         if lat is None or lon is None:
             return
         self._gps_lat = lat
         self._gps_lon = lon
         self._gps_heading = heading or 0.0
+        self._gps_speed_mps = (speed_kmh / 3.6) if speed_kmh is not None else self._gps_speed_mps
 
         # During an active tour always re-engage follow so the map tracks the driver.
         if self._tour_active and not self._follow_gps:
@@ -1222,10 +1225,16 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
             # Don't announce immediately — the threshold loop below will fire on
             # the very next tick (or this one) at the appropriate distance.
 
+        # Look-ahead: fire threshold early enough to compensate for TTS latency.
+        # At 50 km/h and 1s latency the car travels ~14m — audible instructions
+        # would otherwise describe a maneuver the driver has already reached.
+        look_ahead_m = self._gps_speed_mps * tts_service.get_latency_s()
+        trigger_dist = distance_m + look_ahead_m
+
         for threshold in self._TTS_THRESHOLDS:
             if threshold in self._tts_spoken_thresholds:
                 continue
-            if distance_m <= threshold:
+            if trigger_dist <= threshold:
                 self._tts_announce(step, distance_m)
                 self._tts_spoken_thresholds.add(threshold)
                 break
