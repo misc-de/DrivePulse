@@ -247,8 +247,21 @@ class DashboardSettingsMixin:
         page = SyncDialog(
             self, self.language, self.db,
             on_sync_complete=lambda: self.cars_page.refresh_profiles(),
+            on_connected=lambda: self._set_sync_icon_online(True),
+            on_disconnected=lambda: self._set_sync_icon_online(False),
         )
         self.nav_view.push(page)
+
+    def _set_sync_icon_online(self, online: bool) -> None:
+        btn = getattr(self, "_sync_btn", None)
+        if btn is None:
+            return
+        if online:
+            btn.remove_css_class("dp-sync-offline")
+            btn.add_css_class("dp-sync-online")
+        else:
+            btn.remove_css_class("dp-sync-online")
+            btn.add_css_class("dp-sync-offline")
 
     def _set_obd_port(self, port: str | None) -> None:
         if port == self.obd_port:

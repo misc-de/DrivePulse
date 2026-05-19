@@ -114,6 +114,16 @@ class SyncServer:
             self._sync_timer.cancel()
             self._sync_timer = None
 
+    def reset_session_timer(self) -> None:
+        """Verlängert die Session, solange der Client noch pingt."""
+        if not self._paired:
+            return
+        self._cancel_sync_timer()
+        self._session_expiry = time.time() + SYNC_SESSION_TIMEOUT_S
+        self._sync_timer = threading.Timer(SYNC_SESSION_TIMEOUT_S, self._on_session_timeout)
+        self._sync_timer.daemon = True
+        self._sync_timer.start()
+
     def _on_session_timeout(self) -> None:
         log.info("Sync session expired after %ds — stopping", SYNC_SESSION_TIMEOUT_S)
         self.stop()
@@ -232,6 +242,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/ping":
+            self._srv.reset_session_timer()
             self._send_json(200, {"ok": True})
             return
 
