@@ -111,15 +111,19 @@ class CarsTripsMixin:
         page_content = _build_trip_detail_widget(self.language, trip, samples)
         title = self._trip_detail_title(trip)
 
-        self._set_trash(lambda: self._confirm_delete_trip(trip_id))
-
         page_ref: list[Adw.NavigationPage | None] = [None]
 
         def _on_rename(title_lbl: Gtk.Label) -> None:
             self._open_trip_rename_dialog(trip_id, title_lbl, page_ref)
 
         page = Adw.NavigationPage(
-            child=self._wrap_sub_page(page_content, title, on_rename=_on_rename),
+            child=self._wrap_sub_page(
+                page_content,
+                title,
+                on_rename=_on_rename,
+                on_share=lambda: self._share_trip(trip_id),
+                on_delete=lambda: self._confirm_delete_trip(trip_id),
+            ),
             title=title,
         )
         page.set_tag(f"trip-{trip_id}")
@@ -218,6 +222,9 @@ class CarsTripsMixin:
             except Exception:
                 log.exception("Could not delete selected trip id=%s", tid)
         self._exit_trip_select_mode()
+
+    def _share_trip(self, trip_id: int) -> None:
+        pass
 
     def _trip_display_title(self, trip: Any) -> str:
         """Label if set, otherwise formatted start date."""
