@@ -593,7 +593,10 @@ class SyncDialog(Adw.NavigationPage):
             status_label.set_text(msg)
 
         self._scanner = WebcamQRScanner(
-            on_success=_on_success, on_error=_on_error, language=self._language
+            on_success=_on_success,
+            on_error=_on_error,
+            language=self._language,
+            filter_fn=lambda t: t.startswith("drivepulse://"),
         )
         scanner_box.append(self._scanner.build_widget())
         self._scanner.start()
