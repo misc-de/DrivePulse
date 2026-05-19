@@ -16,7 +16,7 @@ from gi.repository import GLib  # noqa: E402
 
 from .common import SUPPORTED_LANGUAGES, _normalize_language, _translate, language_name
 from .gauge import all_theme_options
-from .obd_devices import bind_bt_to_rfcomm, scan_bt_paired_devices, scan_obd_devices
+from .obd_devices import bind_bt_to_rfcomm, scan_bt_nearby_devices, scan_bt_paired_devices, scan_obd_devices
 from . import tts_service, updater
 
 
@@ -122,8 +122,8 @@ class SettingsDialog(Adw.Window):
         self.set_title(_translate(self.language, "settings.title"))
         self.set_modal(True)
         def _on_close_request(w: Adw.Window) -> bool:
-            w.destroy()
-            return True  # prevent GTK default handler acting on the destroyed widget
+            GLib.idle_add(w.destroy)  # schedule destroy after signal chain finishes
+            return True               # block GTK's default hide-on-close
         self.connect("close-request", _on_close_request)
 
         # ── Build all option rows (assigned to pages further below) ──────────
@@ -410,50 +410,63 @@ class SettingsDialog(Adw.Window):
         # OBD group
         app_page.add(obd_group)
 
-        # Bluetooth OBD-Dongle group
+        # ── Paired BT devices (already bonded to this phone) ─────────────────
         bt_group = Adw.PreferencesGroup(
             title=_translate(self.language, "settings.bt_obd"),
             description=_translate(self.language, "settings.bt_obd.desc"),
         )
-        self._bt_expander = Adw.ExpanderRow(
-            title=_translate(self.language, "settings.bt_obd.scan"),
-            subtitle=_translate(self.language, "settings.bt_obd.scan.subtitle"),
-        )
-        self._bt_expander.set_expanded(False)
-        self._bt_expander.set_icon_name("dp-bluetooth-symbolic")
-        self._bt_expander.add_css_class("dp-bt-expander")
+
+        def _make_bt_expander(css_class: str) -> Adw.ExpanderRow:
+            exp = Adw.ExpanderRow()
+            exp.set_expanded(False)
+            exp.set_icon_name("dp-bluetooth-symbolic")
+            exp.add_css_class(css_class)
+            _css = Gtk.CssProvider()
+            _css.load_from_data(f"""
+                .{css_class} .expander-row-header > button.image-button {{
+                    opacity: 0; min-width: 0; padding: 0;
+                }}
+            """.encode())
+            exp.get_style_context().add_provider(_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            chev = Gtk.Image.new_from_icon_name("dp-chevron-down-symbolic")
+            chev.set_pixel_size(20)
+            exp.add_suffix(chev)
+            exp.connect("notify::expanded", lambda e, _p, c=chev: c.set_from_icon_name(
+                "dp-chevron-up-symbolic" if e.get_expanded() else "dp-chevron-down-symbolic"
+            ))
+            return exp, chev
+
+        self._bt_expander, self._bt_chevron = _make_bt_expander("dp-bt-expander")
+        self._bt_expander.set_title(_translate(self.language, "settings.bt_obd.scan"))
+        self._bt_expander.set_subtitle(_translate(self.language, "settings.bt_obd.scan.subtitle"))
         self._bt_device_rows: list[Adw.ActionRow] = []
 
-        # Hide the built-in libadwaita expand arrow and replace it with our
-        # bundled chevron so the icon works on phones without the full adwaita theme.
-        _bt_css = Gtk.CssProvider()
-        _bt_css.load_from_data(b"""
-            .dp-bt-expander .expander-row-header > button.image-button {
-                opacity: 0;
-                min-width: 0;
-                padding: 0;
-            }
-        """)
-        self._bt_expander.get_style_context().add_provider(
-            _bt_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
-        self._bt_chevron = Gtk.Image.new_from_icon_name("dp-chevron-down-symbolic")
-        self._bt_chevron.set_pixel_size(20)
-        self._bt_expander.add_suffix(self._bt_chevron)
-        self._bt_expander.connect("notify::expanded", self._on_bt_expander_toggled)
-
-        # Refresh button in the expander header
         _bt_refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
         _bt_refresh_btn.set_valign(Gtk.Align.CENTER)
         _bt_refresh_btn.add_css_class("flat")
         _bt_refresh_btn.set_tooltip_text(_translate(self.language, "settings.bt_obd.refresh"))
         _bt_refresh_btn.connect("clicked", self._on_bt_refresh_clicked)
         self._bt_expander.add_action(_bt_refresh_btn)
-
         bt_group.add(self._bt_expander)
+
+        # ── Nearby BT devices (discovery scan) ───────────────────────────────
+        self._bt_nearby_expander, _nearby_chev = _make_bt_expander("dp-bt-nearby-expander")
+        self._bt_nearby_expander.set_title(_translate(self.language, "settings.bt_obd.nearby"))
+        self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.subtitle"))
+        self._bt_nearby_rows: list[Adw.ActionRow] = []
+
+        _nearby_scan_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        _nearby_scan_btn.set_valign(Gtk.Align.CENTER)
+        _nearby_scan_btn.add_css_class("flat")
+        _nearby_scan_btn.set_tooltip_text(_translate(self.language, "settings.bt_obd.nearby.scan"))
+        _nearby_scan_btn.connect("clicked", self._on_bt_nearby_scan_clicked)
+        self._bt_nearby_expander.add_action(_nearby_scan_btn)
+        self._bt_nearby_scan_btn = _nearby_scan_btn
+        bt_group.add(self._bt_nearby_expander)
+
         app_page.add(bt_group)
 
-        # Trigger initial BT scan in background
+        # Trigger initial paired scan in background
         self._bt_scan_async()
 
         # ── Display page ──────────────────────────────────────────────────────
@@ -873,10 +886,6 @@ class SettingsDialog(Adw.Window):
 
     # ── Bluetooth OBD ─────────────────────────────────────────────────────────
 
-    def _on_bt_expander_toggled(self, expander: Adw.ExpanderRow, _param: object) -> None:
-        icon = "dp-chevron-up-symbolic" if expander.get_expanded() else "dp-chevron-down-symbolic"
-        self._bt_chevron.set_from_icon_name(icon)
-
     def _on_bt_refresh_clicked(self, _btn: Gtk.Button) -> None:
         self._bt_scan_async()
 
@@ -961,4 +970,42 @@ class SettingsDialog(Adw.Window):
         else:
             row.set_subtitle(f"✗ {err}")
             btn.set_sensitive(True)
+        return False
+
+    # ── Nearby BT scan ────────────────────────────────────────────────────────
+
+    def _on_bt_nearby_scan_clicked(self, btn: Gtk.Button) -> None:
+        btn.set_sensitive(False)
+        self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.scanning"))
+        self._bt_nearby_expander.set_expanded(True)
+        threading.Thread(target=self._bt_nearby_scan_thread, daemon=True).start()
+
+    def _bt_nearby_scan_thread(self) -> None:
+        devices = scan_bt_nearby_devices(scan_seconds=6)
+        GLib.idle_add(self._bt_nearby_scan_done, devices)
+
+    def _bt_nearby_scan_done(self, devices: list[tuple[str, str]]) -> bool:
+        self._bt_nearby_scan_btn.set_sensitive(True)
+        for row in self._bt_nearby_rows:
+            self._bt_nearby_expander.remove(row)
+        self._bt_nearby_rows.clear()
+
+        if not devices:
+            self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.none_found"))
+            return False
+
+        self._bt_nearby_expander.set_subtitle(
+            _translate(self.language, "settings.bt_obd.found").format(n=len(devices))
+        )
+        for label, bt_port in devices:
+            addr = bt_port[3:]  # strip "bt:"
+            row = Adw.ActionRow(title=label)
+            row.set_activatable(False)
+            connect_btn = Gtk.Button(label=_translate(self.language, "settings.bt_obd.connect"))
+            connect_btn.set_valign(Gtk.Align.CENTER)
+            connect_btn.add_css_class("suggested-action")
+            connect_btn.connect("clicked", self._on_bt_connect_clicked, addr, row)
+            row.add_suffix(connect_btn)
+            self._bt_nearby_expander.add_row(row)
+            self._bt_nearby_rows.append(row)
         return False
