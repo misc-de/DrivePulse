@@ -7,10 +7,9 @@ from draw_helpers import _txt
 THEME_TYPE = "gauge"
 LABEL = {"en": "Neon", "de": "Neon"}
 CSS = """
-window.dp-theme-neon,
-window.dp-theme-neon toolbarview,
-window.dp-theme-neon scrolledwindow,
-window.dp-theme-neon scrolledwindow > viewport,
+window.dp-theme-neon .dp-main-nav,
+window.dp-theme-neon .dp-main-nav scrolledwindow,
+window.dp-theme-neon .dp-main-nav scrolledwindow > viewport,
 window.dp-theme-neon .dp-gauge-bg,
 window.dp-theme-neon .dp-gauge-bg > * {
   background-color: #000008;
