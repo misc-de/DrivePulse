@@ -330,7 +330,7 @@
   "sync.server.waiting": "Warte auf Verbindung…",
   "sync.server.generating": "Sichere Verbindung wird vorbereitet…",
   "sync.server.instructions": "Starte DrivePulse auf dem anderen Gerät und scanne diesen QR-Code.",
-  "sync.server.connected": "Verbunden! Synchronisiere…",
+  "sync.server.connected": "Verbunden!",
   "sync.server.timeout": "Server gestoppt — keine Verbindung innerhalb von 60 Sekunden.",
   "sync.complete": "Sync abgeschlossen: {cars} Fahrzeuge, {trips} Fahrten, {samples} Messpunkte",
   "sync.mode.label": "Sync-Modus",
