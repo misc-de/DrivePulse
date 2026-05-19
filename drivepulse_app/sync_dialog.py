@@ -508,7 +508,7 @@ class SyncDialog(Adw.NavigationPage):
         box.set_margin_start(16)
         box.set_margin_end(16)
 
-        sync_icon = Gtk.Image.new_from_icon_name("emblem-synchronizing-symbolic")
+        sync_icon = Gtk.Image.new_from_icon_name("arrows-loop-symbolic")
         sync_icon.set_pixel_size(64)
         sync_icon.add_css_class("success")
         sync_icon.set_halign(Gtk.Align.CENTER)
@@ -559,11 +559,19 @@ class SyncDialog(Adw.NavigationPage):
         page.set_child(toolbar_view)
         return page, status_label
 
+    def _close_sync_dialog(self) -> bool:
+        """Pop all sync sub-pages, then pop the sync home page itself."""
+        if self._outer_nav is None:
+            return False
+        if self._outer_nav.find_page("sync") is not None:
+            self._outer_nav.pop_to_tag("sync")
+            self._outer_nav.pop()
+        return False  # compatible with GLib.timeout_add
+
     def _complete_without_sync(self) -> None:
         if self._on_sync_complete:
-            GLib.idle_add(self._on_sync_complete)
-        if self._outer_nav is not None:
-            self._outer_nav.pop_to_tag("sync")
+            self._on_sync_complete()
+        self._close_sync_dialog()
 
     def _show_sync_options_dialog(self, status_label: Gtk.Label) -> None:
         root = self._outer_nav.get_root() if self._outer_nav else None
@@ -686,6 +694,7 @@ class SyncDialog(Adw.NavigationPage):
             GLib.idle_add(_done, msg)
             if self._on_sync_complete:
                 GLib.idle_add(self._on_sync_complete)
+            GLib.timeout_add(1500, self._close_sync_dialog)
 
         except Exception as exc:
             log.exception("Sync operation failed")
