@@ -53,6 +53,47 @@ def scan_bt_paired_devices() -> list[tuple[str, str]]:
         return []
 
 
+def bind_bt_to_rfcomm(addr: str, channel: int = 1) -> tuple[str, str] | tuple[None, str]:
+    """Try to bind a BT address to /dev/rfcommN via rfcomm(1).
+
+    Returns (device_path, "") on success or (None, error_message) on failure.
+    Tries without elevated privileges first, then via pkexec.
+    """
+    # Find a free rfcomm slot.
+    slot: int | None = None
+    for i in range(10):
+        if not Path(f"/dev/rfcomm{i}").exists():
+            slot = i
+            break
+    if slot is None:
+        return None, "Kein freier rfcomm-Slot verfügbar (0-9 belegt)"
+
+    dev = f"/dev/rfcomm{slot}"
+    bind_cmd = ["rfcomm", "bind", str(slot), addr, str(channel)]
+
+    # Release any stale binding first (ignore errors).
+    try:
+        subprocess.run(["rfcomm", "release", str(slot)],
+                       capture_output=True, timeout=3)
+    except Exception:
+        pass
+
+    # Try without sudo, then escalate via pkexec.
+    for cmd in (bind_cmd, ["pkexec"] + bind_cmd):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if result.returncode == 0:
+                return dev, ""
+        except FileNotFoundError as exc:
+            return None, f"rfcomm nicht gefunden: {exc}"
+        except subprocess.TimeoutExpired:
+            return None, "Zeitüberschreitung beim Binden"
+        except Exception as exc:
+            return None, str(exc)
+
+    return None, "rfcomm bind fehlgeschlagen (returncode != 0)"
+
+
 OBD_CANDIDATE_PATHS = [
     "/dev/rfcomm0",
     "/dev/rfcomm1",

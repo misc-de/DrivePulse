@@ -16,7 +16,7 @@ from gi.repository import GLib  # noqa: E402
 
 from .common import SUPPORTED_LANGUAGES, _normalize_language, _translate, language_name
 from .gauge import all_theme_options
-from .obd_devices import scan_obd_devices
+from .obd_devices import bind_bt_to_rfcomm, scan_bt_paired_devices, scan_obd_devices
 from . import tts_service, updater
 
 
@@ -379,6 +379,32 @@ class SettingsDialog(Adw.Dialog):
 
         # OBD group
         app_page.add(obd_group)
+
+        # Bluetooth OBD-Dongle group
+        bt_group = Adw.PreferencesGroup(
+            title=_translate(self.language, "settings.bt_obd"),
+            description=_translate(self.language, "settings.bt_obd.desc"),
+        )
+        self._bt_expander = Adw.ExpanderRow(
+            title=_translate(self.language, "settings.bt_obd.scan"),
+            subtitle=_translate(self.language, "settings.bt_obd.scan.subtitle"),
+        )
+        self._bt_expander.set_expanded(False)
+        self._bt_device_rows: list[Adw.ActionRow] = []
+
+        # Refresh button in the expander header
+        _bt_refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        _bt_refresh_btn.set_valign(Gtk.Align.CENTER)
+        _bt_refresh_btn.add_css_class("flat")
+        _bt_refresh_btn.set_tooltip_text(_translate(self.language, "settings.bt_obd.refresh"))
+        _bt_refresh_btn.connect("clicked", self._on_bt_refresh_clicked)
+        self._bt_expander.add_action(_bt_refresh_btn)
+
+        bt_group.add(self._bt_expander)
+        app_page.add(bt_group)
+
+        # Trigger initial BT scan in background
+        self._bt_scan_async()
 
         # ── Display page ──────────────────────────────────────────────────────
         display_page = Adw.PreferencesPage(
@@ -760,4 +786,93 @@ class SettingsDialog(Adw.Dialog):
         else:
             self._update_btn.set_label(_translate(self.language, "settings.app.update_error"))
         self._update_btn.set_sensitive(False)
+        return False
+
+    # ── Bluetooth OBD ─────────────────────────────────────────────────────────
+
+    def _on_bt_refresh_clicked(self, _btn: Gtk.Button) -> None:
+        self._bt_scan_async()
+
+    def _bt_scan_async(self) -> None:
+        self._bt_expander.set_subtitle(_translate(self.language, "settings.bt_obd.scanning"))
+        threading.Thread(target=self._bt_scan_thread, daemon=True).start()
+
+    def _bt_scan_thread(self) -> None:
+        devices = scan_bt_paired_devices()  # [(label, "bt:ADDR"), ...]
+        GLib.idle_add(self._bt_scan_done, devices)
+
+    def _bt_scan_done(self, devices: list[tuple[str, str]]) -> bool:
+        # Remove old device rows
+        for row in self._bt_device_rows:
+            self._bt_expander.remove(row)
+        self._bt_device_rows.clear()
+
+        if not devices:
+            self._bt_expander.set_subtitle(_translate(self.language, "settings.bt_obd.none_found"))
+            return False
+
+        count = len(devices)
+        self._bt_expander.set_subtitle(
+            _translate(self.language, "settings.bt_obd.found").format(n=count)
+        )
+        self._bt_expander.set_expanded(True)
+
+        for label, bt_port in devices:
+            addr = bt_port[3:]  # strip "bt:"
+            row = Adw.ActionRow(title=label)
+            row.set_activatable(False)
+
+            connect_btn = Gtk.Button(label=_translate(self.language, "settings.bt_obd.connect"))
+            connect_btn.set_valign(Gtk.Align.CENTER)
+            connect_btn.add_css_class("suggested-action")
+            connect_btn.connect("clicked", self._on_bt_connect_clicked, addr, row)
+            row.add_suffix(connect_btn)
+
+            self._bt_expander.add_row(row)
+            self._bt_device_rows.append(row)
+
+        return False
+
+    def _on_bt_connect_clicked(self, btn: Gtk.Button, addr: str, row: Adw.ActionRow) -> None:
+        btn.set_sensitive(False)
+        spinner = Gtk.Spinner()
+        spinner.start()
+        row.add_suffix(spinner)
+        row.set_subtitle(_translate(self.language, "settings.bt_obd.connecting"))
+        threading.Thread(
+            target=self._bt_bind_thread,
+            args=(addr, btn, spinner, row),
+            daemon=True,
+        ).start()
+
+    def _bt_bind_thread(
+        self,
+        addr: str,
+        btn: Gtk.Button,
+        spinner: Gtk.Spinner,
+        row: Adw.ActionRow,
+    ) -> None:
+        dev, err = bind_bt_to_rfcomm(addr)
+        GLib.idle_add(self._bt_bind_done, dev, err, btn, spinner, row)
+
+    def _bt_bind_done(
+        self,
+        dev: str | None,
+        err: str,
+        btn: Gtk.Button,
+        spinner: Gtk.Spinner,
+        row: Adw.ActionRow,
+    ) -> bool:
+        spinner.stop()
+        row.remove(spinner)
+        if dev:
+            row.set_subtitle(f"✓ {dev}")
+            btn.set_label(dev)
+            btn.remove_css_class("suggested-action")
+            btn.add_css_class("success")
+            if self.on_obd_port_changed is not None:
+                self.on_obd_port_changed(dev)
+        else:
+            row.set_subtitle(f"✗ {err}")
+            btn.set_sensitive(True)
         return False
