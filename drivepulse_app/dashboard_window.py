@@ -717,8 +717,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # (or vice versa) would otherwise repaint the whole UI the wrong colour.
         # The gauge's Cairo drawing controls its own colours regardless of this CSS.
         is_light_theme = "_light" in theme
-        themes_match = (is_dark and not is_light_theme) or (not is_dark and is_light_theme)
-        if themes_match:
+        # Dark themes always apply their background CSS — the user explicitly chose a dark
+        # theme and expects a dark canvas regardless of the system colour scheme.
+        # Light themes are suppressed in dark mode to avoid painting a white background
+        # over the dark UI.
+        load_css = not is_light_theme or not is_dark
+        if load_css:
             css = get_theme_css(theme)
             self._theme_css_provider.load_from_data(css.encode() if css else b"")
         else:
