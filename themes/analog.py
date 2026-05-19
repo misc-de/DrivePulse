@@ -5,10 +5,9 @@ from typing import Any
 THEME_TYPE = "dashboard"
 LABEL = {"en": "Analog", "de": "Analog"}
 CSS = """
-window.dp-theme-analog,
-window.dp-theme-analog toolbarview,
-window.dp-theme-analog scrolledwindow,
-window.dp-theme-analog scrolledwindow > viewport,
+window.dp-theme-analog .dp-main-nav,
+window.dp-theme-analog .dp-main-nav scrolledwindow,
+window.dp-theme-analog .dp-main-nav scrolledwindow > viewport,
 window.dp-theme-analog .dp-gauge-bg,
 window.dp-theme-analog .dp-gauge-bg > * {
   background-color: #0d0d0f;

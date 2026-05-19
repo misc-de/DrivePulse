@@ -6,10 +6,9 @@ from typing import Any
 THEME_TYPE = "dashboard"
 LABEL = {"en": "Modern", "de": "Modern"}
 CSS = """
-window.dp-theme-modern,
-window.dp-theme-modern toolbarview,
-window.dp-theme-modern scrolledwindow,
-window.dp-theme-modern scrolledwindow > viewport,
+window.dp-theme-modern .dp-main-nav,
+window.dp-theme-modern .dp-main-nav scrolledwindow,
+window.dp-theme-modern .dp-main-nav scrolledwindow > viewport,
 window.dp-theme-modern .dp-gauge-bg,
 window.dp-theme-modern .dp-gauge-bg > * {
   background-color: #09090d;
