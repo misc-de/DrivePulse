@@ -19,8 +19,7 @@ log = get_logger(__name__)
 
 
 def generate_tls_keypair(cert_path: Path, key_path: Path) -> None:
-    if cert_path.exists() and key_path.exists():
-        return
+    # Always regenerate — each server session gets a fresh ephemeral keypair.
     cert_path.parent.mkdir(parents=True, exist_ok=True)
     key = ec.generate_private_key(ec.SECP256R1())
     key_path.write_bytes(
@@ -39,7 +38,7 @@ def generate_tls_keypair(cert_path: Path, key_path: Path) -> None:
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=3650))
+        .not_valid_after(now + datetime.timedelta(hours=2))
         .sign(key, hashes.SHA256())
     )
     cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))

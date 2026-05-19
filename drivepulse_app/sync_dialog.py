@@ -20,13 +20,7 @@ from .sync_crypto import (
     get_spki_fingerprint,
 )
 from .sync_identity import CERT_PATH, KEY_PATH, SYNC_DIR, get_or_create_device_id
-from .sync_data import (
-    export_all,
-    import_data,
-    load_paired_devices,
-    save_paired_devices,
-    upsert_paired_device,
-)
+from .sync_data import export_all, import_data
 from .sync_qr_scanner import WebcamQRScanner, scan_supported
 from .sync_server import SyncServer
 from .sync_client import SyncClient
@@ -38,6 +32,14 @@ MODE_REMOTE_WINS = "remote_wins"
 MODE_LOCAL_WINS = "local_wins"
 MODE_REMOTE_WINS_ALL = "remote_wins_all"
 MODE_LOCAL_WINS_ALL = "local_wins_all"
+
+_MODE_DESCRIPTION_KEYS: dict[str, str] = {
+    MODE_MERGE: "sync.mode.merge.description",
+    MODE_REMOTE_WINS: "sync.mode.remote_wins.description",
+    MODE_LOCAL_WINS: "sync.mode.local_wins.description",
+    MODE_REMOTE_WINS_ALL: "sync.mode.remote_wins_all.description",
+    MODE_LOCAL_WINS_ALL: "sync.mode.local_wins_all.description",
+}
 log = get_logger(__name__)
 
 # Server waits this many seconds for a client before auto-closing.
@@ -156,17 +158,12 @@ class SyncDialog(Adw.NavigationPage):
         client_row.set_subtitle(self._t("sync.client.row_subtitle"))
         client_btn = Gtk.Button(label="→")
         client_btn.set_valign(Gtk.Align.CENTER)
-        client_btn.connect("clicked", self._push_client_page)
+        client_btn.connect("clicked", lambda _b: self._push_qr_scan_page())
         client_row.add_suffix(client_btn)
         client_row.set_activatable_widget(client_btn)
         start_group.add(client_row)
 
         box.append(start_group)
-
-        self._devices_group = Adw.PreferencesGroup()
-        self._devices_group.set_title(self._t("sync.devices.title"))
-        box.append(self._devices_group)
-        self._populate_devices()
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -174,63 +171,6 @@ class SyncDialog(Adw.NavigationPage):
         scroll.set_child(box)
         toolbar_view.set_content(scroll)
         return toolbar_view
-
-    def _populate_devices(self) -> None:
-        for row in getattr(self, "_home_device_rows", []):
-            self._devices_group.remove(row)
-        self._home_device_rows: list[Adw.ActionRow] = []
-
-        devices = load_paired_devices()
-        if not devices:
-            empty_row = Adw.ActionRow()
-            empty_row.set_title(self._t("sync.devices.empty"))
-            self._devices_group.add(empty_row)
-            self._home_device_rows.append(empty_row)
-            return
-
-        for device in devices:
-            did = device.get("device_id", "")
-            name = device.get("name") or did[:12] or "Device"
-            host = device.get("host", "")
-            port = device.get("port", SyncServer.PORT)
-            last_seen = device.get("last_seen", "")
-            spki_fp = device.get("spki_fingerprint", "")
-            subtitle = f"{host}:{port}"
-            if last_seen:
-                subtitle += f" · {self._t('sync.device.last_seen', ts=last_seen[:16])}"
-
-            row = Adw.ActionRow()
-            row.set_title(name)
-            row.set_subtitle(subtitle)
-            row.set_subtitle_lines(0)
-
-            connect_btn = Gtk.Button(label=self._t("sync.device.connect"))
-            connect_btn.set_valign(Gtk.Align.CENTER)
-            connect_btn.add_css_class("suggested-action")
-            connect_btn.connect(
-                "clicked",
-                lambda _b, h=host, p=port, fp=spki_fp: self._push_qr_scan_page(h, p, fp),
-            )
-            row.add_suffix(connect_btn)
-
-            del_btn = Gtk.Button(label="×")
-            del_btn.set_valign(Gtk.Align.CENTER)
-            del_btn.add_css_class("destructive-action")
-            del_btn.set_tooltip_text(self._t("sync.device.remove"))
-            del_btn.connect("clicked", lambda _b, d_id=did: self._delete_device(d_id))
-            row.add_suffix(del_btn)
-
-            self._devices_group.add(row)
-            self._home_device_rows.append(row)
-
-    def _delete_device(self, device_id: str) -> None:
-        devices = load_paired_devices()
-        devices = [d for d in devices if d.get("device_id") != device_id]
-        save_paired_devices(devices)
-        if hasattr(self, "_devices_group"):
-            self._populate_devices()
-        if hasattr(self, "_known_devices_group"):
-            self._refresh_known_devices_group()
 
     # ------------------------------------------------------------------ server page
 
@@ -339,14 +279,6 @@ class SyncDialog(Adw.NavigationPage):
                 return
 
             def _on_paired(device_info: dict) -> None:
-                client_hostname = device_info.get("hostname", "") or device_info.get("device_id", "")[:12] or "Device"
-                upsert_paired_device(
-                    device_id=device_info.get("device_id", client_hostname),
-                    name=client_hostname,
-                    spki_fingerprint="",
-                    host="",
-                    port=0,
-                )
                 GLib.idle_add(
                     lambda: self._server_status_label.set_text(self._t("sync.server.connected"))
                 )
@@ -441,103 +373,7 @@ class SyncDialog(Adw.NavigationPage):
                 lambda: self._server_status_label.set_text(self._t("sync.error", error=_err))
             )
 
-    # ------------------------------------------------------------------ client: known devices
-
-    def _push_client_page(self, *_args: Any) -> None:
-        if self._outer_nav is None:
-            return
-        if self._outer_nav.find_page("sync-client") is not None:
-            return
-        self._push_nav(self._build_known_devices_page())
-
-    def _build_known_devices_page(self) -> Adw.NavigationPage:
-        toolbar_view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_title_widget(Gtk.Label(label=self._t("sync.client.title")))
-        header.set_show_start_title_buttons(False)
-        header.set_show_end_title_buttons(False)
-        toolbar_view.add_top_bar(header)
-
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        box.set_margin_top(16)
-        box.set_margin_bottom(16)
-        box.set_margin_start(16)
-        box.set_margin_end(16)
-
-        qr_btn = Gtk.Button(label=self._t("sync.client.scan_camera"))
-        qr_btn.add_css_class("suggested-action")
-        qr_btn.set_hexpand(True)
-        qr_btn.connect("clicked", lambda _b: self._push_qr_scan_page("", 0, ""))
-        box.append(qr_btn)
-
-        group = Adw.PreferencesGroup()
-        group.set_title(self._t("sync.devices.title"))
-        box.append(group)
-        self._known_devices_group = group
-        self._refresh_known_devices_group()
-
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_vexpand(True)
-        scroll.set_child(box)
-        toolbar_view.set_content(scroll)
-
-        page = Adw.NavigationPage()
-        page.set_tag("sync-client")
-        page.set_title(self._t("sync.client.title"))
-        page.set_child(toolbar_view)
-        return page
-
-    def _refresh_known_devices_group(self) -> None:
-        group = self._known_devices_group
-        for row in getattr(self, "_known_device_rows", []):
-            group.remove(row)
-        self._known_device_rows: list[Adw.ActionRow] = []
-
-        devices = load_paired_devices()
-        if not devices:
-            empty_row = Adw.ActionRow()
-            empty_row.set_title(self._t("sync.devices.empty"))
-            group.add(empty_row)
-            self._known_device_rows.append(empty_row)
-            return
-
-        for device in devices:
-            did = device.get("device_id", "")
-            name = device.get("name") or did[:12] or "Device"
-            host = device.get("host", "")
-            port = device.get("port", SyncServer.PORT)
-            last_seen = device.get("last_seen", "")
-            spki_fp = device.get("spki_fingerprint", "")
-            subtitle = f"{host}:{port}"
-            if last_seen:
-                subtitle += f" · {self._t('sync.device.last_seen', ts=last_seen[:16])}"
-
-            row = Adw.ActionRow()
-            row.set_title(GLib.markup_escape_text(name))
-            row.set_subtitle(GLib.markup_escape_text(subtitle))
-            row.set_subtitle_lines(0)
-
-            connect_btn = Gtk.Button(label=self._t("sync.device.connect"))
-            connect_btn.set_valign(Gtk.Align.CENTER)
-            connect_btn.add_css_class("suggested-action")
-            connect_btn.connect(
-                "clicked",
-                lambda _b, h=host, p=port, fp=spki_fp: self._push_qr_scan_page(h, p, fp),
-            )
-            row.add_suffix(connect_btn)
-
-            del_btn = Gtk.Button(label="×")
-            del_btn.set_valign(Gtk.Align.CENTER)
-            del_btn.add_css_class("destructive-action")
-            del_btn.set_tooltip_text(self._t("sync.device.remove"))
-            del_btn.connect("clicked", lambda _b, d_id=did: self._delete_device(d_id))
-            row.add_suffix(del_btn)
-
-            group.add(row)
-            self._known_device_rows.append(row)
-
-    def _push_qr_scan_page(self, host: str, port: int, spki_fp: str) -> None:
+    def _push_qr_scan_page(self) -> None:
         if self._outer_nav is None:
             return
         if self._outer_nav.find_page("sync-qr-scan") is not None:
@@ -639,6 +475,7 @@ class SyncDialog(Adw.NavigationPage):
             self._active_host = pairing.host
             self._active_port = pairing.port
             self._active_spki_fp = pairing.spki_fingerprint
+            self._active_server_hostname = client.server_hostname or pairing.host
             GLib.idle_add(self._push_paired_page)
 
         except Exception as exc:
@@ -652,14 +489,15 @@ class SyncDialog(Adw.NavigationPage):
             return False
         if self._outer_nav.find_page("sync-paired") is not None:
             return False
-        page, self._paired_status_label = self._build_paired_page(self._active_host)
+        hostname = getattr(self, "_active_server_hostname", self._active_host)
+        page, self._paired_status_label = self._build_paired_page(hostname, self._active_host)
         self._push_nav(page)
         return False
 
-    def _build_paired_page(self, host: str) -> tuple[Adw.NavigationPage, Gtk.Label]:
+    def _build_paired_page(self, hostname: str, ip: str) -> tuple[Adw.NavigationPage, Gtk.Label]:
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        header.set_title_widget(Gtk.Label(label=self._t("sync.paired.title")))
+        header.set_title_widget(Gtk.Label(label=hostname or ip))
         header.set_show_start_title_buttons(False)
         header.set_show_end_title_buttons(False)
         toolbar_view.add_top_bar(header)
@@ -670,79 +508,24 @@ class SyncDialog(Adw.NavigationPage):
         box.set_margin_start(16)
         box.set_margin_end(16)
 
-        ok_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
-        ok_icon.set_pixel_size(48)
-        ok_icon.add_css_class("success")
-        ok_icon.set_halign(Gtk.Align.CENTER)
-        box.append(ok_icon)
+        sync_icon = Gtk.Image.new_from_icon_name("emblem-synchronizing-symbolic")
+        sync_icon.set_pixel_size(64)
+        sync_icon.add_css_class("success")
+        sync_icon.set_halign(Gtk.Align.CENTER)
+        box.append(sync_icon)
 
-        connected_label = Gtk.Label(label=self._t("sync.paired.connected_to", host=host))
+        connected_label = Gtk.Label(label=self._t("sync.paired.connected_to", host=hostname or ip))
         connected_label.add_css_class("title-2")
         connected_label.set_halign(Gtk.Align.CENTER)
         connected_label.set_wrap(True)
         connected_label.set_justify(Gtk.Justification.CENTER)
         box.append(connected_label)
 
-        hint_label = Gtk.Label(label=self._t("sync.paired.hint"))
-        hint_label.add_css_class("dim-label")
-        hint_label.set_halign(Gtk.Align.CENTER)
-        hint_label.set_wrap(True)
-        box.append(hint_label)
-
-        mode_group = Adw.PreferencesGroup()
-        mode_group.set_title(self._t("sync.mode.label"))
-        box.append(mode_group)
-
-        self._sync_mode = MODE_MERGE
-        merge_check = Gtk.CheckButton()
-        merge_check.set_active(True)
-        merge_check.set_valign(Gtk.Align.CENTER)
-
-        def _make_mode_row(check: Gtk.CheckButton, title_key: str, sub_key: str) -> Adw.ActionRow:
-            row = Adw.ActionRow()
-            row.set_title(self._t(title_key))
-            row.set_subtitle(self._t(sub_key))
-            row.set_subtitle_lines(0)
-            row.add_prefix(check)
-            row.set_activatable_widget(check)
-            return row
-
-        mode_group.add(_make_mode_row(merge_check, "sync.mode.merge", "sync.mode.merge.subtitle"))
-
-        remote_check = Gtk.CheckButton()
-        remote_check.set_group(merge_check)
-        remote_check.set_valign(Gtk.Align.CENTER)
-        mode_group.add(_make_mode_row(remote_check, "sync.mode.remote_wins", "sync.mode.remote_wins.subtitle"))
-
-        local_check = Gtk.CheckButton()
-        local_check.set_group(merge_check)
-        local_check.set_valign(Gtk.Align.CENTER)
-        mode_group.add(_make_mode_row(local_check, "sync.mode.local_wins", "sync.mode.local_wins.subtitle"))
-
-        remote_all_check = Gtk.CheckButton()
-        remote_all_check.set_group(merge_check)
-        remote_all_check.set_valign(Gtk.Align.CENTER)
-        mode_group.add(_make_mode_row(remote_all_check, "sync.mode.remote_wins_all", "sync.mode.remote_wins_all.subtitle"))
-
-        local_all_check = Gtk.CheckButton()
-        local_all_check.set_group(merge_check)
-        local_all_check.set_valign(Gtk.Align.CENTER)
-        mode_group.add(_make_mode_row(local_all_check, "sync.mode.local_wins_all", "sync.mode.local_wins_all.subtitle"))
-
-        def _on_mode_toggled(*_: Any) -> None:
-            if remote_check.get_active():
-                self._sync_mode = MODE_REMOTE_WINS
-            elif local_check.get_active():
-                self._sync_mode = MODE_LOCAL_WINS
-            elif remote_all_check.get_active():
-                self._sync_mode = MODE_REMOTE_WINS_ALL
-            elif local_all_check.get_active():
-                self._sync_mode = MODE_LOCAL_WINS_ALL
-            else:
-                self._sync_mode = MODE_MERGE
-
-        for chk in (merge_check, remote_check, local_check, remote_all_check, local_all_check):
-            chk.connect("toggled", _on_mode_toggled)
+        if hostname and hostname != ip and ip:
+            ip_label = Gtk.Label(label=ip)
+            ip_label.add_css_class("dim-label")
+            ip_label.set_halign(Gtk.Align.CENTER)
+            box.append(ip_label)
 
         status_label = Gtk.Label(label="")
         status_label.set_wrap(True)
@@ -750,14 +533,19 @@ class SyncDialog(Adw.NavigationPage):
         status_label.set_justify(Gtk.Justification.CENTER)
         box.append(status_label)
 
-        sync_btn = Gtk.Button(label=self._t("sync.paired.sync_btn"))
-        sync_btn.add_css_class("suggested-action")
-        sync_btn.set_halign(Gtk.Align.FILL)
-        sync_btn.connect(
+        complete_btn = Gtk.Button(label=self._t("sync.paired.complete_btn"))
+        complete_btn.add_css_class("suggested-action")
+        complete_btn.set_halign(Gtk.Align.FILL)
+        complete_btn.connect("clicked", lambda _b: self._complete_without_sync())
+        box.append(complete_btn)
+
+        sync_opts_btn = Gtk.Button(label=self._t("sync.paired.sync_options_btn"))
+        sync_opts_btn.set_halign(Gtk.Align.FILL)
+        sync_opts_btn.connect(
             "clicked",
-            lambda _b: self._on_sync_start(sync_btn, status_label),
+            lambda _b, sl=status_label: self._show_sync_options_dialog(sl),
         )
-        box.append(sync_btn)
+        box.append(sync_opts_btn)
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -767,25 +555,114 @@ class SyncDialog(Adw.NavigationPage):
 
         page = Adw.NavigationPage()
         page.set_tag("sync-paired")
-        page.set_title(self._t("sync.paired.title"))
+        page.set_title(hostname or ip)
         page.set_child(toolbar_view)
         return page, status_label
 
-    def _on_sync_start(self, sync_btn: Gtk.Button, status_label: Gtk.Label) -> None:
-        sync_btn.set_sensitive(False)
-        status_label.set_text(self._t("sync.client.connecting"))
-        threading.Thread(
-            target=self._do_sync,
-            args=(self._active_client, self._sync_mode, status_label, sync_btn),
-            daemon=True,
-        ).start()
+    def _complete_without_sync(self) -> None:
+        if self._on_sync_complete:
+            GLib.idle_add(self._on_sync_complete)
+        if self._outer_nav is not None:
+            self._outer_nav.pop_to_tag("sync")
+
+    def _show_sync_options_dialog(self, status_label: Gtk.Label) -> None:
+        root = self._outer_nav.get_root() if self._outer_nav else None
+        parent_window = root if isinstance(root, Gtk.Window) else None
+
+        dialog = Adw.MessageDialog.new(parent_window, self._t("sync.options.title"), "")
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.set_margin_top(8)
+        content.set_margin_bottom(4)
+
+        mode_group = Adw.PreferencesGroup()
+        content.append(mode_group)
+
+        selected_mode = [MODE_MERGE]
+
+        desc_label = Gtk.Label(label=self._t("sync.mode.merge.description"))
+        desc_label.set_wrap(True)
+        desc_label.set_max_width_chars(48)
+        desc_label.set_justify(Gtk.Justification.CENTER)
+        desc_label.set_halign(Gtk.Align.CENTER)
+        desc_label.add_css_class("dim-label")
+        desc_label.set_margin_top(8)
+        content.append(desc_label)
+
+        def _make_mode_row(check: Gtk.CheckButton, title_key: str) -> Adw.ActionRow:
+            row = Adw.ActionRow()
+            row.set_title(self._t(title_key))
+            row.add_prefix(check)
+            row.set_activatable_widget(check)
+            return row
+
+        merge_check = Gtk.CheckButton()
+        merge_check.set_active(True)
+        merge_check.set_valign(Gtk.Align.CENTER)
+        mode_group.add(_make_mode_row(merge_check, "sync.mode.merge"))
+
+        remote_check = Gtk.CheckButton()
+        remote_check.set_group(merge_check)
+        remote_check.set_valign(Gtk.Align.CENTER)
+        mode_group.add(_make_mode_row(remote_check, "sync.mode.remote_wins"))
+
+        local_check = Gtk.CheckButton()
+        local_check.set_group(merge_check)
+        local_check.set_valign(Gtk.Align.CENTER)
+        mode_group.add(_make_mode_row(local_check, "sync.mode.local_wins"))
+
+        remote_all_check = Gtk.CheckButton()
+        remote_all_check.set_group(merge_check)
+        remote_all_check.set_valign(Gtk.Align.CENTER)
+        mode_group.add(_make_mode_row(remote_all_check, "sync.mode.remote_wins_all"))
+
+        local_all_check = Gtk.CheckButton()
+        local_all_check.set_group(merge_check)
+        local_all_check.set_valign(Gtk.Align.CENTER)
+        mode_group.add(_make_mode_row(local_all_check, "sync.mode.local_wins_all"))
+
+        def _on_toggled(*_: Any) -> None:
+            if remote_check.get_active():
+                selected_mode[0] = MODE_REMOTE_WINS
+            elif local_check.get_active():
+                selected_mode[0] = MODE_LOCAL_WINS
+            elif remote_all_check.get_active():
+                selected_mode[0] = MODE_REMOTE_WINS_ALL
+            elif local_all_check.get_active():
+                selected_mode[0] = MODE_LOCAL_WINS_ALL
+            else:
+                selected_mode[0] = MODE_MERGE
+            desc_label.set_text(self._t(_MODE_DESCRIPTION_KEYS[selected_mode[0]]))
+
+        for chk in (merge_check, remote_check, local_check, remote_all_check, local_all_check):
+            chk.connect("toggled", _on_toggled)
+
+        dialog.set_extra_child(content)
+        dialog.add_response("cancel", self._t("sync.options.cancel_btn"))
+        dialog.add_response("start", self._t("sync.options.start_btn"))
+        dialog.set_response_appearance("start", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("start")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.MessageDialog, response_id: str) -> None:
+            if response_id == "start":
+                mode = selected_mode[0]
+                status_label.set_text(self._t("sync.client.connecting"))
+                threading.Thread(
+                    target=self._do_sync,
+                    args=(self._active_client, mode, status_label),
+                    daemon=True,
+                ).start()
+
+        dialog.connect("response", _on_response)
+        dialog.present()
 
     def _do_sync(
         self,
         client: SyncClient,
         mode: str,
         status_label: Gtk.Label,
-        sync_btn: Gtk.Button,
+        sync_btn: Gtk.Button | None = None,
     ) -> None:
         def _set(msg: str) -> bool:
             status_label.set_text(msg)
@@ -793,20 +670,12 @@ class SyncDialog(Adw.NavigationPage):
 
         def _done(msg: str) -> bool:
             status_label.set_text(msg)
-            sync_btn.set_sensitive(True)
+            if sync_btn is not None:
+                sync_btn.set_sensitive(True)
             return False
 
         try:
             result = perform_sync(self._db, client, mode)
-
-            server_name = getattr(client, "server_hostname", "") or self._active_host
-            upsert_paired_device(
-                device_id=self._active_host,
-                name=server_name,
-                spki_fingerprint=self._active_spki_fp,
-                host=self._active_host,
-                port=self._active_port,
-            )
 
             msg = self._t(
                 "sync.complete",

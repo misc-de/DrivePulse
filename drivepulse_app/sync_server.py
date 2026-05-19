@@ -4,6 +4,7 @@ import json
 import hmac
 import os
 import ssl
+import time
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -16,6 +17,7 @@ log = get_logger(__name__)
 
 
 PAIRING_TIMEOUT_S = 60
+SYNC_SESSION_TIMEOUT_S = 120  # seconds after pairing before session expires
 MAX_SYNC_BODY_BYTES = int(os.environ.get("DRIVEPULSE_SYNC_MAX_BODY_BYTES", str(100 * 1024 * 1024)))
 
 
@@ -44,8 +46,10 @@ class SyncServer:
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._timeout_timer: threading.Timer | None = None
+        self._sync_timer: threading.Timer | None = None
         self._paired = False
         self._cancelled = False
+        self._session_expiry: float = 0.0
         self.actual_port: int = self.PORT
 
     def start(self) -> None:
@@ -100,6 +104,21 @@ class SyncServer:
     def mark_paired(self) -> None:
         self._paired = True
         self._cancel_timeout()
+        self._session_expiry = time.time() + SYNC_SESSION_TIMEOUT_S
+        self._sync_timer = threading.Timer(SYNC_SESSION_TIMEOUT_S, self._on_session_timeout)
+        self._sync_timer.daemon = True
+        self._sync_timer.start()
+
+    def _cancel_sync_timer(self) -> None:
+        if self._sync_timer is not None:
+            self._sync_timer.cancel()
+            self._sync_timer = None
+
+    def _on_session_timeout(self) -> None:
+        log.info("Sync session expired after %ds — stopping", SYNC_SESSION_TIMEOUT_S)
+        self.stop()
+        if self._on_timeout_cb:
+            self._on_timeout_cb()
 
     def _on_timeout(self) -> None:
         if not self._paired:
@@ -111,6 +130,7 @@ class SyncServer:
     def stop(self) -> None:
         self._cancelled = True
         self._cancel_timeout()
+        self._cancel_sync_timer()
         if self._server is not None:
             try:
                 self._server.shutdown()
@@ -138,7 +158,12 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def _check_bearer(self) -> bool:
         auth = self.headers.get("Authorization", "")
-        return hmac.compare_digest(auth, f"Bearer {self._srv._session_token}")
+        if not hmac.compare_digest(auth, f"Bearer {self._srv._session_token}"):
+            return False
+        if self._srv._session_expiry and time.time() > self._srv._session_expiry:
+            log.warning("Sync request rejected — session expired")
+            return False
+        return True
 
     def _read_body(self) -> bytes | None:
         try:
