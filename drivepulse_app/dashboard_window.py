@@ -666,6 +666,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             display, self._nav_rotation_css,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
+        _global_css = Gtk.CssProvider()
+        _global_css.load_from_data(b".dp-table-row { border-radius: 0; }")
+        Gtk.StyleContext.add_provider_for_display(
+            display, _global_css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
         self._apply_theme_mode(self.theme_mode)
         self._apply_window_theme(self.gauge_theme)
         Adw.StyleManager.get_default().connect("notify::dark", self._on_system_dark_changed)
