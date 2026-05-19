@@ -41,7 +41,7 @@ MODE_LOCAL_WINS_ALL = "local_wins_all"
 log = get_logger(__name__)
 
 
-class SyncDialog(Adw.Dialog):
+class SyncDialog(Adw.NavigationPage):
     __gtype_name__ = "SyncDialog"
 
     def __init__(
@@ -52,7 +52,7 @@ class SyncDialog(Adw.Dialog):
         initial_mode: str | None = None,
         on_sync_complete: Callable[[], None] | None = None,
     ) -> None:
-        super().__init__()
+        super().__init__(tag="sync")
         self._language = language
         self._db = db
         self._on_sync_complete = on_sync_complete
@@ -64,10 +64,6 @@ class SyncDialog(Adw.Dialog):
         self._scanner: WebcamQRScanner | None = None
         self._sync_mode: str = MODE_MERGE
 
-        self.set_title(_translate(language, "sync.title"))
-        self.set_content_width(400)
-        self.set_content_height(600)
-
         self._nav = Adw.NavigationView()
         self.set_child(self._nav)
 
@@ -76,7 +72,7 @@ class SyncDialog(Adw.Dialog):
         else:
             self._nav.add(self._build_home_page())
 
-        self.connect("closed", self._on_closed)
+        self.connect("hiding", self._on_hiding)
 
     def _t(self, key: str, **kw: Any) -> str:
         return _translate(self._language, key, **kw)
@@ -104,6 +100,8 @@ class SyncDialog(Adw.Dialog):
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.title")))
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
         toolbar_view.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -784,7 +782,7 @@ class SyncDialog(Adw.Dialog):
 
     # ------------------------------------------------------------------ cleanup
 
-    def _on_closed(self, *_args: Any) -> None:
+    def _on_hiding(self, *_args: Any) -> None:
         with self._server_lock:
             self._closed = True
         self._stop_server()
