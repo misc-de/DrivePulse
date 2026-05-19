@@ -4,10 +4,8 @@ from typing import Any
 THEME_TYPE = "gauge"
 LABEL = {"en": "Cockpit Light", "de": "Cockpit Hell"}
 CSS = """
-window.dp-theme-cockpit-light .dp-main-nav,
-window.dp-theme-cockpit-light .dp-main-nav scrolledwindow,
-window.dp-theme-cockpit-light .dp-main-nav scrolledwindow > viewport,
 window.dp-theme-cockpit-light .dp-gauge-bg,
+window.dp-theme-cockpit-light .dp-gauge-bg > viewport,
 window.dp-theme-cockpit-light .dp-gauge-bg > * {
   background-color: #ffffff;
 }

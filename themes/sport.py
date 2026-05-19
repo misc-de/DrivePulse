@@ -4,10 +4,8 @@ from typing import Any
 THEME_TYPE = "dashboard"
 LABEL = {"en": "Sport", "de": "Sport"}
 CSS = """
-window.dp-theme-sport .dp-main-nav,
-window.dp-theme-sport .dp-main-nav scrolledwindow,
-window.dp-theme-sport .dp-main-nav scrolledwindow > viewport,
 window.dp-theme-sport .dp-gauge-bg,
+window.dp-theme-sport .dp-gauge-bg > viewport,
 window.dp-theme-sport .dp-gauge-bg > * {
   background-color: #030508;
 }"""

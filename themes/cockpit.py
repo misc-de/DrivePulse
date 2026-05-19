@@ -7,10 +7,8 @@ from draw_helpers import _txt
 THEME_TYPE = "gauge"
 LABEL = {"en": "Cockpit", "de": "Cockpit"}
 CSS = """
-window.dp-theme-cockpit .dp-main-nav,
-window.dp-theme-cockpit .dp-main-nav scrolledwindow,
-window.dp-theme-cockpit .dp-main-nav scrolledwindow > viewport,
 window.dp-theme-cockpit .dp-gauge-bg,
+window.dp-theme-cockpit .dp-gauge-bg > viewport,
 window.dp-theme-cockpit .dp-gauge-bg > * {
   background-color: #05080f;
 }
