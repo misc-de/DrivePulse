@@ -37,6 +37,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tts_enabled": False,
     "tts_language": "auto",
     "tts_voice": "female",
+    "log_app_enabled": True,
+    "log_obd_enabled": True,
 }
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
@@ -107,6 +109,8 @@ def load_settings() -> dict[str, Any]:
         "tts_enabled": bool(data.get("tts_enabled", DEFAULT_SETTINGS["tts_enabled"])),
         "tts_language": data.get("tts_language") if data.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
         "tts_voice": data.get("tts_voice") if data.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
+        "log_app_enabled": bool(data.get("log_app_enabled", DEFAULT_SETTINGS["log_app_enabled"])),
+        "log_obd_enabled": bool(data.get("log_obd_enabled", DEFAULT_SETTINGS["log_obd_enabled"])),
     }
 
 
@@ -146,6 +150,8 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "tts_enabled": bool(settings.get("tts_enabled", False)),
                 "tts_language": settings.get("tts_language") if settings.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
                 "tts_voice": settings.get("tts_voice") if settings.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
+                "log_app_enabled": bool(settings.get("log_app_enabled", True)),
+                "log_obd_enabled": bool(settings.get("log_obd_enabled", True)),
             },
             indent=2,
         ),

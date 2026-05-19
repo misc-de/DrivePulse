@@ -81,6 +81,10 @@ class SettingsDialog(Adw.Dialog):
         on_tts_language_changed: Callable[[str], None] | None = None,
         current_tts_voice: str = "female",
         on_tts_voice_changed: Callable[[str], None] | None = None,
+        current_log_app_enabled: bool = True,
+        on_log_app_enabled_changed: Callable[[bool], None] | None = None,
+        current_log_obd_enabled: bool = True,
+        on_log_obd_enabled_changed: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__()
         self.language = _normalize_language(current_language)
@@ -109,6 +113,8 @@ class SettingsDialog(Adw.Dialog):
         self.on_tts_enabled_changed = on_tts_enabled_changed
         self.on_tts_language_changed = on_tts_language_changed
         self.on_tts_voice_changed = on_tts_voice_changed
+        self.on_log_app_enabled_changed = on_log_app_enabled_changed
+        self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self._remote_version: str | None = None
         self.set_title(_translate(self.language, "settings.title"))
         self.set_content_width(380)
@@ -230,6 +236,21 @@ class SettingsDialog(Adw.Dialog):
         self.tts_voice_row.set_selected(sel_tts_voice)
         self.tts_voice_row.connect("notify::selected", self._on_tts_voice_selected)
 
+        # Logging rows
+        self.log_app_row = Adw.SwitchRow(
+            title=_translate(self.language, "settings.log_app"),
+            subtitle=_translate(self.language, "settings.log_app.subtitle"),
+        )
+        self.log_app_row.set_active(current_log_app_enabled)
+        self.log_app_row.connect("notify::active", self._on_log_app_toggled)
+
+        self.log_obd_row = Adw.SwitchRow(
+            title=_translate(self.language, "settings.log_obd"),
+            subtitle=_translate(self.language, "settings.log_obd.subtitle"),
+        )
+        self.log_obd_row.set_active(current_log_obd_enabled)
+        self.log_obd_row.connect("notify::active", self._on_log_obd_toggled)
+
         # OBD hardware group
         obd_devices = scan_obd_devices()  # (label, port, is_present)
         self._obd_port_values: list[str | None] = [None]
@@ -336,6 +357,11 @@ class SettingsDialog(Adw.Dialog):
         app_group.add(self.mock_row)
         app_group.add(self._update_row)
         app_page.add(app_group)
+
+        logging_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.logging"))
+        logging_group.add(self.log_app_row)
+        logging_group.add(self.log_obd_row)
+        app_page.add(logging_group)
 
         # OBD group
         app_page.add(obd_group)
@@ -645,6 +671,14 @@ class SettingsDialog(Adw.Dialog):
             idx = self.tts_voice_row.get_selected()
             voice = self._TTS_VOICES[idx] if 0 <= idx < len(self._TTS_VOICES) else "female"
             self.on_tts_voice_changed(voice)
+
+    def _on_log_app_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
+        if self.on_log_app_enabled_changed is not None:
+            self.on_log_app_enabled_changed(row.get_active())
+
+    def _on_log_obd_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
+        if self.on_log_obd_enabled_changed is not None:
+            self.on_log_obd_enabled_changed(row.get_active())
 
     # ── Update check ──────────────────────────────────────────────────────────
 
