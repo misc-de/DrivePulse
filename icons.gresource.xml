@@ -30,5 +30,8 @@
     <file alias="dp-nav-depart-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-depart-symbolic.svg</file>
     <file alias="dp-nav-arrive-symbolic.svg">icons/hicolor/symbolic/actions/dp-nav-arrive-symbolic.svg</file>
     <file alias="dp-view-3d-symbolic.svg">icons/hicolor/symbolic/actions/dp-view-3d-symbolic.svg</file>
+    <file alias="dp-bluetooth-symbolic.svg">icons/hicolor/symbolic/actions/dp-bluetooth-symbolic.svg</file>
+    <file alias="dp-chevron-down-symbolic.svg">icons/hicolor/symbolic/actions/dp-chevron-down-symbolic.svg</file>
+    <file alias="dp-chevron-up-symbolic.svg">icons/hicolor/symbolic/actions/dp-chevron-up-symbolic.svg</file>
   </gresource>
 </gresources>
