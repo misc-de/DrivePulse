@@ -129,7 +129,9 @@ class DashboardSettingsMixin:
             current_log_obd_enabled=getattr(self, "log_obd_enabled", True),
             on_log_obd_enabled_changed=self._set_log_obd_enabled,
         )
-        dialog.present(self)
+        dialog.set_transient_for(self)
+        dialog.fullscreen()
+        dialog.present()
 
     def _set_dashcam_camera(self, value: str) -> None:
         self.dashcam_camera = value
