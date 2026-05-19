@@ -36,6 +36,7 @@ from .obd_reader import ObdReader
 from .rotation import RotationProvider
 from .rotated_container import RotatedContainer
 from .trip_recorder import TripRecorder
+from .sync_poller import SyncPoller
 
 
 class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTelemetryMixin, Adw.ApplicationWindow):
@@ -326,6 +327,18 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._sync_btn.set_tooltip_text(_translate(self.language, "sync.tooltip"))
         self._sync_btn.connect("clicked", self._open_sync)
 
+        # Kleiner Verbindungs-Dot über dem Sync-Button (grün = erreichbar, grau = offline)
+        self._sync_dot = Gtk.Label(label="●")
+        self._sync_dot.add_css_class("dp-sync-dot")
+        self._sync_dot.add_css_class("dp-sync-dot-offline")
+        self._sync_dot.set_valign(Gtk.Align.END)
+        self._sync_dot.set_halign(Gtk.Align.END)
+        self._sync_dot.set_margin_end(2)
+        self._sync_dot.set_margin_bottom(2)
+        _sync_overlay = Gtk.Overlay()
+        _sync_overlay.set_child(self._sync_btn)
+        _sync_overlay.add_overlay(self._sync_dot)
+
         # REC indicator — shown when dashcam is recording in the background
         self._dashcam_rec_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self._dashcam_rec_box.set_visible(False)
@@ -341,7 +354,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         header.pack_start(self.gps_indicator["box"])
         header.pack_start(self._dashcam_rec_box)
         header.pack_end(settings_button)
-        header.pack_end(self._sync_btn)
+        header.pack_end(_sync_overlay)
         header.pack_end(self._ctx_trash_btn)
 
         switcher_top = Adw.ViewSwitcherBar()
@@ -399,6 +412,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.reader.start()
         self.gps_reader = GpsReader(self._update_from_payload, mock_mode=self.mock_mode)
         self.gps_reader.start()
+        self._sync_poller = SyncPoller(on_status=self._on_sync_status)
+        self._sync_poller.start()
         self.orientation_reader = OrientationReader(self._on_orientation_changed)
         self.orientation_reader.on_gforce = self.stopwatch_page.update_gforce_raw
         self.rotation.bind(self._apply_page_rotation)
@@ -669,7 +684,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
         _global_css = Gtk.CssProvider()
-        _global_css.load_from_data(b".dp-table-row { border-radius: 0; }")
+        _global_css.load_from_data(
+            b".dp-table-row { border-radius: 0; }"
+            b".dp-sync-dot { font-size: 8px; }"
+            b".dp-sync-dot-online { color: #33d17a; }"
+            b".dp-sync-dot-offline { color: alpha(currentColor, 0.25); }"
+        )
         Gtk.StyleContext.add_provider_for_display(
             display, _global_css,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
@@ -690,6 +710,15 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if hasattr(self, "stopwatch_page"):
             effective = "dark" if manager.get_dark() else "light"
             self.stopwatch_page.set_theme_mode(effective)
+
+    def _on_sync_status(self, reachable: bool) -> None:
+        dot = self._sync_dot
+        if reachable:
+            dot.remove_css_class("dp-sync-dot-offline")
+            dot.add_css_class("dp-sync-dot-online")
+        else:
+            dot.remove_css_class("dp-sync-dot-online")
+            dot.add_css_class("dp-sync-dot-offline")
 
     def _on_system_dark_changed(self, _manager: Any, _param: Any) -> None:
         if getattr(self, "theme_mode", "auto") == "auto":

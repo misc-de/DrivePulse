@@ -211,6 +211,10 @@ class _SyncHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "not found"})
 
     def do_GET(self) -> None:
+        if self.path == "/ping":
+            self._send_json(200, {"ok": True})
+            return
+
         if self.path == "/sync/export":
             if not self._check_bearer():
                 self._send_json(403, {"ok": False, "error": "unauthorized"})

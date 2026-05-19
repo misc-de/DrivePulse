@@ -40,6 +40,9 @@ MODE_REMOTE_WINS_ALL = "remote_wins_all"
 MODE_LOCAL_WINS_ALL = "local_wins_all"
 log = get_logger(__name__)
 
+# Server waits this many seconds for a client before auto-closing.
+_SERVER_TIMEOUT_S = 180  # 3 minutes
+
 
 class SyncDialog(Adw.NavigationPage):
     __gtype_name__ = "SyncDialog"
@@ -63,16 +66,17 @@ class SyncDialog(Adw.NavigationPage):
         self._closed = False
         self._scanner: WebcamQRScanner | None = None
         self._sync_mode: str = MODE_MERGE
+        # Outer app NavigationView — all sub-pages are pushed here so swipe
+        # always works; there is no inner NavigationView.
+        self._outer_nav: Adw.NavigationView | None = getattr(parent, "nav_view", None)
 
-        self._nav = Adw.NavigationView()
-        self.set_child(self._nav)
+        self.set_child(self._build_home_content())
+        self.connect("hiding", self._on_hiding)
 
         if initial_mode == "client":
-            self._nav.add(self._build_known_devices_page())
-        else:
-            self._nav.add(self._build_home_page())
-
-        self.connect("hiding", self._on_hiding)
+            GLib.idle_add(self._push_client_page)
+        elif initial_mode == "server":
+            GLib.idle_add(self._push_server_page)
 
     def _t(self, key: str, **kw: Any) -> str:
         return _translate(self._language, key, **kw)
@@ -90,13 +94,24 @@ class SyncDialog(Adw.NavigationPage):
         except Exception:
             log.exception("Could not stop sync server")
 
+    def _cancel_scanner(self) -> None:
+        scanner = self._scanner
+        self._scanner = None
+        if scanner is None:
+            return
+        try:
+            scanner.cancel()
+        except Exception:
+            log.exception("Could not cancel sync QR scanner")
+
     def _server_start_is_current(self, generation: int) -> bool:
         with self._server_lock:
             return not self._closed and self._server_start_generation == generation
 
     # ------------------------------------------------------------------ home
 
-    def _build_home_page(self) -> Adw.NavigationPage:
+    def _build_home_content(self) -> Gtk.Widget:
+        """Build the home page content and return the top-level widget."""
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.title")))
@@ -145,12 +160,7 @@ class SyncDialog(Adw.NavigationPage):
         scroll.set_vexpand(True)
         scroll.set_child(box)
         toolbar_view.set_content(scroll)
-
-        page = Adw.NavigationPage()
-        page.set_tag("home")
-        page.set_title(self._t("sync.title"))
-        page.set_child(toolbar_view)
-        return page
+        return toolbar_view
 
     def _populate_devices(self) -> None:
         for row in getattr(self, "_home_device_rows", []):
@@ -215,6 +225,10 @@ class SyncDialog(Adw.NavigationPage):
         self._push_server_page()
 
     def _push_server_page(self, *_args: Any) -> None:
+        if self._outer_nav is None:
+            return
+        if self._outer_nav.find_page("sync-server") is not None:
+            return
         self._stop_server()
         result = self._build_server_page()
         page = result[0]
@@ -222,16 +236,9 @@ class SyncDialog(Adw.NavigationPage):
         self._server_qr_picture = result[2]
         self._server_spinner = result[3]
         self._server_instr_label = result[4]
-        self._nav.push(page)
 
-        _pop_handler: list[int | None] = [None]
-        def _on_popped(_nav: Any, popped_page: Any) -> None:
-            if popped_page is page:
-                self._stop_server()
-                if _pop_handler[0] is not None:
-                    _nav.disconnect(_pop_handler[0])
-                    _pop_handler[0] = None
-        _pop_handler[0] = self._nav.connect("popped", _on_popped)
+        page.connect("hiding", lambda _p: self._stop_server())
+        self._outer_nav.push(page)
 
         with self._server_lock:
             if self._closed:
@@ -245,7 +252,8 @@ class SyncDialog(Adw.NavigationPage):
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.server.title")))
-        header.set_show_back_button(True)
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
         toolbar_view.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -288,7 +296,7 @@ class SyncDialog(Adw.NavigationPage):
         toolbar_view.set_content(scroll)
 
         page = Adw.NavigationPage()
-        page.set_tag("server")
+        page.set_tag("sync-server")
         page.set_title(self._t("sync.server.title"))
         page.set_child(toolbar_view)
         return page, status_label, qr_picture, spinner, instr_label
@@ -313,7 +321,7 @@ class SyncDialog(Adw.NavigationPage):
             session_token = generate_token(32)
             spki_fp = get_spki_fingerprint(CERT_PATH)
             local_ip = get_local_ip()
-            expiry = int(time.time()) + 300
+            expiry = int(time.time()) + _SERVER_TIMEOUT_S
             if generation is not None and not self._server_start_is_current(generation):
                 return
 
@@ -331,7 +339,6 @@ class SyncDialog(Adw.NavigationPage):
                 )
 
             def _on_import(data: dict) -> None:
-                # Client tells server which import mode to apply
                 srv_mode = data.get("import_mode", "merge")
                 try:
                     result = import_data(self._db, data, mode=srv_mode)
@@ -364,8 +371,6 @@ class SyncDialog(Adw.NavigationPage):
                     )
                 )
 
-            # Start server first so we know which port it bound to (may differ
-            # from PORT if 8765 is occupied by another service).
             server = SyncServer(
                 CERT_PATH, KEY_PATH,
                 pairing_token=pairing_token,
@@ -381,7 +386,7 @@ class SyncDialog(Adw.NavigationPage):
                 ):
                     return
                 self._server = server
-            server.start()  # binds port synchronously; sets server.actual_port
+            server.start()
             with self._server_lock:
                 should_stop = self._closed or (
                     generation is not None and generation != self._server_start_generation
@@ -425,13 +430,18 @@ class SyncDialog(Adw.NavigationPage):
     # ------------------------------------------------------------------ client: known devices
 
     def _push_client_page(self, *_args: Any) -> None:
-        self._nav.push(self._build_known_devices_page())
+        if self._outer_nav is None:
+            return
+        if self._outer_nav.find_page("sync-client") is not None:
+            return
+        self._outer_nav.push(self._build_known_devices_page())
 
     def _build_known_devices_page(self) -> Adw.NavigationPage:
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.client.title")))
-        header.set_show_back_button(True)
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
         toolbar_view.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -459,7 +469,7 @@ class SyncDialog(Adw.NavigationPage):
         toolbar_view.set_content(scroll)
 
         page = Adw.NavigationPage()
-        page.set_tag("known-devices")
+        page.set_tag("sync-client")
         page.set_title(self._t("sync.client.title"))
         page.set_child(toolbar_view)
         return page
@@ -514,10 +524,15 @@ class SyncDialog(Adw.NavigationPage):
             self._known_device_rows.append(row)
 
     def _push_qr_scan_page(self, host: str, port: int, spki_fp: str) -> None:
+        if self._outer_nav is None:
+            return
+        if self._outer_nav.find_page("sync-qr-scan") is not None:
+            return
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.client.title")))
-        header.set_show_back_button(True)
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
         toolbar_view.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -542,10 +557,11 @@ class SyncDialog(Adw.NavigationPage):
         toolbar_view.set_content(scroll)
 
         page = Adw.NavigationPage()
-        page.set_tag("qr-scan")
+        page.set_tag("sync-qr-scan")
         page.set_title(self._t("sync.client.title"))
         page.set_child(toolbar_view)
-        self._nav.push(page)
+        page.connect("hiding", lambda _p: self._cancel_scanner())
+        self._outer_nav.push(page)
 
         if not scan_supported():
             fallback = Gtk.Label(label=self._t("sync.client.no_camera"))
@@ -555,8 +571,7 @@ class SyncDialog(Adw.NavigationPage):
             return
 
         def _on_success(text: str) -> None:
-            if self._scanner is not None:
-                self._scanner.cancel()
+            self._cancel_scanner()
             status_label.set_text(self._t("sync.client.pairing"))
             threading.Thread(target=self._do_pair, args=(text, status_label), daemon=True).start()
 
@@ -594,7 +609,6 @@ class SyncDialog(Adw.NavigationPage):
                 GLib.idle_add(_set, self._t("sync.error", error="Pairing failed"))
                 return
 
-            # Pairing succeeded — hand off to the UI thread to show step 2
             self._active_client = client
             self._active_host = pairing.host
             self._active_port = pairing.port
@@ -608,15 +622,20 @@ class SyncDialog(Adw.NavigationPage):
     # ------------------------------------------------------------------ paired page (step 2: mode + sync)
 
     def _push_paired_page(self) -> bool:
+        if self._outer_nav is None:
+            return False
+        if self._outer_nav.find_page("sync-paired") is not None:
+            return False
         page, self._paired_status_label = self._build_paired_page(self._active_host)
-        self._nav.push(page)
+        self._outer_nav.push(page)
         return False
 
     def _build_paired_page(self, host: str) -> tuple[Adw.NavigationPage, Gtk.Label]:
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.set_title_widget(Gtk.Label(label=self._t("sync.paired.title")))
-        header.set_show_back_button(True)
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
         toolbar_view.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -625,7 +644,6 @@ class SyncDialog(Adw.NavigationPage):
         box.set_margin_start(16)
         box.set_margin_end(16)
 
-        # Success indicator
         ok_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
         ok_icon.set_pixel_size(48)
         ok_icon.add_css_class("success")
@@ -645,7 +663,6 @@ class SyncDialog(Adw.NavigationPage):
         hint_label.set_wrap(True)
         box.append(hint_label)
 
-        # Mode picker
         mode_group = Adw.PreferencesGroup()
         mode_group.set_title(self._t("sync.mode.label"))
         box.append(mode_group)
@@ -701,7 +718,6 @@ class SyncDialog(Adw.NavigationPage):
         for chk in (merge_check, remote_check, local_check, remote_all_check, local_all_check):
             chk.connect("toggled", _on_mode_toggled)
 
-        # Status + sync button
         status_label = Gtk.Label(label="")
         status_label.set_wrap(True)
         status_label.set_halign(Gtk.Align.CENTER)
@@ -724,7 +740,7 @@ class SyncDialog(Adw.NavigationPage):
         toolbar_view.set_content(scroll)
 
         page = Adw.NavigationPage()
-        page.set_tag("paired")
+        page.set_tag("sync-paired")
         page.set_title(self._t("sync.paired.title"))
         page.set_child(toolbar_view)
         return page, status_label
@@ -786,9 +802,4 @@ class SyncDialog(Adw.NavigationPage):
         with self._server_lock:
             self._closed = True
         self._stop_server()
-        if self._scanner is not None:
-            try:
-                self._scanner.cancel()
-            except Exception:
-                log.exception("Could not cancel sync QR scanner while closing dialog")
-            self._scanner = None
+        self._cancel_scanner()
