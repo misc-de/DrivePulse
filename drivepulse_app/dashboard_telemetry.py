@@ -148,8 +148,9 @@ class DashboardTelemetryMixin:
                 self.map_page.update_gps(lat, lon, gps_heading)
             if hasattr(self, "dashcam_page"):
                 self.dashcam_page.update_gps(lat, lon, gps_speed_kmh)
-            if not getattr(self, "_obd_active", False) and gps_speed_kmh is not None:
-                display = self._display_speed(gps_speed_kmh)
+            if not getattr(self, "_obd_active", False) and gps_has_fix:
+                actual_kmh = gps_speed_kmh if gps_speed_kmh is not None else 0.0
+                display = self._display_speed(actual_kmh)
                 src_gps = _translate(self.language, "gauge.source.gps")
                 self.speed_gauge.set_value(display, f"{display:.0f}" if display is not None else None)
                 self.speed_gauge.set_source_label(src_gps)
