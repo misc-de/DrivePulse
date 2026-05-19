@@ -35,21 +35,6 @@ def scan_supported() -> bool:
     )
 
 
-def _barcode_text_candidates(barcode: Any) -> list[str]:
-    candidates: list[str] = []
-    for attr in ("text", "bytes", "data", "content"):
-        value = getattr(barcode, attr, None)
-        if value is None:
-            continue
-        if isinstance(value, bytes):
-            decoded = value.decode("utf-8", errors="ignore").strip()
-        else:
-            decoded = str(value).strip()
-        if decoded:
-            candidates.append(decoded)
-    return candidates
-
-
 class WebcamQRScanner:
     def __init__(
         self,
@@ -71,7 +56,6 @@ class WebcamQRScanner:
         self._pipeline: Any = None
         self._bus: Any = None
         self._timeout_id: int | None = None
-        self._poll_id: int | None = None
         self._finished = False
 
         self._picture = Gtk.Picture()
@@ -111,10 +95,6 @@ class WebcamQRScanner:
         self._timeout_id = self._GLib.timeout_add_seconds(
             self.timeout_seconds, self._on_timeout
         )
-        # Bus per Timeout pollen — zuverlässiger als add_signal_watch in PyGObject
-        if self._poll_id is not None:
-            self._GLib.source_remove(self._poll_id)
-        self._poll_id = self._GLib.timeout_add(200, self._poll_bus)
 
     def cancel(self) -> None:
         if self._finished:
@@ -147,6 +127,9 @@ class WebcamQRScanner:
             raise QRScanError(self._t("sync.scanner.pipeline_failed", error=str(exc))) from exc
 
         self._bus = self._pipeline.get_bus()
+        if self._bus is not None:
+            self._bus.add_signal_watch()
+            self._bus.connect("message", self._on_bus_message)
 
         if has_preview:
             sink = self._pipeline.get_by_name("preview")
@@ -163,7 +146,7 @@ class WebcamQRScanner:
         else:
             self._status.set_text(self._t("sync.scanner.active"))
 
-    def _on_message(self, _bus: Any, message: Any) -> None:
+    def _on_bus_message(self, _bus: Any, message: Any) -> None:
         if self._finished:
             return
         Gst = self._Gst
@@ -174,51 +157,19 @@ class WebcamQRScanner:
             return
         if message.type == Gst.MessageType.ELEMENT:
             structure = message.get_structure()
-            if structure is None:
+            if structure is None or structure.get_name() != "barcode":
                 return
-            sname = structure.get_name()
-            if sname != "barcode":
-                log.debug("GStreamer ELEMENT message: %s", sname)
-                return
-            # "symbol" ist in gst-plugins-bad ein G_TYPE_STRING; get_string() ist
-            # in PyGObject zuverlässiger als get_value() für String-Felder.
-            text = ""
-            for field in ("symbol", "text"):
-                try:
-                    val = structure.get_string(field)
-                    # PyGObject gibt get_string als reinen str zurück (oder None)
-                    if isinstance(val, str) and val.strip():
-                        text = val.strip()
-                        break
-                except Exception:
-                    pass
-            if not text:
-                # Fallback über get_value für ältere Bindungen
-                raw = structure.get_value("symbol")
-                if raw:
-                    candidates = _barcode_text_candidates(raw) or [str(raw).strip()]
-                    text = candidates[0].strip() if candidates else ""
-            if not text:
+            symbol = structure.get_value("symbol")
+            if not symbol:
                 log.warning("barcode message ohne lesbaren Text: %s", structure.to_string())
+                return
+            text = str(symbol).strip()
+            if not text:
                 return
             log.info("QR-Code erkannt: %s…", text[:60])
             self._finished = True
             self._stop_pipeline()
             self.on_success(text)
-
-    def _poll_bus(self) -> bool:
-        if self._finished or self._bus is None:
-            self._poll_id = None
-            return False
-        Gst = self._Gst
-        while True:
-            msg = self._bus.pop_filtered(
-                Gst.MessageType.ERROR | Gst.MessageType.ELEMENT
-            )
-            if msg is None:
-                break
-            self._on_message(self._bus, msg)
-        return not self._finished
 
     def _on_timeout(self) -> bool:
         if not self._finished:
@@ -236,10 +187,12 @@ class WebcamQRScanner:
         if self._timeout_id is not None:
             self._GLib.source_remove(self._timeout_id)
             self._timeout_id = None
-        if self._poll_id is not None:
-            self._GLib.source_remove(self._poll_id)
-            self._poll_id = None
-        self._bus = None
+        if self._bus is not None:
+            try:
+                self._bus.remove_signal_watch()
+            except Exception:
+                pass
+            self._bus = None
         if self._pipeline is not None:
             try:
                 self._pipeline.set_state(self._Gst.State.NULL)
