@@ -196,18 +196,28 @@ class DashboardSettingsMixin:
         self._save_settings()
         from . import tts_service
         tts_service.set_backend(backend)
+        if backend == "piper":
+            lang = getattr(self, "tts_language", "auto")
+            voice = getattr(self, "tts_voice", "female")
+            tts_service.ensure_models(lang, voice)
 
     def _set_tts_language(self, language: str) -> None:
         self.tts_language = language
         self._save_settings()
         if hasattr(self, "map_page"):
             self.map_page.set_tts_language(language)
+        if getattr(self, "tts_backend", "espeak") == "piper":
+            from . import tts_service
+            tts_service.ensure_models(language, getattr(self, "tts_voice", "female"))
 
     def _set_tts_voice(self, voice: str) -> None:
         self.tts_voice = voice
         self._save_settings()
         if hasattr(self, "map_page"):
             self.map_page.set_tts_voice(voice)
+        if getattr(self, "tts_backend", "espeak") == "piper":
+            from . import tts_service
+            tts_service.ensure_models(getattr(self, "tts_language", "auto"), voice)
 
     def _set_log_app_enabled(self, enabled: bool) -> None:
         self.log_app_enabled = enabled

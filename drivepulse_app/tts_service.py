@@ -269,6 +269,31 @@ def set_backend(backend: str) -> None:
     _backend = backend if backend in {"espeak", "piper"} else "espeak"
 
 
+def ensure_models(language: str, gender: str) -> None:
+    """Pre-fetch the Piper model for *language*/*gender* if not already present.
+
+    Safe to call from the UI thread — download runs in a daemon thread.
+    No-op when piper binary is missing or model already exists.
+    """
+    if not PIPER_AVAILABLE:
+        return
+    key = (_effective_lang(language), gender)
+    model_name = _PIPER_MODELS.get(key)
+    if not model_name:
+        return
+    if _piper_model_path(language, gender) is not None:
+        return  # already on disk
+    with _download_lock:
+        if model_name in _download_in_progress:
+            return  # already downloading
+    threading.Thread(
+        target=_download_piper_model,
+        args=(model_name,),
+        daemon=True,
+        name="piper-dl",
+    ).start()
+
+
 def speak(
     text: str,
     language: str,
@@ -320,7 +345,10 @@ def _speak_sync(
     if backend == "piper" and PIPER_AVAILABLE:
         proc = _launch_piper(text, language, gender)
         if proc is None:
-            log.info("Piper model not yet available for %s/%s — using espeak-ng (downloading in background)", language, gender)
+            key = (_effective_lang(language), gender)
+            model_name = _PIPER_MODELS.get(key, "")
+            if model_name not in _download_in_progress:
+                log.info("Piper model not yet available for %s/%s — using espeak-ng", language, gender)
             proc = _launch_espeak(text, language, gender, speed)
     else:
         proc = _launch_espeak(text, language, gender, speed)
@@ -365,15 +393,6 @@ def _launch_piper(
 ) -> subprocess.Popen | None:
     model = _piper_model_path(language, gender)
     if model is None:
-        key = (_effective_lang(language), gender)
-        model_name = _PIPER_MODELS.get(key)
-        if model_name:
-            threading.Thread(
-                target=_download_piper_model,
-                args=(model_name,),
-                daemon=True,
-                name="piper-dl",
-            ).start()
         return None
     try:
         # piper reads text from stdin, writes raw PCM to stdout;
