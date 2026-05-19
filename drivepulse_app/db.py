@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS samples (
 
 CREATE INDEX IF NOT EXISTS idx_trips_car_started ON trips(car_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cars_vin          ON cars(vin);
+CREATE INDEX IF NOT EXISTS idx_cars_profile_path ON cars(profile_path) WHERE vin IS NULL;
 
 CREATE TABLE IF NOT EXISTS scans (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,6 +121,7 @@ class DriveDB:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         with self._lock:
+            self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
@@ -138,6 +140,7 @@ class DriveDB:
         with self._lock:
             try:
                 self._conn.commit()
+                self._conn.execute("PRAGMA optimize")
             finally:
                 self._conn.close()
 
@@ -145,6 +148,7 @@ class DriveDB:
         """Pending Inserts persistieren — periodisch aufrufen."""
         with self._lock:
             self._conn.commit()
+            self._conn.execute("PRAGMA optimize")
 
     # ------------------------------------------------------------------ Cars
 
@@ -359,6 +363,34 @@ class DriveDB:
         sql = f"INSERT OR IGNORE INTO samples({','.join(cols)}) VALUES({placeholders})"
         with self._lock:
             self._conn.execute(sql, vals)
+
+    def add_samples(self, trip_id: int, samples: Iterable[dict[str, Any]]) -> int:
+        """Insert many samples for one trip in a single DB roundtrip.
+
+        Malformed samples are skipped. The return value is the number of valid
+        rows submitted to SQLite; duplicates may still be ignored by the
+        ``(trip_id, ts)`` primary key.
+        """
+        cols = ("trip_id", "ts", *_SAMPLE_COLUMNS)
+        rows: list[tuple[Any, ...]] = []
+        for sample in samples:
+            if not isinstance(sample, dict) or sample.get("ts") is None:
+                continue
+            try:
+                row: list[Any] = [trip_id, float(sample["ts"])]
+                for key in _SAMPLE_COLUMNS:
+                    value = sample.get(key)
+                    row.append(None if value is None else float(value))
+            except (TypeError, ValueError):
+                continue
+            rows.append(tuple(row))
+        if not rows:
+            return 0
+        placeholders = ",".join("?" for _ in cols)
+        sql = f"INSERT OR IGNORE INTO samples({','.join(cols)}) VALUES({placeholders})"
+        with self._lock:
+            self._conn.executemany(sql, rows)
+        return len(rows)
 
     def samples_for_trip(self, trip_id: int) -> Iterable[sqlite3.Row]:
         with self._lock:
