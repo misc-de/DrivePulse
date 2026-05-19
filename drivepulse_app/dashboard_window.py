@@ -336,7 +336,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         _rec_lbl.add_css_class("caption-heading")
         self._dashcam_rec_box.append(_rec_lbl)
 
-        self.obd_indicator["box"].set_margin_start(20)
+        self.obd_indicator["box"].set_margin_start(10)
         header.pack_start(self.obd_indicator["box"])
         header.pack_start(self.gps_indicator["box"])
         header.pack_start(self._dashcam_rec_box)
