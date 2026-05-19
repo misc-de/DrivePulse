@@ -237,7 +237,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._map_rotator.set_child(self.map_page)
         self._map_rotator.set_hexpand(True)
         self._map_rotator.set_vexpand(True)
-        self.rotation.bind(self._apply_page_rotation)
 
         self.dashcam_page = DashcamPage(self.language)
         self.dashcam_page.set_camera(self.dashcam_camera)
@@ -252,6 +251,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         )
         self.dashcam_page.set_units(self.units)
         self.dashcam_page.on_recording_changed = self._on_dashcam_recording_changed
+        self.rotation.bind(self._apply_page_rotation)
 
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
