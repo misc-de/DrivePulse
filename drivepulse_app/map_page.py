@@ -1054,8 +1054,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     _MANEUVER_PASS_GROWTH_M = 8.0
 
     # OSRM step types that don't represent an actionable maneuver.
+    # "continue" = road continues with minor direction/name change — not worth showing.
     _NON_ACTIONABLE_STEP_TYPES = frozenset({
-        "new name", "notification",
+        "new name", "notification", "continue",
     })
 
     def _skip_non_actionable_steps(self) -> None:
@@ -1218,15 +1219,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
         if current_idx != self._tts_last_step_idx:
             self._tts_last_step_idx = current_idx
             self._tts_spoken_thresholds = set()
-            # Announce immediately when a new step becomes active,
-            # but only if we're already close enough (< 600 m) to be useful.
-            if distance_m < 600:
-                self._tts_announce(step, distance_m)
-                # Mark whichever threshold we're already inside as spoken.
-                for thr in self._TTS_THRESHOLDS:
-                    if distance_m <= thr:
-                        self._tts_spoken_thresholds.add(thr)
-            return
+            # Don't announce immediately — the threshold loop below will fire on
+            # the very next tick (or this one) at the appropriate distance.
 
         for threshold in self._TTS_THRESHOLDS:
             if threshold in self._tts_spoken_thresholds:
@@ -1238,7 +1232,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     # ── TTS helpers ───────────────────────────────────────────────────────────
 
-    _TTS_THRESHOLDS = (500, 200, 50)
+    _TTS_THRESHOLDS = (300, 80)
 
     def _tts_effective_language(self) -> str:
         if self._tts_language != "auto":
@@ -1254,6 +1248,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     def _tts_announce(self, step: dict, distance_m: float) -> None:
         if not self._tts_enabled:
+            return
+        if step.get("type") == "depart":
             return
         lang = self._tts_effective_language()
         maneuver_text = _translate(lang, maneuver_text_key(step.get("type", ""), step.get("modifier", "")))
