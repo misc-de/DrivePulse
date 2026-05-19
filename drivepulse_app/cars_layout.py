@@ -238,6 +238,8 @@ class CarsLayoutMixin:
         content: Gtk.Widget,
         title: str,
         on_rename: "Callable[[Gtk.Label], None] | None" = None,
+        on_share: "Callable[[], None] | None" = None,
+        on_delete: "Callable[[], None] | None" = None,
     ) -> Gtk.Widget:
         """Wrap content with a title + back-button header for sub-pages (trip, scan, accel run)."""
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -259,6 +261,16 @@ class CarsLayoutMixin:
             rename_btn.add_css_class("flat")
             rename_btn.connect("clicked", lambda _b: on_rename(title_lbl))
             head.append(rename_btn)
+        if on_share is not None:
+            share_btn = Gtk.Button(icon_name="share-alt-symbolic")
+            share_btn.add_css_class("flat")
+            share_btn.connect("clicked", lambda _b: on_share())
+            head.append(share_btn)
+        if on_delete is not None:
+            trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+            trash_btn.add_css_class("flat")
+            trash_btn.connect("clicked", lambda _b: on_delete())
+            head.append(trash_btn)
         outer.append(head)
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
         outer.append(content)
