@@ -136,7 +136,7 @@ drivepulse_app/
   cars_layout.py           Cars page layout mixin (sidebar / detail split)
   cars_detail_render.py    Car detail content renderer
   cars_metadata.py         OBD PID catalogue and category definitions
-  cars_profiles.py         OBD profile loader
+  cars_profiles.py         Vehicle profile loader from the SQLite database
   cars_actions.py          Car CRUD actions (rename, delete)
   cars_trips.py            Trip list and detail widgets
   cars_trip_widgets.py     Trip detail chart + map widget

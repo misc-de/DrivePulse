@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hmac
 import os
 import ssl
 import threading
@@ -15,6 +16,7 @@ log = get_logger(__name__)
 
 
 PAIRING_TIMEOUT_S = 60
+MAX_SYNC_BODY_BYTES = int(os.environ.get("DRIVEPULSE_SYNC_MAX_BODY_BYTES", str(100 * 1024 * 1024)))
 
 
 class SyncServer:
@@ -141,22 +143,31 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def _check_bearer(self) -> bool:
         auth = self.headers.get("Authorization", "")
-        return auth == f"Bearer {self._srv._session_token}"
+        return hmac.compare_digest(auth, f"Bearer {self._srv._session_token}")
 
-    def _read_body(self) -> bytes:
-        length = int(self.headers.get("Content-Length", "0"))
+    def _read_body(self) -> bytes | None:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            self._send_json(400, {"ok": False, "error": "bad content length"})
+            return None
+        if length < 0 or length > MAX_SYNC_BODY_BYTES:
+            self._send_json(413, {"ok": False, "error": "payload too large"})
+            return None
         return self.rfile.read(length) if length > 0 else b""
 
     def do_POST(self) -> None:
         if self.path == "/pair":
             body = self._read_body()
+            if body is None:
+                return
             try:
                 data = json.loads(body)
             except Exception:
                 self._send_json(400, {"ok": False, "error": "bad json"})
                 return
             token = data.get("token", "")
-            if token != self._srv._pairing_token:
+            if not hmac.compare_digest(str(token), self._srv._pairing_token):
                 self._send_json(403, {"ok": False, "error": "invalid token"})
                 return
             self._srv.mark_paired()
@@ -181,6 +192,8 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 self._send_json(403, {"ok": False, "error": "unauthorized"})
                 return
             body = self._read_body()
+            if body is None:
+                return
             try:
                 data = json.loads(body)
             except Exception:

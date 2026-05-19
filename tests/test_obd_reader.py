@@ -280,11 +280,8 @@ def test_gpsd_line_rejects_bad_speed(drivepulse_module):
     assert updates == []
 
 
-def test_obd_scanner_writes_profile_atomically(monkeypatch, tmp_path, drivepulse_module):
-    from drivepulse_app import obd_scanner
+def test_obd_scanner_emits_scan_profile_without_profile_file(drivepulse_module):
     from drivepulse_app.obd_scanner import ObdScanner
-
-    monkeypatch.setattr(obd_scanner, "PROFILES_DIR", tmp_path)
 
     class Connection:
         supported_commands = set()
@@ -313,8 +310,9 @@ def test_obd_scanner_writes_profile_atomically(monkeypatch, tmp_path, drivepulse
 
     scanner.run()
 
-    profile_path = tmp_path / "vin_TESTVIN123.json"
-    assert profile_path.exists()
-    assert not (tmp_path / "vin_TESTVIN123.json.tmp").exists()
-    assert json.loads(profile_path.read_text(encoding="utf-8"))["vin"] == "TESTVIN123"
+    complete = next(payload for payload in updates if payload.get("scan_status") == "complete")
+    identity = next(payload for payload in updates if payload.get("source") == "obd_scan_identity")
+
+    assert complete["scan_profile"]["vin"] == "TESTVIN123"
+    assert identity["profile_path"] == "vin_TESTVIN123"
     assert "vin_TESTVIN123" in cache
