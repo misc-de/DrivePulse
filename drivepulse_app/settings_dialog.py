@@ -596,7 +596,7 @@ class SettingsDialog(Adw.Window):
         toolbar_view.add_top_bar(dlg_header)
         toolbar_view.set_content(view_stack)
 
-        self.set_child(toolbar_view)
+        self.set_content(toolbar_view)
 
     # ── Dashcam callbacks ─────────────────────────────────────────────────────
 
