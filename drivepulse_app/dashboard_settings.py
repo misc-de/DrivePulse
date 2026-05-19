@@ -241,53 +241,14 @@ class DashboardSettingsMixin:
         self.reader.set_obd_log_enabled(enabled)
 
     def _open_sync(self, *_args: Any) -> None:
-        import gi
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Adw", "1")
-        from gi.repository import Adw, Gtk
+        if self.nav_view.find_page("sync") is not None:
+            return
         from .sync_dialog import SyncDialog
-
-        dialog = Adw.Dialog()
-        dialog.set_title(_translate(self.language, "sync.title"))
-        dialog.set_content_width(320)
-
-        toolbar_view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        toolbar_view.add_top_bar(header)
-
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_top(24)
-        box.set_margin_bottom(24)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-
-        def _launch(mode: str) -> None:
-            dialog.close()
-            sync_dialog = SyncDialog(
-                self, self.language, self.db,
-                initial_mode="client" if mode == "client" else None,
-                on_sync_complete=lambda: self.cars_page.refresh_profiles(),
-            )
-            sync_dialog.present(self)
-            if mode == "server":
-                sync_dialog.start_server_from_user_action()
-
-        client_btn = Gtk.Button(label=_translate(self.language, "sync.choose.client"))
-        client_btn.add_css_class("pill")
-        client_btn.set_hexpand(True)
-        client_btn.connect("clicked", lambda _b: _launch("client"))
-
-        server_btn = Gtk.Button(label=_translate(self.language, "sync.choose.server"))
-        server_btn.add_css_class("pill")
-        server_btn.set_hexpand(True)
-        server_btn.connect("clicked", lambda _b: _launch("server"))
-
-        box.append(client_btn)
-        box.append(server_btn)
-
-        toolbar_view.set_content(box)
-        dialog.set_child(toolbar_view)
-        dialog.present(self)
+        page = SyncDialog(
+            self, self.language, self.db,
+            on_sync_complete=lambda: self.cars_page.refresh_profiles(),
+        )
+        self.nav_view.push(page)
 
     def _set_obd_port(self, port: str | None) -> None:
         if port == self.obd_port:
