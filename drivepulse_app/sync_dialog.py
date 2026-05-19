@@ -606,25 +606,34 @@ class SyncDialog(Adw.NavigationPage):
             status_label.set_text(msg)
             return False
 
+        log.info("_do_pair: URL=%s…", url_text[:80])
         try:
             try:
                 pairing = parse_pairing_url(url_text, SyncServer.PORT)
             except TimeoutError:
+                log.warning("_do_pair: QR-Code abgelaufen")
                 GLib.idle_add(_set, self._t("sync.client.expired"))
                 return
             except ValueError as exc:
+                log.warning("_do_pair: URL ungültig: %s", exc)
                 GLib.idle_add(_set, self._t("sync.error", error=str(exc)))
                 return
 
+            log.info("_do_pair: pairing ok, host=%s port=%s", pairing.host, pairing.port)
             device_id = get_or_create_device_id()
             client = SyncClient(pairing.host, pairing.port, pairing.spki_fingerprint, device_id)
 
+            log.info("_do_pair: verify fingerprint…")
             if not client.verify_fingerprint():
+                log.warning("_do_pair: Fingerprint-Verifikation fehlgeschlagen")
                 GLib.idle_add(_set, self._t("sync.client.fp_error"))
                 return
+            log.info("_do_pair: Fingerprint ok, pairing…")
             if not client.pair(pairing.pairing_token):
+                log.warning("_do_pair: Pairing fehlgeschlagen")
                 GLib.idle_add(_set, self._t("sync.error", error="Pairing failed"))
                 return
+            log.info("_do_pair: Pairing erfolgreich")
 
             self._active_client = client
             self._active_host = pairing.host
