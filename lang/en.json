@@ -383,6 +383,7 @@
   "sync.status.title": "Connection Status",
   "sync.status.ip_label": "IP Address",
   "sync.status.connected_since": "Connected since",
+  "sync.status.last_contact": "Last contact",
   "sync.status.disconnect_btn": "Disconnect",
   "window.title": "DrivePulse",
   "settings.tooltip": "Settings",
