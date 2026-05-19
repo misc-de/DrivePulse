@@ -22,9 +22,20 @@ log = get_logger(__name__)
 def _install_theme_import_aliases() -> None:
     """Keep existing theme files compatible after moving app code into a package."""
     from . import common, draw_helpers
+    import importlib as _il
 
     sys.modules.setdefault("common", common)
     sys.modules.setdefault("draw_helpers", draw_helpers)
+    # theme_defaults.py lives at the project root; register it so user themes
+    # can do `from theme_defaults import ...` regardless of working directory.
+    if "theme_defaults" not in sys.modules:
+        _td_path = BUILTIN_THEMES_DIR.parent / "theme_defaults.py"
+        if _td_path.exists():
+            spec = _il.util.spec_from_file_location("theme_defaults", _td_path)
+            if spec and spec.loader:
+                mod = _il.util.module_from_spec(spec)
+                sys.modules["theme_defaults"] = mod
+                spec.loader.exec_module(mod)  # type: ignore[union-attr]
 
 
 def _gauge_apply_rotation(cr: Any, width: int, height: int, angle: int) -> tuple[int, int]:
