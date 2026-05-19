@@ -4,10 +4,8 @@ from typing import Any
 THEME_TYPE = "gauge"
 LABEL = {"en": "Neon Light", "de": "Neon Hell"}
 CSS = """
-window.dp-theme-neon-light .dp-main-nav,
-window.dp-theme-neon-light .dp-main-nav scrolledwindow,
-window.dp-theme-neon-light .dp-main-nav scrolledwindow > viewport,
 window.dp-theme-neon-light .dp-gauge-bg,
+window.dp-theme-neon-light .dp-gauge-bg > viewport,
 window.dp-theme-neon-light .dp-gauge-bg > * {
   background-color: #ffffff;
 }
