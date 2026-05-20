@@ -75,6 +75,10 @@ class CarsPage(
         self._cat_rows: list[Gtk.ListBoxRow] = []
         self._trip_select_mode: bool = False
         self._trip_selected_ids: set[int] = set()
+        self._scan_select_mode: bool = False
+        self._scan_selected_ids: set[int] = set()
+        self._run_select_mode: bool = False
+        self._run_selected_ids: set[int] = set()
         # Wird vom DashboardWindow gesetzt: Callback, wenn der Anwender auf der
         # Wurzel (Auto-Liste) nach rechts wischt, um zum vorherigen Tab zurückzukehren.
         self.on_back_swipe: Callable[[], None] | None = None
@@ -324,6 +328,10 @@ class CarsPage(
             self._detail_pushed = False
             self._trip_select_mode = False
             self._trip_selected_ids = set()
+            self._scan_select_mode = False
+            self._scan_selected_ids = set()
+            self._run_select_mode = False
+            self._run_selected_ids = set()
             self._set_trash(None)
             self._rename_btn.set_visible(False)
         if page is self._trip_detail_page:
@@ -349,6 +357,9 @@ class CarsPage(
             if self._detail_pushed and self._selected_car_id is not None:
                 self._set_trash(self._confirm_delete_vehicle)
 
+    def _is_sync_active(self) -> bool:
+        return callable(self.get_sync_client) and self.get_sync_client() is not None
+
     def _set_trash(self, action_fn: Any) -> None:
         btn = self._detail_trash_btn
         if self._detail_trash_handler is not None:
@@ -357,10 +368,20 @@ class CarsPage(
         if action_fn is not None:
             self._detail_trash_handler = btn.connect("clicked", lambda _b: action_fn())
             btn.set_visible(True)
-            self._detail_share_btn.set_visible(True)
+            self._detail_share_btn.set_visible(self._is_sync_active())
         else:
             btn.set_visible(False)
             self._detail_share_btn.set_visible(False)
+
+    def _on_share_btn_clicked(self) -> None:
+        if self._trip_select_mode:
+            self._share_selected_trips()
+        elif self._scan_select_mode:
+            self._share_selected_scans()
+        elif self._run_select_mode:
+            self._share_selected_runs()
+        else:
+            self._share_vehicle()
 
     def _share_vehicle(self) -> None:
         from .share_flow import ShareFlow
@@ -378,6 +399,18 @@ class CarsPage(
         from .share_flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_trips(
             self._selected_car_id, list(self._trip_selected_ids)
+        )
+
+    def _share_selected_scans(self) -> None:
+        from .share_flow import ShareFlow
+        ShareFlow(self, self.db, self.language, self.get_sync_client).share_scans(
+            self._selected_car_id, list(self._scan_selected_ids)
+        )
+
+    def _share_selected_runs(self) -> None:
+        from .share_flow import ShareFlow
+        ShareFlow(self, self.db, self.language, self.get_sync_client).share_runs(
+            self._selected_car_id, list(self._run_selected_ids)
         )
 
     def _share_run(self, run_id: int) -> None:
@@ -403,7 +436,20 @@ class CarsPage(
                 self._set_trash(self._confirm_delete_vehicle)
             else:
                 self._set_trash(None)
-            self._detail_share_btn.set_visible(self._selected_car_id is not None)
+        if self._scan_select_mode and new_cat != "scans":
+            self._scan_select_mode = False
+            self._scan_selected_ids = set()
+            if self._selected_car_id is not None:
+                self._set_trash(self._confirm_delete_vehicle)
+            else:
+                self._set_trash(None)
+        if self._run_select_mode and new_cat != "stopwatch_runs":
+            self._run_select_mode = False
+            self._run_selected_ids = set()
+            if self._selected_car_id is not None:
+                self._set_trash(self._confirm_delete_vehicle)
+            else:
+                self._set_trash(None)
         self._selected_category = new_cat
         if self._detail_pushed:
             self._render_detail()
