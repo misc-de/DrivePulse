@@ -235,10 +235,8 @@ class DashcamPage(Gtk.Box):
         self._is_landscape:  bool = False
 
         # widget lists kept in sync across portrait/landscape layouts
-        self._toggle_btns:  list[Gtk.Button] = []
-        self._save_btns:    list[Gtk.Button] = []
-        self._status_lbls:  list[Gtk.Label]  = []
-        self._elapsed_lbls: list[Gtk.Label]  = []
+        self._toggle_btns: list[Gtk.Button] = []
+        self._save_btns:   list[Gtk.Button] = []
 
         self._build_ui()
         self._update_status()
@@ -375,19 +373,6 @@ class DashcamPage(Gtk.Box):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_hexpand(True)
 
-        status_lbl = Gtk.Label()
-        status_lbl.add_css_class("dc-status")
-        status_lbl.set_halign(Gtk.Align.CENTER)
-        self._status_lbls.append(status_lbl)
-        box.append(status_lbl)
-
-        elapsed_lbl = Gtk.Label()
-        elapsed_lbl.add_css_class("dc-status")
-        elapsed_lbl.set_halign(Gtk.Align.CENTER)
-        elapsed_lbl.set_visible(False)
-        self._elapsed_lbls.append(elapsed_lbl)
-        box.append(elapsed_lbl)
-
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_row.set_halign(Gtk.Align.CENTER)
         btn_row.set_hexpand(True)
@@ -445,9 +430,8 @@ class DashcamPage(Gtk.Box):
     def _on_first_frame(self) -> None:
         self._no_cam_icon.set_visible(False)
 
-    def _on_preview_failed(self, msg: str) -> None:
-        for lbl in self._status_lbls:
-            lbl.set_text(msg)
+    def _on_preview_failed(self, _msg: str) -> None:
+        pass
 
     # ── Public setters (called from dashboard_settings) ───────────────────────
 
@@ -480,6 +464,9 @@ class DashcamPage(Gtk.Box):
 
     def set_gps_osd(self, enabled: bool) -> None:
         self._recorder.gps_osd = enabled
+
+    def set_fps(self, fps: int) -> None:
+        self._recorder.fps = fps
 
     def set_speed_osd(self, enabled: bool) -> None:
         self._recorder.speed_osd = enabled
@@ -596,19 +583,12 @@ class DashcamPage(Gtk.Box):
             GLib.source_remove(self._dim_source)
             self._dim_source = None
 
-    _DIM_COUNTDOWN_THRESHOLD = 10
-
     def _dim_tick(self) -> bool:
         self._dim_remaining -= 1
         if self._dim_remaining <= 0:
             self._show_lock()
             self._dim_source = None
-            self._update_status()
             return False
-        if self._dim_remaining <= self._DIM_COUNTDOWN_THRESHOLD:
-            t = _translate(self.language, "dashcam.dim.countdown").format(n=self._dim_remaining)
-            for lbl in self._status_lbls:
-                lbl.set_text(t)
         return True
 
     def _show_lock(self) -> None:
@@ -639,23 +619,30 @@ class DashcamPage(Gtk.Box):
             self._stop_dim_timer()
             for btn in self._save_btns:
                 btn.set_visible(False)
-            for lbl in self._elapsed_lbls:
-                lbl.set_visible(False)
             # V4L2 is now free again — restart the live preview
             self._preview.start()
         else:
             # V4L2 only allows one capturer at a time; release the preview
-            # before ffmpeg opens the device.
+            # before ffmpeg opens the device.  The kernel may not free the
+            # device node immediately after GStreamer sets the pipeline to NULL,
+            # so we defer the recorder start by 400 ms.
             self._preview.stop()
-            self._recorder.start()
-            self._start_tick()
-            self._reset_dim_timer()
             for btn in self._save_btns:
                 btn.set_visible(True)
+            self._update_toggle_btn()
+            if self.on_recording_changed is not None:
+                self.on_recording_changed(True)
+            GLib.timeout_add(400, self._start_recording_deferred)
+            return
         self._update_toggle_btn()
-        self._update_status()
         if self.on_recording_changed is not None:
             self.on_recording_changed(self._recorder.is_recording)
+
+    def _start_recording_deferred(self) -> bool:
+        self._recorder.start()
+        self._start_tick()
+        self._reset_dim_timer()
+        return False
 
     def _on_save_event(self, _btn: Gtk.Button) -> None:
         self._do_save_event()
@@ -681,9 +668,7 @@ class DashcamPage(Gtk.Box):
         self._update_status()
         return False
 
-    def _show_error(self, msg: str) -> bool:
-        for lbl in self._status_lbls:
-            lbl.set_text(msg)
+    def _show_error(self, _msg: str) -> bool:
         self._stop_tick()
         self._stop_dim_timer()
         self._update_toggle_btn()
@@ -701,20 +686,11 @@ class DashcamPage(Gtk.Box):
             self._tick_source = None
         self._rec_dot_on = True
         self._rec_dot.queue_draw()
-        for lbl in self._elapsed_lbls:
-            lbl.set_text("")
-            lbl.set_visible(False)
 
     def _tick(self) -> bool:
         if not self._recorder.is_recording:
             self._tick_source = None
             return False
-        elapsed = self._recorder.segment_elapsed_seconds
-        mm, ss  = divmod(int(elapsed), 60)
-        text = f"{mm:02d}:{ss:02d} / {self._recorder.segment_minutes:02d}:00"
-        for lbl in self._elapsed_lbls:
-            lbl.set_text(text)
-            lbl.set_visible(True)
         self._rec_dot_on = not self._rec_dot_on
         self._rec_dot.queue_draw()
         self._update_status()
@@ -735,18 +711,7 @@ class DashcamPage(Gtk.Box):
                 btn.add_css_class("suggested-action")
 
     def _update_status(self) -> None:
-        segs  = len(self._recorder.segments)
-        mb    = self._recorder.rolling_size_mb
-        saved = len(self._recorder.protected_clips)
-        t = _translate
-        parts = [
-            f"{segs} {t(self.language, 'dashcam.status.segments')}",
-            f"{mb:.1f} MB",
-            f"{saved} {t(self.language, 'dashcam.status.saved_count')}",
-        ]
-        text = "  ·  ".join(parts)
-        for lbl in self._status_lbls:
-            lbl.set_text(text)
+        pass
 
     def _update_saved_list(self) -> None:
         while (c := self._saved_list_box.get_first_child()) is not None:

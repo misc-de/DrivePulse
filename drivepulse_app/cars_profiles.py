@@ -1,6 +1,7 @@
 """Load vehicle profiles from the SQLite database."""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -67,6 +68,15 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
                 "live_data": {},
             }
 
+        vin_data_raw = row["vin_data_json"] if "vin_data_json" in row.keys() else None
+        vin_data: dict[str, Any] = {}
+        if vin_data_raw is not None:
+            try:
+                vin_data = json.loads(vin_data_raw)
+            except Exception:
+                pass
+        data["vin_data"] = vin_data
+
         entries.append({
             "path": f"car:{car_id}",
             "data": data,
@@ -77,6 +87,7 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
             "car_id": car_id,
             "trip_count": int(row["trip_count"] or 0),
             "total_km": float(row["total_km"] or 0.0),
+            "vin_data_fetched": vin_data_raw is not None,
         })
 
     return entries
