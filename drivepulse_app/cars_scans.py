@@ -70,16 +70,26 @@ class CarsScansMixin:
         ]
         row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
         row.set_subtitle_lines(0)
-        row.set_activatable(True)
-
-        # Colour-code the DTC count badge
-        badge = Gtk.Label(label=str(dtc))
-        badge.add_css_class("pill" if dtc == 0 else "error")
-        badge.add_css_class("caption")
-        badge.set_halign(Gtk.Align.END)
-        row.add_suffix(badge)
-        row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
-        row.connect("activated", lambda _r, sid=int(scan["id"]): self._open_scan_detail(sid))
+        if self._scan_select_mode:
+            chk = Gtk.CheckButton()
+            chk.set_active(int(scan["id"]) in self._scan_selected_ids)
+            chk.set_valign(Gtk.Align.CENTER)
+            chk.connect("toggled", lambda c, sid=int(scan["id"]): self._on_scan_checkbox_toggled(sid, c.get_active()))
+            row.add_prefix(chk)
+            row.set_activatable(False)
+        else:
+            # Colour-code the DTC count badge
+            badge = Gtk.Label(label=str(dtc))
+            badge.add_css_class("pill" if dtc == 0 else "error")
+            badge.add_css_class("caption")
+            badge.set_halign(Gtk.Align.END)
+            row.add_suffix(badge)
+            row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, sid=int(scan["id"]): self._open_scan_detail(sid))
+            lp = Gtk.GestureLongPress()
+            lp.connect("pressed", lambda _g, _x, _y, sid=int(scan["id"]): self._enter_scan_select_mode(sid))
+            row.add_controller(lp)
         return row
 
     def _open_scan_detail(self, scan_id: int) -> None:
@@ -114,7 +124,7 @@ class CarsScansMixin:
             child=self._wrap_sub_page(
                 page_content,
                 title,
-                on_share=lambda: self._share_scan(scan_id),
+                on_share=(lambda: self._share_scan(scan_id)) if self._is_sync_active() else None,
             ),
             title=title,
         )
@@ -123,3 +133,45 @@ class CarsScansMixin:
         self._scan_detail_pushed = True
         self._scan_id_shown = scan_id
         self.nav_view.push(page)
+
+    def _enter_scan_select_mode(self, scan_id: int) -> None:
+        self._scan_select_mode = True
+        self._scan_selected_ids = {scan_id}
+        self._render_detail()
+        self._set_trash(lambda: self._confirm_delete_selected_scans())
+
+    def _exit_scan_select_mode(self) -> None:
+        self._scan_select_mode = False
+        self._scan_selected_ids = set()
+        self._render_detail()
+        if self._selected_car_id is not None:
+            self._set_trash(self._confirm_delete_vehicle)
+        else:
+            self._set_trash(None)
+
+    def _on_scan_checkbox_toggled(self, scan_id: int, active: bool) -> None:
+        if active:
+            self._scan_selected_ids.add(scan_id)
+        else:
+            self._scan_selected_ids.discard(scan_id)
+        if not self._scan_selected_ids:
+            self._exit_scan_select_mode()
+
+    def _confirm_delete_selected_scans(self) -> None:
+        n = len(self._scan_selected_ids)
+        if n == 0:
+            return
+        dialog = self._make_delete_dialog("cars.scan.delete_title", "cars.scan.delete_title")
+        dialog.set_body(_translate(self.language, "cars.trip.delete_multi_body", n=n))
+        dialog.connect("response", lambda _d, r: self._delete_selected_scans() if r == "delete" else None)
+        dialog.present(self)
+
+    def _delete_selected_scans(self) -> None:
+        if self.db is None:
+            return
+        for sid in list(self._scan_selected_ids):
+            try:
+                self.db.delete_scan(sid)
+            except Exception:
+                log.exception("Could not delete selected scan id=%s", sid)
+        self._exit_scan_select_mode()

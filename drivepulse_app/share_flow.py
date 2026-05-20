@@ -105,6 +105,32 @@ class ShareFlow:
             return
         self._check_and_proceed_vehicle(client, car, mode="scan", scan_ids=[scan_id])
 
+    def share_scans(self, car_id: int | None, scan_ids: list[int]) -> None:
+        client = self._get_client()
+        if client is None:
+            self._show_toast(self._t("share.no_sync"))
+            return
+        if car_id is None or not scan_ids:
+            return
+        car = self._get_car_row(car_id)
+        if car is None or not car["vin_hash"]:
+            self._show_toast(self._t("share.no_vin"))
+            return
+        self._check_and_proceed_vehicle(client, car, mode="scan", scan_ids=scan_ids)
+
+    def share_runs(self, car_id: int | None, run_ids: list[int]) -> None:
+        client = self._get_client()
+        if client is None:
+            self._show_toast(self._t("share.no_sync"))
+            return
+        if car_id is None or not run_ids:
+            return
+        car = self._get_car_row(car_id)
+        if car is None or not car["vin_hash"]:
+            self._show_toast(self._t("share.no_vin"))
+            return
+        self._check_and_proceed_vehicle(client, car, mode="run", run_ids=run_ids)
+
     # ------------------------------------------------------------------
     # Internal flow
     # ------------------------------------------------------------------
