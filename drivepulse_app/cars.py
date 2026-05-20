@@ -25,6 +25,7 @@ from .cars_metadata import (
 from .cars_profiles import _load_profiles
 from .cars_stopwatch_runs import CarsStopWatchRunsMixin
 from .cars_scans import CarsScansMixin
+from .cars_photos import CarsPhotosMixin
 
 
 def _extract_session_number(v: Any) -> "float | None":
@@ -53,6 +54,7 @@ class CarsPage(
     CarsTripsMixin,
     CarsScansMixin,
     CarsStopWatchRunsMixin,
+    CarsPhotosMixin,
     Gtk.Box,
 ):
     """Zweistufige Navigation: Fahrzeug-Liste → Werte-Detail."""
@@ -94,6 +96,9 @@ class CarsPage(
         self._scan_selected_ids: set[int] = set()
         self._run_select_mode: bool = False
         self._run_selected_ids: set[int] = set()
+        self._photo_select_mode: bool = False
+        self._photo_selected_ids: set[int] = set()
+        self._photo_detail_page: Adw.NavigationPage | None = None
         # Wird vom DashboardWindow gesetzt: Callback, wenn der Anwender auf der
         # Wurzel (Auto-Liste) nach rechts wischt, um zum vorherigen Tab zurückzukehren.
         self.on_back_swipe: Callable[[], None] | None = None
@@ -317,7 +322,7 @@ class CarsPage(
 
     # ---------------------------------------------------- Detail-Navigation
 
-    _LIVE_HIDDEN_CATS = frozenset({"trips", "stopwatch_runs", "scans"})
+    _LIVE_HIDDEN_CATS = frozenset({"trips", "stopwatch_runs", "scans", "photos"})
 
     def _update_category_visibility(self, is_live: bool) -> None:
         for row in self._cat_rows:
@@ -358,6 +363,7 @@ class CarsPage(
         self._update_live_add_button()
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
+        self._update_photo_upload_btn_visibility()
         if not self._detail_pushed:
             self.nav_view.push(self._detail_page)
             self._detail_pushed = True
@@ -371,8 +377,12 @@ class CarsPage(
             self._scan_selected_ids = set()
             self._run_select_mode = False
             self._run_selected_ids = set()
+            self._photo_select_mode = False
+            self._photo_selected_ids = set()
+            self._photo_detail_page = None
             self._set_trash(None)
             self._rename_btn.set_visible(False)
+            self._update_photo_upload_btn_visibility()
         if page is self._trip_detail_page:
             self._trip_detail_pushed = False
             self._trip_detail_page = None
@@ -395,6 +405,13 @@ class CarsPage(
                 self._render_detail()
             if self._detail_pushed and self._selected_car_id is not None:
                 self._set_trash(self._confirm_delete_vehicle)
+        if page is self._photo_detail_page:
+            self._photo_detail_page = None
+            if self._detail_pushed and self._selected_category == "photos":
+                self._render_detail()
+            if self._detail_pushed and self._selected_car_id is not None:
+                self._set_trash(self._confirm_delete_vehicle)
+            self._update_photo_upload_btn_visibility()
 
     def _is_sync_active(self) -> bool:
         return callable(self.get_sync_client) and self.get_sync_client() is not None
@@ -419,7 +436,7 @@ class CarsPage(
             self._share_selected_scans()
         elif self._run_select_mode:
             self._share_selected_runs()
-        else:
+        elif not self._photo_select_mode:
             self._share_vehicle()
 
     def _share_vehicle(self) -> None:
@@ -489,6 +506,14 @@ class CarsPage(
                 self._set_trash(self._confirm_delete_vehicle)
             else:
                 self._set_trash(None)
+        if self._photo_select_mode and new_cat != "photos":
+            self._photo_select_mode = False
+            self._photo_selected_ids = set()
+            if self._selected_car_id is not None:
+                self._set_trash(self._confirm_delete_vehicle)
+            else:
+                self._set_trash(None)
         self._selected_category = new_cat
+        self._update_photo_upload_btn_visibility()
         if self._detail_pushed:
             self._render_detail()
