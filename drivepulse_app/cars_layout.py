@@ -88,6 +88,12 @@ class CarsLayoutMixin:
         self._detail_share_btn.set_visible(False)
         self._detail_share_btn.connect("clicked", lambda _b: self._on_share_btn_clicked())
 
+        self._photo_upload_btn = Gtk.Button(icon_name="list-add-symbolic")
+        self._photo_upload_btn.add_css_class("flat")
+        self._photo_upload_btn.set_visible(False)
+        self._photo_upload_btn.set_tooltip_text(_translate(self.language, "cars.photos.upload_tooltip"))
+        self._photo_upload_btn.connect("clicked", lambda _b: self._open_upload_dialog())
+
         self._detail_trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
         self._detail_trash_btn.add_css_class("flat")
         self._detail_trash_btn.set_visible(False)
@@ -98,6 +104,7 @@ class CarsLayoutMixin:
         head.append(self._add_live_vehicle_btn)
         head.append(self._rename_btn)
         head.append(self._detail_share_btn)
+        head.append(self._photo_upload_btn)
         head.append(self._detail_trash_btn)
         outer.append(head)
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
@@ -189,6 +196,7 @@ class CarsLayoutMixin:
         value_scroll.set_vexpand(True)
         value_scroll.set_hexpand(True)
         value_scroll.set_child(self.value_list)
+        self._value_scroll = value_scroll
         content.append(value_scroll)
 
 

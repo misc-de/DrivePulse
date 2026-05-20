@@ -96,6 +96,11 @@ class CarsDetailRenderMixin:
         return (text, text == "—")
 
     def _render_detail(self) -> None:
+        # Restore scroll child to value_list if photos grid was shown
+        _scroll = getattr(self, "_value_scroll", None)
+        if _scroll is not None and _scroll.get_child() is not self.value_list:
+            _scroll.set_child(self.value_list)
+
         while True:
             child = self.value_list.get_first_child()
             if child is None:
@@ -119,6 +124,10 @@ class CarsDetailRenderMixin:
 
         if cat_key == "stopwatch_runs":
             self._render_stopwatch_runs_into_value_list()
+            return
+
+        if cat_key == "photos":
+            self._render_photos_into_view()
             return
 
         is_live = self._selected_source == self.LIVE_ID
