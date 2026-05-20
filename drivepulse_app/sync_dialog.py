@@ -197,7 +197,7 @@ class SyncDialog(Adw.NavigationPage):
         self._server_spinner = result[3]
         self._server_instr_label = result[4]
 
-        page.connect("hiding", lambda _p: self._stop_server())
+        page.connect("hiding", lambda _p: None if self._server_survived_dialog else self._stop_server())
         self._push_nav(page)
 
         with self._server_lock:
