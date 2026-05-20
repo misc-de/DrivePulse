@@ -60,6 +60,7 @@ class DashboardSettingsMixin:
                 "log_obd_enabled": getattr(self, "log_obd_enabled", True),
                 "vindecoder_api_key": getattr(self, "vindecoder_api_key", ""),
                 "vindecoder_secret_key": getattr(self, "vindecoder_secret_key", ""),
+                "autodev_api_key": getattr(self, "autodev_api_key", ""),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -149,6 +150,8 @@ class DashboardSettingsMixin:
             on_vindecoder_api_key_changed=self._set_vindecoder_api_key,
             current_vindecoder_secret_key=getattr(self, "vindecoder_secret_key", ""),
             on_vindecoder_secret_key_changed=self._set_vindecoder_secret_key,
+            current_autodev_api_key=getattr(self, "autodev_api_key", ""),
+            on_autodev_api_key_changed=self._set_autodev_api_key,
         )
 
         def _on_page_hidden(_p: object) -> None:
@@ -275,6 +278,11 @@ class DashboardSettingsMixin:
         self.vindecoder_secret_key = value
         self._save_settings()
         self.cars_page._vindecoder_secret_key = value or None
+
+    def _set_autodev_api_key(self, value: str) -> None:
+        self.autodev_api_key = value
+        self._save_settings()
+        self.cars_page._autodev_api_key = value or None
 
     def _open_sync(self, *_args: Any) -> None:
         if getattr(self, "_sync_is_online", False):

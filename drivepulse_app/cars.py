@@ -25,7 +25,7 @@ from .cars_metadata import (
     _wmi_to_brand,
 )
 from .cars_profiles import _load_profiles
-from .vin_api import fetch_vin_data
+from .vin_api import fetch_vin_data, strip_source_keys
 from .cars_stopwatch_runs import CarsStopWatchRunsMixin
 from .cars_scans import CarsScansMixin
 from .cars_photos import CarsPhotosMixin
@@ -81,7 +81,10 @@ class CarsPage(
         self._sidebar_side: str = sidebar_side
         self._vindecoder_api_key: str | None = vindecoder_api_key
         self._vindecoder_secret_key: str | None = vindecoder_secret_key
+        self._autodev_api_key: str | None = None
         self._vin_fetch_pending: set[int] = set()
+        self._vin_review_queue: list[tuple[int, str, dict]] = []
+        self._vin_review_open: bool = False
         self._latest_live: dict[str, Any] = {}
         self._live_identity: dict[str, str] = {}
         self._live_session_stats: dict[str, dict] = {}
@@ -220,25 +223,57 @@ class CarsPage(
         try:
             data = fetch_vin_data(
                 vin,
+                autodev_api_key=self._autodev_api_key,
                 vindecoder_api_key=self._vindecoder_api_key,
                 vindecoder_secret_key=self._vindecoder_secret_key,
             )
         except Exception:
             data = {}
-        if self.db is not None:
-            try:
-                self.db.update_car_vin_data(car_id, json.dumps(data))
-            except Exception:
-                pass
-        GLib.idle_add(self._on_vin_data_fetched, car_id)
+        GLib.idle_add(self._on_vin_data_ready, car_id, vin, data)
 
-    def _on_vin_data_fetched(self, car_id: int) -> bool:
+    def _on_vin_data_ready(self, car_id: int, vin: str, data: dict) -> bool:
         self._vin_fetch_pending.discard(car_id)
-        self._profiles = _load_profiles(self.db)
-        self._rebuild_list()
-        if self._detail_pushed:
-            self._render_detail()
+        vehicle_fields = {k: v for k, v in data.items() if not k.startswith("_src_")}
+        if not vehicle_fields:
+            if self.db is not None:
+                try:
+                    self.db.update_car_vin_data(car_id, "{}")
+                except Exception:
+                    pass
+            return False
+        self._vin_review_queue.append((car_id, vin, data))
+        self._maybe_show_next_review()
         return False
+
+    def _maybe_show_next_review(self) -> None:
+        if self._vin_review_open or not self._vin_review_queue:
+            return
+        car_id, vin, data = self._vin_review_queue.pop(0)
+        self._vin_review_open = True
+        from .vin_review_dialog import VinReviewDialog
+        dialog = VinReviewDialog(vin, data, self.language)
+
+        def _on_response(d: "VinReviewDialog", response: str) -> None:
+            self._vin_review_open = False
+            if response == "accept":
+                accepted = strip_source_keys(d.get_accepted_data())
+            else:
+                accepted = {}
+            if self.db is not None:
+                try:
+                    self.db.update_car_vin_data(car_id, json.dumps(accepted))
+                except Exception:
+                    pass
+            self._profiles = _load_profiles(self.db)
+            self._rebuild_list()
+            if self._detail_pushed:
+                self._render_detail()
+            self._maybe_show_next_review()
+
+        dialog.connect("response", _on_response)
+        root = self.get_root()
+        if root:
+            dialog.present(root)
 
     def update_live(self, payload: dict[str, Any]) -> None:
         if not payload:
