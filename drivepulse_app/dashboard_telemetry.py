@@ -158,8 +158,6 @@ class DashboardTelemetryMixin:
             self.cars_page.update_live(payload)
             if hasattr(self, "map_page"):
                 self.map_page.update_gps(lat, lon, gps_heading, gps_speed_kmh)
-            if hasattr(self, "dashcam_page"):
-                self.dashcam_page.update_gps(lat, lon, gps_speed_kmh)
             if not getattr(self, "_obd_active", False) and gps_active:
                 held_kmh = self._last_gps_speed_kmh if self._last_gps_speed_kmh is not None else 0.0
                 display = self._display_speed(held_kmh)

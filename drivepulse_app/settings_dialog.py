@@ -55,22 +55,6 @@ class SettingsDialog(Adw.NavigationPage):
         on_force_webkit_map_changed: Callable[[bool], None] | None = None,
         current_last_check: str | None = None,
         on_last_check_updated: Callable[[str], None] | None = None,
-        current_dashcam_camera: str = "/dev/video0",
-        on_dashcam_camera_changed: Callable[[str], None] | None = None,
-        current_dashcam_resolution: str = "1280x720",
-        on_dashcam_resolution_changed: Callable[[str], None] | None = None,
-        current_dashcam_seg_minutes: int = 3,
-        on_dashcam_seg_minutes_changed: Callable[[int], None] | None = None,
-        current_dashcam_max_segments: int = 10,
-        on_dashcam_max_segments_changed: Callable[[int], None] | None = None,
-        current_dashcam_dim_timeout: int = 30,
-        on_dashcam_dim_timeout_changed: Callable[[int], None] | None = None,
-        current_dashcam_rolling_dir: str = "",
-        on_dashcam_rolling_dir_changed: Callable[[str], None] | None = None,
-        current_dashcam_saved_dir: str = "",
-        on_dashcam_saved_dir_changed: Callable[[str], None] | None = None,
-        current_dashcam_gps_osd: bool = False,
-        on_dashcam_gps_osd_changed: Callable[[bool], None] | None = None,
         current_nav_position: str = "bottom",
         on_nav_position_changed: Callable[[str], None] | None = None,
         current_rotation_mode: str = "follow_sensor",
@@ -99,17 +83,6 @@ class SettingsDialog(Adw.NavigationPage):
         self.on_theme_mode_changed = on_theme_mode_changed
         self.on_force_webkit_map_changed = on_force_webkit_map_changed
         self.on_last_check_updated = on_last_check_updated
-        self.on_dashcam_camera_changed = on_dashcam_camera_changed
-        self.on_dashcam_resolution_changed = on_dashcam_resolution_changed
-        self.on_dashcam_seg_minutes_changed = on_dashcam_seg_minutes_changed
-        self.on_dashcam_max_segments_changed = on_dashcam_max_segments_changed
-        self.on_dashcam_dim_timeout_changed = on_dashcam_dim_timeout_changed
-        self.on_dashcam_rolling_dir_changed = on_dashcam_rolling_dir_changed
-        self.on_dashcam_saved_dir_changed = on_dashcam_saved_dir_changed
-        self._current_dashcam_rolling_dir = current_dashcam_rolling_dir
-        self._current_dashcam_saved_dir = current_dashcam_saved_dir
-        self.on_dashcam_gps_osd_changed = on_dashcam_gps_osd_changed
-        self._current_dashcam_gps_osd = current_dashcam_gps_osd
         self.on_nav_position_changed = on_nav_position_changed
         self.on_rotation_mode_changed = on_rotation_mode_changed
         self.on_tts_enabled_changed = on_tts_enabled_changed
@@ -509,102 +482,6 @@ class SettingsDialog(Adw.NavigationPage):
         tacho_group.add(self.unit_row)
         tacho_page.add(tacho_group)
 
-        # ── Dashcam page ──────────────────────────────────────────────────────
-        from .dashcam_recorder import RESOLUTIONS, list_cameras  # lazy import
-
-        dc_page = Adw.PreferencesPage(
-            title=_translate(self.language, "settings.page.dashcam"),
-        )
-        dc_group = Adw.PreferencesGroup(title=_translate(self.language, "dashcam.settings.title"))
-
-        # Camera selector
-        cameras = list_cameras() or [current_dashcam_camera]
-        cam_model = Gtk.StringList()
-        for camera in cameras:
-            cam_model.append(camera)
-        self._dc_cam_row = Adw.ComboRow(title=_translate(self.language, "dashcam.settings.camera"))
-        self._dc_cam_row.set_model(cam_model)
-        sel_cam = cameras.index(current_dashcam_camera) if current_dashcam_camera in cameras else 0
-        self._dc_cam_row.set_selected(sel_cam)
-        self._dc_cam_row.connect("notify::selected", self._on_dc_camera_changed)
-        dc_group.add(self._dc_cam_row)
-
-        # Resolution
-        res_model = Gtk.StringList()
-        for resolution in RESOLUTIONS:
-            res_model.append(resolution)
-        self._dc_res_row = Adw.ComboRow(title=_translate(self.language, "dashcam.settings.resolution"))
-        self._dc_res_row.set_model(res_model)
-        sel_res = RESOLUTIONS.index(current_dashcam_resolution) if current_dashcam_resolution in RESOLUTIONS else 1
-        self._dc_res_row.set_selected(sel_res)
-        self._dc_res_row.connect("notify::selected", self._on_dc_resolution_changed)
-        dc_group.add(self._dc_res_row)
-
-        # Segment length
-        seg_adj = Gtk.Adjustment(value=current_dashcam_seg_minutes, lower=1, upper=30, step_increment=1)
-        self._dc_seg_spin = Gtk.SpinButton(adjustment=seg_adj, climb_rate=1, digits=0)
-        self._dc_seg_spin.connect("value-changed", self._on_dc_seg_minutes_changed)
-        seg_row = Adw.ActionRow(
-            title=_translate(self.language, "dashcam.settings.seg_len"),
-            subtitle=_translate(self.language, "dashcam.settings.seg_len_sub"),
-        )
-        seg_row.add_suffix(self._dc_seg_spin)
-        seg_row.set_activatable_widget(self._dc_seg_spin)
-        dc_group.add(seg_row)
-
-        # Max segments
-        max_adj = Gtk.Adjustment(value=current_dashcam_max_segments, lower=2, upper=60, step_increment=1)
-        self._dc_max_spin = Gtk.SpinButton(adjustment=max_adj, climb_rate=1, digits=0)
-        self._dc_max_spin.connect("value-changed", self._on_dc_max_segments_changed)
-        max_row = Adw.ActionRow(
-            title=_translate(self.language, "dashcam.settings.max_seg"),
-            subtitle=_translate(self.language, "dashcam.settings.max_seg_sub"),
-        )
-        max_row.add_suffix(self._dc_max_spin)
-        max_row.set_activatable_widget(self._dc_max_spin)
-        dc_group.add(max_row)
-
-        # Screen dim timeout
-        dim_adj = Gtk.Adjustment(value=current_dashcam_dim_timeout, lower=0, upper=300, step_increment=5)
-        self._dc_dim_spin = Gtk.SpinButton(adjustment=dim_adj, climb_rate=1, digits=0)
-        self._dc_dim_spin.connect("value-changed", self._on_dc_dim_timeout_changed)
-        dim_row = Adw.ActionRow(
-            title=_translate(self.language, "dashcam.settings.dim_timeout"),
-            subtitle=_translate(self.language, "dashcam.settings.dim_timeout_sub"),
-        )
-        dim_row.add_suffix(self._dc_dim_spin)
-        dim_row.set_activatable_widget(self._dc_dim_spin)
-        dc_group.add(dim_row)
-
-        dc_page.add(dc_group)
-
-        # Storage folder group
-        storage_group = Adw.PreferencesGroup(title=_translate(self.language, "dashcam.settings.storage"))
-        self._dc_rolling_row = self._make_folder_row(
-            title=_translate(self.language, "dashcam.settings.rolling_dir"),
-            current=current_dashcam_rolling_dir,
-            callback=self._on_dc_rolling_dir_chosen,
-        )
-        self._dc_saved_row = self._make_folder_row(
-            title=_translate(self.language, "dashcam.settings.saved_dir"),
-            current=current_dashcam_saved_dir,
-            callback=self._on_dc_saved_dir_chosen,
-        )
-        storage_group.add(self._dc_rolling_row)
-        storage_group.add(self._dc_saved_row)
-        dc_page.add(storage_group)
-
-        # GPS / OSD group
-        gps_group = Adw.PreferencesGroup(title=_translate(self.language, "dashcam.settings.gps"))
-        gps_osd_row = Adw.SwitchRow(
-            title=_translate(self.language, "dashcam.settings.gps_osd"),
-            subtitle=_translate(self.language, "dashcam.settings.gps_osd_sub"),
-        )
-        gps_osd_row.set_active(current_dashcam_gps_osd)
-        gps_osd_row.connect("notify::active", self._on_dc_gps_osd_toggled)
-        gps_group.add(gps_osd_row)
-        dc_page.add(gps_group)
-
         # ── ViewStack ─────────────────────────────────────────────────────────────
         view_stack = Adw.ViewStack()
         view_stack.add_titled_with_icon(
@@ -621,11 +498,6 @@ class SettingsDialog(Adw.NavigationPage):
             tour_page, "tour",
             _translate(self.language, "settings.page.tour"),
             "navigate-north-symbolic",
-        )
-        view_stack.add_titled_with_icon(
-            dc_page, "dashcam",
-            _translate(self.language, "settings.page.dashcam"),
-            "camera-video-symbolic",
         )
         view_stack.add_titled_with_icon(
             tacho_page, "tacho",
@@ -655,75 +527,6 @@ class SettingsDialog(Adw.NavigationPage):
     def _on_hiding(self, _page: "SettingsDialog") -> None:
         self._closing = True
         tts_service.set_download_callback(None)
-
-    # ── Dashcam callbacks ─────────────────────────────────────────────────────
-
-    def _make_folder_row(
-        self, title: str, current: str, callback: Callable[[str], None]
-    ) -> Adw.ActionRow:
-        row = Adw.ActionRow(title=title, subtitle=current or _translate(self.language, "dashcam.settings.dir_default"))
-        row.set_subtitle_lines(1)
-        btn = Gtk.Button(label=_translate(self.language, "dashcam.settings.choose_dir"))
-        btn.add_css_class("flat")
-        btn.set_valign(Gtk.Align.CENTER)
-        btn.connect("clicked", lambda _b, r=row, cb=callback: self._pick_folder(r, cb))
-        row.add_suffix(btn)
-        return row
-
-    def _pick_folder(self, row: Adw.ActionRow, callback: Callable[[str], None]) -> None:
-        chooser = Gtk.FileChooserNative(
-            title=row.get_title(),
-            action=Gtk.FileChooserAction.SELECT_FOLDER,
-            accept_label=_translate(self.language, "dashcam.settings.dir_select"),
-            cancel_label=_translate(self.language, "dashcam.settings.dir_cancel"),
-        )
-        chooser.set_transient_for(self.get_root())
-        chooser.connect("response", lambda dlg, resp, r=row, cb=callback: self._on_folder_response(dlg, resp, r, cb))
-        chooser.show()
-
-    def _on_folder_response(
-        self, dlg: Gtk.FileChooserNative, resp: int, row: Adw.ActionRow, callback: Callable[[str], None]
-    ) -> None:
-        if resp == Gtk.ResponseType.ACCEPT:
-            f = dlg.get_file()
-            path = f.get_path() if f else None
-            if path:
-                row.set_subtitle(path)
-                callback(path)
-
-    def _on_dc_gps_osd_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
-        if self.on_dashcam_gps_osd_changed:
-            self.on_dashcam_gps_osd_changed(row.get_active())
-
-    def _on_dc_rolling_dir_chosen(self, path: str) -> None:
-        if self.on_dashcam_rolling_dir_changed:
-            self.on_dashcam_rolling_dir_changed(path)
-
-    def _on_dc_saved_dir_chosen(self, path: str) -> None:
-        if self.on_dashcam_saved_dir_changed:
-            self.on_dashcam_saved_dir_changed(path)
-
-    def _on_dc_camera_changed(self, row: Adw.ComboRow, _pspec: Any) -> None:
-        item = row.get_selected_item()
-        if item and self.on_dashcam_camera_changed:
-            self.on_dashcam_camera_changed(item.get_string())
-
-    def _on_dc_resolution_changed(self, row: Adw.ComboRow, _pspec: Any) -> None:
-        item = row.get_selected_item()
-        if item and self.on_dashcam_resolution_changed:
-            self.on_dashcam_resolution_changed(item.get_string())
-
-    def _on_dc_seg_minutes_changed(self, spin: Gtk.SpinButton) -> None:
-        if self.on_dashcam_seg_minutes_changed:
-            self.on_dashcam_seg_minutes_changed(int(spin.get_value()))
-
-    def _on_dc_max_segments_changed(self, spin: Gtk.SpinButton) -> None:
-        if self.on_dashcam_max_segments_changed:
-            self.on_dashcam_max_segments_changed(int(spin.get_value()))
-
-    def _on_dc_dim_timeout_changed(self, spin: Gtk.SpinButton) -> None:
-        if self.on_dashcam_dim_timeout_changed:
-            self.on_dashcam_dim_timeout_changed(int(spin.get_value()))
 
     def _on_unit_selected(self, *_args: Any) -> None:
         self.on_units_changed("metric" if self.unit_row.get_selected() == 0 else "imperial")

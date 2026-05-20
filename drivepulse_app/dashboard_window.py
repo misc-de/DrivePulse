@@ -24,7 +24,6 @@ from .dashboard_layout import DashboardLayoutMixin
 from .stopwatch import StopWatchPage
 from .cars import CarsPage
 from .map_page import MapPage
-from .dashcam_page import DashcamPage
 from .dashboard_telemetry import DashboardTelemetryMixin
 from .db import DriveDB
 from .dashboard_settings import DashboardSettingsMixin
@@ -45,7 +44,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     PAGE_STOPWATCH = "stopwatch"
     PAGE_CARS = "cars"
     PAGE_MAP = "map"
-    PAGE_DASHCAM = "dashcam"
 
     # Fensterbreite, unterhalb derer die Autos-Detailansicht ihre Kategorienleiste
     # auf Icon-only umschaltet (Phosh/Mobian-typische Portrait-Breiten 360–540 px).
@@ -73,15 +71,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.map_traffic_visible: bool = bool(self.settings.get("map_traffic_visible", False))
         self.map_3d_view: bool = bool(self.settings.get("map_3d_view", True))
         self.last_update_check: str | None = self.settings.get("last_update_check")
-        self.dashcam_camera: str = self.settings.get("dashcam_camera", "/dev/video0")
-        self.dashcam_resolution: str = self.settings.get("dashcam_resolution", "1280x720")
-        self.dashcam_seg_minutes: int = int(self.settings.get("dashcam_seg_minutes", 3))
-        self.dashcam_max_segments: int = int(self.settings.get("dashcam_max_segments", 10))
-        self.dashcam_dim_timeout: int = int(self.settings.get("dashcam_dim_timeout", 30))
-        self.dashcam_rolling_dir: str = self.settings.get("dashcam_rolling_dir", "")
-        self.dashcam_saved_dir: str = self.settings.get("dashcam_saved_dir", "")
         self.nav_position: str = self.settings.get("nav_position", "bottom")
-        self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
         self.rotation_mode: str = self.settings.get("rotation_mode", "follow_sensor")
         self.tts_enabled: bool = bool(self.settings.get("tts_enabled", True))
         self.tts_backend: str = self.settings.get("tts_backend", "espeak")
@@ -247,20 +237,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._map_rotator.set_hexpand(True)
         self._map_rotator.set_vexpand(True)
 
-        self.dashcam_page = DashcamPage(self.language)
-        self.dashcam_page.set_camera(self.dashcam_camera)
-        self.dashcam_page.set_resolution(self.dashcam_resolution)
-        self.dashcam_page.set_segment_minutes(self.dashcam_seg_minutes)
-        self.dashcam_page.set_max_segments(self.dashcam_max_segments)
-        self.dashcam_page.set_dim_timeout(self.dashcam_dim_timeout)
-        self.dashcam_page.set_rolling_dir(self.dashcam_rolling_dir)
-        self.dashcam_page.set_saved_dir(self.dashcam_saved_dir)
-        self.dashcam_page.set_gps_osd(
-            bool(self.settings.get("dashcam_gps_osd", False))
-        )
-        self.dashcam_page.set_units(self.units)
-        self.dashcam_page.on_recording_changed = self._on_dashcam_recording_changed
-
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
         self.view_stack.set_hexpand(True)
@@ -279,12 +255,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.PAGE_MAP,
             _translate(self.language, "nav.map"),
             "navigate-north",
-        )
-        self.dashcam_stack_page = self.view_stack.add_titled_with_icon(
-            self.dashcam_page,
-            self.PAGE_DASHCAM,
-            _translate(self.language, "nav.dashcam"),
-            "camera-video-symbolic",
         )
         self.dashboard_stack_page = self.view_stack.add_titled_with_icon(
             dashboard_scroller,
@@ -325,20 +295,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._sync_btn.set_tooltip_text(_translate(self.language, "sync.tooltip"))
         self._sync_btn.connect("clicked", self._open_sync)
 
-        # REC indicator — shown when dashcam is recording in the background
-        self._dashcam_rec_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        self._dashcam_rec_box.set_visible(False)
-        _rec_dot = Gtk.Label(label="●")
-        _rec_dot.add_css_class("error")
-        self._dashcam_rec_box.append(_rec_dot)
-        _rec_lbl = Gtk.Label(label="REC")
-        _rec_lbl.add_css_class("caption-heading")
-        self._dashcam_rec_box.append(_rec_lbl)
-
         self.obd_indicator["box"].set_margin_start(10)
         header.pack_start(self.obd_indicator["box"])
         header.pack_start(self.gps_indicator["box"])
-        header.pack_start(self._dashcam_rec_box)
         self._conflict_btn = Gtk.Button(icon_name="dialog-warning-symbolic")
         self._conflict_btn.add_css_class("flat")
         self._conflict_btn.set_tooltip_text(_translate(self.language, "share.conflicts_tooltip"))
@@ -490,16 +449,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if model:
             _tts_svc.cancel_download(model)
 
-    def _on_dashcam_recording_changed(self, recording: bool) -> None:
-        self._dashcam_rec_box.set_visible(recording)
-
     def _apply_page_rotation(self, angle: int) -> None:
         self._current_rotation = angle
         self._gauge_rotator.set_rotation(angle)
         self._stopwatch_rotator.set_rotation(angle)
         self._cars_rotator.set_rotation(angle)
         self._map_rotator.set_rotation(angle)
-        self.dashcam_page.update_ui_rotation(angle)
         self._apply_nav_rotation(angle)
         GLib.idle_add(self._on_size_changed)
 
@@ -523,7 +478,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     def _on_orientation_changed(self, _name: str, angle: int, is_landscape: bool) -> None:
         self._last_sensor_angle = angle
         self.rotation.set_sensor(angle)
-        self.dashcam_page.update_orientation(angle, is_landscape)
 
         # Idle-Erkennung + WAL-Checkpoint alle 30 s
         GLib.timeout_add_seconds(30, self._db_periodic_tick)
@@ -598,16 +552,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 self._set_nav_visible(True)
         if page == self.PAGE_MAP:
             GLib.timeout_add(50, self.map_page.on_shown)
-
-        # Dashcam preview is started lazily and torn down when the user leaves
-        # the tab — except the recorder keeps running across tab switches so a
-        # tour is recorded end-to-end regardless of which tab is in front.
-        prev = getattr(self, "_last_visible_page", None)
-        if page == self.PAGE_DASHCAM:
-            self.dashcam_page.on_shown()
-        elif prev == self.PAGE_DASHCAM:
-            self.dashcam_page.on_hidden()
-        self._last_visible_page = page
 
     # Hold the simulated drive for this long after the tour starts, matching
     # mapStartTour's camera settle window in map.html so the car doesn't pull
@@ -760,7 +704,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # Zurück-Swipe (Detail → Liste). Wir schalten dann nicht zusätzlich den Tab um.
         if current == self.PAGE_CARS and velocity_x > 0 and self.cars_page.is_detail_open():
             return
-        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHCAM, self.PAGE_DASHBOARD, self.PAGE_STOPWATCH]
+        pages = [self.PAGE_CARS, self.PAGE_MAP, self.PAGE_DASHBOARD, self.PAGE_STOPWATCH]
         try:
             index = pages.index(current)
         except ValueError:

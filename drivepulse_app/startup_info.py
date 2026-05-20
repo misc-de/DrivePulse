@@ -37,7 +37,7 @@ GI_LIBRARIES = (
     ("GdkPixbuf",   "GdkPixbuf","2.0", "gir1.2-gdkpixbuf-2.0", "Bildformate (QR-Code-Anzeige)",           True),
     ("WebKit 6",    "WebKit",   "6.0", "gir1.2-webkit-6.0",     "Karten-Backend (Vektor-3D, bevorzugt)",  False),
     ("Shumate",     "Shumate",  "1.0", "gir1.2-shumate-1.0",    "Karten-Backend (Raster, Fallback)",      False),
-    ("GStreamer",   "Gst",      "1.0", "gir1.2-gstreamer-1.0",  "Dashcam-Aufnahme & QR-Scanner",          False),
+    ("GStreamer",   "Gst",      "1.0", "gir1.2-gstreamer-1.0",  "QR-Scanner",                             False),
 )
 
 SYSTEM_BINARIES = (

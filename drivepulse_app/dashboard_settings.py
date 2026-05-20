@@ -40,15 +40,7 @@ class DashboardSettingsMixin:
                 "map_traffic_visible": getattr(self, "map_traffic_visible", False),
                 "map_3d_view": getattr(self, "map_3d_view", True),
                 "last_update_check": getattr(self, "last_update_check", None),
-                "dashcam_camera": getattr(self, "dashcam_camera", "/dev/video0"),
-                "dashcam_resolution": getattr(self, "dashcam_resolution", "1280x720"),
-                "dashcam_seg_minutes": getattr(self, "dashcam_seg_minutes", 3),
-                "dashcam_max_segments": getattr(self, "dashcam_max_segments", 10),
-                "dashcam_dim_timeout": getattr(self, "dashcam_dim_timeout", 30),
-                "dashcam_rolling_dir": getattr(self, "dashcam_rolling_dir", ""),
-                "dashcam_saved_dir": getattr(self, "dashcam_saved_dir", ""),
                 "nav_position": getattr(self, "nav_position", "bottom"),
-                "dashcam_gps_osd": getattr(self, "dashcam_gps_osd", False),
                 "rotation_mode": getattr(self, "rotation_mode", "follow_sensor"),
                 "tts_enabled": getattr(self, "tts_enabled", False),
                 "tts_backend": getattr(self, "tts_backend", "espeak"),
@@ -105,24 +97,8 @@ class DashboardSettingsMixin:
             on_force_webkit_map_changed=self._set_force_webkit_map,
             current_last_check=getattr(self, "last_update_check", None),
             on_last_check_updated=self._set_last_update_check,
-            current_dashcam_camera=getattr(self, "dashcam_camera", "/dev/video0"),
-            on_dashcam_camera_changed=self._set_dashcam_camera,
-            current_dashcam_resolution=getattr(self, "dashcam_resolution", "1280x720"),
-            on_dashcam_resolution_changed=self._set_dashcam_resolution,
-            current_dashcam_seg_minutes=getattr(self, "dashcam_seg_minutes", 3),
-            on_dashcam_seg_minutes_changed=self._set_dashcam_seg_minutes,
-            current_dashcam_max_segments=getattr(self, "dashcam_max_segments", 10),
-            on_dashcam_max_segments_changed=self._set_dashcam_max_segments,
-            current_dashcam_dim_timeout=getattr(self, "dashcam_dim_timeout", 30),
-            on_dashcam_dim_timeout_changed=self._set_dashcam_dim_timeout,
-            current_dashcam_rolling_dir=getattr(self, "dashcam_rolling_dir", ""),
-            on_dashcam_rolling_dir_changed=self._set_dashcam_rolling_dir,
-            current_dashcam_saved_dir=getattr(self, "dashcam_saved_dir", ""),
-            on_dashcam_saved_dir_changed=self._set_dashcam_saved_dir,
             current_nav_position=getattr(self, "nav_position", "bottom"),
             on_nav_position_changed=self._set_nav_position,
-            current_dashcam_gps_osd=getattr(self, "dashcam_gps_osd", False),
-            on_dashcam_gps_osd_changed=self._set_dashcam_gps_osd,
             current_rotation_mode=getattr(self, "rotation_mode", "follow_sensor"),
             on_rotation_mode_changed=self._set_rotation_mode,
             current_tts_enabled=getattr(self, "tts_enabled", False),
@@ -145,46 +121,6 @@ class DashboardSettingsMixin:
 
         page.connect("hidden", _on_page_hidden)
         self.nav_view.push(page)
-
-    def _set_dashcam_camera(self, value: str) -> None:
-        self.dashcam_camera = value
-        self._save_settings()
-        self.dashcam_page.set_camera(value)
-
-    def _set_dashcam_resolution(self, value: str) -> None:
-        self.dashcam_resolution = value
-        self._save_settings()
-        self.dashcam_page.set_resolution(value)
-
-    def _set_dashcam_seg_minutes(self, value: int) -> None:
-        self.dashcam_seg_minutes = value
-        self._save_settings()
-        self.dashcam_page.set_segment_minutes(value)
-
-    def _set_dashcam_max_segments(self, value: int) -> None:
-        self.dashcam_max_segments = value
-        self._save_settings()
-        self.dashcam_page.set_max_segments(value)
-
-    def _set_dashcam_dim_timeout(self, value: int) -> None:
-        self.dashcam_dim_timeout = value
-        self._save_settings()
-        self.dashcam_page.set_dim_timeout(value)
-
-    def _set_dashcam_rolling_dir(self, value: str) -> None:
-        self.dashcam_rolling_dir = value
-        self._save_settings()
-        self.dashcam_page.set_rolling_dir(value)
-
-    def _set_dashcam_saved_dir(self, value: str) -> None:
-        self.dashcam_saved_dir = value
-        self._save_settings()
-        self.dashcam_page.set_saved_dir(value)
-
-    def _set_dashcam_gps_osd(self, enabled: bool) -> None:
-        self.dashcam_gps_osd = enabled
-        self._save_settings()
-        self.dashcam_page.set_gps_osd(enabled)
 
     def _set_nav_position(self, position: str) -> None:
         if position == getattr(self, "nav_position", "bottom"):
@@ -439,7 +375,6 @@ class DashboardSettingsMixin:
         self.units = units
         self._save_units()
         self.dashboard_canvas.set_units(units)
-        self.dashcam_page.set_units(units)
         if hasattr(self, "map_page"):
             self.map_page.set_units(units)
 
@@ -545,10 +480,8 @@ class DashboardSettingsMixin:
         self.stopwatch_stack_page.set_title(_translate(self.language, "nav.stopwatch"))
         self.cars_stack_page.set_title(_translate(self.language, "nav.cars"))
         self.map_stack_page.set_title(_translate(self.language, "nav.map"))
-        self.dashcam_stack_page.set_title(_translate(self.language, "nav.dashcam"))
         self.stopwatch_page.set_language(self.language)
         self.map_page.set_language(self.language)
-        self.dashcam_page.set_language(self.language)
         self.dashboard_canvas.set_language(self.language)
         self.cars_page.set_language(self.language)
         if self.last_payload is not None:
