@@ -33,13 +33,22 @@ MODE_LOCAL_WINS = "local_wins"
 MODE_REMOTE_WINS_ALL = "remote_wins_all"
 MODE_LOCAL_WINS_ALL = "local_wins_all"
 
-_MODE_DESCRIPTION_KEYS: dict[str, str] = {
-    MODE_MERGE: "sync.mode.merge.description",
-    MODE_REMOTE_WINS: "sync.mode.remote_wins.description",
-    MODE_LOCAL_WINS: "sync.mode.local_wins.description",
-    MODE_REMOTE_WINS_ALL: "sync.mode.remote_wins_all.description",
-    MODE_LOCAL_WINS_ALL: "sync.mode.local_wins_all.description",
-}
+# (mode_constant, title_key, subtitle_key, is_destructive)
+_CLIENT_OPTIONS = [
+    (MODE_MERGE,           "sync.opt.merge",          "sync.opt.merge.sub",            False),
+    (MODE_LOCAL_WINS,      "sync.opt.send_new",        "sync.opt.send_new.sub.client",  False),
+    (MODE_REMOTE_WINS,     "sync.opt.fetch_new",       "sync.opt.fetch_new.sub.client", False),
+    (MODE_LOCAL_WINS_ALL,  "sync.opt.push_all",        "sync.opt.push_all.sub.client",  True),
+    (MODE_REMOTE_WINS_ALL, "sync.opt.pull_all.client", "sync.opt.pull_all.sub.client",  True),
+]
+# Modes are stored as client-perspective (what the client will execute)
+_SERVER_OPTIONS = [
+    (MODE_MERGE,            "sync.opt.merge",          "sync.opt.merge.sub",            False),
+    (MODE_REMOTE_WINS,      "sync.opt.send_new",       "sync.opt.send_new.sub.server",  False),
+    (MODE_LOCAL_WINS,       "sync.opt.fetch_new",      "sync.opt.fetch_new.sub.server", False),
+    (MODE_REMOTE_WINS_ALL,  "sync.opt.push_all",       "sync.opt.push_all.sub.server",  True),
+    (MODE_LOCAL_WINS_ALL,   "sync.opt.pull_all.server","sync.opt.pull_all.sub.server",  True),
+]
 log = get_logger(__name__)
 
 # Server waits this many seconds for a client before auto-closing.
@@ -76,6 +85,7 @@ class SyncDialog(Adw.NavigationPage):
         self._scanner: WebcamQRScanner | None = None
         self._sync_mode: str = MODE_MERGE
         self._keepalive_stop = threading.Event()
+        self._sync_feedback_label: Gtk.Label | None = None
         # Outer app NavigationView — all sub-pages are pushed here so swipe
         # always works; there is no inner NavigationView.
         self._outer_nav: Adw.NavigationView | None = getattr(parent, "nav_view", None)
@@ -603,88 +613,103 @@ class SyncDialog(Adw.NavigationPage):
             self._on_sync_complete()
         self._close_sync_dialog()
 
-    def _show_sync_options_dialog(self, status_label: Gtk.Label) -> None:
+    def set_sync_feedback_label(self, label: Gtk.Label) -> None:
+        self._sync_feedback_label = label
+
+    def _show_sync_options_dialog(self, status_label: Gtk.Label, is_server: bool = False) -> None:
         root = self._outer_nav.get_root() if self._outer_nav else None
         parent_window = root if isinstance(root, Gtk.Window) else None
 
+        options = _SERVER_OPTIONS if is_server else _CLIENT_OPTIONS
+
         dialog = Adw.MessageDialog.new(parent_window, self._t("sync.options.title"), "")
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         content.set_margin_top(8)
         content.set_margin_bottom(4)
 
         mode_group = Adw.PreferencesGroup()
         content.append(mode_group)
 
-        selected_mode = [MODE_MERGE]
+        selected_idx = [0]
+        checks: list[tuple[int, Gtk.CheckButton]] = []
+        first_check: Gtk.CheckButton | None = None
 
-        desc_label = Gtk.Label(label=self._t("sync.mode.merge.description"))
-        desc_label.set_wrap(True)
-        desc_label.set_max_width_chars(48)
-        desc_label.set_justify(Gtk.Justification.CENTER)
-        desc_label.set_halign(Gtk.Align.CENTER)
-        desc_label.add_css_class("dim-label")
-        desc_label.set_margin_top(8)
-        content.append(desc_label)
-
-        def _make_mode_row(check: Gtk.CheckButton, title_key: str) -> Adw.ActionRow:
+        for i, (_, title_key, sub_key, _destr) in enumerate(options):
+            check = Gtk.CheckButton()
+            check.set_valign(Gtk.Align.CENTER)
+            if first_check is None:
+                check.set_active(True)
+                first_check = check
+            else:
+                check.set_group(first_check)
             row = Adw.ActionRow()
             row.set_title(self._t(title_key))
+            row.set_subtitle(self._t(sub_key))
             row.add_prefix(check)
             row.set_activatable_widget(check)
-            return row
-
-        merge_check = Gtk.CheckButton()
-        merge_check.set_active(True)
-        merge_check.set_valign(Gtk.Align.CENTER)
-        mode_group.add(_make_mode_row(merge_check, "sync.mode.merge"))
-
-        remote_check = Gtk.CheckButton()
-        remote_check.set_group(merge_check)
-        remote_check.set_valign(Gtk.Align.CENTER)
-        mode_group.add(_make_mode_row(remote_check, "sync.mode.remote_wins"))
-
-        local_check = Gtk.CheckButton()
-        local_check.set_group(merge_check)
-        local_check.set_valign(Gtk.Align.CENTER)
-        mode_group.add(_make_mode_row(local_check, "sync.mode.local_wins"))
-
-        remote_all_check = Gtk.CheckButton()
-        remote_all_check.set_group(merge_check)
-        remote_all_check.set_valign(Gtk.Align.CENTER)
-        mode_group.add(_make_mode_row(remote_all_check, "sync.mode.remote_wins_all"))
-
-        local_all_check = Gtk.CheckButton()
-        local_all_check.set_group(merge_check)
-        local_all_check.set_valign(Gtk.Align.CENTER)
-        mode_group.add(_make_mode_row(local_all_check, "sync.mode.local_wins_all"))
+            mode_group.add(row)
+            checks.append((i, check))
 
         def _on_toggled(*_: Any) -> None:
-            if remote_check.get_active():
-                selected_mode[0] = MODE_REMOTE_WINS
-            elif local_check.get_active():
-                selected_mode[0] = MODE_LOCAL_WINS
-            elif remote_all_check.get_active():
-                selected_mode[0] = MODE_REMOTE_WINS_ALL
-            elif local_all_check.get_active():
-                selected_mode[0] = MODE_LOCAL_WINS_ALL
-            else:
-                selected_mode[0] = MODE_MERGE
-            desc_label.set_text(self._t(_MODE_DESCRIPTION_KEYS[selected_mode[0]]))
+            for idx, chk in checks:
+                if chk.get_active():
+                    selected_idx[0] = idx
+                    break
 
-        for chk in (merge_check, remote_check, local_check, remote_all_check, local_all_check):
+        for _, chk in checks:
             chk.connect("toggled", _on_toggled)
 
         dialog.set_extra_child(content)
         dialog.add_response("cancel", self._t("sync.options.cancel_btn"))
-        dialog.add_response("start", self._t("sync.options.start_btn"))
-        dialog.set_response_appearance("start", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("start")
+        dialog.add_response("next", self._t("sync.options.start_btn"))
+        dialog.set_response_appearance("next", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("next")
         dialog.set_close_response("cancel")
 
         def _on_response(_d: Adw.MessageDialog, response_id: str) -> None:
-            if response_id == "start":
-                mode = selected_mode[0]
+            if response_id != "next":
+                return
+            mode, title_key, sub_key, is_destructive = options[selected_idx[0]]
+            self._show_sync_confirm_dialog(
+                parent_window, mode, title_key, sub_key, is_destructive, status_label, is_server
+            )
+
+        dialog.connect("response", _on_response)
+        dialog.present()
+
+    def _show_sync_confirm_dialog(
+        self,
+        parent_window: Any,
+        mode: str,
+        title_key: str,
+        sub_key: str,
+        is_destructive: bool,
+        status_label: Gtk.Label,
+        is_server: bool,
+    ) -> None:
+        body = self._t(sub_key)
+        if is_destructive:
+            body = f"{body}\n\n{self._t('sync.confirm.destructive')}"
+        confirm = Adw.MessageDialog.new(parent_window, self._t(title_key), body)
+        confirm.add_response("cancel", self._t("sync.confirm.cancel_btn"))
+        confirm.add_response("start", self._t("sync.confirm.start_btn"))
+        confirm.set_response_appearance(
+            "start",
+            Adw.ResponseAppearance.DESTRUCTIVE if is_destructive else Adw.ResponseAppearance.SUGGESTED,
+        )
+        confirm.set_default_response("cancel" if is_destructive else "start")
+        confirm.set_close_response("cancel")
+
+        def _on_confirm(_d: Adw.MessageDialog, response_id: str) -> None:
+            if response_id != "start":
+                return
+            if is_server:
+                server = getattr(self, "_server", None)
+                if server is not None:
+                    server.pending_sync_mode = mode
+                    status_label.set_text(self._t("sync.server.sync_requested"))
+            else:
                 status_label.set_text(self._t("sync.client.connecting"))
                 threading.Thread(
                     target=self._do_sync,
@@ -692,8 +717,8 @@ class SyncDialog(Adw.NavigationPage):
                     daemon=True,
                 ).start()
 
-        dialog.connect("response", _on_response)
-        dialog.present()
+        confirm.connect("response", _on_confirm)
+        confirm.present()
 
     def _do_sync(
         self,
@@ -701,6 +726,7 @@ class SyncDialog(Adw.NavigationPage):
         mode: str,
         status_label: Gtk.Label,
         sync_btn: Gtk.Button | None = None,
+        close_after: bool = True,
     ) -> None:
         def _set(msg: str) -> bool:
             status_label.set_text(msg)
@@ -724,11 +750,28 @@ class SyncDialog(Adw.NavigationPage):
             GLib.idle_add(_done, msg)
             if self._on_sync_complete:
                 GLib.idle_add(self._on_sync_complete)
-            GLib.timeout_add(1500, self._close_sync_dialog)
+            if close_after:
+                GLib.timeout_add(1500, self._close_sync_dialog)
 
         except Exception as exc:
             log.exception("Sync operation failed")
             GLib.idle_add(_done, self._t("sync.error", error=str(exc)))
+
+    def _trigger_pending_sync(self, mode: str) -> bool:
+        label = self._sync_feedback_label
+        if label is None:
+            label = Gtk.Label()
+        label.set_text(self._t("sync.client.connecting"))
+        client = getattr(self, "_active_client", None)
+        if client is None:
+            return False
+        threading.Thread(
+            target=self._do_sync,
+            args=(client, mode, label),
+            kwargs={"close_after": False},
+            daemon=True,
+        ).start()
+        return False
 
     def _keepalive_loop(self, client: SyncClient) -> None:
         """Pingt den Server alle 10 Sekunden.
@@ -739,6 +782,10 @@ class SyncDialog(Adw.NavigationPage):
             result = client.ping()
             if result is True:
                 failures = 0
+                pending = client.get_pending_sync()
+                if pending:
+                    client.mark_pending_scheduled()
+                    GLib.idle_add(lambda m=pending: self._trigger_pending_sync(m))
             elif result is False:
                 log.info("Server aktiv getrennt — trenne Verbindung sofort")
                 GLib.idle_add(self.disconnect)
