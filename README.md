@@ -65,14 +65,29 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
 
 ## Requirements
 
-### System
+### Required packages
 
 ```bash
-sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-webkit-6.0 python3-pip espeak-ng
-python3 -m pip install --user obd
+sudo apt install \
+  python3-gi python3-cairo \
+  gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gdkpixbuf-2.0 \
+  python3-pip
+
+pip install --user obd pyserial requests cryptography
 ```
 
-> `espeak-ng` is only required for voice navigation. The app runs without it — voice guidance will simply stay silent if the binary is missing.
+### Optional packages
+
+| Package | Install | Used for |
+|---|---|---|
+| `gir1.2-webkit-6.0` | `sudo apt install gir1.2-webkit-6.0` | Vector/3D maps (preferred) |
+| `gir1.2-shumate-1.0` | `sudo apt install gir1.2-shumate-1.0` | Raster maps (fallback) |
+| `gir1.2-gstreamer-1.0` | `sudo apt install gir1.2-gstreamer-1.0` | Dashcam & QR scanner |
+| `espeak-ng` | `sudo apt install espeak-ng` | Voice navigation (simple, always works) |
+| `piper-tts` | `pip install --user piper-tts` | Voice navigation (natural neural voices, recommended) |
+| `alsa-utils` | `sudo apt install alsa-utils` | Audio playback for piper (`aplay`) |
+
+> For maps to work, at least one of WebKit 6 or Shumate must be installed. Voice guidance stays silent if neither espeak-ng nor piper is found.
 
 ### GPS
 

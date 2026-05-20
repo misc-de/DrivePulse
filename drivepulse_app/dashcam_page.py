@@ -227,6 +227,7 @@ class DashcamPage(Gtk.Box):
 
         self._tick_source:   int | None = None
         self._dim_source:    int | None = None
+        self._rec_dot_on:    bool = True
         self._dim_timeout_s: int = _DIM_DEFAULT_S
         self._dim_remaining: int = _DIM_DEFAULT_S
         self._lock_visible:  bool = False
@@ -599,12 +600,19 @@ class DashcamPage(Gtk.Box):
             GLib.source_remove(self._dim_source)
             self._dim_source = None
 
+    _DIM_COUNTDOWN_THRESHOLD = 10
+
     def _dim_tick(self) -> bool:
         self._dim_remaining -= 1
         if self._dim_remaining <= 0:
             self._show_lock()
             self._dim_source = None
+            self._update_status()
             return False
+        if self._dim_remaining <= self._DIM_COUNTDOWN_THRESHOLD:
+            t = _translate(self.language, "dashcam.dim.countdown").format(n=self._dim_remaining)
+            for lbl in self._status_lbls:
+                lbl.set_text(t)
         return True
 
     def _show_lock(self) -> None:
@@ -693,6 +701,8 @@ class DashcamPage(Gtk.Box):
         if self._tick_source is not None:
             GLib.source_remove(self._tick_source)
             self._tick_source = None
+        self._rec_dot_on = True
+        self._rec_dot.queue_draw()
         for lbl in self._elapsed_lbls:
             lbl.set_text("")
             lbl.set_visible(False)
@@ -707,6 +717,8 @@ class DashcamPage(Gtk.Box):
         for lbl in self._elapsed_lbls:
             lbl.set_text(text)
             lbl.set_visible(True)
+        self._rec_dot_on = not self._rec_dot_on
+        self._rec_dot.queue_draw()
         self._update_status()
         return True
 
@@ -764,7 +776,10 @@ class DashcamPage(Gtk.Box):
 
     def _draw_rec_dot(self, _da: Any, cr: Any, w: int, h: int, _d: Any) -> None:
         cx, cy, r = w / 2, h / 2, min(w, h) / 2 - 1
-        cr.set_source_rgb(0.9, 0.1, 0.1)
+        if self._rec_dot_on:
+            cr.set_source_rgb(0.9, 0.1, 0.1)
+        else:
+            cr.set_source_rgba(0.9, 0.1, 0.1, 0.0)
         cr.arc(cx, cy, r, 0, 2 * math.pi)
         cr.fill()
 
