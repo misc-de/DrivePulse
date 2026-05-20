@@ -447,7 +447,6 @@ class SettingsDialog(Adw.NavigationPage):
         vd_group.add(self._autodev_row)
         vd_group.add(self._vd_api_key_row)
         vd_group.add(self._vd_secret_row)
-        app_page.add(vd_group)
 
         # OBD group
         app_page.add(obd_group)
@@ -717,6 +716,17 @@ class SettingsDialog(Adw.NavigationPage):
             tacho_page, "tacho",
             _translate(self.language, "settings.page.tacho"),
             "speedometer4-symbolic",
+        )
+
+        # ── Accounts page ─────────────────────────────────────────────────────
+        accounts_page = Adw.PreferencesPage(
+            title=_translate(self.language, "settings.page.accounts"),
+        )
+        accounts_page.add(vd_group)
+        view_stack.add_titled_with_icon(
+            accounts_page, "accounts",
+            _translate(self.language, "settings.page.accounts"),
+            "avatar-default-symbolic",
         )
 
         # ── Bottom navigation bar (standard GNOME pattern) ────────────────────

@@ -253,6 +253,14 @@ class DriveDB:
             )
             self._conn.commit()
 
+    def reset_car_vin_data(self, car_id: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE cars SET vin_data_json=NULL WHERE id=?",
+                (car_id,),
+            )
+            self._conn.commit()
+
     # ----------------------------------------------------------------- Trips
 
     def start_trip(self, car_id: int, started_at: datetime | None = None) -> int:

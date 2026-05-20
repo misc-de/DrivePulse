@@ -186,6 +186,17 @@ class CarsActionsMixin:
         dialog.connect("response", lambda _d, r: self._delete_vehicle() if r == "delete" else None)
         dialog.present(self)
 
+    def _reset_and_refetch_vin(self) -> None:
+        car_id = self._selected_car_id
+        if car_id is None or self.db is None:
+            return
+        try:
+            self.db.reset_car_vin_data(car_id)
+        except Exception:
+            log.exception("Could not reset vin_data for car id=%s", car_id)
+            return
+        self.refresh_profiles()
+
     def _delete_vehicle(self) -> None:
         if self.db and self._selected_car_id:
             try:

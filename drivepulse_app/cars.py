@@ -452,6 +452,8 @@ class CarsPage(
         else:
             self._set_trash(None)
         self._rename_btn.set_visible(is_real_car)
+        has_vin = bool(entry.get("vin")) if (is_real_car and entry) else False
+        self._vin_refresh_btn.set_visible(is_real_car and has_vin)
         self._update_live_add_button()
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
@@ -474,6 +476,7 @@ class CarsPage(
             self._photo_detail_page = None
             self._set_trash(None)
             self._rename_btn.set_visible(False)
+            self._vin_refresh_btn.set_visible(False)
             self._update_photo_upload_btn_visibility()
         if page is self._trip_detail_page:
             self._trip_detail_pushed = False
