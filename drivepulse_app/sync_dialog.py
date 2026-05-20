@@ -75,6 +75,7 @@ class SyncDialog(Adw.NavigationPage):
         self._client_paired = False  # Client hat erfolgreich gepairt
         self._scanner: WebcamQRScanner | None = None
         self._sync_mode: str = MODE_MERGE
+        self._keepalive_stop = threading.Event()
         # Outer app NavigationView — all sub-pages are pushed here so swipe
         # always works; there is no inner NavigationView.
         self._outer_nav: Adw.NavigationView | None = getattr(parent, "nav_view", None)
@@ -496,6 +497,10 @@ class SyncDialog(Adw.NavigationPage):
             log.info("_do_pair: Pairing erfolgreich")
 
             self._active_client = client
+            self._keepalive_stop.clear()
+            threading.Thread(
+                target=self._keepalive_loop, args=(client,), daemon=True, name="sync-keepalive"
+            ).start()
             self._active_host = pairing.host
             self._active_port = pairing.port
             self._active_spki_fp = pairing.spki_fingerprint
@@ -733,8 +738,17 @@ class SyncDialog(Adw.NavigationPage):
             log.exception("Sync operation failed")
             GLib.idle_add(_done, self._t("sync.error", error=str(exc)))
 
+    def _keepalive_loop(self, client: SyncClient) -> None:
+        """Pingt den Server alle 10 Sekunden. Bei Fehler wird die Verbindung getrennt."""
+        while not self._keepalive_stop.wait(10):
+            if not client.ping():
+                log.info("Keepalive-Ping fehlgeschlagen — trenne Verbindung")
+                GLib.idle_add(self.disconnect)
+                return
+
     def disconnect(self) -> None:
         """Verbindung sofort trennen — stoppt den Server und benachrichtigt on_disconnected."""
+        self._keepalive_stop.set()
         if self._client_paired:
             client = getattr(self, "_active_client", None)
             if client is not None:
@@ -753,6 +767,16 @@ class SyncDialog(Adw.NavigationPage):
         client = getattr(self, "_active_client", None)
         if client is not None and client.last_contact > 0:
             return client.last_contact
+        return 0.0
+
+    def get_last_ping(self) -> float:
+        """Gibt den Zeitstempel des letzten Keepalive-Pings zurück (0 = unbekannt)."""
+        server = getattr(self, "_server", None)
+        if server is not None and server.last_ping > 0:
+            return server.last_ping
+        client = getattr(self, "_active_client", None)
+        if client is not None and client.last_ping > 0:
+            return client.last_ping
         return 0.0
 
     # ------------------------------------------------------------------ cleanup
