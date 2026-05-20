@@ -77,6 +77,12 @@ class CarsLayoutMixin:
         self._rename_btn.set_visible(False)
         self._rename_btn.connect("clicked", lambda _b: self._open_rename_dialog())
 
+        self._vin_refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        self._vin_refresh_btn.add_css_class("flat")
+        self._vin_refresh_btn.set_visible(False)
+        self._vin_refresh_btn.set_tooltip_text(_translate(self.language, "cars.vin_refresh.tooltip"))
+        self._vin_refresh_btn.connect("clicked", lambda _b: self._reset_and_refetch_vin())
+
         self._add_live_vehicle_btn = Gtk.Button(icon_name="list-add-symbolic")
         self._add_live_vehicle_btn.add_css_class("suggested-action")
         self._add_live_vehicle_btn.set_visible(False)
@@ -103,6 +109,7 @@ class CarsLayoutMixin:
         head.append(self._detail_title)
         head.append(self._add_live_vehicle_btn)
         head.append(self._rename_btn)
+        head.append(self._vin_refresh_btn)
         head.append(self._detail_share_btn)
         head.append(self._photo_upload_btn)
         head.append(self._detail_trash_btn)

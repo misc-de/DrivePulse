@@ -135,10 +135,13 @@ class CarsDetailRenderMixin:
             self._render_photos_into_view()
             return
 
+        _vin_data_keys = set(VIN_DATA_SPECIAL_KEYS.values())
         is_live = self._selected_source == self.LIVE_ID
         for pid_key, label_key in items:
             raw = data.get(pid_key)
             value_text, is_unknown = self._format_entry(pid_key, raw)
+            if is_unknown and pid_key in _vin_data_keys:
+                continue
             label = _translate(self.language, label_key)
             if is_live and not pid_key.startswith("__"):
                 live_key = _PID_TO_LIVE_KEY.get(pid_key)
