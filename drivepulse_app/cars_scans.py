@@ -37,6 +37,15 @@ class CarsScansMixin:
         title = ts.strftime("%d.%m.%Y · %H:%M") if ts else str(scan["id"])
         row.set_title(GLib.markup_escape_text(title))
 
+        keys = scan.keys() if hasattr(scan, "keys") else []
+        shared_at = scan["shared_at"] if "shared_at" in keys else None
+        seen_at = scan["seen_at"] if "seen_at" in keys else None
+        if shared_at and not seen_at:
+            dot = Gtk.Label(label="●")
+            dot.add_css_class("accent")
+            dot.set_valign(Gtk.Align.CENTER)
+            row.add_prefix(dot)
+
         dtc = _safe_int(scan["dtc_count"])
         pending = _safe_int(scan["pending_dtc_count"])
         pids = _safe_int(scan["pids_count"])
@@ -89,6 +98,11 @@ class CarsScansMixin:
         if scan_meta is None:
             return
 
+        try:
+            self.db.mark_scan_seen(scan_id)
+        except Exception:
+            log.exception("Could not mark scan seen id=%s", scan_id)
+
         page_content = _build_scan_detail_widget(self.language, scan_meta, prev_meta, data)
         ts = self._parse_ts(scan_meta["scanned_at"])
         title = _translate(self.language, "cars.scan.title",
@@ -96,7 +110,14 @@ class CarsScansMixin:
 
         self._set_trash(lambda: self._confirm_delete_scan(scan_id))
 
-        page = Adw.NavigationPage(child=self._wrap_sub_page(page_content, title), title=title)
+        page = Adw.NavigationPage(
+            child=self._wrap_sub_page(
+                page_content,
+                title,
+                on_share=lambda: self._share_scan(scan_id),
+            ),
+            title=title,
+        )
         page.set_tag(f"scan-{scan_id}")
         self._scan_detail_page = page
         self._scan_detail_pushed = True

@@ -48,6 +48,15 @@ class CarsTripsMixin:
         trip_id = int(trip["id"])
         row.set_title(GLib.markup_escape_text(self._trip_display_title(trip)))
 
+        keys = trip.keys() if hasattr(trip, "keys") else []
+        shared_at = trip["shared_at"] if "shared_at" in keys else None
+        seen_at = trip["seen_at"] if "seen_at" in keys else None
+        if shared_at and not seen_at:
+            dot = Gtk.Label(label="●")
+            dot.add_css_class("accent")
+            dot.set_valign(Gtk.Align.CENTER)
+            row.add_prefix(dot)
+
         parts: list[str] = []
         dur = trip["duration_s"]
         if dur:
@@ -107,6 +116,10 @@ class CarsTripsMixin:
             samples, trip = [], None
         if trip is None:
             return
+        try:
+            self.db.mark_trip_seen(trip_id)
+        except Exception:
+            log.exception("Could not mark trip seen id=%s", trip_id)
 
         page_content = _build_trip_detail_widget(self.language, trip, samples)
         title = self._trip_detail_title(trip)
@@ -220,9 +233,6 @@ class CarsTripsMixin:
             except Exception:
                 log.exception("Could not delete selected trip id=%s", tid)
         self._exit_trip_select_mode()
-
-    def _share_trip(self, trip_id: int) -> None:
-        pass
 
     def _trip_display_title(self, trip: Any) -> str:
         """Label if set, otherwise formatted start date."""

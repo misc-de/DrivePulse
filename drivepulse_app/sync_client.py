@@ -125,6 +125,47 @@ class SyncClient:
             log.exception("Could not import data to sync peer %s:%s", self._host, self._port)
             return False
 
+    def vehicle_check(self, vin_hash: str) -> bool | None:
+        if not self._fingerprint_verified or not self._session_token:
+            return None
+        try:
+            from urllib.parse import quote
+            req = urllib.request.Request(
+                f"{self._base_url()}/share/vehicle_check?h={quote(vin_hash)}",
+                headers=self._auth_headers(),
+                method="GET",
+            )
+            ctx = self._make_ssl_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+                data: dict[str, Any] = json.loads(resp.read())
+            self.last_contact = time.time()
+            return bool(data.get("known"))
+        except Exception:
+            log.exception("Could not check vehicle with sync peer %s:%s", self._host, self._port)
+            return None
+
+    def share_import(self, payload: dict) -> dict | None:
+        if not self._fingerprint_verified or not self._session_token:
+            return None
+        try:
+            body = json.dumps(payload).encode()
+            headers = dict(self._auth_headers())
+            headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(
+                f"{self._base_url()}/share/import",
+                data=body,
+                headers=headers,
+                method="POST",
+            )
+            ctx = self._make_ssl_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
+                result: dict[str, Any] = json.loads(resp.read())
+            self.last_contact = time.time()
+            return result
+        except Exception:
+            log.exception("Could not share import to sync peer %s:%s", self._host, self._port)
+            return None
+
     def disconnect(self) -> None:
         """Benachrichtigt den Server dass dieser Client sich trennt."""
         if not self._fingerprint_verified or not self._session_token:

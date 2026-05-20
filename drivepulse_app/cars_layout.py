@@ -86,7 +86,7 @@ class CarsLayoutMixin:
         self._detail_share_btn = Gtk.Button(icon_name="share-alt-symbolic")
         self._detail_share_btn.add_css_class("flat")
         self._detail_share_btn.set_visible(False)
-        self._detail_share_btn.connect("clicked", lambda _b: self._share_vehicle())
+        self._detail_share_btn.connect("clicked", lambda _b: self._on_share_btn_clicked())
 
         self._detail_trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
         self._detail_trash_btn.add_css_class("flat")
