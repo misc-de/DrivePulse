@@ -194,6 +194,8 @@ class DashboardTelemetryMixin:
             self.cars_page.clear_live_session()
         obd_connecting = bool(payload.get("obd_connecting"))
         gps_connected = self._gps_connected_with_holdover(gps_speed_kmh is not None if active else False)
+        _prev_gps_connected = getattr(self, "_gps_was_connected", False)
+        self._gps_was_connected = gps_connected
 
         self._set_link_indicator(self.obd_indicator, obd_connected, obd_connecting)
         self._set_link_indicator(self.gps_indicator, gps_connected, False)
@@ -211,10 +213,11 @@ class DashboardTelemetryMixin:
                 _spd_src = ""
             self.speed_gauge.set_source_label(_spd_src)
         elif not gps_connected:
-            # Both OBD and GPS inactive — clear speed gauge and held GPS speed.
-            self._last_gps_speed_kmh = None
-            self.speed_gauge.set_value(None, None)
-            self.speed_gauge.set_source_label("")
+            # GPS truly gone (holdover expired) — clear speed gauge once on transition.
+            if _prev_gps_connected:
+                self._last_gps_speed_kmh = None
+                self.speed_gauge.set_value(None, None)
+                self.speed_gauge.set_source_label("")
             _spd_src = ""
         else:
             _spd_src = ""

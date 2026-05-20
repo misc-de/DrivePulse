@@ -51,8 +51,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     # auf Icon-only umschaltet (Phosh/Mobian-typische Portrait-Breiten 360–540 px).
     CARS_NARROW_BREAKPOINT = 500
 
-    # Seconds to keep GPS shown as "available" after the last valid fix
-    GPS_UNAVAIL_HOLDOVER = 1.0
+    # Seconds to keep GPS shown as "available" after the last valid fix.
+    # Must be well above the GPS update interval (~1 s for GeoClue) so that OBD
+    # polls (every 0.5 s) between GPS updates don't falsely detect GPS as gone.
+    GPS_UNAVAIL_HOLDOVER = 5.0
 
     def __init__(self, app: Adw.Application) -> None:
         super().__init__(application=app, title=_translate(_detect_language(), "window.title"))
@@ -92,6 +94,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._last_gps_lat: float | None = None
         self._last_gps_lon: float | None = None
         self._last_gps_speed_kmh: float | None = None
+        self._gps_was_connected: bool = False
 
         # Rotation state: pages can bind to either "follow_sensor"
         # (compensates for the compositor transform) or "follow_system"
