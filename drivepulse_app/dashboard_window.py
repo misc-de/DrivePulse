@@ -82,6 +82,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_saved_dir: str = self.settings.get("dashcam_saved_dir", "")
         self.nav_position: str = self.settings.get("nav_position", "bottom")
         self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
+        self.dashcam_speed_osd: bool = bool(self.settings.get("dashcam_speed_osd", False))
         self.rotation_mode: str = self.settings.get("rotation_mode", "follow_sensor")
         self.tts_enabled: bool = bool(self.settings.get("tts_enabled", True))
         self.tts_backend: str = self.settings.get("tts_backend", "espeak")
@@ -255,9 +256,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_page.set_dim_timeout(self.dashcam_dim_timeout)
         self.dashcam_page.set_rolling_dir(self.dashcam_rolling_dir)
         self.dashcam_page.set_saved_dir(self.dashcam_saved_dir)
-        self.dashcam_page.set_gps_osd(
-            bool(self.settings.get("dashcam_gps_osd", False))
-        )
+        self.dashcam_page.set_gps_osd(bool(self.settings.get("dashcam_gps_osd", False)))
+        self.dashcam_page.set_speed_osd(bool(self.settings.get("dashcam_speed_osd", False)))
         self.dashcam_page.set_units(self.units)
         self.dashcam_page.on_recording_changed = self._on_dashcam_recording_changed
 
@@ -325,7 +325,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._sync_btn.set_tooltip_text(_translate(self.language, "sync.tooltip"))
         self._sync_btn.connect("clicked", self._open_sync)
 
-        # REC indicator — shown when dashcam is recording in the background
+        self.obd_indicator["box"].set_margin_start(10)
+        header.pack_start(self.obd_indicator["box"])
+        header.pack_start(self.gps_indicator["box"])
+
         self._dashcam_rec_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self._dashcam_rec_box.set_visible(False)
         _rec_dot = Gtk.Label(label="●")
@@ -334,11 +337,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         _rec_lbl = Gtk.Label(label="REC")
         _rec_lbl.add_css_class("caption-heading")
         self._dashcam_rec_box.append(_rec_lbl)
-
-        self.obd_indicator["box"].set_margin_start(10)
-        header.pack_start(self.obd_indicator["box"])
-        header.pack_start(self.gps_indicator["box"])
         header.pack_start(self._dashcam_rec_box)
+
         self._conflict_btn = Gtk.Button(icon_name="dialog-warning-symbolic")
         self._conflict_btn.add_css_class("flat")
         self._conflict_btn.set_tooltip_text(_translate(self.language, "share.conflicts_tooltip"))
@@ -492,6 +492,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
     def _on_dashcam_recording_changed(self, recording: bool) -> None:
         self._dashcam_rec_box.set_visible(recording)
+        self.dashcam_stack_page.set_needs_attention(recording)
 
     def _apply_page_rotation(self, angle: int) -> None:
         self._current_rotation = angle

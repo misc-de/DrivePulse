@@ -294,21 +294,9 @@ class DashcamPage(Gtk.Box):
         self._no_cam_icon.set_valign(Gtk.Align.CENTER)
         cam_overlay.add_overlay(self._no_cam_icon)
 
-        # REC indicator — top-left of camera area
-        self._rec_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self._rec_bar.set_halign(Gtk.Align.START)
-        self._rec_bar.set_valign(Gtk.Align.START)
-        self._rec_bar.set_margin_top(12)
-        self._rec_bar.set_margin_start(12)
-        self._rec_bar.set_visible(False)
         self._rec_dot = Gtk.DrawingArea()
         self._rec_dot.set_size_request(16, 16)
         self._rec_dot.set_draw_func(self._draw_rec_dot, None)
-        self._rec_bar.append(self._rec_dot)
-        self._rec_lbl = Gtk.Label(label="REC")
-        self._rec_lbl.add_css_class("dc-status")
-        self._rec_bar.append(self._rec_lbl)
-        cam_overlay.add_overlay(self._rec_bar)
 
         # Activity detection (resets dim timer) on the camera area
         for ctrl_cls, sig in (
@@ -493,11 +481,17 @@ class DashcamPage(Gtk.Box):
     def set_gps_osd(self, enabled: bool) -> None:
         self._recorder.gps_osd = enabled
 
+    def set_speed_osd(self, enabled: bool) -> None:
+        self._recorder.speed_osd = enabled
+
     def set_units(self, units: str) -> None:
         self._recorder.units = units
 
     def update_gps(self, lat: float | None, lon: float | None, speed_kmh: float | None) -> None:
         self._recorder.update_gps(lat, lon, speed_kmh)
+
+    def update_obd_speed(self, speed_kmh: float | None) -> None:
+        self._recorder.update_obd_speed(speed_kmh)
 
     # ── Tab visibility ────────────────────────────────────────────────────────
 
@@ -645,16 +639,19 @@ class DashcamPage(Gtk.Box):
             self._stop_dim_timer()
             for btn in self._save_btns:
                 btn.set_visible(False)
-            self._rec_bar.set_visible(False)
             for lbl in self._elapsed_lbls:
                 lbl.set_visible(False)
+            # V4L2 is now free again — restart the live preview
+            self._preview.start()
         else:
+            # V4L2 only allows one capturer at a time; release the preview
+            # before ffmpeg opens the device.
+            self._preview.stop()
             self._recorder.start()
             self._start_tick()
             self._reset_dim_timer()
             for btn in self._save_btns:
                 btn.set_visible(True)
-            self._rec_bar.set_visible(True)
         self._update_toggle_btn()
         self._update_status()
         if self.on_recording_changed is not None:
@@ -689,7 +686,6 @@ class DashcamPage(Gtk.Box):
             lbl.set_text(msg)
         self._stop_tick()
         self._stop_dim_timer()
-        self._rec_bar.set_visible(False)
         self._update_toggle_btn()
         return False
 

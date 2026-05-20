@@ -49,6 +49,7 @@ class DashboardSettingsMixin:
                 "dashcam_saved_dir": getattr(self, "dashcam_saved_dir", ""),
                 "nav_position": getattr(self, "nav_position", "bottom"),
                 "dashcam_gps_osd": getattr(self, "dashcam_gps_osd", False),
+                "dashcam_speed_osd": getattr(self, "dashcam_speed_osd", False),
                 "rotation_mode": getattr(self, "rotation_mode", "follow_sensor"),
                 "tts_enabled": getattr(self, "tts_enabled", False),
                 "tts_backend": getattr(self, "tts_backend", "espeak"),
@@ -123,6 +124,8 @@ class DashboardSettingsMixin:
             on_nav_position_changed=self._set_nav_position,
             current_dashcam_gps_osd=getattr(self, "dashcam_gps_osd", False),
             on_dashcam_gps_osd_changed=self._set_dashcam_gps_osd,
+            current_dashcam_speed_osd=getattr(self, "dashcam_speed_osd", False),
+            on_dashcam_speed_osd_changed=self._set_dashcam_speed_osd,
             current_rotation_mode=getattr(self, "rotation_mode", "follow_sensor"),
             on_rotation_mode_changed=self._set_rotation_mode,
             current_tts_enabled=getattr(self, "tts_enabled", False),
@@ -185,6 +188,11 @@ class DashboardSettingsMixin:
         self.dashcam_gps_osd = enabled
         self._save_settings()
         self.dashcam_page.set_gps_osd(enabled)
+
+    def _set_dashcam_speed_osd(self, enabled: bool) -> None:
+        self.dashcam_speed_osd = enabled
+        self._save_settings()
+        self.dashcam_page.set_speed_osd(enabled)
 
     def _set_nav_position(self, position: str) -> None:
         if position == getattr(self, "nav_position", "bottom"):

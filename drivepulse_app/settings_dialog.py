@@ -71,6 +71,8 @@ class SettingsDialog(Adw.NavigationPage):
         on_dashcam_saved_dir_changed: Callable[[str], None] | None = None,
         current_dashcam_gps_osd: bool = False,
         on_dashcam_gps_osd_changed: Callable[[bool], None] | None = None,
+        current_dashcam_speed_osd: bool = False,
+        on_dashcam_speed_osd_changed: Callable[[bool], None] | None = None,
         current_nav_position: str = "bottom",
         on_nav_position_changed: Callable[[str], None] | None = None,
         current_rotation_mode: str = "follow_sensor",
@@ -110,6 +112,8 @@ class SettingsDialog(Adw.NavigationPage):
         self._current_dashcam_saved_dir = current_dashcam_saved_dir
         self.on_dashcam_gps_osd_changed = on_dashcam_gps_osd_changed
         self._current_dashcam_gps_osd = current_dashcam_gps_osd
+        self.on_dashcam_speed_osd_changed = on_dashcam_speed_osd_changed
+        self._current_dashcam_speed_osd = current_dashcam_speed_osd
         self.on_nav_position_changed = on_nav_position_changed
         self.on_rotation_mode_changed = on_rotation_mode_changed
         self.on_tts_enabled_changed = on_tts_enabled_changed
@@ -603,6 +607,14 @@ class SettingsDialog(Adw.NavigationPage):
         gps_osd_row.set_active(current_dashcam_gps_osd)
         gps_osd_row.connect("notify::active", self._on_dc_gps_osd_toggled)
         gps_group.add(gps_osd_row)
+
+        speed_osd_row = Adw.SwitchRow(
+            title=_translate(self.language, "dashcam.settings.speed_osd"),
+            subtitle=_translate(self.language, "dashcam.settings.speed_osd_sub"),
+        )
+        speed_osd_row.set_active(current_dashcam_speed_osd)
+        speed_osd_row.connect("notify::active", self._on_dc_speed_osd_toggled)
+        gps_group.add(speed_osd_row)
         dc_page.add(gps_group)
 
         # ── ViewStack ─────────────────────────────────────────────────────────────
@@ -694,6 +706,10 @@ class SettingsDialog(Adw.NavigationPage):
     def _on_dc_gps_osd_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_dashcam_gps_osd_changed:
             self.on_dashcam_gps_osd_changed(row.get_active())
+
+    def _on_dc_speed_osd_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
+        if self.on_dashcam_speed_osd_changed:
+            self.on_dashcam_speed_osd_changed(row.get_active())
 
     def _on_dc_rolling_dir_chosen(self, path: str) -> None:
         if self.on_dashcam_rolling_dir_changed:

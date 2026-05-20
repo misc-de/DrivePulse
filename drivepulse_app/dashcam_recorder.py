@@ -66,11 +66,13 @@ class DashcamRecorder:
         self.rotation:        int  = 0
         # GPS state updated from the main thread; read at segment-start in the record thread.
         # Python's GIL makes float/None stores effectively atomic here.
-        self.lat:       float | None = None
-        self.lon:       float | None = None
-        self.speed_kmh: float | None = None
-        self.gps_osd:   bool = False
-        self.units:     str  = "metric"
+        self.lat:           float | None = None
+        self.lon:           float | None = None
+        self.speed_kmh:     float | None = None   # GPS speed (primary)
+        self.obd_speed_kmh: float | None = None   # OBD speed (fallback)
+        self.gps_osd:       bool = False
+        self.speed_osd:     bool = False           # show speed in video (GPS → OBD fallback)
+        self.units:         str  = "metric"
 
         self._proc:        subprocess.Popen | None = None
         self._thread:      threading.Thread | None = None
@@ -129,6 +131,10 @@ class DashcamRecorder:
         self.lat       = lat
         self.lon       = lon
         self.speed_kmh = speed_kmh
+        self._refresh_osd_file()
+
+    def update_obd_speed(self, speed_kmh: float | None) -> None:
+        self.obd_speed_kmh = speed_kmh
         self._refresh_osd_file()
 
     def delete_protected(self, path: Path) -> None:
@@ -210,10 +216,10 @@ class DashcamRecorder:
             loc = f"{lat:+.4f}{lon:+.4f}/"
             cmd += ["-metadata", f"location={loc}", "-metadata", f"location-eng={loc}"]
 
-        # OSD: burn GPS coordinates + speed into the bottom-left corner.
-        # reload=1 tells ffmpeg to re-read the textfile every frame so GPS
-        # updates written by update_gps() appear live without restarting ffmpeg.
-        if self.gps_osd:
+        # OSD: burn GPS coordinates and/or speed into the bottom-left corner.
+        # reload=1 tells ffmpeg to re-read the textfile every frame so GPS/OBD
+        # updates written by update_gps()/update_obd_speed() appear live.
+        if self.gps_osd or self.speed_osd:
             osd_txt = _VIDEOS_DIR / "tmp" / "osd.txt"
             osd_txt.parent.mkdir(parents=True, exist_ok=True)
             self._osd_txt = osd_txt
@@ -260,20 +266,21 @@ class DashcamRecorder:
 
     def _refresh_osd_file(self) -> None:
         osd_txt = self._osd_txt
-        if osd_txt is None or not self.gps_osd:
+        if osd_txt is None or not (self.gps_osd or self.speed_osd):
             return
-        lat, lon, speed = self.lat, self.lon, self.speed_kmh
-        if lat is None or lon is None:
-            text = ""
-        else:
-            ns = "N" if lat >= 0 else "S"
-            ew = "E" if lon >= 0 else "W"
-            text = f"GPS {abs(lat):.4f}{ns} {abs(lon):.4f}{ew}"
+        parts: list[str] = []
+        if self.gps_osd and self.lat is not None and self.lon is not None:
+            ns = "N" if self.lat >= 0 else "S"
+            ew = "E" if self.lon >= 0 else "W"
+            parts.append(f"GPS {abs(self.lat):.4f}{ns} {abs(self.lon):.4f}{ew}")
+        if self.speed_osd:
+            speed = self.speed_kmh if self.speed_kmh is not None else self.obd_speed_kmh
             if speed is not None:
                 if self.units == "imperial":
-                    text += f"  {speed * 0.621371:.0f} mph"
+                    parts.append(f"{speed * 0.621371:.0f} mph")
                 else:
-                    text += f"  {speed:.0f} km/h"
+                    parts.append(f"{speed:.0f} km/h")
+        text = "  ".join(parts)
         try:
             osd_txt.write_text(text, encoding="utf-8")
         except Exception:
