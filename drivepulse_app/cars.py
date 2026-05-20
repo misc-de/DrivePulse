@@ -18,6 +18,7 @@ from .cars_layout import CarsLayoutMixin
 from .cars_trips import CarsTripsMixin
 from .cars_metadata import (
     CATEGORIES,
+    LIVE_KEY_TO_PID,
     _extract_inner_string,
     _wmi_to_brand,
 )
@@ -25,6 +26,19 @@ from .cars_profiles import _load_profiles
 from .cars_stopwatch_runs import CarsStopWatchRunsMixin
 from .cars_scans import CarsScansMixin
 
+
+def _extract_session_number(v: Any) -> "float | None":
+    if isinstance(v, dict) and "value" in v:
+        try:
+            return float(v["value"])
+        except (TypeError, ValueError):
+            return None
+    if isinstance(v, (int, float)):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +69,7 @@ class CarsPage(
         self._sidebar_side: str = sidebar_side
         self._latest_live: dict[str, Any] = {}
         self._live_identity: dict[str, str] = {}
+        self._live_session_stats: dict[str, dict] = {}
         self.on_live_vehicle_add: Callable[[dict[str, str]], int | None] | None = None
         self._obd_connected = False
         self._profiles: list[dict[str, Any]] = []
@@ -172,10 +187,34 @@ class CarsPage(
                 if k.startswith("_") or k in ("source", "timestamp", "connection_status", "mock_reason"):
                     continue
                 self._latest_live[k] = v
+                if k in LIVE_KEY_TO_PID:
+                    num = _extract_session_number(v)
+                    if num is not None:
+                        stats = self._live_session_stats.setdefault(k, {})
+                        unit = v.get("unit", "") if isinstance(v, dict) else ""
+                        stats["unit"] = unit
+                        stats["min"] = num if "min" not in stats else min(stats["min"], num)
+                        stats["max"] = num if "max" not in stats else max(stats["max"], num)
             self._obd_connected = source == "obd"
             self._update_live_row_subtitle()
         if self._selected_source == self.LIVE_ID and self._detail_pushed and self._live_detail_render_due():
             self._render_detail()
+
+    def clear_live_session(self) -> None:
+        """Verbindung getrennt — alle Live-Session-Daten zurücksetzen."""
+        self._live_session_stats = {}
+        self._latest_live = {}
+        self._live_identity = {}
+        self._obd_connected = False
+        self._update_live_row_subtitle()
+        self._update_live_add_button()
+        if self._selected_source == self.LIVE_ID and self._detail_pushed:
+            self._render_detail()
+
+    def open_car(self, car_id: int) -> None:
+        """Zur Detail-Ansicht eines bekannten Fahrzeugs navigieren."""
+        self.refresh_profiles()
+        self._open_detail(f"car:{car_id}")
 
     def set_live_identity(self, identity: dict[str, str]) -> None:
         self._live_identity = dict(identity)

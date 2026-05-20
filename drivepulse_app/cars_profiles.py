@@ -12,12 +12,14 @@ from .diagnostics import get_logger
 log = get_logger(__name__)
 
 
-def _scan_label(scanned_at: Any) -> str:
+def _scan_label(scanned_at: Any, dtc_count: int = 0) -> str:
     try:
         dt = datetime.fromisoformat(str(scanned_at).replace("Z", "+00:00"))
-        return dt.strftime("%d.%m.%Y")
+        date_str = dt.strftime("%d.%m.%Y")
     except Exception:
         return ""
+    dtc_part = f"{dtc_count} DTC" if dtc_count != 1 else "1 DTC"
+    return f"{date_str} · {dtc_part}"
 
 
 def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
@@ -52,7 +54,7 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
                 data = db.get_scan_data(int(latest["id"]))
             except Exception:
                 data = {}
-            label_str = _scan_label(latest["scanned_at"])
+            label_str = _scan_label(latest["scanned_at"], int(latest["dtc_count"] or 0))
         else:
             data = {
                 "vehicle_info": {
