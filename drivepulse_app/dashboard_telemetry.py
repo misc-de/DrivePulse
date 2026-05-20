@@ -236,9 +236,16 @@ class DashboardTelemetryMixin:
         accel = self._plain_number(payload, "acceleration_g") if active else None
 
         with self.dashboard_canvas.batch_update():
-            self.dashboard_canvas.update_speed_source(_spd_src)
             self.dashboard_canvas.update_rpm(rpm, None if rpm is None else f"{rpm:.0f}")
-            self.dashboard_canvas.update_speed(canvas_speed, None if canvas_speed is None else f"{canvas_speed:.0f}")
+            # Speed and source: OBD owns when connected; GPS branch owns when GPS is active.
+            # When neither is active, clear the display.
+            if obd_connected:
+                self.dashboard_canvas.update_speed(canvas_speed, None if canvas_speed is None else f"{canvas_speed:.0f}")
+                self.dashboard_canvas.update_speed_source(_spd_src)
+            elif not gps_connected:
+                self.dashboard_canvas.update_speed(None, None)
+                self.dashboard_canvas.update_speed_source("")
+            # else: GPS branch already set speed and source — leave them intact.
             self.dashboard_canvas.update_coolant(temp, None if temp is None else f"{temp:.0f}")
             self.dashboard_canvas.update_fuel(fuel, None if fuel is None else f"{fuel:.0f}%")
             self.dashboard_canvas.update_throttle(throttle)
