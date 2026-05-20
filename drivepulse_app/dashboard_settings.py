@@ -344,6 +344,11 @@ class DashboardSettingsMixin:
         lc_row.set_subtitle("—")
         group.add(lc_row)
 
+        ping_row = Adw.ActionRow()
+        ping_row.set_title(t("sync.status.last_ping"))
+        ping_row.set_subtitle("—")
+        group.add(ping_row)
+
         def _fmt_ts(ts: float) -> str:
             return datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S")
 
@@ -353,6 +358,8 @@ class DashboardSettingsMixin:
             dialog = getattr(self, "_active_sync_dialog", None)
             lc = dialog.get_last_contact() if dialog is not None else 0.0
             lc_row.set_subtitle(_fmt_ts(lc) if lc > 0 else "—")
+            lp = dialog.get_last_ping() if dialog is not None else 0.0
+            ping_row.set_subtitle(_fmt_ts(lp) if lp > 0 else "—")
             return True
 
         _refresh_last_contact()

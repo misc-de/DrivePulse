@@ -17,7 +17,7 @@ log = get_logger(__name__)
 
 
 PAIRING_TIMEOUT_S = 60
-SYNC_SESSION_TIMEOUT_S = 120  # seconds after pairing before session expires
+SYNC_SESSION_TIMEOUT_S = 30  # seconds after last ping before session expires
 MAX_SYNC_BODY_BYTES = int(os.environ.get("DRIVEPULSE_SYNC_MAX_BODY_BYTES", str(100 * 1024 * 1024)))
 
 
@@ -56,6 +56,7 @@ class SyncServer:
         self._session_expiry: float = 0.0
         self.actual_port: int = self.PORT
         self.last_activity: float = 0.0
+        self.last_ping: float = 0.0
 
     def start(self) -> None:
         if self._cancelled:
@@ -80,6 +81,7 @@ class SyncServer:
         log.info("Sync server binding on 0.0.0.0:%s", port)
 
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_3
         ctx.load_cert_chain(str(self._cert_path), str(self._key_path))
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
         self._server = httpd
@@ -125,8 +127,9 @@ class SyncServer:
         if not self._paired:
             return
         self._cancel_sync_timer()
-        self.last_activity = time.time()
-        self._session_expiry = time.time() + SYNC_SESSION_TIMEOUT_S
+        self.last_ping = time.time()
+        self.last_activity = self.last_ping
+        self._session_expiry = self.last_ping + SYNC_SESSION_TIMEOUT_S
         self._sync_timer = threading.Timer(SYNC_SESSION_TIMEOUT_S, self._on_session_timeout)
         self._sync_timer.daemon = True
         self._sync_timer.start()
