@@ -140,9 +140,14 @@ class DashboardTelemetryMixin:
                 self._last_gps_lon = lon
             # Connected when we have a position fix — speed may be absent at standstill.
             gps_has_fix = lat is not None
-            if gps_has_fix or gps_speed_kmh is not None:
+            gps_active = gps_has_fix or gps_speed_kmh is not None
+            if gps_active:
                 self._gps_last_seen = time.monotonic()
-            self._set_link_indicator(self.gps_indicator, gps_has_fix or gps_speed_kmh is not None, False)
+            if gps_speed_kmh is not None:
+                self._last_gps_speed_kmh = gps_speed_kmh
+            elif not gps_active:
+                self._last_gps_speed_kmh = None
+            self._set_link_indicator(self.gps_indicator, gps_active, False)
             trip_recorder = getattr(self, "trip_recorder", None)
             if trip_recorder is not None:
                 trip_recorder.update_gps(
@@ -155,9 +160,9 @@ class DashboardTelemetryMixin:
                 self.map_page.update_gps(lat, lon, gps_heading, gps_speed_kmh)
             if hasattr(self, "dashcam_page"):
                 self.dashcam_page.update_gps(lat, lon, gps_speed_kmh)
-            if not getattr(self, "_obd_active", False) and gps_has_fix:
-                actual_kmh = gps_speed_kmh if gps_speed_kmh is not None else 0.0
-                display = self._display_speed(actual_kmh)
+            if not getattr(self, "_obd_active", False) and gps_active:
+                held_kmh = self._last_gps_speed_kmh if self._last_gps_speed_kmh is not None else 0.0
+                display = self._display_speed(held_kmh)
                 src_gps = _translate(self.language, "gauge.source.gps")
                 self.speed_gauge.set_value(display, f"{display:.0f}" if display is not None else None)
                 self.speed_gauge.set_source_label(src_gps)
@@ -205,6 +210,12 @@ class DashboardTelemetryMixin:
             else:
                 _spd_src = ""
             self.speed_gauge.set_source_label(_spd_src)
+        elif not gps_connected:
+            # Both OBD and GPS inactive — clear speed gauge and held GPS speed.
+            self._last_gps_speed_kmh = None
+            self.speed_gauge.set_value(None, None)
+            self.speed_gauge.set_source_label("")
+            _spd_src = ""
         else:
             _spd_src = ""
         self.temp_gauge.set_value(temp, None if temp is None else f"{temp:.0f}")
