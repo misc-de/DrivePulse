@@ -63,6 +63,7 @@ class SyncPoller:
     def _ping(self, host: str, port: int) -> bool:
         try:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_3
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             req = urllib.request.Request(

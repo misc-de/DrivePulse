@@ -24,9 +24,11 @@ class SyncClient:
         self._fingerprint_verified = False
         self.server_hostname: str = ""
         self.last_contact: float = 0.0
+        self.last_ping: float = 0.0
 
     def _make_ssl_context(self) -> ssl.SSLContext:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_3
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
@@ -36,7 +38,10 @@ class SyncClient:
 
     def verify_fingerprint(self) -> bool:
         try:
-            ctx = self._make_ssl_context()
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
             sock = socket.create_connection((self._host, self._port), timeout=10)
             with ctx.wrap_socket(sock, server_hostname=self._host) as ssock:
                 cert_der = ssock.getpeercert(binary_form=True)
@@ -165,6 +170,27 @@ class SyncClient:
         except Exception:
             log.exception("Could not share import to sync peer %s:%s", self._host, self._port)
             return None
+
+    def ping(self) -> bool:
+        """Sendet einen Keepalive-Ping an den Server. Gibt False zurück wenn nicht erreichbar."""
+        if not self._fingerprint_verified or not self._session_token:
+            return False
+        try:
+            req = urllib.request.Request(
+                f"{self._base_url()}/ping",
+                headers=self._auth_headers(),
+                method="GET",
+            )
+            ctx = self._make_ssl_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+                if resp.status == 200:
+                    self.last_ping = time.time()
+                    self.last_contact = self.last_ping
+                    return True
+            return False
+        except Exception:
+            log.debug("Ping failed for %s:%s", self._host, self._port)
+            return False
 
     def disconnect(self) -> None:
         """Benachrichtigt den Server dass dieser Client sich trennt."""
