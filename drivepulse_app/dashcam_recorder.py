@@ -19,8 +19,22 @@ FPS_OPTIONS  = [30, 25, 15]
 
 
 def list_cameras() -> list[str]:
-    """Return available V4L2 video device paths."""
-    return sorted(str(d) for d in Path("/dev").glob("video*") if d.is_char_device())
+    """Return V4L2 video capture device paths (excludes codec/metadata devices)."""
+    cameras: list[str] = []
+    for dev in sorted(Path("/dev").glob("video*")):
+        if not dev.is_char_device():
+            continue
+        try:
+            # Read capabilities via v4l2-ctl; only keep devices that support video capture.
+            out = subprocess.run(
+                ["v4l2-ctl", "--device", str(dev), "--info"],
+                capture_output=True, text=True, timeout=2,
+            )
+            if "Video Capture" in out.stdout:
+                cameras.append(str(dev))
+        except Exception:
+            cameras.append(str(dev))
+    return cameras
 
 
 class DashcamRecorder:
@@ -64,6 +78,7 @@ class DashcamRecorder:
         self._lock         = threading.Lock()
         self._segments:    list[Path] = []
         self._seg_started: datetime | None = None
+        self._osd_txt:     Path | None = None
 
         self.is_recording: bool = False
 
@@ -75,6 +90,8 @@ class DashcamRecorder:
         self.rolling_dir.mkdir(parents=True, exist_ok=True)
         self.protected_dir.mkdir(parents=True, exist_ok=True)
         self._stop_event.clear()
+        with self._lock:
+            self._segments.clear()
         self.is_recording = True
         self._thread = threading.Thread(target=self._record_loop, daemon=True, name="dashcam")
         self._thread.start()
@@ -112,6 +129,7 @@ class DashcamRecorder:
         self.lat       = lat
         self.lon       = lon
         self.speed_kmh = speed_kmh
+        self._refresh_osd_file()
 
     def delete_protected(self, path: Path) -> None:
         try:
@@ -192,22 +210,16 @@ class DashcamRecorder:
             loc = f"{lat:+.4f}{lon:+.4f}/"
             cmd += ["-metadata", f"location={loc}", "-metadata", f"location-eng={loc}"]
 
-        # OSD: burn GPS coordinates + speed into the bottom-left corner
-        osd_txt: Path | None = None
-        if self.gps_osd and lat is not None and lon is not None:
-            ns = "N" if lat >= 0 else "S"
-            ew = "E" if lon >= 0 else "W"
-            text = f"GPS {abs(lat):.4f}{ns} {abs(lon):.4f}{ew}"
-            if speed is not None:
-                if self.units == "imperial":
-                    text += f"  {speed * 0.621371:.0f} mph"
-                else:
-                    text += f"  {speed:.0f} km/h"
-            # Write to sidecar file — avoids ffmpeg filter-string escaping issues
-            osd_txt = out.with_suffix(".osd")
-            osd_txt.write_text(text, encoding="utf-8")
+        # OSD: burn GPS coordinates + speed into the bottom-left corner.
+        # reload=1 tells ffmpeg to re-read the textfile every frame so GPS
+        # updates written by update_gps() appear live without restarting ffmpeg.
+        if self.gps_osd:
+            osd_txt = _VIDEOS_DIR / "tmp" / "osd.txt"
+            osd_txt.parent.mkdir(parents=True, exist_ok=True)
+            self._osd_txt = osd_txt
+            self._refresh_osd_file()
             vf = (
-                f"drawtext=textfile={osd_txt}"
+                f"drawtext=textfile={osd_txt}:reload=1"
                 ":x=10:y=H-th-10"
                 ":fontcolor=white:fontsize=22"
                 ":box=1:boxcolor=black@0.6:boxborderw=6"
@@ -217,8 +229,11 @@ class DashcamRecorder:
         cmd.append(str(out))
 
         try:
-            self._proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            rc = self._proc.wait()
+            self._proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            _, stderr_data = self._proc.communicate()
+            rc = self._proc.returncode
+            if rc != 0 and not self._stop_event.is_set():
+                log.warning("ffmpeg exited %d: %s", rc, stderr_data[-2000:].decode(errors="replace"))
             return rc == 0
         except FileNotFoundError:
             msg = "ffmpeg nicht gefunden"
@@ -232,8 +247,7 @@ class DashcamRecorder:
             return False
         finally:
             self._proc = None
-            if osd_txt is not None:
-                osd_txt.unlink(missing_ok=True)
+            self._osd_txt = None
 
     def _kill_ffmpeg(self) -> None:
         proc = self._proc
@@ -243,6 +257,27 @@ class DashcamRecorder:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
+
+    def _refresh_osd_file(self) -> None:
+        osd_txt = self._osd_txt
+        if osd_txt is None or not self.gps_osd:
+            return
+        lat, lon, speed = self.lat, self.lon, self.speed_kmh
+        if lat is None or lon is None:
+            text = ""
+        else:
+            ns = "N" if lat >= 0 else "S"
+            ew = "E" if lon >= 0 else "W"
+            text = f"GPS {abs(lat):.4f}{ns} {abs(lon):.4f}{ew}"
+            if speed is not None:
+                if self.units == "imperial":
+                    text += f"  {speed * 0.621371:.0f} mph"
+                else:
+                    text += f"  {speed:.0f} km/h"
+        try:
+            osd_txt.write_text(text, encoding="utf-8")
+        except Exception:
+            pass
 
     def _prune(self) -> None:
         with self._lock:
