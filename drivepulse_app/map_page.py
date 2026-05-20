@@ -282,7 +282,18 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
     def _on_mapped(self, _widget: Any) -> None:
         GLib.idle_add(self._drop_focus)
         if self._backend == "shumate":
-            GLib.idle_add(self._nudge_map_resize)
+            GLib.timeout_add(200, self._shumate_initial_render)
+
+    def _shumate_initial_render(self) -> bool:
+        if self._shumate_map is None:
+            return False
+        viewport = self._shumate_map.get_viewport()
+        self._setting_pos = True
+        viewport.set_zoom_level(viewport.get_zoom_level())
+        viewport.set_location(viewport.get_latitude(), viewport.get_longitude())
+        self._setting_pos = False
+        self._shumate_map.queue_resize()
+        return False
 
     def _apply_initial_overlay_state(self) -> None:
         """Sync POI/traffic visibility + 3D preference from settings."""
