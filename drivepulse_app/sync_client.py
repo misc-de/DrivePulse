@@ -173,8 +173,8 @@ class SyncClient:
             log.exception("Could not share import to sync peer %s:%s", self._host, self._port)
             return None
 
-    def ping(self) -> bool:
-        """Sendet einen Keepalive-Ping an den Server. Gibt False zurück wenn nicht erreichbar."""
+    def ping(self) -> bool | None:
+        """Keepalive-Ping. True=OK, False=Server definitiv weg, None=flüchtiger Fehler."""
         if not self._fingerprint_verified or not self._session_token:
             return False
         try:
@@ -190,9 +190,18 @@ class SyncClient:
                     self.last_contact = self.last_ping
                     return True
             return False
-        except Exception:
-            log.warning("Ping failed for %s:%s", self._host, self._port, exc_info=True)
-            return False
+        except urllib.error.URLError as exc:
+            reason = exc.reason
+            if isinstance(reason, OSError) and getattr(reason, "errno", None) in (
+                errno.ECONNREFUSED, errno.ECONNRESET, errno.ENOTCONN,
+            ):
+                log.info("Ping: Server nicht erreichbar (ECONNREFUSED/RESET) %s:%s", self._host, self._port)
+                return False
+            log.warning("Ping flüchtiger Fehler %s:%s: %s", self._host, self._port, exc)
+            return None
+        except Exception as exc:
+            log.warning("Ping fehlgeschlagen %s:%s: %s", self._host, self._port, exc)
+            return None
 
     def disconnect(self) -> None:
         """Benachrichtigt den Server dass dieser Client sich trennt."""

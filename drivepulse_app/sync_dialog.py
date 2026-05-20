@@ -731,16 +731,23 @@ class SyncDialog(Adw.NavigationPage):
             GLib.idle_add(_done, self._t("sync.error", error=str(exc)))
 
     def _keepalive_loop(self, client: SyncClient) -> None:
-        """Pingt den Server alle 10 Sekunden. Erst nach 3 aufeinanderfolgenden Fehlern trennen."""
+        """Pingt den Server alle 10 Sekunden.
+        False (ECONNREFUSED) → sofort trennen.
+        None (flüchtiger Fehler) → erst nach 3 aufeinanderfolgenden Fehlern trennen."""
         failures = 0
         while not self._keepalive_stop.wait(10):
-            if client.ping():
+            result = client.ping()
+            if result is True:
                 failures = 0
+            elif result is False:
+                log.info("Server aktiv getrennt — trenne Verbindung sofort")
+                GLib.idle_add(self.disconnect)
+                return
             else:
                 failures += 1
-                log.warning("Keepalive-Ping fehlgeschlagen (%d/3)", failures)
+                log.warning("Keepalive-Ping flüchtiger Fehler (%d/3)", failures)
                 if failures >= 3:
-                    log.info("3 Pings fehlgeschlagen — trenne Verbindung")
+                    log.info("3 aufeinanderfolgende Fehler — trenne Verbindung")
                     GLib.idle_add(self.disconnect)
                     return
 
