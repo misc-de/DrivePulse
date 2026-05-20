@@ -572,14 +572,6 @@ class SyncDialog(Adw.NavigationPage):
         complete_btn.connect("clicked", lambda _b: self._complete_without_sync())
         box.append(complete_btn)
 
-        sync_opts_btn = Gtk.Button(label=self._t("sync.paired.sync_options_btn"))
-        sync_opts_btn.set_halign(Gtk.Align.FILL)
-        sync_opts_btn.connect(
-            "clicked",
-            lambda _b, sl=status_label: self._show_sync_options_dialog(sl),
-        )
-        box.append(sync_opts_btn)
-
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
