@@ -12,12 +12,15 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
 ---
 
 ## Screenshots
-<img width="270" alt="Screenshot from 2026-05-17 11:36:19" src="https://github.com/user-attachments/assets/456afc1d-a73f-4cc7-bc72-8de18db14cbe" />
-<img width="270" alt="Screenshot from 2026-05-17 16:32:54" src="https://github.com/user-attachments/assets/6c06466f-e208-4a08-b0f7-fea7056010fb" />
-<img width="270" alt="Screenshot from 2026-05-16 10:26:13" src="https://github.com/user-attachments/assets/bbea574a-7eb5-47ef-8397-38fe56e37c47" />
-<img width="270" alt="Screenshot from 2026-05-16 10:26:23" src="https://github.com/user-attachments/assets/caabff31-6dd5-4549-8be0-e9179ee343b3" />
-<img width="270" alt="Screenshot from 2026-05-16 10:26:32" src="https://github.com/user-attachments/assets/8333b4ce-918b-46cd-85b9-bf4ea4dca611" />
-<img width="270" alt="Screenshot from 2026-05-16 10:26:56" src="https://github.com/user-attachments/assets/bb4c858e-9ab1-4496-99d6-2d87f940eff1" />
+<img width="270" alt="Screenshot from 2026-05-20 15:21:11" src="https://github.com/user-attachments/assets/0dedf136-f6cd-4dac-89c5-e62bc1f51a10" />
+<img width="270" alt="Screenshot from 2026-05-20 15:27:23" src="https://github.com/user-attachments/assets/4c587e3f-2d2a-4d2f-b634-54db573c4111" />
+<img width="270" alt="Screenshot from 2026-05-20 15:27:30" src="https://github.com/user-attachments/assets/e97a6892-e589-4170-baa5-53408a11dbaa" />
+<img width="270" alt="Screenshot from 2026-05-20 15:27:44" src="https://github.com/user-attachments/assets/741a3a74-bb5e-4109-aca5-a70705f428c4" />
+<img width="270" alt="Screenshot from 2026-05-20 17:28:59" src="https://github.com/user-attachments/assets/e5231748-5111-47a9-b508-8e5ba3f4c14b" />
+<img width="270" alt="Screenshot from 2026-05-20 16:31:22" src="https://github.com/user-attachments/assets/91bc7a7c-fddd-495f-b92c-596a14198f26" />
+<img width="270" alt="Screenshot from 2026-05-20 15:26:31" src="https://github.com/user-attachments/assets/bfa59330-3453-4d5e-8faf-b8b77d90d1e4" />
+<img width="270" alt="Screenshot from 2026-05-20 15:27:08" src="https://github.com/user-attachments/assets/d6b19ceb-3621-487d-bb20-aa61cb94c7a6" />
+<img width="270" alt="Screenshot from 2026-05-20 15:28:02" src="https://github.com/user-attachments/assets/c15c68e5-32a9-46e6-a8c0-98df3c190800" />
 
 ---
 
