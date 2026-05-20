@@ -281,6 +281,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, Gtk.Box):
 
     def _on_mapped(self, _widget: Any) -> None:
         GLib.idle_add(self._drop_focus)
+        if self._backend == "shumate":
+            GLib.idle_add(self._nudge_map_resize)
 
     def _apply_initial_overlay_state(self) -> None:
         """Sync POI/traffic visibility + 3D preference from settings."""
