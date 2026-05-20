@@ -271,6 +271,8 @@ class DashboardTelemetryMixin:
             # gps_speed appears in mock payloads; real GPS updates come via the "gps" branch
             if gps_speed_kmh is not None:
                 self.dashboard_canvas.update_gps_speed(self._display_speed(gps_speed_kmh))
+            if hasattr(self, "dashcam_page"):
+                self.dashcam_page.update_obd_speed(obd_speed_kmh)
             if heading is not None:
                 self.dashboard_canvas.update_heading(heading)
 
