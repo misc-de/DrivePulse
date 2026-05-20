@@ -25,7 +25,7 @@ from .cars_metadata import (
     _wmi_to_brand,
 )
 from .cars_profiles import _load_profiles
-from .vin_api import fetch_vin_data, strip_source_keys
+from .vin_api import fetch_vin_data
 from .cars_stopwatch_runs import CarsStopWatchRunsMixin
 from .cars_scans import CarsScansMixin
 from .cars_photos import CarsPhotosMixin
@@ -231,17 +231,16 @@ class CarsPage(
             data = {}
         GLib.idle_add(self._on_vin_data_ready, car_id, vin, data)
 
-    def _on_vin_data_ready(self, car_id: int, vin: str, data: dict) -> bool:
+    def _on_vin_data_ready(self, car_id: int, vin: str, sources: dict) -> bool:
         self._vin_fetch_pending.discard(car_id)
-        vehicle_fields = {k: v for k, v in data.items() if not k.startswith("_src_")}
-        if not vehicle_fields:
+        if not sources:
             if self.db is not None:
                 try:
                     self.db.update_car_vin_data(car_id, "{}")
                 except Exception:
                     pass
             return False
-        self._vin_review_queue.append((car_id, vin, data))
+        self._vin_review_queue.append((car_id, vin, sources))
         self._maybe_show_next_review()
         return False
 
@@ -256,7 +255,7 @@ class CarsPage(
         def _on_response(d: "VinReviewDialog", response: str) -> None:
             self._vin_review_open = False
             if response == "accept":
-                accepted = strip_source_keys(d.get_accepted_data())
+                accepted = d.get_accepted_data()
             else:
                 accepted = {}
             if self.db is not None:

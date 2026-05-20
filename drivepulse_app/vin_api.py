@@ -53,11 +53,6 @@ _VINDECODER_FIELDS: dict[str, str] = {
 
 _SKIP_VALUES = {"not applicable", "n/a", "—", "", "none", "null"}
 
-# Internal source-tracking keys (stripped before persisting user-accepted data)
-SOURCE_KEY_NHTSA = "_src_nhtsa"
-SOURCE_KEY_AUTODEV = "_src_autodev"
-SOURCE_KEY_VINDECODER = "_src_vd"
-
 
 def _clean(val: Any) -> str:
     s = str(val).strip()
@@ -78,8 +73,6 @@ def _fetch_nhtsa(vin: str) -> dict[str, Any]:
                 val = _clean(item.get("Value") or "")
                 if val:
                     out[key] = val
-        if out:
-            out[SOURCE_KEY_NHTSA] = True
         return out
     except Exception:
         log.warning("NHTSA fetch failed for VIN %s", vin)
@@ -99,8 +92,8 @@ def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         out: dict[str, Any] = {}
-        for api_key_name, field in _AUTODEV_FIELDS.items():
-            val = _clean(data.get(api_key_name) or "")
+        for api_field, field in _AUTODEV_FIELDS.items():
+            val = _clean(data.get(api_field) or "")
             if val:
                 out[field] = val
         vehicle = data.get("vehicle") or {}
@@ -110,7 +103,6 @@ def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
             val = _clean(vehicle["manufacturer"])
             if val:
                 out["manufacturer"] = val
-        # Parse engine string for cylinders / displacement when not yet set
         engine = _clean(data.get("engine") or "")
         if engine:
             import re
@@ -122,8 +114,6 @@ def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
                 m = re.search(r"(\d+\.\d+)\s*L", engine)
                 if m:
                     out["displacement"] = m.group(1)
-        if out:
-            out[SOURCE_KEY_AUTODEV] = True
         return out
     except Exception:
         log.warning("auto.dev fetch failed for VIN %s", vin)
@@ -148,8 +138,6 @@ def _fetch_vindecoder(vin: str, api_key: str, secret_key: str) -> dict[str, Any]
                 val = _clean(item.get("value") or "")
                 if val:
                     out[key] = val
-        if out:
-            out[SOURCE_KEY_VINDECODER] = True
         return out
     except Exception:
         log.warning("vindecoder.eu fetch failed for VIN %s", vin)
@@ -161,35 +149,53 @@ def fetch_vin_data(
     autodev_api_key: str | None = None,
     vindecoder_api_key: str | None = None,
     vindecoder_secret_key: str | None = None,
-) -> dict[str, Any]:
-    """Return merged VIN data from NHTSA and optionally auto.dev / vindecoder.eu.
+) -> dict[str, dict[str, Any]]:
+    """Fetch VIN data from each configured source independently.
 
-    Source-tracking keys (SOURCE_KEY_*) are included so the caller can show
-    which services contributed data. Strip them before persisting.
+    Returns a dict keyed by source name, each containing the fields that
+    source returned.  Empty sources are omitted.  The caller (review dialog)
+    decides how to merge or present the per-source values.
 
-    Returns an empty dict if VIN is too short or all requests fail.
-    Priority: vindecoder > auto.dev > NHTSA (each fills gaps left by the next).
+    Example::
+
+        {
+            "NHTSA":        {"make": "VOLKSWAGEN", "year": "1999", ...},
+            "auto.dev":     {"make": "Volkswagen", "model": "Golf", ...},
+            "vindecoder.eu":{"make": "Volkswagen", "model": "Golf", "fuel": "Gasoline", ...},
+        }
     """
     if not vin or len(vin) < 11:
         return {}
 
-    result = _fetch_nhtsa(vin)
+    sources: dict[str, dict[str, Any]] = {}
+
+    nhtsa = _fetch_nhtsa(vin)
+    if nhtsa:
+        sources["NHTSA"] = nhtsa
 
     if autodev_api_key:
         ad = _fetch_autodev(vin, autodev_api_key)
-        for k, v in ad.items():
-            if k not in result or not result[k]:
-                result[k] = v
+        if ad:
+            sources["auto.dev"] = ad
 
     if vindecoder_api_key and vindecoder_secret_key:
         vd = _fetch_vindecoder(vin, vindecoder_api_key, vindecoder_secret_key)
-        for k, v in vd.items():
-            if k not in result or not result[k]:
-                result[k] = v
+        if vd:
+            sources["vindecoder.eu"] = vd
 
+    return sources
+
+
+def merge_sources(sources: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Merge all source dicts, last-write-wins (vindecoder > auto.dev > NHTSA)."""
+    result: dict[str, Any] = {}
+    for src_data in sources.values():
+        for k, v in src_data.items():
+            if v:
+                result[k] = v
     return result
 
 
 def strip_source_keys(data: dict[str, Any]) -> dict[str, Any]:
-    """Remove internal source-tracking keys before persisting."""
+    """Remove any leftover internal keys before persisting."""
     return {k: v for k, v in data.items() if not k.startswith("_src_")}
