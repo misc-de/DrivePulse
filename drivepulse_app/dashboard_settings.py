@@ -251,9 +251,14 @@ class DashboardSettingsMixin:
         if self.nav_view.find_page("sync") is not None:
             return
         from .sync_dialog import SyncDialog
+
+        def _on_sync_complete() -> None:
+            self.cars_page.refresh_profiles()
+            self._update_conflict_badge()
+
         page = SyncDialog(
             self, self.language, self.db,
-            on_sync_complete=lambda: self.cars_page.refresh_profiles(),
+            on_sync_complete=_on_sync_complete,
             on_connected=lambda name, ip: self._on_sync_connected(name, ip),
             on_disconnected=lambda: self._on_sync_disconnected(),
         )

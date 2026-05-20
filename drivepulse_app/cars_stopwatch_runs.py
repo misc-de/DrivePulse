@@ -35,6 +35,15 @@ class CarsStopWatchRunsMixin:
         title = ts.strftime("%d.%m.%Y · %H:%M") if ts else _translate(self.language, "cars.stopwatch_run.title", date=str(run_id))
         row.set_title(GLib.markup_escape_text(title))
 
+        keys = run.keys() if hasattr(run, "keys") else []
+        shared_at = run["shared_at"] if "shared_at" in keys else None
+        seen_at = run["seen_at"] if "seen_at" in keys else None
+        if shared_at and not seen_at:
+            dot = Gtk.Label(label="●")
+            dot.add_css_class("accent")
+            dot.set_valign(Gtk.Align.CENTER)
+            row.add_prefix(dot)
+
         parts: list[str] = []
         try:
             data = self.db.get_stopwatch_run(run_id)
@@ -72,6 +81,10 @@ class CarsStopWatchRunsMixin:
             return
         if not data:
             return
+        try:
+            self.db.mark_run_seen(run_id)
+        except Exception:
+            log.exception("Could not mark run seen id=%s", run_id)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         scrolled = Gtk.ScrolledWindow()
@@ -145,7 +158,14 @@ class CarsStopWatchRunsMixin:
         ts = self._parse_ts(data.get("run_at"))
         title = _translate(self.language, "cars.stopwatch_run.title",
                            date=ts.strftime("%d.%m.%Y %H:%M") if ts else str(run_id))
-        page = Adw.NavigationPage(child=self._wrap_sub_page(scrolled, title), title=title)
+        page = Adw.NavigationPage(
+            child=self._wrap_sub_page(
+                scrolled,
+                title,
+                on_share=lambda: self._share_run(run_id),
+            ),
+            title=title,
+        )
         page.set_tag(f"stopwatch-run-{run_id}")
         self._stopwatch_run_detail_page = page
         self.nav_view.push(page)
