@@ -208,6 +208,7 @@ class _CameraPreview:
 
 class DashcamPage(Gtk.Box):
     __gtype_name__ = "DashcamPage"
+    _css_loaded: bool = False
 
     def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -245,20 +246,21 @@ class DashcamPage(Gtk.Box):
     # ── Build ─────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        # Inject CSS once
-        css = Gtk.CssProvider()
-        css.load_from_data(
-            # Translucent gray bar — drawn ON TOP of the video at the bottom,
-            # never to the side regardless of portrait/landscape orientation.
-            b".dp-dashcam-page{background:#000000;color:#ffffff;}"
-            b".dc-black-bg{background:#000000;color:#ffffff;}"
-            b".dc-bottom { background: rgba(50,50,50,0.78); padding: 10px 14px 14px 14px; border-radius: 14px 14px 0 0; }"
-            b".dc-lock-bg { background: #000000; }"
-            b".dc-status  { color: rgba(255,255,255,0.85); font-size: 0.85em; }"
-        )
-        Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+        if not DashcamPage._css_loaded:
+            DashcamPage._css_loaded = True
+            css = Gtk.CssProvider()
+            css.load_from_data(
+                # Translucent gray bar — drawn ON TOP of the video at the bottom,
+                # never to the side regardless of portrait/landscape orientation.
+                b".dp-dashcam-page{background:#000000;color:#ffffff;}"
+                b".dc-black-bg{background:#000000;color:#ffffff;}"
+                b".dc-bottom { background: rgba(50,50,50,0.78); padding: 10px 14px 14px 14px; border-radius: 14px 14px 0 0; }"
+                b".dc-lock-bg { background: #000000; }"
+                b".dc-status  { color: rgba(255,255,255,0.85); font-size: 0.85em; }"
+            )
+            Gtk.StyleContext.add_provider_for_display(
+                Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
 
         # Outer overlay wraps everything so the lock screen can cover both
         # the camera area AND the bottom bar.

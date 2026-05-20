@@ -143,6 +143,7 @@
   "dashcam.settings.gps": "GPS + Location",
   "dashcam.settings.gps_osd": "Burn GPS into video",
   "dashcam.settings.gps_osd_sub": "Overlays coordinates and speed in the bottom-left corner of each recording",
+  "dashcam.dim.countdown": "Screen locks in {n} s …",
   "map.search.start": "From (empty = GPS)",
   "map.search.end": "Destination",
   "map.search.waypoint": "Via",
