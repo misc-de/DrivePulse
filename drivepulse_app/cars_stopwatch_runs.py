@@ -63,12 +63,23 @@ class CarsStopWatchRunsMixin:
         row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)) if parts else "")
         row.set_subtitle_lines(0)
 
-        icon = Gtk.Image.new_from_icon_name("stopwatch-symbolic")
-        row.add_prefix(icon)
-        chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
-        row.add_suffix(chev)
-        row.set_activatable(True)
-        row.connect("activated", lambda _r, rid=run_id: self._open_stopwatch_run_detail(rid))
+        if self._run_select_mode:
+            chk = Gtk.CheckButton()
+            chk.set_active(run_id in self._run_selected_ids)
+            chk.set_valign(Gtk.Align.CENTER)
+            chk.connect("toggled", lambda c, rid=run_id: self._on_run_checkbox_toggled(rid, c.get_active()))
+            row.add_prefix(chk)
+            row.set_activatable(False)
+        else:
+            icon = Gtk.Image.new_from_icon_name("stopwatch-symbolic")
+            row.add_prefix(icon)
+            chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
+            row.add_suffix(chev)
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, rid=run_id: self._open_stopwatch_run_detail(rid))
+            lp = Gtk.GestureLongPress()
+            lp.connect("pressed", lambda _g, _x, _y, rid=run_id: self._enter_run_select_mode(rid))
+            row.add_controller(lp)
         return row
 
     def _open_stopwatch_run_detail(self, run_id: int) -> None:
@@ -162,7 +173,7 @@ class CarsStopWatchRunsMixin:
             child=self._wrap_sub_page(
                 scrolled,
                 title,
-                on_share=lambda: self._share_run(run_id),
+                on_share=(lambda: self._share_run(run_id)) if self._is_sync_active() else None,
             ),
             title=title,
         )
@@ -193,3 +204,45 @@ class CarsStopWatchRunsMixin:
     def refresh_if_showing_car(self, car_id: int) -> None:
         if self._selected_car_id == car_id and self._detail_pushed and self._selected_category == "stopwatch_runs":
             self._render_detail()
+
+    def _enter_run_select_mode(self, run_id: int) -> None:
+        self._run_select_mode = True
+        self._run_selected_ids = {run_id}
+        self._render_detail()
+        self._set_trash(lambda: self._confirm_delete_selected_runs())
+
+    def _exit_run_select_mode(self) -> None:
+        self._run_select_mode = False
+        self._run_selected_ids = set()
+        self._render_detail()
+        if self._selected_car_id is not None:
+            self._set_trash(self._confirm_delete_vehicle)
+        else:
+            self._set_trash(None)
+
+    def _on_run_checkbox_toggled(self, run_id: int, active: bool) -> None:
+        if active:
+            self._run_selected_ids.add(run_id)
+        else:
+            self._run_selected_ids.discard(run_id)
+        if not self._run_selected_ids:
+            self._exit_run_select_mode()
+
+    def _confirm_delete_selected_runs(self) -> None:
+        n = len(self._run_selected_ids)
+        if n == 0:
+            return
+        dialog = self._make_delete_dialog("cars.stopwatch_run.delete_title", "cars.stopwatch_run.delete_title")
+        dialog.set_body(_translate(self.language, "cars.trip.delete_multi_body", n=n))
+        dialog.connect("response", lambda _d, r: self._delete_selected_runs() if r == "delete" else None)
+        dialog.present(self)
+
+    def _delete_selected_runs(self) -> None:
+        if self.db is None:
+            return
+        for rid in list(self._run_selected_ids):
+            try:
+                self.db.delete_stopwatch_run(rid)
+            except Exception:
+                log.exception("Could not delete selected run id=%s", rid)
+        self._exit_run_select_mode()

@@ -134,7 +134,7 @@ class CarsTripsMixin:
                 page_content,
                 title,
                 on_rename=_on_rename,
-                on_share=lambda: self._share_trip(trip_id),
+                on_share=(lambda: self._share_trip(trip_id)) if self._is_sync_active() else None,
                 on_delete=lambda: self._confirm_delete_trip(trip_id),
             ),
             title=title,
@@ -195,7 +195,6 @@ class CarsTripsMixin:
         self._trip_selected_ids = {trip_id}
         self._render_detail()
         self._set_trash(lambda: self._confirm_delete_selected_trips())
-        self._detail_share_btn.set_visible(False)
 
     def _exit_trip_select_mode(self) -> None:
         self._trip_select_mode = False
