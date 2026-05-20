@@ -145,6 +145,7 @@ class DriveDB:
                 "ALTER TABLE scans ADD COLUMN shared_at TEXT",
                 "ALTER TABLE acceleration_runs ADD COLUMN seen_at TEXT",
                 "ALTER TABLE acceleration_runs ADD COLUMN shared_at TEXT",
+                "ALTER TABLE cars ADD COLUMN vin_data_json TEXT",
             ):
                 try:
                     self._conn.execute(stmt)
@@ -243,6 +244,14 @@ class DriveDB:
     def get_car(self, car_id: int) -> sqlite3.Row | None:
         with self._lock:
             return self._conn.execute("SELECT * FROM cars WHERE id=?", (car_id,)).fetchone()
+
+    def update_car_vin_data(self, car_id: int, vin_data_json: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE cars SET vin_data_json=? WHERE id=?",
+                (vin_data_json, car_id),
+            )
+            self._conn.commit()
 
     # ----------------------------------------------------------------- Trips
 

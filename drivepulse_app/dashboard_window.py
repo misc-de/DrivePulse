@@ -75,6 +75,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.last_update_check: str | None = self.settings.get("last_update_check")
         self.dashcam_camera: str = self.settings.get("dashcam_camera", "/dev/video0")
         self.dashcam_resolution: str = self.settings.get("dashcam_resolution", "1280x720")
+        self.dashcam_fps: int = int(self.settings.get("dashcam_fps", 25))
         self.dashcam_seg_minutes: int = int(self.settings.get("dashcam_seg_minutes", 3))
         self.dashcam_max_segments: int = int(self.settings.get("dashcam_max_segments", 10))
         self.dashcam_dim_timeout: int = int(self.settings.get("dashcam_dim_timeout", 30))
@@ -90,6 +91,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.tts_voice: str = self.settings.get("tts_voice", "female")
         self.log_app_enabled: bool = bool(self.settings.get("log_app_enabled", True))
         self.log_obd_enabled: bool = bool(self.settings.get("log_obd_enabled", True))
+        self.vindecoder_api_key: str = self.settings.get("vindecoder_api_key") or ""
+        self.vindecoder_secret_key: str = self.settings.get("vindecoder_secret_key") or ""
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -207,7 +210,13 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         stopwatch_scroller.set_vexpand(True)
         stopwatch_scroller.set_child(self._stopwatch_rotator)
 
-        self.cars_page = CarsPage(self.language, db=self.db, sidebar_side=self.sidebar_side)
+        self.cars_page = CarsPage(
+            self.language,
+            db=self.db,
+            sidebar_side=self.sidebar_side,
+            vindecoder_api_key=self.vindecoder_api_key or None,
+            vindecoder_secret_key=self.vindecoder_secret_key or None,
+        )
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
@@ -251,6 +260,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_page = DashcamPage(self.language)
         self.dashcam_page.set_camera(self.dashcam_camera)
         self.dashcam_page.set_resolution(self.dashcam_resolution)
+        self.dashcam_page.set_fps(self.dashcam_fps)
         self.dashcam_page.set_segment_minutes(self.dashcam_seg_minutes)
         self.dashcam_page.set_max_segments(self.dashcam_max_segments)
         self.dashcam_page.set_dim_timeout(self.dashcam_dim_timeout)

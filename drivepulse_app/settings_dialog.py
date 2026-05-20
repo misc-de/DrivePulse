@@ -59,6 +59,8 @@ class SettingsDialog(Adw.NavigationPage):
         on_dashcam_camera_changed: Callable[[str], None] | None = None,
         current_dashcam_resolution: str = "1280x720",
         on_dashcam_resolution_changed: Callable[[str], None] | None = None,
+        current_dashcam_fps: int = 25,
+        on_dashcam_fps_changed: Callable[[int], None] | None = None,
         current_dashcam_seg_minutes: int = 3,
         on_dashcam_seg_minutes_changed: Callable[[int], None] | None = None,
         current_dashcam_max_segments: int = 10,
@@ -89,6 +91,10 @@ class SettingsDialog(Adw.NavigationPage):
         on_log_app_enabled_changed: Callable[[bool], None] | None = None,
         current_log_obd_enabled: bool = True,
         on_log_obd_enabled_changed: Callable[[bool], None] | None = None,
+        current_vindecoder_api_key: str = "",
+        on_vindecoder_api_key_changed: Callable[[str], None] | None = None,
+        current_vindecoder_secret_key: str = "",
+        on_vindecoder_secret_key_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(tag="settings")
         self.language = _normalize_language(current_language)
@@ -103,6 +109,8 @@ class SettingsDialog(Adw.NavigationPage):
         self.on_last_check_updated = on_last_check_updated
         self.on_dashcam_camera_changed = on_dashcam_camera_changed
         self.on_dashcam_resolution_changed = on_dashcam_resolution_changed
+        self.on_dashcam_fps_changed = on_dashcam_fps_changed
+        self._current_dashcam_fps = current_dashcam_fps
         self.on_dashcam_seg_minutes_changed = on_dashcam_seg_minutes_changed
         self.on_dashcam_max_segments_changed = on_dashcam_max_segments_changed
         self.on_dashcam_dim_timeout_changed = on_dashcam_dim_timeout_changed
@@ -122,6 +130,8 @@ class SettingsDialog(Adw.NavigationPage):
         self.on_tts_voice_changed = on_tts_voice_changed
         self.on_log_app_enabled_changed = on_log_app_enabled_changed
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
+        self.on_vindecoder_api_key_changed = on_vindecoder_api_key_changed
+        self.on_vindecoder_secret_key_changed = on_vindecoder_secret_key_changed
         self._remote_version: str | None = None
         self._closing = False
         self.set_title(_translate(self.language, "settings.title"))
@@ -408,6 +418,27 @@ class SettingsDialog(Adw.NavigationPage):
         logging_group.add(self.log_obd_row)
         app_page.add(logging_group)
 
+        # VIN decoder group
+        self._vd_api_key_row = Adw.EntryRow(
+            title=_translate(self.language, "settings.vin_decoder.api_key"),
+        )
+        self._vd_api_key_row.set_text(current_vindecoder_api_key or "")
+        self._vd_api_key_row.connect("changed", self._on_vd_api_key_changed)
+
+        self._vd_secret_row = Adw.EntryRow(
+            title=_translate(self.language, "settings.vin_decoder.secret_key"),
+        )
+        self._vd_secret_row.set_text(current_vindecoder_secret_key or "")
+        self._vd_secret_row.connect("changed", self._on_vd_secret_changed)
+
+        vd_group = Adw.PreferencesGroup(
+            title=_translate(self.language, "settings.vin_decoder"),
+            description=_translate(self.language, "settings.vin_decoder.desc"),
+        )
+        vd_group.add(self._vd_api_key_row)
+        vd_group.add(self._vd_secret_row)
+        app_page.add(vd_group)
+
         # OBD group
         app_page.add(obd_group)
 
@@ -521,28 +552,61 @@ class SettingsDialog(Adw.NavigationPage):
         )
         dc_group = Adw.PreferencesGroup(title=_translate(self.language, "dashcam.settings.title"))
 
-        # Camera selector
-        cameras = list_cameras() or [current_dashcam_camera]
-        cam_model = Gtk.StringList()
-        for camera in cameras:
-            cam_model.append(camera)
-        self._dc_cam_row = Adw.ComboRow(title=_translate(self.language, "dashcam.settings.camera"))
-        self._dc_cam_row.set_model(cam_model)
-        sel_cam = cameras.index(current_dashcam_camera) if current_dashcam_camera in cameras else 0
-        self._dc_cam_row.set_selected(sel_cam)
-        self._dc_cam_row.connect("notify::selected", self._on_dc_camera_changed)
-        dc_group.add(self._dc_cam_row)
+        # Camera device — editable entry + scan-button popover
+        self._dc_cam_entry = Adw.EntryRow(
+            title=_translate(self.language, "dashcam.settings.camera"),
+        )
+        self._dc_cam_entry.set_text(current_dashcam_camera)
+        self._dc_cam_entry.connect("changed", self._on_dc_camera_entry_changed)
+        self._dc_cam_entry.connect("apply", self._on_dc_camera_entry_apply)
 
-        # Resolution
-        res_model = Gtk.StringList()
-        for resolution in RESOLUTIONS:
-            res_model.append(resolution)
-        self._dc_res_row = Adw.ComboRow(title=_translate(self.language, "dashcam.settings.resolution"))
-        self._dc_res_row.set_model(res_model)
-        sel_res = RESOLUTIONS.index(current_dashcam_resolution) if current_dashcam_resolution in RESOLUTIONS else 1
-        self._dc_res_row.set_selected(sel_res)
+        self._dc_cam_popover = Gtk.Popover()
+        self._dc_cam_popover.set_position(Gtk.PositionType.BOTTOM)
+        self._dc_cam_list_box = Gtk.ListBox()
+        self._dc_cam_list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._dc_cam_list_box.add_css_class("boxed-list")
+        pop_scroll = Gtk.ScrolledWindow()
+        pop_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        pop_scroll.set_max_content_height(240)
+        pop_scroll.set_propagate_natural_height(True)
+        pop_scroll.set_child(self._dc_cam_list_box)
+        pop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        pop_box.set_margin_top(6)
+        pop_box.set_margin_bottom(6)
+        pop_box.set_margin_start(6)
+        pop_box.set_margin_end(6)
+        pop_box.append(pop_scroll)
+        self._dc_cam_popover.set_child(pop_box)
+
+        scan_btn = Gtk.MenuButton()
+        scan_btn.set_icon_name("view-refresh-symbolic")
+        scan_btn.set_tooltip_text(_translate(self.language, "dashcam.settings.camera_scan"))
+        scan_btn.set_valign(Gtk.Align.CENTER)
+        scan_btn.add_css_class("flat")
+        scan_btn.set_popover(self._dc_cam_popover)
+        self._dc_cam_popover.connect("show", self._on_dc_cam_popover_show)
+        self._dc_cam_entry.add_suffix(scan_btn)
+        dc_group.add(self._dc_cam_entry)
+
+        # Resolution — populated dynamically; falls back to RESOLUTIONS on no v4l2-ctl
+        self._dc_res_row = Adw.ComboRow(
+            title=_translate(self.language, "dashcam.settings.resolution"),
+        )
         self._dc_res_row.connect("notify::selected", self._on_dc_resolution_changed)
         dc_group.add(self._dc_res_row)
+
+        # FPS — populated when resolution changes
+        self._dc_fps_row = Adw.ComboRow(
+            title=_translate(self.language, "dashcam.settings.fps"),
+        )
+        self._dc_fps_row.connect("notify::selected", self._on_dc_fps_changed)
+        dc_group.add(self._dc_fps_row)
+
+        # Populate resolution+fps from camera query (or static fallback)
+        self._dc_cam_modes: dict[str, list[int]] = {}
+        self._dc_current_res = current_dashcam_resolution
+        self._dc_current_fps = current_dashcam_fps
+        self._populate_modes(current_dashcam_camera)
 
         # Segment length
         seg_adj = Gtk.Adjustment(value=current_dashcam_seg_minutes, lower=1, upper=30, step_increment=1)
@@ -719,15 +783,93 @@ class SettingsDialog(Adw.NavigationPage):
         if self.on_dashcam_saved_dir_changed:
             self.on_dashcam_saved_dir_changed(path)
 
-    def _on_dc_camera_changed(self, row: Adw.ComboRow, _pspec: Any) -> None:
-        item = row.get_selected_item()
-        if item and self.on_dashcam_camera_changed:
-            self.on_dashcam_camera_changed(item.get_string())
+    def _on_dc_camera_entry_changed(self, entry: Adw.EntryRow) -> None:
+        path = entry.get_text().strip()
+        if path and self.on_dashcam_camera_changed:
+            self.on_dashcam_camera_changed(path)
+
+    def _on_dc_camera_entry_apply(self, entry: Adw.EntryRow) -> None:
+        path = entry.get_text().strip()
+        if path:
+            self._populate_modes(path)
+
+    def _on_dc_cam_popover_show(self, _pop: Gtk.Popover) -> None:
+        while (child := self._dc_cam_list_box.get_first_child()) is not None:
+            self._dc_cam_list_box.remove(child)
+        cameras = list_cameras()
+        if not cameras:
+            lbl = Gtk.Label(label=_translate(self.language, "dashcam.settings.camera_none"))
+            lbl.add_css_class("dim-label")
+            lbl.set_margin_top(8)
+            lbl.set_margin_bottom(8)
+            self._dc_cam_list_box.append(lbl)
+            return
+        for cam in cameras:
+            row = Gtk.ListBoxRow()
+            lbl = Gtk.Label(label=cam, xalign=0)
+            lbl.set_margin_top(8)
+            lbl.set_margin_bottom(8)
+            lbl.set_margin_start(12)
+            lbl.set_margin_end(12)
+            row.set_child(lbl)
+            row.cam_path = cam
+            self._dc_cam_list_box.append(row)
+        self._dc_cam_list_box.connect("row-activated", self._on_dc_cam_row_activated)
+
+    def _on_dc_cam_row_activated(self, _lb: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        self._dc_cam_entry.set_text(row.cam_path)
+        self._dc_cam_popover.popdown()
+        self._populate_modes(row.cam_path)
+
+    # ── Camera mode helpers ───────────────────────────────────────────────────
+
+    def _populate_modes(self, device: str) -> None:
+        """Query camera modes and fill resolution + fps combos."""
+        from .dashcam_recorder import FPS_OPTIONS, RESOLUTIONS, query_camera_modes
+        modes = query_camera_modes(device)
+        self._dc_cam_modes = modes
+
+        resolutions = list(modes.keys()) if modes else RESOLUTIONS
+        res_model = Gtk.StringList()
+        for r in resolutions:
+            res_model.append(r)
+        self._dc_res_row.set_model(res_model)
+        idx = resolutions.index(self._dc_current_res) if self._dc_current_res in resolutions else 0
+        self._dc_res_row.set_selected(idx)
+
+        self._populate_fps_for_res(resolutions[idx] if resolutions else self._dc_current_res)
+
+    def _populate_fps_for_res(self, resolution: str) -> None:
+        """Fill the FPS combo for the given resolution."""
+        from .dashcam_recorder import FPS_OPTIONS
+        fps_list = self._dc_cam_modes.get(resolution, FPS_OPTIONS)
+        fps_model = Gtk.StringList()
+        for f in fps_list:
+            fps_model.append(str(f))
+        self._dc_fps_row.set_model(fps_model)
+        strs = [str(f) for f in fps_list]
+        cur = str(self._dc_current_fps)
+        idx = strs.index(cur) if cur in strs else 0
+        self._dc_fps_row.set_selected(idx)
 
     def _on_dc_resolution_changed(self, row: Adw.ComboRow, _pspec: Any) -> None:
         item = row.get_selected_item()
-        if item and self.on_dashcam_resolution_changed:
-            self.on_dashcam_resolution_changed(item.get_string())
+        if not item:
+            return
+        res = item.get_string()
+        self._dc_current_res = res
+        self._populate_fps_for_res(res)
+        if self.on_dashcam_resolution_changed:
+            self.on_dashcam_resolution_changed(res)
+
+    def _on_dc_fps_changed(self, row: Adw.ComboRow, _pspec: Any) -> None:
+        item = row.get_selected_item()
+        if not item:
+            return
+        fps = int(item.get_string())
+        self._dc_current_fps = fps
+        if self.on_dashcam_fps_changed:
+            self.on_dashcam_fps_changed(fps)
 
     def _on_dc_seg_minutes_changed(self, spin: Gtk.SpinButton) -> None:
         if self.on_dashcam_seg_minutes_changed:
@@ -840,6 +982,14 @@ class SettingsDialog(Adw.NavigationPage):
     def _on_log_obd_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_log_obd_enabled_changed is not None:
             self.on_log_obd_enabled_changed(row.get_active())
+
+    def _on_vd_api_key_changed(self, row: Adw.EntryRow) -> None:
+        if self.on_vindecoder_api_key_changed is not None:
+            self.on_vindecoder_api_key_changed(row.get_text().strip())
+
+    def _on_vd_secret_changed(self, row: Adw.EntryRow) -> None:
+        if self.on_vindecoder_secret_key_changed is not None:
+            self.on_vindecoder_secret_key_changed(row.get_text().strip())
 
     # ── Update check ──────────────────────────────────────────────────────────
 

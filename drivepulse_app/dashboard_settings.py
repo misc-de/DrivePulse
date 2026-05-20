@@ -42,6 +42,7 @@ class DashboardSettingsMixin:
                 "last_update_check": getattr(self, "last_update_check", None),
                 "dashcam_camera": getattr(self, "dashcam_camera", "/dev/video0"),
                 "dashcam_resolution": getattr(self, "dashcam_resolution", "1280x720"),
+                "dashcam_fps": getattr(self, "dashcam_fps", 25),
                 "dashcam_seg_minutes": getattr(self, "dashcam_seg_minutes", 3),
                 "dashcam_max_segments": getattr(self, "dashcam_max_segments", 10),
                 "dashcam_dim_timeout": getattr(self, "dashcam_dim_timeout", 30),
@@ -57,6 +58,8 @@ class DashboardSettingsMixin:
                 "tts_voice": getattr(self, "tts_voice", "female"),
                 "log_app_enabled": getattr(self, "log_app_enabled", True),
                 "log_obd_enabled": getattr(self, "log_obd_enabled", True),
+                "vindecoder_api_key": getattr(self, "vindecoder_api_key", ""),
+                "vindecoder_secret_key": getattr(self, "vindecoder_secret_key", ""),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -110,6 +113,8 @@ class DashboardSettingsMixin:
             on_dashcam_camera_changed=self._set_dashcam_camera,
             current_dashcam_resolution=getattr(self, "dashcam_resolution", "1280x720"),
             on_dashcam_resolution_changed=self._set_dashcam_resolution,
+            current_dashcam_fps=getattr(self, "dashcam_fps", 25),
+            on_dashcam_fps_changed=self._set_dashcam_fps,
             current_dashcam_seg_minutes=getattr(self, "dashcam_seg_minutes", 3),
             on_dashcam_seg_minutes_changed=self._set_dashcam_seg_minutes,
             current_dashcam_max_segments=getattr(self, "dashcam_max_segments", 10),
@@ -140,6 +145,10 @@ class DashboardSettingsMixin:
             on_log_app_enabled_changed=self._set_log_app_enabled,
             current_log_obd_enabled=getattr(self, "log_obd_enabled", True),
             on_log_obd_enabled_changed=self._set_log_obd_enabled,
+            current_vindecoder_api_key=getattr(self, "vindecoder_api_key", ""),
+            on_vindecoder_api_key_changed=self._set_vindecoder_api_key,
+            current_vindecoder_secret_key=getattr(self, "vindecoder_secret_key", ""),
+            on_vindecoder_secret_key_changed=self._set_vindecoder_secret_key,
         )
 
         def _on_page_hidden(_p: object) -> None:
@@ -158,6 +167,11 @@ class DashboardSettingsMixin:
         self.dashcam_resolution = value
         self._save_settings()
         self.dashcam_page.set_resolution(value)
+
+    def _set_dashcam_fps(self, value: int) -> None:
+        self.dashcam_fps = value
+        self._save_settings()
+        self.dashcam_page.set_fps(value)
 
     def _set_dashcam_seg_minutes(self, value: int) -> None:
         self.dashcam_seg_minutes = value
@@ -251,6 +265,16 @@ class DashboardSettingsMixin:
         self.log_obd_enabled = enabled
         self._save_settings()
         self.reader.set_obd_log_enabled(enabled)
+
+    def _set_vindecoder_api_key(self, value: str) -> None:
+        self.vindecoder_api_key = value
+        self._save_settings()
+        self.cars_page._vindecoder_api_key = value or None
+
+    def _set_vindecoder_secret_key(self, value: str) -> None:
+        self.vindecoder_secret_key = value
+        self._save_settings()
+        self.cars_page._vindecoder_secret_key = value or None
 
     def _open_sync(self, *_args: Any) -> None:
         if getattr(self, "_sync_is_online", False):

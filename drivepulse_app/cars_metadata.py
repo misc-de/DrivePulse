@@ -26,6 +26,32 @@ _SPECIAL_DTC = "__DTC__"
 _SPECIAL_PENDING = "__PENDING_DTC__"
 _SPECIAL_ADAPTER_V = "__ATRV__"
 
+_SPECIAL_VIN_MAKE = "__VIN_MAKE__"
+_SPECIAL_VIN_MODEL = "__VIN_MODEL__"
+_SPECIAL_VIN_YEAR = "__VIN_YEAR__"
+_SPECIAL_VIN_BODY = "__VIN_BODY__"
+_SPECIAL_VIN_FUEL = "__VIN_FUEL__"
+_SPECIAL_VIN_DRIVE = "__VIN_DRIVE__"
+_SPECIAL_VIN_CYLINDERS = "__VIN_CYLINDERS__"
+_SPECIAL_VIN_DISPLACEMENT = "__VIN_DISPLACEMENT__"
+_SPECIAL_VIN_TRANSMISSION = "__VIN_TRANSMISSION__"
+_SPECIAL_VIN_MANUFACTURER = "__VIN_MANUFACTURER__"
+_SPECIAL_VIN_COUNTRY = "__VIN_COUNTRY__"
+
+VIN_DATA_SPECIAL_KEYS: dict[str, str] = {
+    "make":         _SPECIAL_VIN_MAKE,
+    "model":        _SPECIAL_VIN_MODEL,
+    "year":         _SPECIAL_VIN_YEAR,
+    "body":         _SPECIAL_VIN_BODY,
+    "fuel":         _SPECIAL_VIN_FUEL,
+    "drive":        _SPECIAL_VIN_DRIVE,
+    "cylinders":    _SPECIAL_VIN_CYLINDERS,
+    "displacement": _SPECIAL_VIN_DISPLACEMENT,
+    "transmission": _SPECIAL_VIN_TRANSMISSION,
+    "manufacturer": _SPECIAL_VIN_MANUFACTURER,
+    "plant_country": _SPECIAL_VIN_COUNTRY,
+}
+
 _CHART_METRICS: tuple[tuple, ...] = (
     ("speed_kmh",    "cars.metric.speed_kmh",    "km/h", (0.34, 0.62, 0.86), "{:.0f}"),
     ("rpm",          "cars.metric.rpm",           "RPM",  (0.95, 0.60, 0.20), "{:.0f}"),
@@ -41,12 +67,23 @@ _CHART_METRICS: tuple[tuple, ...] = (
 
 CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
     ("vehicle", "cars.category.vehicle", "info-symbolic", (
-        (_SPECIAL_VIN,        "cars.pid.VIN"),
-        (_SPECIAL_CAL,        "cars.pid.CAL"),
-        (_SPECIAL_CVN,        "cars.pid.CVN"),
-        (_SPECIAL_PROTO,      "cars.pid.PROTO"),
-        ("011C",              "cars.pid.011C"),
-        (_SPECIAL_SCAN_DATE,  "cars.pid.SCAN_DATE"),
+        (_SPECIAL_VIN,              "cars.pid.VIN"),
+        (_SPECIAL_VIN_MANUFACTURER, "cars.pid.VIN_MANUFACTURER"),
+        (_SPECIAL_VIN_MAKE,         "cars.pid.VIN_MAKE"),
+        (_SPECIAL_VIN_MODEL,        "cars.pid.VIN_MODEL"),
+        (_SPECIAL_VIN_YEAR,         "cars.pid.VIN_YEAR"),
+        (_SPECIAL_VIN_BODY,         "cars.pid.VIN_BODY"),
+        (_SPECIAL_VIN_FUEL,         "cars.pid.VIN_FUEL"),
+        (_SPECIAL_VIN_DRIVE,        "cars.pid.VIN_DRIVE"),
+        (_SPECIAL_VIN_CYLINDERS,    "cars.pid.VIN_CYLINDERS"),
+        (_SPECIAL_VIN_DISPLACEMENT, "cars.pid.VIN_DISPLACEMENT"),
+        (_SPECIAL_VIN_TRANSMISSION, "cars.pid.VIN_TRANSMISSION"),
+        (_SPECIAL_VIN_COUNTRY,      "cars.pid.VIN_COUNTRY"),
+        (_SPECIAL_CAL,              "cars.pid.CAL"),
+        (_SPECIAL_CVN,              "cars.pid.CVN"),
+        (_SPECIAL_PROTO,            "cars.pid.PROTO"),
+        ("011C",                    "cars.pid.011C"),
+        (_SPECIAL_SCAN_DATE,        "cars.pid.SCAN_DATE"),
     )),
     ("trips", "cars.category.trips", "globe-symbolic", ()),
     ("stopwatch_runs", "cars.category.stopwatch_runs", "stopwatch-symbolic", ()),

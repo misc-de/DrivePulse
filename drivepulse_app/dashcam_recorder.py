@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import signal
 import subprocess
 import threading
 from datetime import datetime, timezone
@@ -25,7 +26,6 @@ def list_cameras() -> list[str]:
         if not dev.is_char_device():
             continue
         try:
-            # Read capabilities via v4l2-ctl; only keep devices that support video capture.
             out = subprocess.run(
                 ["v4l2-ctl", "--device", str(dev), "--info"],
                 capture_output=True, text=True, timeout=2,
@@ -35,6 +35,46 @@ def list_cameras() -> list[str]:
         except Exception:
             cameras.append(str(dev))
     return cameras
+
+
+def query_camera_modes(device: str) -> dict[str, list[int]]:
+    """Return {resolution: [fps, ...]} supported by *device* via v4l2-ctl.
+
+    Parses the output of ``v4l2-ctl --list-formats-ext``.  Returns an empty
+    dict if v4l2-ctl is unavailable or the device is not a V4L2 device (e.g.
+    droidcamsrc / PipeWire cameras on FuriPhone).
+    """
+    import re
+    modes: dict[str, list[int]] = {}
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "--device", device, "--list-formats-ext"],
+            capture_output=True, text=True, timeout=4,
+        )
+        current_res: str | None = None
+        for line in result.stdout.splitlines():
+            m = re.search(r"Size:\s+\S+\s+(\d+x\d+)", line)
+            if m:
+                current_res = m.group(1)
+                if current_res not in modes:
+                    modes[current_res] = []
+                continue
+            m = re.search(r"\((\d+(?:\.\d+)?)\s+fps\)", line)
+            if m and current_res is not None:
+                fps = round(float(m.group(1)))
+                if fps not in modes[current_res]:
+                    modes[current_res].append(fps)
+    except Exception:
+        pass
+    # Sort: resolutions by pixel count desc, fps per resolution desc
+    return {
+        res: sorted(fps_list, reverse=True)
+        for res, fps_list in sorted(
+            modes.items(),
+            key=lambda kv: (int(kv[0].split("x")[0]) * int(kv[0].split("x")[1])),
+            reverse=True,
+        )
+    }
 
 
 class DashcamRecorder:
@@ -103,7 +143,7 @@ class DashcamRecorder:
             return
         self.is_recording = False
         self._stop_event.set()
-        self._kill_ffmpeg()
+        self._kill_proc()
         if self._thread:
             self._thread.join(timeout=8)
 
@@ -180,7 +220,7 @@ class DashcamRecorder:
             self._seg_started = datetime.now(timezone.utc)
             if self.on_segment_start:
                 self.on_segment_start(seg)
-            ok = self._run_ffmpeg(seg)
+            ok = self._run_segment(seg)
             self._seg_started = None
             if self.on_segment_done:
                 self.on_segment_done(seg)
@@ -192,73 +232,130 @@ class DashcamRecorder:
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
         return self.rolling_dir / f"dc_{ts}.mp4"
 
-    def _run_ffmpeg(self, out: Path) -> bool:
-        lat, lon, speed = self.lat, self.lon, self.speed_kmh
+    def _run_segment(self, out: Path) -> bool:
+        """Record one segment. Tries GStreamer sources first, then FFmpeg V4L2."""
+        duration_s = self.segment_minutes * 60
 
-        cmd = [
-            "ffmpeg", "-y",
-            "-f", "v4l2",
-            "-video_size", self.resolution,
-            "-framerate", str(self.fps),
-            "-i", self.camera,
-            "-t", str(self.segment_minutes * 60),
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "28",
-            "-movflags", "+faststart",
-            "-an",
-            # Embed display-matrix rotation so players show the video upright.
-            "-metadata:s:v:0", f"rotate={self.rotation}",
-        ]
-
-        # GPS location metadata (ISO 6709 / ©xyz atom — readable by VLC, Android, etc.)
-        if lat is not None and lon is not None:
-            loc = f"{lat:+.4f}{lon:+.4f}/"
-            cmd += ["-metadata", f"location={loc}", "-metadata", f"location-eng={loc}"]
-
-        # OSD: burn GPS coordinates and/or speed into the bottom-left corner.
-        # reload=1 tells ffmpeg to re-read the textfile every frame so GPS/OBD
-        # updates written by update_gps()/update_obd_speed() appear live.
+        # ── GStreamer strategies (droidcamsrc for Halium/FuriPhone, then PipeWire,
+        #    libcamera, V4L2).  gst-launch-1.0 -e finalises the MP4 on SIGINT.
+        w, h = self.resolution.split("x") if "x" in self.resolution else ("1280", "720")
+        osd_elements = ""
         if self.gps_osd or self.speed_osd:
             osd_txt = _VIDEOS_DIR / "tmp" / "osd.txt"
             osd_txt.parent.mkdir(parents=True, exist_ok=True)
             self._osd_txt = osd_txt
             self._refresh_osd_file()
-            vf = (
-                f"drawtext=textfile={osd_txt}:reload=1"
-                ":x=10:y=H-th-10"
-                ":fontcolor=white:fontsize=22"
-                ":box=1:boxcolor=black@0.6:boxborderw=6"
+            osd_elements = (
+                f" ! textoverlay text=\"\" textfile={osd_txt}"
+                " valignment=bottom halignment=left"
+                " font-desc=\"Sans 18\" shaded-background=true"
             )
-            cmd += ["-vf", vf]
 
-        cmd.append(str(out))
+        gst_sources = [
+            "droidcamsrc",
+            "pipewiresrc",
+            "libcamerasrc",
+            f"v4l2src device={self.camera}",
+            "autovideosrc",
+        ]
+        for src in gst_sources:
+            if self._stop_event.is_set():
+                return False
+            pipeline = (
+                f"{src} ! videoconvert ! videoflip method=0"
+                f"{osd_elements}"
+                f" ! x264enc tune=zerolatency speed-preset=ultrafast quantizer=28"
+                f" ! h264parse ! mp4mux faststart=true"
+                f" ! filesink location={out}"
+            )
+            cmd = ["gst-launch-1.0", "-e"] + pipeline.split()
+            log.debug("gst attempt src=%s", src)
+            ok = self._run_proc(cmd, duration_s, use_sigint=True)
+            if ok:
+                return True
+            if self._stop_event.is_set():
+                return False
 
+        # ── FFmpeg V4L2 fallback (desktop / standard webcams)
+        if self.gps_osd or self.speed_osd:
+            osd_txt = _VIDEOS_DIR / "tmp" / "osd.txt"
+            osd_txt.parent.mkdir(parents=True, exist_ok=True)
+            self._osd_txt = osd_txt
+            self._refresh_osd_file()
+
+        base_out = [
+            "-t", str(duration_s),
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+            "-movflags", "+faststart", "-an",
+            "-metadata:s:v:0", f"rotate={self.rotation}",
+        ]
+        lat, lon = self.lat, self.lon
+        if lat is not None and lon is not None:
+            loc = f"{lat:+.4f}{lon:+.4f}/"
+            base_out += ["-metadata", f"location={loc}", "-metadata", f"location-eng={loc}"]
+        if self._osd_txt:
+            base_out += ["-vf",
+                f"drawtext=textfile={self._osd_txt}:reload=1"
+                ":x=10:y=H-th-10:fontcolor=white:fontsize=22"
+                ":box=1:boxcolor=black@0.6:boxborderw=6"]
+
+        for input_flags in [
+            ["-f", "v4l2", "-input_format", "mjpeg"],
+            ["-f", "v4l2", "-video_size", self.resolution, "-framerate", str(self.fps)],
+            ["-f", "v4l2"],
+        ]:
+            if self._stop_event.is_set():
+                return False
+            cmd = ["ffmpeg", "-y"] + input_flags + ["-i", self.camera] + base_out + [str(out)]
+            log.debug("ffmpeg attempt: %s", input_flags)
+            if self._run_proc(cmd, duration_s, use_sigint=False):
+                return True
+            if self._stop_event.is_set():
+                return False
+
+        log.warning("All recording strategies failed for camera %s", self.camera)
+        if self.on_error:
+            self.on_error(f"Kamera {self.camera} konnte nicht geöffnet werden")
+        self._stop_event.set()
+        return False
+
+    def _run_proc(self, cmd: list[str], duration_s: int, *, use_sigint: bool) -> bool:
+        """Run a subprocess for up to duration_s seconds, then stop it cleanly."""
         try:
-            self._proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            _, stderr_data = self._proc.communicate()
-            rc = self._proc.returncode
-            if rc != 0 and not self._stop_event.is_set():
-                log.warning("ffmpeg exited %d: %s", rc, stderr_data[-2000:].decode(errors="replace"))
-            return rc == 0
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            self._proc = proc
+            try:
+                _, stderr_data = proc.communicate(timeout=duration_s)
+                rc = proc.returncode
+            except subprocess.TimeoutExpired:
+                # Segment duration elapsed — stop cleanly
+                if use_sigint:
+                    proc.send_signal(signal.SIGINT)   # triggers EOS in gst-launch
+                else:
+                    proc.terminate()
+                try:
+                    _, stderr_data = proc.communicate(timeout=8)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    _, stderr_data = proc.communicate()
+                rc = proc.returncode
+            if rc not in (0, -signal.SIGINT):
+                err = stderr_data[-800:].decode(errors="replace")
+                log.debug("%s failed rc=%d: %s", cmd[0], rc, err)
+                return False
+            return True
         except FileNotFoundError:
-            msg = "ffmpeg nicht gefunden"
-            log.error(msg)
-            if self.on_error:
-                self.on_error(msg)
-            self._stop_event.set()
             return False
         except Exception as exc:
-            log.warning("ffmpeg error: %s", exc)
+            log.debug("proc error: %s", exc)
             return False
         finally:
             self._proc = None
-            self._osd_txt = None
 
-    def _kill_ffmpeg(self) -> None:
+    def _kill_proc(self) -> None:
         proc = self._proc
         if proc and proc.poll() is None:
-            proc.terminate()
+            proc.send_signal(signal.SIGINT)
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:

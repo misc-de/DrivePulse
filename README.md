@@ -134,6 +134,7 @@ drivepulse_app/
   common.py                Shared constants and utility functions
   translations.py          Translation catalog (EN / DE) and _translate helper
   diagnostics.py           Logging helpers
+  http_client.py           Shared HTTP client (connection pooling, per-host rate limiting)
 
   dashboard_window.py      Main application window (Adw.ApplicationWindow)
   dashboard_layout.py      Responsive gauge layout mixin (portrait / landscape)
@@ -144,6 +145,8 @@ drivepulse_app/
 
   gauge.py                 Circular gauge widget (Cairo)
   draw_helpers.py          Shared Cairo drawing utilities
+  rotated_container.py     Single-child container with 0/90/180/270° rotation
+  rotation.py              Screen rotation state (sensor + manual override)
 
   stopwatch.py             StopWatch measurement page (GTK widget)
   stopwatch_canvas.py      G-force ball canvas widget
@@ -156,12 +159,22 @@ drivepulse_app/
   cars_metadata.py         OBD PID catalogue and category definitions
   cars_profiles.py         Vehicle profile loader from the SQLite database
   cars_actions.py          Car CRUD actions (rename, delete)
+  cars_photos.py           Vehicle photo gallery (upload, grid view, delete)
   cars_trips.py            Trip list and detail widgets
   cars_trip_widgets.py     Trip detail chart + map widget
   cars_trip_visuals.py     Trip chart drawing helpers
   cars_scans.py            Scan list and detail widgets
   cars_scan_widgets.py     Scan detail widget
   cars_stopwatch_runs.py   StopWatch run list and detail widgets
+
+  map_page.py              Navigation/Tour page (GPS tracking, routing, turn-by-turn)
+  map_services.py          Map data helpers (routing, traffic, geometry)
+  map_webkit.py            WebKit vector/3D map backend (MapLibre GL JS)
+  map_shumate.py           Shumate raster map backend (GTK4 native, fallback)
+  mock_tour.py             Mock tour simulator (drives OSRM route, emits GPS payloads)
+
+  dashcam_page.py          Dashcam page (live preview, loop recording, screen dimmer)
+  dashcam_recorder.py      Dashcam loop recorder (segmented recording, event save)
 
   db.py                    SQLite storage (cars, trips, samples, scans, acceleration_runs)
   trip_recorder.py         Ongoing trip recording logic
@@ -183,23 +196,37 @@ drivepulse_app/
   sync_data.py             Database export / import and paired-device registry
   sync_crypto.py           TLS key-pair generation, SPKI fingerprint, token helpers
   sync_identity.py         Persistent device identity (ID + certificate paths)
+  sync_poller.py           Background poller (checks reachability of known sync devices)
   sync_qrgen.py            Pure-Python QR code generator (SVG → GdkPixbuf)
   sync_qr_scanner.py       Webcam QR scanner via GStreamer + zxing
 
+  share_flow.py            GTK UI flow for share operations
+  share_protocol.py        Share protocol (payload builders, VIN helpers, server-side import)
+
   settings_dialog.py       Settings UI (Adw.PreferencesDialog)
-  tts_service.py           Text-to-speech service (espeak-ng backend, non-blocking)
+  tts_service.py           Text-to-speech service (espeak-ng / piper backend, non-blocking)
   icon_registry.py         Bundled SVG icon registration
   startup_info.py          Python package dependency checker
+  updater.py               Update checker and installer (git pull)
   telemetry_utils.py       Telemetry helpers
 
 themes/
   analog.py                Analog halfmoon dashboard theme
+  analog_light.py          Analog halfmoon theme (light variant)
   cockpit.py               Cockpit theme
+  cockpit_light.py         Cockpit theme (light variant)
   digital.py               Digital theme
+  digital_light.py         Digital theme (light variant)
   modern.py                Modern gauge theme
+  modern_light.py          Modern gauge theme (light variant)
   neon.py                  Neon theme
+  neon_light.py            Neon theme (light variant)
   racing.py                Racing theme
+  racing_light.py          Racing theme (light variant)
   sport.py                 Sport theme
+  sport_light.py           Sport theme (light variant)
+  _minimal.py              Minimal theme skeleton
+  _vorlage.py              Theme template / boilerplate
 icons/
   hicolor/symbolic/actions/  SVG icons (currentColor, 16×16)
 icons.gresource.xml        GResource manifest

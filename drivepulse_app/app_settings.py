@@ -40,6 +40,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tts_voice": "female",
     "log_app_enabled": True,
     "log_obd_enabled": True,
+    "vindecoder_api_key": "",
+    "vindecoder_secret_key": "",
 }
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
@@ -114,6 +116,8 @@ def load_settings() -> dict[str, Any]:
         "tts_voice": data.get("tts_voice") if data.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
         "log_app_enabled": bool(data.get("log_app_enabled", DEFAULT_SETTINGS["log_app_enabled"])),
         "log_obd_enabled": bool(data.get("log_obd_enabled", DEFAULT_SETTINGS["log_obd_enabled"])),
+        "vindecoder_api_key": str(data.get("vindecoder_api_key") or ""),
+        "vindecoder_secret_key": str(data.get("vindecoder_secret_key") or ""),
     }
 
 
@@ -156,6 +160,8 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "tts_voice": settings.get("tts_voice") if settings.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
                 "log_app_enabled": bool(settings.get("log_app_enabled", True)),
                 "log_obd_enabled": bool(settings.get("log_obd_enabled", True)),
+                "vindecoder_api_key": str(settings.get("vindecoder_api_key") or ""),
+                "vindecoder_secret_key": str(settings.get("vindecoder_secret_key") or ""),
             },
             indent=2,
         ),

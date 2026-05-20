@@ -1,6 +1,8 @@
 """Autos-Browser: Liste bekannter Fahrzeuge → Detail mit kategorisierten Werten."""
 from __future__ import annotations
 
+import json
+import threading
 import time
 from typing import Any, Callable
 
@@ -23,6 +25,7 @@ from .cars_metadata import (
     _wmi_to_brand,
 )
 from .cars_profiles import _load_profiles
+from .vin_api import fetch_vin_data
 from .cars_stopwatch_runs import CarsStopWatchRunsMixin
 from .cars_scans import CarsScansMixin
 from .cars_photos import CarsPhotosMixin
@@ -64,11 +67,21 @@ class CarsPage(
     LIVE_ID = "__live__"
     LIVE_DETAIL_RENDER_INTERVAL_S = 0.25
 
-    def __init__(self, language: str = SOURCE_LANGUAGE, db: DriveDB | None = None, sidebar_side: str = "left") -> None:
+    def __init__(
+        self,
+        language: str = SOURCE_LANGUAGE,
+        db: DriveDB | None = None,
+        sidebar_side: str = "left",
+        vindecoder_api_key: str | None = None,
+        vindecoder_secret_key: str | None = None,
+    ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.language = _normalize_language(language)
         self.db = db
         self._sidebar_side: str = sidebar_side
+        self._vindecoder_api_key: str | None = vindecoder_api_key
+        self._vindecoder_secret_key: str | None = vindecoder_secret_key
+        self._vin_fetch_pending: set[int] = set()
         self._latest_live: dict[str, Any] = {}
         self._live_identity: dict[str, str] = {}
         self._live_session_stats: dict[str, dict] = {}
@@ -182,6 +195,50 @@ class CarsPage(
         self._profiles = _load_profiles(self.db)
         self._rebuild_list()
         self._update_live_add_button()
+        self._schedule_vin_fetches()
+
+    def _schedule_vin_fetches(self) -> None:
+        if self.db is None:
+            return
+        for entry in self._profiles:
+            car_id = entry.get("car_id")
+            vin = entry.get("vin") or ""
+            if not car_id or not vin or len(vin) < 11:
+                continue
+            if entry.get("vin_data_fetched"):
+                continue
+            if car_id in self._vin_fetch_pending:
+                continue
+            self._vin_fetch_pending.add(car_id)
+            threading.Thread(
+                target=self._fetch_vin_data_thread,
+                args=(car_id, vin),
+                daemon=True,
+            ).start()
+
+    def _fetch_vin_data_thread(self, car_id: int, vin: str) -> None:
+        try:
+            data = fetch_vin_data(
+                vin,
+                vindecoder_api_key=self._vindecoder_api_key,
+                vindecoder_secret_key=self._vindecoder_secret_key,
+            )
+        except Exception:
+            data = {}
+        if self.db is not None:
+            try:
+                self.db.update_car_vin_data(car_id, json.dumps(data))
+            except Exception:
+                pass
+        GLib.idle_add(self._on_vin_data_fetched, car_id)
+
+    def _on_vin_data_fetched(self, car_id: int) -> bool:
+        self._vin_fetch_pending.discard(car_id)
+        self._profiles = _load_profiles(self.db)
+        self._rebuild_list()
+        if self._detail_pushed:
+            self._render_detail()
+        return False
 
     def update_live(self, payload: dict[str, Any]) -> None:
         if not payload:

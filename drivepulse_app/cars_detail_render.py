@@ -13,6 +13,7 @@ from .common import _translate
 from .cars_metadata import (
     CATEGORIES,
     LIVE_KEY_TO_PID,
+    VIN_DATA_SPECIAL_KEYS,
     _SPECIAL_CAL,
     _SPECIAL_CVN,
     _SPECIAL_DTC,
@@ -79,6 +80,10 @@ class CarsDetailRenderMixin:
         out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(str(d) for d in dtcs)
         pending = data.get("pending_dtcs") or []
         out[_SPECIAL_PENDING] = none_text if not pending else "  ".join(str(d) for d in pending)
+        for field_key, special_key in VIN_DATA_SPECIAL_KEYS.items():
+            val = (data.get("vin_data") or {}).get(field_key)
+            if val:
+                out[special_key] = str(val)
         return out
 
     def _format_entry(self, pid_key: str, raw: Any) -> tuple[str, bool]:
