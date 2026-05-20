@@ -18,6 +18,8 @@ log = get_logger(__name__)
 
 
 class DashboardTelemetryMixin:
+    _scan_is_new_car: bool = False
+    _pending_new_car_id: "int | None" = None
     def _known_car_id_for_vin(self, vin: str | None) -> int | None:
         if not vin:
             return None
@@ -73,6 +75,11 @@ class DashboardTelemetryMixin:
                 self._save_scan_to_db(profile)
                 self._update_dashboard_from_profile(profile)
             self.cars_page.refresh_profiles()
+            if self._scan_is_new_car and self._pending_new_car_id is not None:
+                new_car_id = self._pending_new_car_id
+                self._scan_is_new_car = False
+                self._pending_new_car_id = None
+                GLib.idle_add(self.cars_page.open_car, new_car_id)
             GLib.timeout_add(3000, self._hide_scan_bar)
             return
 
@@ -176,7 +183,10 @@ class DashboardTelemetryMixin:
         speed = self._display_speed(speed_source_kmh)
         temp = self._plain_number(payload, "coolant_temp") if active else None
         obd_connected = active and self._has_obd_data(payload)
+        was_obd_active = getattr(self, "_obd_active", False)
         self._obd_active = obd_connected
+        if was_obd_active and not obd_connected:
+            self.cars_page.clear_live_session()
         obd_connecting = bool(payload.get("obd_connecting"))
         gps_connected = self._gps_connected_with_holdover(gps_speed_kmh is not None if active else False)
 
@@ -343,6 +353,7 @@ class DashboardTelemetryMixin:
 
         car_id = self._known_car_id_for_vin(scan_identity["vin"])
         if car_id is not None:
+            self._scan_is_new_car = False
             try:
                 self.trip_recorder.set_car(
                     vin=scan_identity["vin"],
@@ -354,6 +365,13 @@ class DashboardTelemetryMixin:
                 )
             except Exception:
                 log.exception("Could not set known trip recorder identity from scan payload")
+        elif scan_identity.get("vin"):
+            # Neues, unbekanntes Fahrzeug → sofort in DB anlegen
+            new_id = self._add_live_vehicle_from_identity(identity)
+            if new_id is not None:
+                self._scan_is_new_car = True
+                self._pending_new_car_id = new_id
+                car_id = new_id
 
         # Letzten abgeschlossenen Trip laden und im Dashboard anzeigen,
         # solange noch kein laufender Trip aktiv ist.

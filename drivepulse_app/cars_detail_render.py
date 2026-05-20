@@ -23,8 +23,11 @@ from .cars_metadata import (
     _extract_inner_string,
     _format_value_unit,
     _parse_profile_pid_key,
+    _unit_display,
     _wmi_to_brand,
 )
+
+_PID_TO_LIVE_KEY: dict[str, str] = {pid: key for key, pid in LIVE_KEY_TO_PID.items()}
 from .cars_scan_widgets import _format_scan_date
 
 
@@ -118,11 +121,18 @@ class CarsDetailRenderMixin:
             self._render_stopwatch_runs_into_value_list()
             return
 
+        is_live = self._selected_source == self.LIVE_ID
         for pid_key, label_key in items:
             raw = data.get(pid_key)
             value_text, is_unknown = self._format_entry(pid_key, raw)
             label = _translate(self.language, label_key)
-            self.value_list.append(self._make_stacked_row(label, value_text, is_unknown))
+            if is_live and not pid_key.startswith("__"):
+                live_key = _PID_TO_LIVE_KEY.get(pid_key)
+                stats = self._live_session_stats.get(live_key) if live_key else None
+                row = self._make_live_stats_row(label, value_text, stats, is_unknown)
+            else:
+                row = self._make_stacked_row(label, value_text, is_unknown)
+            self.value_list.append(row)
 
     def _make_inline_row(self, pid_key: str, label: str, value_text: str, is_unknown: bool) -> Adw.ActionRow:
         row = Adw.ActionRow()
@@ -176,6 +186,64 @@ class CarsDetailRenderMixin:
         if is_unknown:
             value_lbl.add_css_class("dim-label")
         box.append(value_lbl)
+
+        row.set_child(box)
+        return row
+
+    def _make_live_stats_row(
+        self,
+        label: str,
+        value_text: str,
+        stats: "dict | None",
+        is_unknown: bool,
+    ) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(14)
+        box.set_margin_end(14)
+
+        title_lbl = Gtk.Label(label=label, xalign=0.0)
+        title_lbl.set_halign(Gtk.Align.START)
+        title_lbl.set_hexpand(True)
+        title_lbl.add_css_class("dim-label")
+        title_lbl.add_css_class("caption")
+        box.append(title_lbl)
+
+        value_lbl = Gtk.Label(label=value_text, xalign=1.0)
+        value_lbl.set_halign(Gtk.Align.END)
+        value_lbl.set_hexpand(True)
+        value_lbl.set_wrap(True)
+        value_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        value_lbl.set_selectable(True)
+        if is_unknown:
+            value_lbl.add_css_class("dim-label")
+        box.append(value_lbl)
+
+        if stats and "min" in stats and "max" in stats:
+            unit = _unit_display(stats.get("unit", ""), getattr(self, "language", "de"))
+            mn = stats["min"]
+            mx = stats["max"]
+
+            def _fmt(v: float) -> str:
+                if abs(v) >= 100:
+                    return f"{v:.0f}"
+                if abs(v) >= 10:
+                    return f"{v:.1f}"
+                return f"{v:.2f}"
+
+            mn_str = f"{_fmt(mn)} {unit}".strip()
+            mx_str = f"{_fmt(mx)} {unit}".strip()
+            stats_text = f"↓ {mn_str}   ↑ {mx_str}"
+            stats_lbl = Gtk.Label(label=stats_text, xalign=1.0)
+            stats_lbl.set_halign(Gtk.Align.END)
+            stats_lbl.set_hexpand(True)
+            stats_lbl.add_css_class("dim-label")
+            stats_lbl.add_css_class("caption")
+            box.append(stats_lbl)
 
         row.set_child(box)
         return row
