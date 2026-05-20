@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import errno
 import json
 import socket
 import ssl
 import time
+import urllib.error
 import urllib.request
 from typing import Any
 
