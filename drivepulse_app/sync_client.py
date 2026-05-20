@@ -27,6 +27,8 @@ class SyncClient:
         self.server_hostname: str = ""
         self.last_contact: float = 0.0
         self.last_ping: float = 0.0
+        self._last_pending_sync: str | None = None
+        self._pending_scheduled: bool = False
 
     def _make_ssl_context(self) -> ssl.SSLContext:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -185,11 +187,17 @@ class SyncClient:
             )
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
-                if resp.status == 200:
-                    self.last_ping = time.time()
-                    self.last_contact = self.last_ping
-                    return True
-            return False
+                try:
+                    data = json.loads(resp.read())
+                    pending = data.get("sync")
+                    if pending != self._last_pending_sync:
+                        self._last_pending_sync = pending
+                        self._pending_scheduled = False
+                except Exception:
+                    pass
+                self.last_ping = time.time()
+                self.last_contact = self.last_ping
+                return True
         except urllib.error.URLError as exc:
             reason = exc.reason
             if isinstance(reason, OSError) and getattr(reason, "errno", None) in (
@@ -202,6 +210,15 @@ class SyncClient:
         except Exception as exc:
             log.warning("Ping fehlgeschlagen %s:%s: %s", self._host, self._port, exc)
             return None
+
+    def get_pending_sync(self) -> str | None:
+        """Gibt ausstehenden Sync-Modus zurück, falls noch nicht eingeplant."""
+        if self._last_pending_sync and not self._pending_scheduled:
+            return self._last_pending_sync
+        return None
+
+    def mark_pending_scheduled(self) -> None:
+        self._pending_scheduled = True
 
     def disconnect(self) -> None:
         """Benachrichtigt den Server dass dieser Client sich trennt."""

@@ -57,6 +57,7 @@ class SyncServer:
         self.actual_port: int = self.PORT
         self.last_activity: float = 0.0
         self.last_ping: float = 0.0
+        self.pending_sync_mode: str | None = None
 
     def start(self) -> None:
         if self._cancelled:
@@ -241,6 +242,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "bad json"})
                 return
             self._srv.last_activity = time.time()
+            self._srv.pending_sync_mode = None
             try:
                 self._srv._on_import_fn(data)
             except Exception:
@@ -288,7 +290,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/ping":
             self._srv.reset_session_timer()
-            self._send_json(200, {"ok": True})
+            self._send_json(200, {"ok": True, "sync": self._srv.pending_sync_mode})
             return
 
         if self.path == "/sync/export":

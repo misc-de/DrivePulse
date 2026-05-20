@@ -16,7 +16,7 @@ from gi.repository import GLib  # noqa: E402
 
 from .common import SUPPORTED_LANGUAGES, _normalize_language, _translate, language_name
 from .gauge import all_theme_options
-from .obd_devices import bind_bt_to_rfcomm, scan_bt_nearby_devices, scan_bt_paired_devices, scan_obd_devices
+from .obd_devices import bind_bt_to_rfcomm, probe_bt_rfcomm_socket, scan_bt_nearby_devices, scan_bt_paired_devices, scan_obd_devices
 from . import tts_service, updater
 
 
@@ -448,6 +448,7 @@ class SettingsDialog(Adw.NavigationPage):
 
         # ── Nearby BT devices (discovery scan) ───────────────────────────────
         self._bt_nearby_expander, _nearby_chev = _make_bt_expander("dp-bt-nearby-expander")
+        _nearby_chev.set_visible(False)
         self._bt_nearby_expander.set_title(_translate(self.language, "settings.bt_obd.nearby"))
         self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.subtitle"))
         self._bt_nearby_rows: list[Adw.ActionRow] = []
@@ -462,6 +463,8 @@ class SettingsDialog(Adw.NavigationPage):
         bt_group.add(self._bt_nearby_expander)
 
         app_page.add(bt_group)
+
+        self._paired_addrs: set[str] = set()
 
         # Trigger initial paired scan in background
         self._bt_scan_async()
@@ -898,6 +901,7 @@ class SettingsDialog(Adw.NavigationPage):
         for row in self._bt_device_rows:
             self._bt_expander.remove(row)
         self._bt_device_rows.clear()
+        self._paired_addrs = {bt_port[3:].upper() for _, bt_port in devices}
 
         if not devices:
             self._bt_expander.set_subtitle(_translate(self.language, "settings.bt_obd.none_found"))
@@ -944,12 +948,13 @@ class SettingsDialog(Adw.NavigationPage):
         row: Adw.ActionRow,
     ) -> None:
         dev, err = bind_bt_to_rfcomm(addr)
-        GLib.idle_add(self._bt_bind_done, dev, err, btn, spinner, row)
+        GLib.idle_add(self._bt_bind_done, dev, err, addr, btn, spinner, row)
 
     def _bt_bind_done(
         self,
         dev: str | None,
         err: str,
+        addr: str,
         btn: Gtk.Button,
         spinner: Gtk.Spinner,
         row: Adw.ActionRow,
@@ -964,7 +969,52 @@ class SettingsDialog(Adw.NavigationPage):
             if self.on_obd_port_changed is not None:
                 self.on_obd_port_changed(dev)
         else:
+            # rfcomm bind failed — try direct RFCOMM socket as fallback
+            row.set_subtitle(_translate(self.language, "settings.bt_obd.trying_direct"))
+            btn.set_label(_translate(self.language, "settings.bt_obd.trying_direct"))
+            spinner2 = Gtk.Spinner()
+            spinner2.start()
+            row.add_suffix(spinner2)
+            threading.Thread(
+                target=self._bt_direct_fallback_thread,
+                args=(addr, btn, spinner2, row),
+                daemon=True,
+            ).start()
+        return False
+
+    def _bt_direct_fallback_thread(
+        self,
+        addr: str,
+        btn: Gtk.Button,
+        spinner: Gtk.Spinner,
+        row: Adw.ActionRow,
+    ) -> None:
+        ok, err = probe_bt_rfcomm_socket(addr)
+        GLib.idle_add(self._bt_direct_fallback_done, ok, addr, err, btn, spinner, row)
+
+    def _bt_direct_fallback_done(
+        self,
+        ok: bool,
+        addr: str,
+        err: str,
+        btn: Gtk.Button,
+        spinner: Gtk.Spinner,
+        row: Adw.ActionRow,
+    ) -> bool:
+        spinner.stop()
+        row.remove(spinner)
+        if ok:
+            bt_port = f"bt:{addr}"
+            row.set_subtitle(f"✓ {bt_port}")
+            btn.set_label(bt_port)
+            btn.remove_css_class("suggested-action")
+            btn.add_css_class("success")
+            if self.on_obd_port_changed is not None:
+                self.on_obd_port_changed(bt_port)
+        else:
             row.set_subtitle(f"✗ {err}")
+            btn.set_label(_translate(self.language, "settings.bt_obd.connect"))
+            btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
         return False
 
@@ -977,7 +1027,7 @@ class SettingsDialog(Adw.NavigationPage):
         threading.Thread(target=self._bt_nearby_scan_thread, daemon=True).start()
 
     def _bt_nearby_scan_thread(self) -> None:
-        devices = scan_bt_nearby_devices(scan_seconds=6)
+        devices = scan_bt_nearby_devices(scan_seconds=6, known_addrs=self._paired_addrs)
         GLib.idle_add(self._bt_nearby_scan_done, devices)
 
     def _bt_nearby_scan_done(self, devices: list[tuple[str, str]]) -> bool:

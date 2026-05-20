@@ -53,13 +53,31 @@ def scan_bt_paired_devices() -> list[tuple[str, str]]:
         return []
 
 
-def scan_bt_nearby_devices(scan_seconds: int = 6) -> list[tuple[str, str]]:
-    """Run a short BT discovery scan and return all visible devices (paired + new)."""
+def scan_bt_nearby_devices(
+    scan_seconds: int = 6,
+    known_addrs: set[str] | None = None,
+) -> list[tuple[str, str]]:
+    """Run a short BT discovery scan; return unknown devices sorted by RSSI, max 10.
+
+    known_addrs: uppercase MAC addresses to exclude (already-paired devices).
+    """
+    rssi_map: dict[str, int] = {}
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["timeout", str(scan_seconds), "bluetoothctl", "scan", "on"],
-            capture_output=True, timeout=scan_seconds + 5,
+            capture_output=True, text=True, timeout=scan_seconds + 5,
         )
+        for line in result.stdout.splitlines():
+            # "[CHG] Device AA:BB:CC:DD:EE:FF RSSI: -65"
+            if "RSSI:" in line and "Device" in line:
+                parts = line.split()
+                try:
+                    dev_idx = parts.index("Device")
+                    addr = parts[dev_idx + 1].upper()
+                    rssi_idx = next(i for i, p in enumerate(parts) if p == "RSSI:")
+                    rssi_map[addr] = int(parts[rssi_idx + 1])
+                except (ValueError, IndexError, StopIteration):
+                    pass
     except Exception:
         pass
     try:
@@ -67,16 +85,40 @@ def scan_bt_nearby_devices(scan_seconds: int = 6) -> list[tuple[str, str]]:
             ["bluetoothctl", "devices"],
             capture_output=True, text=True, timeout=5,
         )
-        devices: list[tuple[str, str]] = []
+        devices: list[tuple[str, str, int]] = []
         for line in result.stdout.strip().splitlines():
             parts = line.split(" ", 2)
             if len(parts) >= 2 and parts[0] == "Device":
                 addr = parts[1].upper()
+                if known_addrs and addr in known_addrs:
+                    continue
                 name = parts[2].strip() if len(parts) >= 3 else addr
-                devices.append((f"{name}  ({addr})", f"bt:{addr}"))
-        return devices
+                devices.append((f"{name}  ({addr})", f"bt:{addr}", rssi_map.get(addr, -999)))
+        devices.sort(key=lambda x: x[2], reverse=True)
+        return [(label, port) for label, port, _ in devices[:10]]
     except Exception:
         return []
+
+
+def probe_bt_rfcomm_socket(addr: str, channel: int = 1, timeout: float = 10.0) -> tuple[bool, str]:
+    """Try to open a raw RFCOMM socket to addr:channel. Returns (success, error_msg).
+
+    Used as a lightweight fallback when rfcomm bind is unavailable.
+    On success the caller should set the port to 'bt:ADDR' so ObdReader uses
+    its BluetoothPtyBridge path (_try_bt_direct) for the actual OBD session.
+    """
+    import socket as _socket
+    last_err = "Keine Verbindung möglich"
+    for ch in (channel, 2, 6) if channel == 1 else (channel,):
+        try:
+            sock = _socket.socket(_socket.AF_BLUETOOTH, _socket.SOCK_STREAM, _socket.BTPROTO_RFCOMM)
+            sock.settimeout(timeout)
+            sock.connect((addr, ch))
+            sock.close()
+            return True, ""
+        except Exception as exc:
+            last_err = str(exc)
+    return False, last_err
 
 
 def bind_bt_to_rfcomm(addr: str, channel: int = 1) -> tuple[str, str] | tuple[None, str]:
