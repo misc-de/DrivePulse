@@ -93,6 +93,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.log_obd_enabled: bool = bool(self.settings.get("log_obd_enabled", True))
         self.vindecoder_api_key: str = self.settings.get("vindecoder_api_key") or ""
         self.vindecoder_secret_key: str = self.settings.get("vindecoder_secret_key") or ""
+        self.autodev_api_key: str = self.settings.get("autodev_api_key") or ""
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -217,6 +218,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             vindecoder_api_key=self.vindecoder_api_key or None,
             vindecoder_secret_key=self.vindecoder_secret_key or None,
         )
+        self.cars_page._autodev_api_key = self.autodev_api_key or None
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity

@@ -95,6 +95,8 @@ class SettingsDialog(Adw.NavigationPage):
         on_vindecoder_api_key_changed: Callable[[str], None] | None = None,
         current_vindecoder_secret_key: str = "",
         on_vindecoder_secret_key_changed: Callable[[str], None] | None = None,
+        current_autodev_api_key: str = "",
+        on_autodev_api_key_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(tag="settings")
         self.language = _normalize_language(current_language)
@@ -132,6 +134,7 @@ class SettingsDialog(Adw.NavigationPage):
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self.on_vindecoder_api_key_changed = on_vindecoder_api_key_changed
         self.on_vindecoder_secret_key_changed = on_vindecoder_secret_key_changed
+        self.on_autodev_api_key_changed = on_autodev_api_key_changed
         self._remote_version: str | None = None
         self._closing = False
         self.set_title(_translate(self.language, "settings.title"))
@@ -419,6 +422,12 @@ class SettingsDialog(Adw.NavigationPage):
         app_page.add(logging_group)
 
         # VIN decoder group
+        self._autodev_row = Adw.EntryRow(
+            title=_translate(self.language, "settings.vin_decoder.autodev_key"),
+        )
+        self._autodev_row.set_text(current_autodev_api_key or "")
+        self._autodev_row.connect("changed", self._on_autodev_key_changed)
+
         self._vd_api_key_row = Adw.EntryRow(
             title=_translate(self.language, "settings.vin_decoder.api_key"),
         )
@@ -435,6 +444,7 @@ class SettingsDialog(Adw.NavigationPage):
             title=_translate(self.language, "settings.vin_decoder"),
             description=_translate(self.language, "settings.vin_decoder.desc"),
         )
+        vd_group.add(self._autodev_row)
         vd_group.add(self._vd_api_key_row)
         vd_group.add(self._vd_secret_row)
         app_page.add(vd_group)
@@ -982,6 +992,10 @@ class SettingsDialog(Adw.NavigationPage):
     def _on_log_obd_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_log_obd_enabled_changed is not None:
             self.on_log_obd_enabled_changed(row.get_active())
+
+    def _on_autodev_key_changed(self, row: Adw.EntryRow) -> None:
+        if self.on_autodev_api_key_changed is not None:
+            self.on_autodev_api_key_changed(row.get_text().strip())
 
     def _on_vd_api_key_changed(self, row: Adw.EntryRow) -> None:
         if self.on_vindecoder_api_key_changed is not None:

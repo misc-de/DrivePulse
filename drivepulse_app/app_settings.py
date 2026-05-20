@@ -42,6 +42,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "log_obd_enabled": True,
     "vindecoder_api_key": "",
     "vindecoder_secret_key": "",
+    "autodev_api_key": "",
 }
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
@@ -118,6 +119,7 @@ def load_settings() -> dict[str, Any]:
         "log_obd_enabled": bool(data.get("log_obd_enabled", DEFAULT_SETTINGS["log_obd_enabled"])),
         "vindecoder_api_key": str(data.get("vindecoder_api_key") or ""),
         "vindecoder_secret_key": str(data.get("vindecoder_secret_key") or ""),
+        "autodev_api_key": str(data.get("autodev_api_key") or ""),
     }
 
 
@@ -162,6 +164,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "log_obd_enabled": bool(settings.get("log_obd_enabled", True)),
                 "vindecoder_api_key": str(settings.get("vindecoder_api_key") or ""),
                 "vindecoder_secret_key": str(settings.get("vindecoder_secret_key") or ""),
+                "autodev_api_key": str(settings.get("autodev_api_key") or ""),
             },
             indent=2,
         ),
