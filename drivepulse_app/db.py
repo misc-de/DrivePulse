@@ -100,6 +100,15 @@ CREATE TABLE IF NOT EXISTS acceleration_runs (
     samples_json    TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_accel_runs_car ON acceleration_runs(car_id, run_at DESC);
+
+CREATE TABLE IF NOT EXISTS car_photos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    car_id      INTEGER NOT NULL REFERENCES cars(id) ON DELETE CASCADE,
+    filename    TEXT NOT NULL,
+    taken_at    TEXT NOT NULL,
+    label       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_car_photos_car ON car_photos(car_id, taken_at DESC);
 """
 
 
@@ -497,6 +506,32 @@ class DriveDB:
     def delete_stopwatch_run(self, run_id: int) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM acceleration_runs WHERE id=?", (run_id,))
+            self._conn.commit()
+
+    # ---------------------------------------------------------- Car photos
+
+    def add_car_photo(self, car_id: int, filename: str, taken_at: str | None = None) -> int:
+        ts = taken_at or datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "INSERT INTO car_photos(car_id, filename, taken_at) VALUES(?,?,?)",
+                (car_id, filename, ts),
+            )
+            self._conn.commit()
+            return int(cur.lastrowid)
+
+    def list_photos_for_car(self, car_id: int) -> list[sqlite3.Row]:
+        with self._lock:
+            return list(self._conn.execute(
+                "SELECT id, car_id, filename, taken_at, label"
+                " FROM car_photos WHERE car_id=? ORDER BY taken_at DESC",
+                (car_id,),
+            ).fetchall())
+
+    def delete_car_photo(self, photo_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM car_photos WHERE id=?", (photo_id,))
             self._conn.commit()
 
     # ---------------------------------------------------------- VIN hash helpers
