@@ -7,10 +7,10 @@ CSS = """
 window.dp-theme-cockpit-light .dp-gauge-bg,
 window.dp-theme-cockpit-light .dp-gauge-bg > viewport,
 window.dp-theme-cockpit-light .dp-gauge-bg > * {
-  background-color: #ffffff;
+  background-color: #ebedf2;
 }
 .dp-accel-theme-cockpit-light .card {
-  background-color: rgba(245, 246, 248, 0.85);
+  background-color: rgba(235, 237, 242, 0.85);
   border-radius: 6px;
 }"""
 

@@ -61,23 +61,45 @@ def scan_bt_nearby_devices(
 
     known_addrs: uppercase MAC addresses to exclude (already-paired devices).
     """
+    import time as _time
     rssi_map: dict[str, int] = {}
+    scan_names: dict[str, str] = {}
     try:
-        result = subprocess.run(
-            ["timeout", str(scan_seconds), "bluetoothctl", "scan", "on"],
-            capture_output=True, text=True, timeout=scan_seconds + 5,
+        # Use bluetoothctl interactively via stdin so discovery actually runs.
+        proc = subprocess.Popen(
+            ["bluetoothctl"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
         )
-        for line in result.stdout.splitlines():
-            # "[CHG] Device AA:BB:CC:DD:EE:FF RSSI: -65"
-            if "RSSI:" in line and "Device" in line:
-                parts = line.split()
-                try:
-                    dev_idx = parts.index("Device")
-                    addr = parts[dev_idx + 1].upper()
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write("scan on\n")
+            proc.stdin.flush()
+            _time.sleep(scan_seconds)
+            proc.stdin.write("scan off\nquit\n")
+            proc.stdin.flush()
+            out, _ = proc.communicate(timeout=5)
+        except Exception:
+            proc.kill()
+            out = ""
+        for line in out.splitlines():
+            if "Device" not in line:
+                continue
+            parts = line.split()
+            try:
+                dev_idx = parts.index("Device")
+                addr = parts[dev_idx + 1].upper()
+                if "RSSI:" in line:
+                    # "[CHG] Device AA:BB:CC:DD:EE:FF RSSI: -65"
                     rssi_idx = next(i for i, p in enumerate(parts) if p == "RSSI:")
                     rssi_map[addr] = int(parts[rssi_idx + 1])
-                except (ValueError, IndexError, StopIteration):
-                    pass
+                if "[NEW]" in line and len(parts) > dev_idx + 2:
+                    # "[NEW] Device AA:BB:CC:DD:EE:FF DeviceName"
+                    scan_names[addr] = " ".join(parts[dev_idx + 2:])
+            except (ValueError, IndexError, StopIteration):
+                pass
     except Exception:
         pass
     try:
@@ -85,15 +107,22 @@ def scan_bt_nearby_devices(
             ["bluetoothctl", "devices"],
             capture_output=True, text=True, timeout=5,
         )
-        devices: list[tuple[str, str, int]] = []
+        known_db: dict[str, str] = {}
         for line in result.stdout.strip().splitlines():
             parts = line.split(" ", 2)
             if len(parts) >= 2 and parts[0] == "Device":
                 addr = parts[1].upper()
-                if known_addrs and addr in known_addrs:
-                    continue
                 name = parts[2].strip() if len(parts) >= 3 else addr
-                devices.append((f"{name}  ({addr})", f"bt:{addr}", rssi_map.get(addr, -999)))
+                known_db[addr] = name
+        # Include devices discovered during scan but not yet in bluetoothctl's cache.
+        for addr, name in scan_names.items():
+            if addr not in known_db:
+                known_db[addr] = name
+        devices: list[tuple[str, str, int]] = []
+        for addr, name in known_db.items():
+            if known_addrs and addr in known_addrs:
+                continue
+            devices.append((f"{name}  ({addr})", f"bt:{addr}", rssi_map.get(addr, -999)))
         devices.sort(key=lambda x: x[2], reverse=True)
         return [(label, port) for label, port, _ in devices[:10]]
     except Exception:
