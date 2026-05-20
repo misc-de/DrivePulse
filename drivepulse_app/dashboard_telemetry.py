@@ -204,13 +204,25 @@ class DashboardTelemetryMixin:
         if obd_connected:
             # Only update speed gauge from OBD payloads when OBD data is actually present.
             # When OBD is disconnected, the GPS branch owns the speed gauge.
-            self.speed_gauge.set_value(speed, None if speed is None else f"{speed:.0f}")
-            if obd_speed_kmh is not None:
-                _spd_src = _translate(self.language, "gauge.source.obd")
-            elif gps_speed_kmh is not None:
+            if speed is not None:
+                _gauge_speed = speed
+                if obd_speed_kmh is not None:
+                    _spd_src = _translate(self.language, "gauge.source.obd")
+                elif gps_speed_kmh is not None:
+                    _spd_src = _translate(self.language, "gauge.source.gps")
+                else:
+                    _spd_src = ""
+            elif gps_connected:
+                # OBD has no speed but GPS is active — show GPS held speed to avoid
+                # blanking the gauge while the OBD dongle has no vehicle speed (e.g.
+                # engine-off queries returning partial data).
+                _held = self._last_gps_speed_kmh if self._last_gps_speed_kmh is not None else 0.0
+                _gauge_speed = self._display_speed(_held)
                 _spd_src = _translate(self.language, "gauge.source.gps")
             else:
+                _gauge_speed = None
                 _spd_src = ""
+            self.speed_gauge.set_value(_gauge_speed, None if _gauge_speed is None else f"{_gauge_speed:.0f}")
             self.speed_gauge.set_source_label(_spd_src)
         elif not gps_connected:
             # GPS truly gone (holdover expired) — clear speed gauge once on transition.
@@ -240,7 +252,8 @@ class DashboardTelemetryMixin:
             # Speed and source: OBD owns when connected; GPS branch owns when GPS is active.
             # When neither is active, clear the display.
             if obd_connected:
-                self.dashboard_canvas.update_speed(canvas_speed, None if canvas_speed is None else f"{canvas_speed:.0f}")
+                # Use same speed as the gauge (includes GPS fallback when OBD has no speed).
+                self.dashboard_canvas.update_speed(_gauge_speed, None if _gauge_speed is None else f"{_gauge_speed:.0f}")
                 self.dashboard_canvas.update_speed_source(_spd_src)
             elif not gps_connected:
                 self.dashboard_canvas.update_speed(None, None)
