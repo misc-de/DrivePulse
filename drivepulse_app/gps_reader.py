@@ -56,6 +56,14 @@ class GpsReader:
         self._gpsd_thread = threading.Thread(target=self._run_gpsd, name="gps-gpsd", daemon=True)
         self._gpsd_thread.start()
 
+    def set_mock_mode(self, mock_mode: bool) -> None:
+        if self.mock_mode == mock_mode:
+            return
+        self.mock_mode = mock_mode
+        if not mock_mode and (self._gpsd_thread is None or not self._gpsd_thread.is_alive()):
+            self.stop_event.clear()
+            self.start()
+
     def stop(self) -> None:
         self.stop_event.set()
         if self._geoclue_client is not None:
