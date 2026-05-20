@@ -364,13 +364,21 @@ class DashboardSettingsMixin:
         sync_status_label.set_justify(Gtk.Justification.CENTER)
         box.append(sync_status_label)
 
+        _active_dialog = getattr(self, "_active_sync_dialog", None)
+        if _active_dialog is not None:
+            _active_dialog.set_sync_feedback_label(sync_status_label)
+
+        def _open_sync_opts(_b: Any) -> None:
+            d = getattr(self, "_active_sync_dialog", None)
+            if d is not None:
+                d._show_sync_options_dialog(
+                    sync_status_label,
+                    is_server=getattr(d, "_server", None) is not None,
+                )
+
         sync_opts_btn = Gtk.Button(label=t("sync.paired.sync_options_btn"))
         sync_opts_btn.set_halign(Gtk.Align.FILL)
-        sync_opts_btn.connect(
-            "clicked",
-            lambda _b: getattr(self, "_active_sync_dialog", None)
-            and self._active_sync_dialog._show_sync_options_dialog(sync_status_label),
-        )
+        sync_opts_btn.connect("clicked", _open_sync_opts)
         box.append(sync_opts_btn)
 
         disconnect_btn = Gtk.Button(label=t("sync.status.disconnect_btn"))
