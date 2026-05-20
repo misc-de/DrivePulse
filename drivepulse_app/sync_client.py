@@ -189,7 +189,7 @@ class SyncClient:
                     return True
             return False
         except Exception:
-            log.debug("Ping failed for %s:%s", self._host, self._port)
+            log.warning("Ping failed for %s:%s", self._host, self._port, exc_info=True)
             return False
 
     def disconnect(self) -> None:
