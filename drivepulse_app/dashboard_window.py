@@ -206,6 +206,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
+        self.cars_page.get_sync_client = self._get_active_sync_client
         self._cars_rotator = RotatedContainer()
         self._cars_rotator.set_child(self.cars_page)
         self._cars_rotator.set_hexpand(True)
@@ -334,8 +335,15 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         header.pack_start(self.obd_indicator["box"])
         header.pack_start(self.gps_indicator["box"])
         header.pack_start(self._dashcam_rec_box)
+        self._conflict_btn = Gtk.Button(icon_name="dialog-warning-symbolic")
+        self._conflict_btn.add_css_class("flat")
+        self._conflict_btn.set_tooltip_text(_translate(self.language, "share.conflicts_tooltip"))
+        self._conflict_btn.set_visible(False)
+        self._conflict_btn.connect("clicked", self._open_conflict_page)
+
         header.pack_end(settings_button)
         header.pack_end(self._sync_btn)
+        header.pack_end(self._conflict_btn)
 
         switcher_top = Adw.ViewSwitcherBar()
         switcher_top.set_stack(self.view_stack)
@@ -769,3 +777,108 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             idx = 0
         idx = (idx + (1 if up else -1)) % len(options)
         self._set_gauge_theme(options[idx])
+
+    def _get_active_sync_client(self) -> Any:
+        from .sync_client import SyncClient
+        dialog = getattr(self, "_active_sync_dialog", None)
+        if dialog is None:
+            return None
+        client = getattr(dialog, "_active_client", None)
+        return client if isinstance(client, SyncClient) else None
+
+    def _update_conflict_badge(self) -> None:
+        try:
+            n = self.db.count_share_conflicts()
+        except Exception:
+            n = 0
+        btn = getattr(self, "_conflict_btn", None)
+        if btn is not None:
+            btn.set_visible(n > 0)
+
+    def _open_conflict_page(self, *_args: Any) -> None:
+        if self.nav_view.find_page("share-conflicts") is not None:
+            return
+        t = lambda key: _translate(self.language, key)
+
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Gtk.Label(label=t("share.conflicts_title")))
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
+        toolbar_view.add_top_bar(header)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        outer.set_margin_top(16)
+        outer.set_margin_bottom(16)
+        outer.set_margin_start(16)
+        outer.set_margin_end(16)
+
+        list_box = Gtk.ListBox()
+        list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        list_box.add_css_class("boxed-list")
+        list_box.set_valign(Gtk.Align.START)
+        outer.append(list_box)
+
+        def _refresh() -> None:
+            while True:
+                child = list_box.get_first_child()
+                if child is None:
+                    break
+                list_box.remove(child)
+            try:
+                conflicts = self.db.list_share_conflicts()
+            except Exception:
+                conflicts = []
+            for c in conflicts:
+                row = Adw.ActionRow()
+                row.set_title(f"{c['type']} #{c['local_id']}")
+                ts = c["received_at"][:16] if c["received_at"] else ""
+                row.set_subtitle(ts)
+
+                cid = int(c["id"])
+
+                discard_btn = Gtk.Button(label=t("share.conflict_discard"))
+                discard_btn.add_css_class("flat")
+                discard_btn.set_valign(Gtk.Align.CENTER)
+
+                def _discard(_btn: Gtk.Button, conflict_id: int = cid) -> None:
+                    try:
+                        self.db.discard_conflict(conflict_id)
+                    except Exception:
+                        pass
+                    _refresh()
+                    self._update_conflict_badge()
+
+                discard_btn.connect("clicked", _discard)
+                row.add_suffix(discard_btn)
+
+                apply_btn = Gtk.Button(label=t("share.conflict_apply"))
+                apply_btn.add_css_class("suggested-action")
+                apply_btn.set_valign(Gtk.Align.CENTER)
+
+                def _apply(_btn: Gtk.Button, conflict_id: int = cid) -> None:
+                    try:
+                        self.db.resolve_conflict(conflict_id)
+                    except Exception:
+                        pass
+                    _refresh()
+                    self._update_conflict_badge()
+                    self.cars_page.refresh_profiles()
+
+                apply_btn.connect("clicked", _apply)
+                row.add_suffix(apply_btn)
+                list_box.append(row)
+
+        _refresh()
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_child(outer)
+        toolbar_view.set_content(scroll)
+
+        page = Adw.NavigationPage()
+        page.set_tag("share-conflicts")
+        page.set_title(t("share.conflicts_title"))
+        page.set_child(toolbar_view)
+        self.nav_view.push(page)

@@ -323,6 +323,21 @@ class SyncDialog(Adw.NavigationPage):
                 if self._on_disconnected:
                     GLib.idle_add(self._on_disconnected)
 
+            def _on_vehicle_check(vin_hash: str) -> bool:
+                return self._db.get_car_by_vin_hash(vin_hash) is not None
+
+            def _on_share_import(payload: dict) -> dict:
+                from .share_protocol import share_import as _share_import
+                result = _share_import(self._db, payload)
+                added = (
+                    result.get("trips_added", 0)
+                    + result.get("runs_added", 0)
+                    + result.get("scans_added", 0)
+                )
+                if self._on_sync_complete and added > 0:
+                    GLib.idle_add(self._on_sync_complete)
+                return result
+
             server = SyncServer(
                 CERT_PATH, KEY_PATH,
                 pairing_token=pairing_token,
@@ -331,6 +346,8 @@ class SyncDialog(Adw.NavigationPage):
                 get_export_fn=lambda: export_all(self._db),
                 on_import_fn=_on_import,
                 on_timeout_cb=_on_timeout,
+                on_vehicle_check_fn=_on_vehicle_check,
+                on_share_import_fn=_on_share_import,
             )
             with self._server_lock:
                 if self._closed or (

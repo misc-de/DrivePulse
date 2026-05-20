@@ -126,11 +126,34 @@ class DriveDB:
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(_SCHEMA)
-            try:
-                self._conn.execute("ALTER TABLE trips ADD COLUMN label TEXT")
-                self._conn.commit()
-            except Exception:
-                pass  # column already exists in older databases
+            for stmt in (
+                "ALTER TABLE trips ADD COLUMN label TEXT",
+                "ALTER TABLE cars ADD COLUMN vin_hash TEXT",
+                "ALTER TABLE cars ADD COLUMN vin_anon TEXT",
+                "ALTER TABLE trips ADD COLUMN seen_at TEXT",
+                "ALTER TABLE trips ADD COLUMN shared_at TEXT",
+                "ALTER TABLE scans ADD COLUMN seen_at TEXT",
+                "ALTER TABLE scans ADD COLUMN shared_at TEXT",
+                "ALTER TABLE acceleration_runs ADD COLUMN seen_at TEXT",
+                "ALTER TABLE acceleration_runs ADD COLUMN shared_at TEXT",
+            ):
+                try:
+                    self._conn.execute(stmt)
+                    self._conn.commit()
+                except Exception:
+                    pass  # column already exists in older databases
+            self._conn.executescript(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_cars_vin_hash ON cars(vin_hash) WHERE vin_hash IS NOT NULL;"
+                "CREATE TABLE IF NOT EXISTS share_conflicts ("
+                "    id            INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "    type          TEXT NOT NULL,"
+                "    car_id        INTEGER REFERENCES cars(id) ON DELETE CASCADE,"
+                "    local_id      INTEGER NOT NULL,"
+                "    incoming_json TEXT NOT NULL,"
+                "    received_at   TEXT NOT NULL"
+                ");"
+            )
+            self._backfill_vin_hashes()
 
     @property
     def path(self) -> Path:
@@ -192,6 +215,10 @@ class DriveDB:
                     (vin, brand, cal_id, cvn, label, protocol, now, now, profile_path),
                 )
                 car_id = int(cur.lastrowid)
+                if vin:
+                    import hashlib as _hashlib
+                    h = _hashlib.sha256(vin.encode("utf-8")).hexdigest()
+                    cur.execute("UPDATE cars SET vin_hash=? WHERE id=?", (h, car_id))
             self._conn.commit()
             return car_id
 
@@ -338,7 +365,8 @@ class DriveDB:
     def list_scans_for_car(self, car_id: int) -> list[sqlite3.Row]:
         with self._lock:
             return list(self._conn.execute(
-                "SELECT id, car_id, scanned_at, protocol, dtc_count, pending_dtc_count, pids_count"
+                "SELECT id, car_id, scanned_at, protocol, dtc_count, pending_dtc_count,"
+                " pids_count, seen_at, shared_at"
                 " FROM scans WHERE car_id=? ORDER BY scanned_at DESC",
                 (car_id,),
             ).fetchall())
@@ -438,7 +466,8 @@ class DriveDB:
     def list_stopwatch_runs_for_car(self, car_id: int) -> list[sqlite3.Row]:
         with self._lock:
             return list(self._conn.execute(
-                "SELECT id, car_id, run_at, lat, lon FROM acceleration_runs"
+                "SELECT id, car_id, run_at, lat, lon, seen_at, shared_at"
+                " FROM acceleration_runs"
                 " WHERE car_id=? ORDER BY run_at DESC",
                 (car_id,),
             ).fetchall())
@@ -468,6 +497,130 @@ class DriveDB:
     def delete_stopwatch_run(self, run_id: int) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM acceleration_runs WHERE id=?", (run_id,))
+            self._conn.commit()
+
+    # ---------------------------------------------------------- VIN hash helpers
+
+    def _backfill_vin_hashes(self) -> None:
+        import hashlib
+        rows = self._conn.execute(
+            "SELECT id, vin FROM cars WHERE vin IS NOT NULL AND vin_hash IS NULL"
+        ).fetchall()
+        for row in rows:
+            h = hashlib.sha256(row["vin"].encode("utf-8")).hexdigest()
+            self._conn.execute("UPDATE cars SET vin_hash=? WHERE id=?", (h, row["id"]))
+        if rows:
+            self._conn.commit()
+
+    def get_car_by_vin_hash(self, vin_hash: str) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM cars WHERE vin_hash=?", (vin_hash,)
+            ).fetchone()
+
+    # ---------------------------------------------------------- seen_at helpers
+
+    def mark_trip_seen(self, trip_id: int) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE trips SET seen_at=? WHERE id=? AND seen_at IS NULL",
+                (now, trip_id),
+            )
+            self._conn.commit()
+
+    def mark_scan_seen(self, scan_id: int) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE scans SET seen_at=? WHERE id=? AND seen_at IS NULL",
+                (now, scan_id),
+            )
+            self._conn.commit()
+
+    def mark_run_seen(self, run_id: int) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE acceleration_runs SET seen_at=? WHERE id=? AND seen_at IS NULL",
+                (now, run_id),
+            )
+            self._conn.commit()
+
+    # ---------------------------------------------------------- share conflicts
+
+    def count_share_conflicts(self) -> int:
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) AS n FROM share_conflicts").fetchone()
+            return int(row["n"]) if row else 0
+
+    def list_share_conflicts(self) -> list[sqlite3.Row]:
+        with self._lock:
+            return list(self._conn.execute(
+                "SELECT * FROM share_conflicts ORDER BY received_at DESC"
+            ).fetchall())
+
+    def get_conflict(self, conflict_id: int) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM share_conflicts WHERE id=?", (conflict_id,)
+            ).fetchone()
+
+    def discard_conflict(self, conflict_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM share_conflicts WHERE id=?", (conflict_id,))
+            self._conn.commit()
+
+    def resolve_conflict(self, conflict_id: int) -> None:
+        import json as _json
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM share_conflicts WHERE id=?", (conflict_id,)
+            ).fetchone()
+            if row is None:
+                return
+            incoming = _json.loads(row["incoming_json"])
+            typ = row["type"]
+            local_id = row["local_id"]
+            if typ == "trip":
+                self._conn.execute(
+                    "UPDATE trips SET ended_at=?, distance_km=?, duration_s=?,"
+                    " max_speed_kmh=?, avg_speed_kmh=?, samples_count=?, label=?"
+                    " WHERE id=?",
+                    (
+                        incoming.get("ended_at"),
+                        incoming.get("distance_km"),
+                        incoming.get("duration_s"),
+                        incoming.get("max_speed_kmh"),
+                        incoming.get("avg_speed_kmh"),
+                        incoming.get("samples_count") or 0,
+                        incoming.get("label"),
+                        local_id,
+                    ),
+                )
+            elif typ == "scan":
+                self._conn.execute(
+                    "UPDATE scans SET protocol=?, dtc_count=?, pending_dtc_count=?,"
+                    " pids_count=?, data_json=? WHERE id=?",
+                    (
+                        incoming.get("protocol"),
+                        incoming.get("dtc_count") or 0,
+                        incoming.get("pending_dtc_count") or 0,
+                        incoming.get("pids_count") or 0,
+                        incoming.get("data_json", "{}"),
+                        local_id,
+                    ),
+                )
+            elif typ == "run":
+                self._conn.execute(
+                    "UPDATE acceleration_runs SET results_json=?, samples_json=? WHERE id=?",
+                    (
+                        _json.dumps(incoming.get("results", {})),
+                        _json.dumps(incoming.get("samples", [])),
+                        local_id,
+                    ),
+                )
+            self._conn.execute("DELETE FROM share_conflicts WHERE id=?", (conflict_id,))
             self._conn.commit()
 
 

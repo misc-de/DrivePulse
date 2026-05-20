@@ -80,6 +80,7 @@ class CarsPage(
         self.on_back_swipe: Callable[[], None] | None = None
         self.on_forward_swipe: Callable[[], None] | None = None
         self._drag_claimed = False
+        self.get_sync_client: Any = None
 
         self.nav_view = Adw.NavigationView()
         self.nav_view.set_hexpand(True)
@@ -362,7 +363,34 @@ class CarsPage(
             self._detail_share_btn.set_visible(False)
 
     def _share_vehicle(self) -> None:
-        pass
+        from .share_flow import ShareFlow
+        ShareFlow(self, self.db, self.language, self.get_sync_client).share_vehicle(
+            self._selected_source, self._selected_car_id
+        )
+
+    def _share_trip(self, trip_id: int) -> None:
+        from .share_flow import ShareFlow
+        ShareFlow(self, self.db, self.language, self.get_sync_client).share_trips(
+            self._selected_car_id, [trip_id]
+        )
+
+    def _share_selected_trips(self) -> None:
+        from .share_flow import ShareFlow
+        ShareFlow(self, self.db, self.language, self.get_sync_client).share_trips(
+            self._selected_car_id, list(self._trip_selected_ids)
+        )
+
+    def _share_run(self, run_id: int) -> None:
+        from .share_flow import ShareFlow
+        ShareFlow(self, self.db, self.language, self.get_sync_client).share_run(
+            self._selected_car_id, run_id
+        )
+
+    def _share_scan(self, scan_id: int) -> None:
+        from .share_flow import ShareFlow
+        ShareFlow(self, self.db, self.language, self.get_sync_client).share_scan(
+            self._selected_car_id, scan_id
+        )
 
     def _on_category_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:

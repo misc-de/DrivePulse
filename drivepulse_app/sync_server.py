@@ -34,6 +34,8 @@ class SyncServer:
         get_export_fn: Callable[[], dict],
         on_import_fn: Callable[[dict], None],
         on_timeout_cb: Callable[[], None] | None = None,
+        on_vehicle_check_fn: Callable[[str], bool] | None = None,
+        on_share_import_fn: Callable[[dict], dict] | None = None,
     ) -> None:
         self._cert_path = cert_path
         self._key_path = key_path
@@ -43,6 +45,8 @@ class SyncServer:
         self._get_export_fn = get_export_fn
         self._on_import_fn = on_import_fn
         self._on_timeout_cb = on_timeout_cb
+        self._on_vehicle_check_fn = on_vehicle_check_fn
+        self._on_share_import_fn = on_share_import_fn
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._timeout_timer: threading.Timer | None = None
@@ -243,6 +247,31 @@ class _SyncHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True})
             return
 
+        if self.path == "/share/import":
+            if not self._check_bearer():
+                self._send_json(403, {"ok": False, "error": "unauthorized"})
+                return
+            body = self._read_body()
+            if body is None:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "bad json"})
+                return
+            self._srv.last_activity = time.time()
+            if self._srv._on_share_import_fn is None:
+                self._send_json(501, {"ok": False, "error": "not supported"})
+                return
+            try:
+                result = self._srv._on_share_import_fn(data)
+            except Exception:
+                log.exception("Share import callback failed")
+                self._send_json(500, {"ok": False, "error": "import failed"})
+                return
+            self._send_json(200, result)
+            return
+
         if self.path == "/disconnect":
             if not self._check_bearer():
                 self._send_json(403, {"ok": False, "error": "unauthorized"})
@@ -270,6 +299,25 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"ok": False, "error": str(exc)})
                 return
             self._send_json(200, payload)
+            return
+
+        if self.path.startswith("/share/vehicle_check"):
+            if not self._check_bearer():
+                self._send_json(403, {"ok": False, "error": "unauthorized"})
+                return
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            vin_hash = (qs.get("h") or [""])[0]
+            if not vin_hash:
+                self._send_json(400, {"ok": False, "error": "missing h"})
+                return
+            known = False
+            if self._srv._on_vehicle_check_fn is not None:
+                try:
+                    known = bool(self._srv._on_vehicle_check_fn(vin_hash))
+                except Exception:
+                    log.exception("vehicle_check callback failed")
+            self._send_json(200, {"known": known})
             return
 
         self._send_json(404, {"ok": False, "error": "not found"})
