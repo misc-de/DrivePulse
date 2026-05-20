@@ -189,7 +189,7 @@ class ObdReader(GObject.Object):
             self.mock = True
             self.mock_reason = "Manuell aktiviert"
         else:
-            self.next_mock_reconnect_attempt = 0.0
+            self._force_reconnect = True
             if obd is None:
                 self.mock_reason = "python-obd fehlt"
             else:
