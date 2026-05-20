@@ -91,6 +91,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
         self._last_gps_lon: float | None = None
+        self._last_gps_speed_kmh: float | None = None
 
         # Rotation state: pages can bind to either "follow_sensor"
         # (compensates for the compositor transform) or "follow_system"
