@@ -140,11 +140,10 @@ class ObdReader(GObject.Object):
         try:
             bridge = BluetoothPtyBridge(addr, channel)
             connect_kwargs: dict[str, Any] = {
-                "fast": OBD_FAST,
+                "fast": False,
                 "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT),
+                "baudrate": OBD_BAUDRATE if OBD_BAUDRATE is not None else 38400,
             }
-            if OBD_BAUDRATE is not None:
-                connect_kwargs["baudrate"] = OBD_BAUDRATE
             self._connection_log("connect_attempt", port=bridge.pty_path, bt_addr=addr, **connect_kwargs)
             self.connection = obd.OBD(bridge.pty_path, **connect_kwargs)
             connected = bool(self.connection and self.connection.is_connected())
@@ -277,13 +276,16 @@ class ObdReader(GObject.Object):
                     if dev:
                         success = False
                         try:
-                            connect_kwargs: dict[str, Any] = {"fast": OBD_FAST, "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT)}
-                            if OBD_BAUDRATE is not None:
-                                connect_kwargs["baudrate"] = OBD_BAUDRATE
+                            connect_kwargs: dict[str, Any] = {
+                                "fast": False,
+                                "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT),
+                                "baudrate": OBD_BAUDRATE if OBD_BAUDRATE is not None else 38400,
+                            }
                             self._connection_log("connect_attempt", port=dev, bt_addr=addr, **connect_kwargs)
                             self.connection = obd.OBD(dev, **connect_kwargs)
                             connected = bool(self.connection and self.connection.is_connected())
-                            self._connection_log("connect_result", port=dev, bt_addr=addr, connected=connected)
+                            self._connection_log("connect_result", port=dev, bt_addr=addr, connected=connected,
+                                                 status=str(getattr(self.connection, "status", lambda: "unknown")()))
                             if connected:
                                 self.mock = False
                                 self.mock_reason = ""
@@ -297,19 +299,30 @@ class ObdReader(GObject.Object):
                         except Exception as exc:
                             self._close_connection()
                             self._connection_log("connect_exception", port=dev, error=repr(exc))
+                        if not success:
+                            # rfcomm port open but OBD handshake failed — ELM clone fallback
+                            self._connection_log("bt_rfcomm_obd_failed_trying_direct", bt_addr=addr, dev=dev)
+                            success = self._try_bt_direct(addr, ch)
                     else:
                         # rfcomm bind unavailable — fall back to direct BT socket
                         success = self._try_bt_direct(addr, ch)
                 else:
+                    is_rfcomm = self._configured_port.startswith("/dev/rfcomm")
                     success = False
                     try:
-                        connect_kwargs: dict[str, Any] = {"fast": OBD_FAST, "timeout": OBD_TIMEOUT_SECONDS}
+                        connect_kwargs: dict[str, Any] = {
+                            "fast": False if is_rfcomm else OBD_FAST,
+                            "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT) if is_rfcomm else OBD_TIMEOUT_SECONDS,
+                        }
                         if OBD_BAUDRATE is not None:
                             connect_kwargs["baudrate"] = OBD_BAUDRATE
+                        elif is_rfcomm:
+                            connect_kwargs["baudrate"] = 38400
                         self._connection_log("connect_attempt", port=self._configured_port, **connect_kwargs)
                         self.connection = obd.OBD(self._configured_port, **connect_kwargs)
                         connected = bool(self.connection and self.connection.is_connected())
-                        self._connection_log("connect_result", port=self._configured_port, connected=connected)
+                        self._connection_log("connect_result", port=self._configured_port, connected=connected,
+                                             status=str(getattr(self.connection, "status", lambda: "unknown")()))
                         if connected:
                             self.mock = False
                             self.mock_reason = ""

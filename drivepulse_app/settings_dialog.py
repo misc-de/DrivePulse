@@ -490,7 +490,6 @@ class SettingsDialog(Adw.NavigationPage):
         def _make_bt_expander(css_class: str) -> Adw.ExpanderRow:
             exp = Adw.ExpanderRow()
             exp.set_expanded(False)
-            exp.set_icon_name("dp-bluetooth-symbolic")
             exp.add_css_class(css_class)
             _css = Gtk.CssProvider()
             _css.load_from_data(
@@ -544,8 +543,9 @@ class SettingsDialog(Adw.NavigationPage):
 
         self._paired_addrs: set[str] = set()
 
-        # Trigger initial paired scan in background
+        # Trigger initial paired scan and nearby discovery in background
         self._bt_scan_async()
+        self._on_bt_nearby_scan_clicked(self._bt_nearby_scan_btn)
 
         # ── Display page ──────────────────────────────────────────────────────
         display_page = Adw.PreferencesPage(
@@ -1234,9 +1234,10 @@ class SettingsDialog(Adw.NavigationPage):
             btn.set_label(dev)
             btn.remove_css_class("suggested-action")
             btn.add_css_class("success")
+            bt_port = f"bt:{addr}"
             if self.on_obd_port_changed is not None:
-                self.on_obd_port_changed(dev)
-            self._refresh_dongle_dropdown(dev)
+                self.on_obd_port_changed(bt_port)
+            self._refresh_dongle_dropdown(bt_port)
         else:
             # rfcomm bind failed — try direct RFCOMM socket as fallback
             row.set_subtitle(_translate(self.language, "settings.bt_obd.trying_direct"))

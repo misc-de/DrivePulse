@@ -64,6 +64,18 @@ class GpsReader:
             self.stop_event.clear()
             self.start()
 
+    def ensure_active(self) -> None:
+        """Re-request GeoClue if it stopped or never started. Safe to call repeatedly."""
+        if self.mock_mode or self.stop_event.is_set():
+            return
+        if self._geoclue_client is None:
+            GLib.idle_add(self._start_geoclue)
+        else:
+            try:
+                self._geoclue_client.call_sync("Start", None, Gio.DBusCallFlags.NONE, 1000, None)
+            except Exception:
+                pass
+
     def stop(self) -> None:
         self.stop_event.set()
         if self._geoclue_client is not None:
