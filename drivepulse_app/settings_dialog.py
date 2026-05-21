@@ -487,31 +487,12 @@ class SettingsDialog(Adw.NavigationPage):
             description=_translate(self.language, "settings.bt_obd.desc"),
         )
 
-        def _make_bt_expander(css_class: str) -> Adw.ExpanderRow:
+        def _make_bt_expander() -> Adw.ExpanderRow:
             exp = Adw.ExpanderRow()
             exp.set_expanded(False)
-            exp.add_css_class(css_class)
-            _css = Gtk.CssProvider()
-            _css.load_from_data(
-                f".{css_class} .expander-row-header > button.image-button {{"
-                f" opacity: 0; min-width: 0px; padding: 0px; }}"
-                .encode()
-            )
-            exp.get_style_context().add_provider(_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-            chev_img = Gtk.Image.new_from_icon_name("dp-chevron-down-symbolic")
-            chev_img.set_pixel_size(20)
-            chev_btn = Gtk.Button()
-            chev_btn.set_child(chev_img)
-            chev_btn.set_valign(Gtk.Align.CENTER)
-            chev_btn.add_css_class("flat")
-            chev_btn.connect("clicked", lambda _b, e=exp: e.set_expanded(not e.get_expanded()))
-            exp.add_suffix(chev_btn)
-            exp.connect("notify::expanded", lambda e, _p, i=chev_img: i.set_from_icon_name(
-                "dp-chevron-up-symbolic" if e.get_expanded() else "dp-chevron-down-symbolic"
-            ))
-            return exp, chev_btn
+            return exp
 
-        self._bt_expander, self._bt_chevron = _make_bt_expander("dp-bt-expander")
+        self._bt_expander = _make_bt_expander()
         self._bt_expander.set_title(_translate(self.language, "settings.bt_obd.scan"))
         self._bt_expander.set_subtitle(_translate(self.language, "settings.bt_obd.scan.subtitle"))
         self._bt_device_rows: list[Adw.ActionRow] = []
@@ -525,7 +506,7 @@ class SettingsDialog(Adw.NavigationPage):
         bt_group.add(self._bt_expander)
 
         # ── Nearby BT devices (discovery scan) ───────────────────────────────
-        self._bt_nearby_expander, _nearby_chev = _make_bt_expander("dp-bt-nearby-expander")
+        self._bt_nearby_expander = _make_bt_expander()
         self._bt_nearby_expander.set_title(_translate(self.language, "settings.bt_obd.nearby"))
         self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.subtitle"))
         self._bt_nearby_rows: list[Adw.ActionRow] = []
