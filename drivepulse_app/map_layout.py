@@ -481,7 +481,7 @@ class MapLayoutMixin:
             self._entries_container.insert_child_after(new_row, after_row)
         self._update_placeholders()
         self._update_remove_sensitivity()
-        triple[1].grab_focus()
+        # no grab_focus — avoids keyboard popup on mobile
 
     def _remove_entry(self, row: Gtk.Box) -> None:
         idx = next(i for i, (r, _, __) in enumerate(self._entry_rows) if r is row)
