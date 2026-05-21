@@ -70,25 +70,29 @@ class CarsScansMixin:
         ]
         row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
         row.set_subtitle_lines(0)
+        sid = int(scan["id"])
         if self._scan_select_mode:
             chk = Gtk.CheckButton()
-            chk.set_active(int(scan["id"]) in self._scan_selected_ids)
+            chk.set_active(sid in self._scan_selected_ids)
             chk.set_valign(Gtk.Align.CENTER)
-            chk.connect("toggled", lambda c, sid=int(scan["id"]): self._on_scan_checkbox_toggled(sid, c.get_active()))
+            chk.connect("toggled", lambda c, s=sid: self._on_scan_checkbox_toggled(s, c.get_active()))
             row.add_prefix(chk)
             row.set_activatable(False)
         else:
-            # Colour-code the DTC count badge
+            if self._selected_scan_id == sid:
+                check_icon = Gtk.Image.new_from_icon_name("object-select-symbolic")
+                check_icon.add_css_class("accent")
+                check_icon.set_valign(Gtk.Align.CENTER)
+                row.add_prefix(check_icon)
             badge = Gtk.Label(label=str(dtc))
             badge.add_css_class("pill" if dtc == 0 else "error")
             badge.add_css_class("caption")
             badge.set_halign(Gtk.Align.END)
             row.add_suffix(badge)
-            row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
             row.set_activatable(True)
-            row.connect("activated", lambda _r, sid=int(scan["id"]): self._open_scan_detail(sid))
+            row.connect("activated", lambda _r, s=sid: self._select_scan(s))
             lp = Gtk.GestureLongPress()
-            lp.connect("pressed", lambda _g, _x, _y, sid=int(scan["id"]): self._enter_scan_select_mode(sid))
+            lp.connect("pressed", lambda _g, _x, _y, s=sid: self._enter_scan_select_mode(s))
             row.add_controller(lp)
         return row
 

@@ -11,7 +11,7 @@ window.dp-theme-analog .dp-gauge-bg > * {
   background-color: #0d0d0f;
 }"""
 
-from draw_helpers import _txt, _norm, _cardinal, _draw_last_trip_strip
+from draw_helpers import _txt, _norm, _cardinal
 from common import _translate
 
 
@@ -528,12 +528,10 @@ def _draw_impl(cr: Any, width: int, height: int, data: Any, dark: bool) -> None:
     bg = (0.05, 0.05, 0.06) if dark else (0.92, 0.93, 0.95)
     cr.set_source_rgb(*bg)
     cr.paint()
-    strip_h = max(28.0, height * 0.072)
     if width >= height:
-        _draw_analog_landscape(cr, width, height - strip_h, data, dark=dark)
+        _draw_analog_landscape(cr, width, height, data, dark=dark)
     else:
-        _draw_analog_portrait(cr, width, height - strip_h, data, dark=dark)
-    _draw_last_trip_strip(cr, 0, height - strip_h, width, strip_h, data)
+        _draw_analog_portrait(cr, width, height, data, dark=dark)
 
 
 def draw(cr: Any, width: int, height: int, data: Any) -> None:

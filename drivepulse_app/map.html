@@ -64,9 +64,18 @@
   <span style="font-size:0.85em;opacity:0.6">Internetverbindung prüfen.</span>
 </div>
 <script>
+  let _retryInterval = null;
   window.addEventListener('error', (e) => {
-    if (e.target && e.target.tagName === 'SCRIPT')
+    if (e.target && e.target.tagName === 'SCRIPT') {
       document.getElementById('error').classList.add('visible');
+      if (!_retryInterval) {
+        _retryInterval = setInterval(() => {
+          fetch('https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js', { method: 'HEAD', cache: 'no-store' })
+            .then(() => { clearInterval(_retryInterval); location.reload(); })
+            .catch(() => {});
+        }, 5000);
+      }
+    }
   }, true);
 </script>
 <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
