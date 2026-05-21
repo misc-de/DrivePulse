@@ -285,7 +285,7 @@ class DashcamRecorder:
         ]
         seg_ns = self.segment_minutes * 60 * 1_000_000_000  # nanoseconds
         rec_tail = (
-            f"! x264enc tune=zerolatency speed-preset=ultrafast quantizer=28 "
+            f"! x264enc tune=zerolatency speed-preset=ultrafast bitrate=2000 "
             f"! h264parse ! splitmuxsink name=mux async-finalize=true "
             f"max-size-time={seg_ns} muxer-factory=mp4mux "
             f"location={self.rolling_dir}/dc_%05d.mp4"
@@ -458,7 +458,7 @@ class DashcamRecorder:
             pipeline = (
                 f"{src} ! videoconvert ! videoflip method=0"
                 f"{osd_elements}"
-                f" ! x264enc tune=zerolatency speed-preset=ultrafast quantizer=28"
+                f" ! x264enc tune=zerolatency speed-preset=ultrafast bitrate=2000"
                 f" ! h264parse ! mp4mux fragment-duration=2000"
                 f" ! filesink location={out}"
             )
@@ -480,6 +480,7 @@ class DashcamRecorder:
         base_out = [
             "-t", str(duration_s),
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+            "-maxrate", "2000k", "-bufsize", "4000k",
             "-movflags", "+empty_moov+default_base_moof", "-frag_duration", "2000000", "-an",
             "-metadata:s:v:0", f"rotate={self.rotation}",
         ]
@@ -516,10 +517,12 @@ class DashcamRecorder:
     def _run_proc(self, cmd: list[str], duration_s: int, *, use_sigint: bool) -> bool:
         """Run a subprocess for up to duration_s seconds, then stop it cleanly."""
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            # stderr=DEVNULL: prevents the OS pipe buffer (64 KB) from filling up
+            # and stalling the encoder when the child writes progress output.
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self._proc = proc
             try:
-                _, stderr_data = proc.communicate(timeout=duration_s)
+                proc.wait(timeout=duration_s)
                 rc = proc.returncode
             except subprocess.TimeoutExpired:
                 # Segment duration elapsed — stop cleanly
@@ -528,14 +531,13 @@ class DashcamRecorder:
                 else:
                     proc.terminate()
                 try:
-                    _, stderr_data = proc.communicate(timeout=8)
+                    proc.wait(timeout=8)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    _, stderr_data = proc.communicate()
+                    proc.wait()
                 rc = proc.returncode
             if rc not in (0, -signal.SIGINT):
-                err = stderr_data[-800:].decode(errors="replace")
-                log.debug("%s failed rc=%d: %s", cmd[0], rc, err)
+                log.debug("%s failed rc=%d", cmd[0], rc)
                 return False
             return True
         except FileNotFoundError:

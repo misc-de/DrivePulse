@@ -190,6 +190,7 @@ class _CameraPreview:
             if ok:
                 gbytes = GLib.Bytes.new(mi.data)
                 buf.unmap(mi)
+                del sample, buf, caps, st, mi
                 tex = Gdk.MemoryTexture.new(
                     w, h, Gdk.MemoryFormat.R8G8B8, gbytes, w * 3
                 )

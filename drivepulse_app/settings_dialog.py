@@ -53,6 +53,10 @@ class SettingsDialog(Adw.NavigationPage):
         on_theme_mode_changed: Callable[[str], None] | None = None,
         current_force_webkit_map: bool = False,
         on_force_webkit_map_changed: Callable[[bool], None] | None = None,
+        current_traffic_bundesweit: bool = True,
+        on_traffic_bundesweit_changed: Callable[[bool], None] | None = None,
+        current_traffic_nrw: bool = False,
+        on_traffic_nrw_changed: Callable[[bool], None] | None = None,
         current_last_check: str | None = None,
         on_last_check_updated: Callable[[str], None] | None = None,
         current_dashcam_camera: str = "/dev/video0",
@@ -108,6 +112,8 @@ class SettingsDialog(Adw.NavigationPage):
         self.on_sidebar_side_changed = on_sidebar_side_changed
         self.on_theme_mode_changed = on_theme_mode_changed
         self.on_force_webkit_map_changed = on_force_webkit_map_changed
+        self.on_traffic_bundesweit_changed = on_traffic_bundesweit_changed
+        self.on_traffic_nrw_changed = on_traffic_nrw_changed
         self.on_last_check_updated = on_last_check_updated
         self.on_dashcam_camera_changed = on_dashcam_camera_changed
         self.on_dashcam_resolution_changed = on_dashcam_resolution_changed
@@ -207,6 +213,28 @@ class SettingsDialog(Adw.NavigationPage):
         )
         self.force_webkit_map_row.add_suffix(self.force_webkit_map_switch)
         self.force_webkit_map_row.set_activatable_widget(self.force_webkit_map_switch)
+
+        self.traffic_bundesweit_switch = Gtk.Switch()
+        self.traffic_bundesweit_switch.set_active(current_traffic_bundesweit)
+        self.traffic_bundesweit_switch.set_valign(Gtk.Align.CENTER)
+        self.traffic_bundesweit_switch.connect("notify::active", self._on_traffic_bundesweit_changed)
+        self.traffic_bundesweit_row = Adw.ActionRow(
+            title=_translate(self.language, "settings.traffic.bundesweit"),
+            subtitle=_translate(self.language, "settings.traffic.bundesweit.subtitle"),
+        )
+        self.traffic_bundesweit_row.add_suffix(self.traffic_bundesweit_switch)
+        self.traffic_bundesweit_row.set_activatable_widget(self.traffic_bundesweit_switch)
+
+        self.traffic_nrw_switch = Gtk.Switch()
+        self.traffic_nrw_switch.set_active(current_traffic_nrw)
+        self.traffic_nrw_switch.set_valign(Gtk.Align.CENTER)
+        self.traffic_nrw_switch.connect("notify::active", self._on_traffic_nrw_changed)
+        self.traffic_nrw_row = Adw.ActionRow(
+            title=_translate(self.language, "settings.traffic.nrw"),
+            subtitle=_translate(self.language, "settings.traffic.nrw.subtitle"),
+        )
+        self.traffic_nrw_row.add_suffix(self.traffic_nrw_switch)
+        self.traffic_nrw_row.set_activatable_widget(self.traffic_nrw_switch)
 
         _NAV_POSITIONS = ["bottom", "top"]
         nav_pos_model = Gtk.StringList()
@@ -537,6 +565,11 @@ class SettingsDialog(Adw.NavigationPage):
         tour_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.page.tour"))
         tour_group.add(self.force_webkit_map_row)
         tour_page.add(tour_group)
+
+        traffic_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.traffic"))
+        traffic_group.add(self.traffic_bundesweit_row)
+        traffic_group.add(self.traffic_nrw_row)
+        tour_page.add(traffic_group)
 
         tts_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.tts"))
         tts_group.add(self.tts_enabled_row)
@@ -974,6 +1007,14 @@ class SettingsDialog(Adw.NavigationPage):
     def _on_force_webkit_map_changed(self, *_args: Any) -> None:
         if self.on_force_webkit_map_changed is not None:
             self.on_force_webkit_map_changed(self.force_webkit_map_switch.get_active())
+
+    def _on_traffic_bundesweit_changed(self, *_args: Any) -> None:
+        if self.on_traffic_bundesweit_changed is not None:
+            self.on_traffic_bundesweit_changed(self.traffic_bundesweit_switch.get_active())
+
+    def _on_traffic_nrw_changed(self, *_args: Any) -> None:
+        if self.on_traffic_nrw_changed is not None:
+            self.on_traffic_nrw_changed(self.traffic_nrw_switch.get_active())
 
     def _on_nav_position_selected(self, *_args: Any) -> None:
         if self.on_nav_position_changed is not None:

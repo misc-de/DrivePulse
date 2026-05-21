@@ -184,7 +184,13 @@ class _CssProvider:
 
 
 class _Image(_Widget):
-    pass
+    @classmethod
+    def new_from_icon_name(cls, icon_name: str) -> "_Image":
+        return cls()
+
+    @classmethod
+    def new_from_file(cls, filename: str) -> "_Image":
+        return cls()
 
 
 class _Spinner(_Widget):
@@ -331,6 +337,92 @@ class _ToolbarView(_Widget):
     def add_top_bar(self, widget: object) -> None:
         self.children.append(widget)
 
+    def add_bottom_bar(self, widget: object) -> None:
+        self.children.append(widget)
+
+
+class _NavigationPage(_Widget):
+    def __init__(self, child=None, title="", **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.props["child"] = child
+        self.props["title"] = title
+
+    def get_child(self):
+        return self.props.get("child")
+
+    def get_title(self):
+        return self.props.get("title", "")
+
+
+class _NavigationView(_Widget):
+    def push(self, page: object) -> None:
+        self.children.append(page)
+
+    def pop(self) -> None:
+        if self.children:
+            self.children.pop()
+
+    def replace(self, pages: list) -> None:
+        self.children = list(pages)
+
+
+class _AlertDialog(_Widget):
+    def __init__(self, heading="", body="", **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.props["heading"] = heading
+        self.props["body"] = body
+
+    def add_response(self, response_id: str, label: str) -> None:
+        self.props.setdefault("responses", []).append((response_id, label))
+
+    def set_response_appearance(self, response_id: str, appearance: object) -> None:
+        self.props.setdefault("response_appearances", {})[response_id] = appearance
+
+    def set_default_response(self, response_id: str) -> None:
+        self.props["default_response"] = response_id
+
+    def choose(self, parent, cancellable, callback) -> None:
+        pass
+
+
+class _EntryRow(_ActionRow):
+    def __init__(self, title: str = "", **kwargs) -> None:
+        super().__init__(title=title, **kwargs)
+        self._text = ""
+
+    def get_text(self) -> str:
+        return self._text
+
+    def set_text(self, text: str) -> None:
+        self._text = text
+
+
+class _ExpanderRow(_ActionRow):
+    def __init__(self, title: str = "", subtitle: str = "", **kwargs) -> None:
+        super().__init__(title=title, subtitle=subtitle, **kwargs)
+        self._expanded = False
+
+    def add_row(self, row: object) -> None:
+        self.children.append(row)
+
+    def add_action(self, widget: object) -> None:
+        self.children.append(widget)
+
+    def add_prefix(self, widget: object) -> None:
+        self.children.append(widget)
+
+    def set_expanded(self, expanded: bool) -> None:
+        self._expanded = expanded
+
+    def get_expanded(self) -> bool:
+        return self._expanded
+
+
+class _Toast(_Widget):
+    def __init__(self, title: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.props["title"] = title
+
 
 @pytest.fixture
 def drivepulse_module(monkeypatch):
@@ -345,43 +437,136 @@ def drivepulse_module(monkeypatch):
         Box=_Box,
         Button=_Button,
         CheckButton=_CheckButton,
+        ContentFit=types.SimpleNamespace(
+            FILL=_EnumValue("fill"),
+            CONTAIN=_EnumValue("contain"),
+            COVER=_EnumValue("cover"),
+            SCALE_DOWN=_EnumValue("scale-down"),
+        ),
         CssProvider=_CssProvider,
         ComboRow=_ComboRow,
+        DragSource=_Widget,
         DrawingArea=_DrawingArea,
+        DropDown=_Widget,
+        DropTarget=_Widget,
+        Entry=_Widget,
+        EventControllerMotion=_Widget,
+        EventSequenceState=types.SimpleNamespace(
+            CLAIMED=_EnumValue("claimed"),
+            DENIED=_EnumValue("denied"),
+            NONE=_EnumValue("none"),
+        ),
+        FileChooserAction=types.SimpleNamespace(
+            OPEN=_EnumValue("open"),
+            SAVE=_EnumValue("save"),
+            SELECT_FOLDER=_EnumValue("select-folder"),
+        ),
+        FileChooserNative=_Widget,
+        FileDialog=_Widget,
+        FileFilter=_Widget,
         FlowBox=_FlowBox,
+        FlowBoxChild=_Widget,
+        GestureClick=_Widget,
+        GestureDrag=_Widget,
+        GestureLongPress=_Widget,
         GestureSwipe=_GestureSwipe,
+        GestureZoom=_Widget,
         Grid=_Grid,
+        IconTheme=types.SimpleNamespace(get_for_display=lambda *a: _Widget()),
         Image=_Image,
+        Justification=types.SimpleNamespace(
+            LEFT=_EnumValue("left"),
+            RIGHT=_EnumValue("right"),
+            CENTER=_EnumValue("center"),
+            FILL=_EnumValue("fill"),
+        ),
         Label=_Label,
         ListBox=_ListBox,
+        ListBoxRow=_Widget,
         ListItem=_ListItem,
+        MenuButton=_Widget,
         Orientation=_Orientation,
+        Overflow=types.SimpleNamespace(
+            VISIBLE=_EnumValue("visible"),
+            HIDDEN=_EnumValue("hidden"),
+        ),
+        Overlay=_Widget,
+        Picture=_Widget,
         PolicyType=_PolicyType,
+        Popover=_Widget,
+        PositionType=types.SimpleNamespace(
+            LEFT=_EnumValue("left"),
+            RIGHT=_EnumValue("right"),
+            TOP=_EnumValue("top"),
+            BOTTOM=_EnumValue("bottom"),
+        ),
+        ProgressBar=_Widget,
+        PropagationPhase=types.SimpleNamespace(
+            BUBBLE=_EnumValue("bubble"),
+            CAPTURE=_EnumValue("capture"),
+            NONE=_EnumValue("none"),
+            TARGET=_EnumValue("target"),
+        ),
+        ResponseType=types.SimpleNamespace(
+            ACCEPT=_EnumValue("accept"),
+            CANCEL=_EnumValue("cancel"),
+            DELETE_EVENT=_EnumValue("delete-event"),
+        ),
         ScrolledWindow=_Widget,
         SelectionMode=_SelectionMode,
+        Separator=_Widget,
         SignalListItemFactory=_SignalListItemFactory,
         SpinButton=_SpinButton,
         Spinner=_Spinner,
         Stack=_Stack,
         StackSwitcher=_StackSwitcher,
+        StackTransitionType=types.SimpleNamespace(
+            NONE=_EnumValue("none"),
+            SLIDE_LEFT_RIGHT=_EnumValue("slide-left-right"),
+            CROSSFADE=_EnumValue("crossfade"),
+        ),
         StringList=_StringList,
         StyleContext=types.SimpleNamespace(add_provider_for_display=lambda *a: None),
         Switch=_Switch,
+        ToggleButton=_Widget,
         Widget=_Widget,
         Window=_Widget,
         STYLE_PROVIDER_PRIORITY_APPLICATION=600,
     )
+    _style_manager_instance = types.SimpleNamespace(
+        connect=lambda *a: None,
+        get_dark=lambda: False,
+        set_color_scheme=lambda scheme: None,
+        get_color_scheme=lambda: _EnumValue("default"),
+    )
     adw = types.SimpleNamespace(
         ActionRow=_ActionRow,
+        AlertDialog=_AlertDialog,
         Application=_Application,
         ApplicationWindow=_ApplicationWindow,
+        ColorScheme=types.SimpleNamespace(
+            DEFAULT=_EnumValue("default"),
+            FORCE_DARK=_EnumValue("force_dark"),
+            FORCE_LIGHT=_EnumValue("force_light"),
+        ),
         ComboRow=_ComboRow,
         Dialog=_Widget,
+        EntryRow=_EntryRow,
+        ExpanderRow=_ExpanderRow,
         HeaderBar=_Widget,
+        MessageDialog=_Widget,
+        NavigationPage=_NavigationPage,
+        NavigationView=_NavigationView,
         PreferencesDialog=_Widget,
         PreferencesGroup=_Widget,
         PreferencesPage=_Widget,
+        ResponseAppearance=types.SimpleNamespace(
+            SUGGESTED=_EnumValue("suggested"),
+            DESTRUCTIVE=_EnumValue("destructive"),
+        ),
+        StyleManager=types.SimpleNamespace(get_default=lambda: _style_manager_instance),
         SwitchRow=_SwitchRow,
+        Toast=_Toast,
         ToolbarView=_ToolbarView,
         ViewStack=_ViewStack,
         ViewSwitcher=_Widget,

@@ -237,6 +237,7 @@ def test_write_log_writes_jsonl(drivepulse_module, tmp_log_paths):
     from drivepulse_app import obd_reader
 
     reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader.mock = False  # obd is mocked as None, forcing mock=True; override for log test
 
     reader._write_log({"speed": {"value": 12}})
 
