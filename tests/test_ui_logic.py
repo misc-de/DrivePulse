@@ -169,7 +169,8 @@ def test_obd_indicator_spins_while_connecting(drivepulse_module):
     assert window.obd_indicator["image"].props["visible"] is False
 
 
-def test_scan_identity_does_not_auto_register_unknown_vehicle(tmp_path, drivepulse_module):
+def test_scan_identity_auto_registers_unknown_vehicle(tmp_path, drivepulse_module):
+    # Unknown vehicles are immediately registered via _add_live_vehicle_from_identity.
     from drivepulse_app.db import DriveDB
 
     window = drivepulse_module.DashboardWindow.__new__(drivepulse_module.DashboardWindow)
@@ -183,6 +184,7 @@ def test_scan_identity_does_not_auto_register_unknown_vehicle(tmp_path, drivepul
     identities = []
     window.cars_page = type("CarsSpy", (), {
         "set_live_identity": lambda self, identity: identities.append(identity),
+        "refresh_profiles": lambda self: None,
     })()
     window.dashboard_canvas = type("CanvasSpy", (), {
         "update_last_trip_stats": lambda self, stats: None,
@@ -198,8 +200,11 @@ def test_scan_identity_does_not_auto_register_unknown_vehicle(tmp_path, drivepul
             "profile_path": "/tmp/profile.json",
         })
 
-        assert window.db.list_cars() == []
-        assert calls == []
+        assert len(calls) == 1
+        assert calls[0]["vin"] == "WVWZZZ1JZXW000001"
+        assert calls[0]["cal_id"] == "CAL"
+        assert calls[0]["cvn"] == "CVN"
+        assert calls[0]["profile_path"] == "/tmp/profile.json"
         assert identities[-1]["VIN"] == "WVWZZZ1JZXW000001"
         assert identities[-1]["profile_path"] == "/tmp/profile.json"
     finally:

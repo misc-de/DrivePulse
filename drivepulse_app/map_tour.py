@@ -1,0 +1,400 @@
+"""Map tour/navigation mixin — state machine, TTS, step detection."""
+from __future__ import annotations
+
+import json
+import threading
+
+from gi.repository import GLib
+
+from .common import _translate
+from .map_services import format_distance, haversine, osrm_route, maneuver_icon, maneuver_text_key
+from . import tts_service
+from .diagnostics import get_logger
+
+log = get_logger(__name__)
+
+
+class MapTourMixin:
+    """Tour/navigation state machine, TTS and step detection."""
+
+    # Comfortable street-level zoom for tour following; max zoom (22) was
+    # too close to be useful for navigation.
+    _TOUR_ZOOM = 18.0
+
+    # Minimum interval between mapSetCar JS pushes. Slightly below the mock
+    # tour's 250 ms tick so a tick that arrives a few ms early isn't dropped —
+    # dropped ticks were the main source of the arrow's "step-pause-step" feel.
+    _MAP_JS_INTERVAL = 0.18  # ≈ 5.5 Hz cap
+
+    # A step is considered "passed" when we've gotten within this distance AND
+    # then the distance has grown beyond minimum + _MANEUVER_PASS_GROWTH_M.
+    # 80 m covers sparse-GPS scenarios (1 Hz at 50 km/h = ~14 m/s, so 80 m
+    # allows up to ~5 ticks of travel while still inside the detection window).
+    _MANEUVER_CLOSEST_M = 80.0
+
+    # How much the distance must grow from the minimum before we declare a
+    # step passed. Large enough to ignore GPS noise (~3–5 m), small enough
+    # not to wait until we're halfway to the next maneuver.
+    _MANEUVER_PASS_GROWTH_M = 8.0
+
+    # OSRM step types that don't represent an actionable maneuver.
+    # "continue" = road continues with minor direction/name change — not worth showing.
+    _NON_ACTIONABLE_STEP_TYPES = frozenset({
+        "new name", "notification", "continue",
+    })
+
+    _TTS_THRESHOLDS = (300, 80)
+
+    def _on_tour_start_clicked(self, _btn: object) -> None:
+        if self._start_coord is None:
+            return
+        if self._tour_active:
+            self._pause_tour()
+            return
+        if self._tour_paused:
+            self._resume_tour()
+            return
+        self._begin_tour()
+
+    def _begin_tour(self) -> None:
+        if self._start_coord is None:
+            return
+        lat, lon = self._start_coord
+        self._tour_active = True
+        self._tour_paused = False
+        self._tour_completed = False
+        self._tour_step_idx = 0
+        self._step_min_dist = None
+        self._gps_route_idx = 0
+        self._set_nav_chrome_visible(False)
+        self._set_tour_button("stop")
+        self._update_maneuver_overlay()
+        self._highlight_active_step()
+        if self._on_tour_started is not None and self._tour_coords:
+            self._on_tour_started(self._tour_coords)
+        self._set_follow(True)
+        if self._backend == "webkit":
+            self._js(f"mapStartTour({lat}, {lon})")
+        elif self._shumate_map is not None:
+            viewport = self._shumate_map.get_viewport()
+            self._setting_pos = True
+            viewport.set_zoom_level(min(self._TOUR_ZOOM, self._shumate_max_zoom()))
+            viewport.set_location(lat, lon)
+            self._setting_pos = False
+        if self._gps_lat is not None and self._gps_lon is not None:
+            dist = haversine(self._gps_lat, self._gps_lon, lat, lon)
+            if dist > 200:
+                gps_lat, gps_lon = self._gps_lat, self._gps_lon
+                threading.Thread(
+                    target=self._fetch_guide_to_start,
+                    args=(gps_lat, gps_lon, lat, lon),
+                    daemon=True,
+                ).start()
+
+    def _pause_tour(self) -> None:
+        """Pause an active tour — keep route and progress so it can resume."""
+        self._tour_active = False
+        self._tour_paused = True
+        self._set_tour_button("resume")
+        if self._backend == "webkit":
+            self._js("mapSetTourActive(false)")
+        # Maneuver overlay stays visible so the driver can still see the next
+        # instruction while paused.
+        if self._on_tour_stopped is not None:
+            self._on_tour_stopped()
+
+    def _resume_tour(self) -> None:
+        """Resume a paused tour without recomputing or recentring."""
+        self._tour_active = True
+        self._tour_paused = False
+        self._set_tour_button("stop")
+        self._set_follow(True)
+        if self._backend == "webkit":
+            self._js("mapSetTourActive(true)")
+        self._update_maneuver_overlay()
+        if self._on_tour_resumed is not None:
+            self._on_tour_resumed()
+
+    def _abort_tour(self) -> None:
+        """Full reset — used when the route is cleared or replaced."""
+        was_running = self._tour_active or self._tour_paused
+        self._tour_active = False
+        self._tour_paused = False
+        self._tour_completed = False
+        self._step_min_dist = None
+        self._gps_route_idx = 0
+        self._tts_last_step_idx = -1
+        self._tts_spoken_thresholds = set()
+        tts_service.stop()
+        self._set_nav_chrome_visible(True)
+        self._set_tour_button("start")
+        if self._backend == "webkit":
+            self._js("mapSetTourActive(false)")
+            self._js("mapResetView()")
+            self._js("mapClearGuideToStart()")
+        elif self._guide_path_layer is not None:
+            self._guide_path_layer.remove_all()
+        if self._maneuver_overlay is not None:
+            self._maneuver_overlay.set_visible(False)
+        self._highlight_active_step()
+        if was_running and self._on_tour_stopped is not None:
+            self._on_tour_stopped()
+
+    def _set_tour_button(self, mode: str) -> None:
+        """mode: 'start' | 'stop' | 'resume'."""
+        label_key = {
+            "start":  "map.tour_start",
+            "stop":   "map.tour_stop",
+            "resume": "map.tour_resume",
+        }.get(mode, "map.tour_start")
+        icon_name = "media-playback-stop-symbolic" if mode == "stop" else "media-playback-start-symbolic"
+        if self._tour_start_lbl is not None:
+            self._tour_start_lbl.set_label(_translate(self.language, label_key))
+        if self._tour_btn_icon is not None:
+            self._tour_btn_icon.set_from_icon_name(icon_name)
+
+    def _set_nav_chrome_visible(self, visible: bool) -> None:
+        """Show/hide UI chrome that clutters the screen during active navigation."""
+        for btn in (self._zoom_in_btn, self._zoom_out_btn, self._steps_toggle_btn):
+            if btn is not None:
+                btn.set_visible(visible)
+
+    def _set_tour_controls_visible(self, visible: bool) -> None:
+        if self._tour_controls_box is not None:
+            self._tour_controls_box.set_visible(visible)
+        if visible:
+            if self._tour_start_btn is not None:
+                self._tour_start_btn.set_visible(True)
+            if self._steps_toggle_btn is not None:
+                self._steps_toggle_btn.set_visible(not self._tour_active)
+        else:
+            if self._steps_toggle_btn is not None:
+                self._steps_toggle_btn.set_active(False)
+            if self._steps_panel is not None:
+                self._steps_panel.set_visible(False)
+
+    def _fetch_guide_to_start(
+        self, gps_lat: float, gps_lon: float, start_lat: float, start_lon: float
+    ) -> None:
+        result = osrm_route([(gps_lat, gps_lon), (start_lat, start_lon)], self._routing_mode)
+        GLib.idle_add(self._guide_result, result)
+
+    def _guide_result(
+        self,
+        result: tuple[list[list[float]], float, float, list[dict]] | None,
+    ) -> bool:
+        if result is None:
+            return False
+        coords = result[0]
+        if self._backend == "webkit":
+            self._js(f"mapSetGuideToStart({json.dumps(coords)})")
+        elif self._shumate_map is not None and self._guide_path_layer is not None:
+            self._shumate_set_guide(coords)
+        return False
+
+    def _skip_non_actionable_steps(self) -> None:
+        while (
+            self._tour_step_idx < len(self._tour_steps) - 1
+            and self._tour_steps[self._tour_step_idx].get("type")
+            in self._NON_ACTIONABLE_STEP_TYPES
+        ):
+            self._tour_step_idx += 1
+            self._step_min_dist = None
+
+    def _compute_route_progress_tables(self) -> None:
+        """Precompute distance-along-route tables for fast progress lookups.
+
+        - `_route_cum_m[i]` = metres from start of route up to vertex i
+        - `_step_cum_m[k]`  = metres from start of route up to maneuver k,
+          derived from OSRM's per-step `distance` so it stays correct even
+          when the step's coordinate is slightly offset from the geometry.
+        """
+        self._route_cum_m = []
+        self._step_cum_m = []
+        if self._tour_coords:
+            self._route_cum_m.append(0.0)
+            for i in range(1, len(self._tour_coords)):
+                a = self._tour_coords[i - 1]
+                b = self._tour_coords[i]
+                # coords are [lon, lat]
+                seg = haversine(a[1], a[0], b[1], b[0])
+                self._route_cum_m.append(self._route_cum_m[-1] + seg)
+        if self._tour_steps:
+            cum = 0.0
+            for i, step in enumerate(self._tour_steps):
+                # Maneuver k sits at the START of step k.  So its position
+                # along the route is the cumulative distance of steps 0..k-1.
+                self._step_cum_m.append(cum)
+                cum += float(step.get("distance") or 0.0)
+
+    def _gps_progress_m(self) -> float:
+        """Return how far the GPS fix has progressed along the route, in m.
+
+        Implemented as: monotonically-advancing nearest vertex + half the
+        next-segment to account for the user being between vertices.
+        """
+        if (
+            not self._tour_coords
+            or not self._route_cum_m
+            or self._gps_lat is None
+            or self._gps_lon is None
+        ):
+            return 0.0
+        # Scan forward from the last known position — cheap, and prevents a
+        # route that doubles back on itself from snapping back to an earlier
+        # vertex when the user is just passing close by it.
+        best_i = self._gps_route_idx
+        best_d = float("inf")
+        for i in range(self._gps_route_idx, len(self._tour_coords)):
+            coord = self._tour_coords[i]
+            dx = coord[0] - self._gps_lon
+            dy = coord[1] - self._gps_lat
+            d = dx * dx + dy * dy
+            if d < best_d:
+                best_d = d
+                best_i = i
+        self._gps_route_idx = best_i
+        return self._route_cum_m[best_i]
+
+    def _update_maneuver_overlay(self) -> None:
+        if self._maneuver_overlay is None:
+            return
+        if (
+            not (self._tour_active or self._tour_paused)
+            or not self._tour_steps
+            or self._tour_completed
+            or self._gps_lat is None
+            or self._gps_lon is None
+        ):
+            self._maneuver_overlay.set_visible(False)
+            return
+
+        self._skip_non_actionable_steps()
+
+        # How far we've driven along the route, in metres.  This is the
+        # primary "have we passed step N yet?" signal because it uses
+        # OSRM's own per-step distance values, which stay accurate even
+        # when individual maneuver coordinates are slightly offset from
+        # the road geometry.
+        progress_m = self._gps_progress_m()
+
+        # Multi-step advance loop: if the car passed several close-together
+        # maneuvers between GPS ticks (e.g. city-centre roundabout exits) we
+        # advance as many steps as the data supports in a single call.
+        for _ in range(len(self._tour_steps)):
+            step = self._tour_steps[self._tour_step_idx]
+            distance_m = haversine(
+                self._gps_lat, self._gps_lon, step["lat"], step["lon"]
+            )
+
+            # Track the closest approach seen so far for this step.
+            if self._step_min_dist is None or distance_m < self._step_min_dist:
+                self._step_min_dist = distance_m
+
+            # "Passed" when we've gotten within _MANEUVER_CLOSEST_M and the
+            # distance has grown back past minimum + noise-guard.
+            passed = (
+                self._step_min_dist <= self._MANEUVER_CLOSEST_M
+                and distance_m > self._step_min_dist + self._MANEUVER_PASS_GROWTH_M
+            )
+
+            # Route-progress fallback: once we've travelled past the start
+            # position of the NEXT step, the current maneuver is behind us
+            # no matter what the haversine math says.
+            if not passed and self._step_cum_m:
+                next_idx = self._tour_step_idx + 1
+                if next_idx < len(self._step_cum_m):
+                    # +5 m buffer prevents oscillating right at the boundary
+                    if progress_m > self._step_cum_m[next_idx] + 5.0:
+                        passed = True
+
+            if not passed:
+                break  # still approaching — show this step
+
+            # Step passed — last step means route complete.
+            if self._tour_step_idx >= len(self._tour_steps) - 1:
+                self._tour_completed = True
+                self._maneuver_overlay.set_visible(False)
+                return
+
+            self._tour_step_idx += 1
+            self._step_min_dist = None
+            self._skip_non_actionable_steps()
+            # Loop continues to check whether the newly active step is also passed.
+
+        step = self._tour_steps[self._tour_step_idx]
+        distance_m = haversine(
+            self._gps_lat, self._gps_lon, step["lat"], step["lon"]
+        )
+        m_type = step.get("type", "")
+        m_modifier = step.get("modifier", "")
+        name = step.get("name", "") or ""
+
+        icon = maneuver_icon(m_type, m_modifier)
+        text = _translate(self.language, maneuver_text_key(m_type, m_modifier))
+        if name and m_type not in {"arrive", "depart"}:
+            text += _translate(self.language, "map.maneuver.on_street").format(name=name)
+
+        if self._maneuver_icon is not None:
+            self._maneuver_icon.set_from_icon_name(icon)
+        if self._maneuver_distance_lbl is not None:
+            self._maneuver_distance_lbl.set_text(format_distance(distance_m, self.units))
+        if self._maneuver_instr_lbl is not None:
+            self._maneuver_instr_lbl.set_text(text)
+        self._maneuver_overlay.set_visible(True)
+        self._highlight_active_step()
+        self._update_tts(step, distance_m)
+
+    def _update_tts(self, step: dict, distance_m: float) -> None:
+        if not self._tts_enabled:
+            return
+        current_idx = self._tour_step_idx
+        if current_idx != self._tts_last_step_idx:
+            self._tts_last_step_idx = current_idx
+            self._tts_spoken_thresholds = set()
+            # Don't announce immediately — the threshold loop below will fire on
+            # the very next tick (or this one) at the appropriate distance.
+
+        # Look-ahead: fire threshold early enough to compensate for TTS latency.
+        # At 50 km/h and 1s latency the car travels ~14m — audible instructions
+        # would otherwise describe a maneuver the driver has already reached.
+        look_ahead_m = self._gps_speed_mps * tts_service.get_latency_s()
+        trigger_dist = distance_m + look_ahead_m
+
+        for threshold in self._TTS_THRESHOLDS:
+            if threshold in self._tts_spoken_thresholds:
+                continue
+            if trigger_dist <= threshold:
+                self._tts_announce(step, distance_m)
+                self._tts_spoken_thresholds.add(threshold)
+                break
+
+    def _tts_effective_language(self) -> str:
+        if self._tts_language != "auto":
+            return self._tts_language
+        return self.language if self.language in {"en", "de"} else "en"
+
+    def _tts_distance_text(self, meters: float, lang: str) -> str:
+        if meters < 950:
+            n = int(round(meters / 10) * 10) or 10
+            return _translate(lang, "tts.distance.m").format(n=n)
+        km = round(meters / 1000, 1)
+        return _translate(lang, "tts.distance.km").format(n=km)
+
+    def _tts_announce(self, step: dict, distance_m: float) -> None:
+        if not self._tts_enabled:
+            return
+        if step.get("type") == "depart":
+            return
+        lang = self._tts_effective_language()
+        maneuver_text = _translate(lang, maneuver_text_key(step.get("type", ""), step.get("modifier", "")))
+        # Subtract look-ahead so the spoken distance matches reality at the
+        # moment the driver hears the announcement, not when it was triggered.
+        look_ahead_m = self._gps_speed_mps * tts_service.get_latency_s()
+        heard_dist = max(0.0, distance_m - look_ahead_m)
+        if heard_dist > 60:
+            dist_text = self._tts_distance_text(heard_dist, lang)
+            text = _translate(lang, "tts.in_distance").format(distance=dist_text) + " " + maneuver_text
+        else:
+            text = maneuver_text
+        tts_service.speak(text, lang, self._tts_voice)

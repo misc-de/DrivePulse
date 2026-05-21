@@ -320,7 +320,7 @@ def test_sync_handler_rejects_oversized_body(monkeypatch):
     assert _SyncHandler._read_body(handler) is None
     assert responses == [(413, {"ok": False, "error": "payload too large"})]
 
-    handler._srv = SimpleNamespace(_session_token="secret")
+    handler._srv = SimpleNamespace(_session_token="secret", _session_expiry=0)
     handler.headers = {"Authorization": "Bearer secret"}
     assert _SyncHandler._check_bearer(handler) is True
 
@@ -382,8 +382,10 @@ def test_sync_dialog_close_stops_server_and_invalidates_starts(drivepulse_module
     dialog._server_start_requested = True
     dialog._server = server
     dialog._scanner = None
+    dialog._pushing_subpage = False
+    dialog._server_survived_dialog = False
 
-    SyncDialog._on_closed(dialog)
+    SyncDialog._on_hiding(dialog)
 
     assert dialog._closed is True
     assert dialog._server is None
