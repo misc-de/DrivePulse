@@ -693,6 +693,12 @@ class DriveDB:
             self._conn.commit()
             return cur.lastrowid  # type: ignore[return-value]
 
+    def get_saved_tour(self, tour_id: int) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM saved_tours WHERE id=?", (tour_id,)
+            ).fetchone()
+
     def list_saved_tours(self) -> list[sqlite3.Row]:
         with self._lock:
             return self._conn.execute(

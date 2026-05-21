@@ -186,7 +186,13 @@ class MapLayoutMixin:
         else:
             default_name = datetime.now().strftime("%d.%m.%Y")
 
-        loaded_id: int | None = getattr(self, "_loaded_tour_id", None)
+        _raw_loaded_id: int | None = getattr(self, "_loaded_tour_id", None)
+        loaded_id: int | None = (
+            _raw_loaded_id
+            if _raw_loaded_id is not None and db is not None
+            and db.get_saved_tour(_raw_loaded_id) is not None
+            else None
+        )
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         content_box.set_margin_top(6)
@@ -326,10 +332,26 @@ class MapLayoutMixin:
         self._on_route_clicked(None)
 
     def _delete_saved_tour(self, tour_id: int) -> None:
-        db = getattr(self, "_map_db", None)
-        if db is not None:
-            db.delete_saved_tour(tour_id)
-        self._rebuild_tour_list()
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "map.tours.delete_heading"),
+            body=_translate(self.language, "map.tours.delete_body"),
+        )
+        dialog.add_response("cancel", _translate(self.language, "map.tours.cancel"))
+        dialog.add_response("delete", _translate(self.language, "map.tours.delete_confirm"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "delete":
+                return
+            db = getattr(self, "_map_db", None)
+            if db is not None:
+                db.delete_saved_tour(tour_id)
+            self._rebuild_tour_list()
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
 
     def _build_search_bar(self) -> None:
         bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
