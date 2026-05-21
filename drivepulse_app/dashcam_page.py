@@ -637,7 +637,6 @@ class DashcamPage(Gtk.Box):
             self._preview.stop()
             for btn in self._save_btns:
                 btn.set_visible(True)
-            self._update_toggle_btn()
             if self.on_recording_changed is not None:
                 self.on_recording_changed(True)
             GLib.timeout_add(400, self._start_recording_deferred)
@@ -648,6 +647,7 @@ class DashcamPage(Gtk.Box):
 
     def _start_recording_deferred(self) -> bool:
         self._recorder.start()
+        self._update_toggle_btn()
         self._start_tick()
         self._reset_dim_timer()
         return False
