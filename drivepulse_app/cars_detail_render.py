@@ -151,6 +151,13 @@ class CarsDetailRenderMixin:
             return
 
         _vin_data_keys = set(VIN_DATA_SPECIAL_KEYS.values())
+        _lang = getattr(self, "language", "de")
+        _pid_labels: dict[str, str] = {
+            pk: _translate(_lang, lk)
+            for _, _, _, _items in CATEGORIES
+            for pk, lk in _items
+            if not pk.startswith("__")
+        }
         for pid_key, label_key in items:
             raw = data.get(pid_key)
             value_text, is_unknown = self._format_entry(pid_key, raw)
@@ -166,7 +173,7 @@ class CarsDetailRenderMixin:
                     stats = self._scan_pid_stats.get(pid_key)
                     if stats and "avg" in stats:
                         avg = stats["avg"]
-                        unit = _unit_display(stats.get("unit", ""), getattr(self, "language", "de"))
+                        unit = _unit_display(stats.get("unit", ""), _lang)
                         if abs(avg) >= 100:
                             avg_str = f"{avg:.0f}"
                         elif abs(avg) >= 10:
@@ -176,9 +183,20 @@ class CarsDetailRenderMixin:
                         value_text = f"⌀ {avg_str} {unit}".strip()
                         is_unknown = False
                     if stats and len(stats.get("values") or []) > 1:
-                        def _make_cb(lbl: str, s: dict) -> "callable":
-                            return lambda: ScanChartDialog(lbl, s, getattr(self, "language", "de")).present(self)
-                        on_click = _make_cb(label, stats)
+                        def _make_cb(
+                            lbl: str,
+                            pk: str,
+                            all_s: dict,
+                            plabels: dict,
+                            lang: str,
+                        ) -> "callable":
+                            return lambda: ScanChartDialog(
+                                lbl, pk, all_s, plabels, lang
+                            ).present(self)
+                        on_click = _make_cb(
+                            label, pid_key,
+                            self._scan_pid_stats, _pid_labels, _lang,
+                        )
                     else:
                         on_click = None
                 row = self._make_live_stats_row(label, value_text, stats, is_unknown, on_click)

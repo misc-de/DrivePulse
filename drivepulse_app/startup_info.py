@@ -67,6 +67,22 @@ def _gi_status(namespace: str, version: str) -> tuple[bool, str]:
         return False, "missing"
 
 
+def get_missing_required() -> list[tuple[str, str, str]]:
+    """Return (display_name, install_cmd, description) for every missing required dep."""
+    missing: list[tuple[str, str, str]] = []
+    for pkg, mod, desc in REQUIRED_PYTHON_PACKAGES:
+        ok, _ = _py_status(pkg, mod)
+        if not ok:
+            missing.append((pkg, f"pip install {pkg}", desc))
+    for name, ns, ver, apt, desc, required in GI_LIBRARIES:
+        if not required:
+            continue
+        ok, _ = _gi_status(ns, ver)
+        if not ok:
+            missing.append((name, f"sudo apt install {apt}", desc))
+    return missing
+
+
 def print_required_python_packages() -> None:
     _emit("Python packages (required):")
     all_ok = True

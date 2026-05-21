@@ -65,11 +65,93 @@ from .stopwatch import StopWatchPage
 from .dashboard_window import DashboardWindow
 from .icon_registry import register_local_icon
 from .obd_reader import ObdReader
-from .startup_info import print_required_python_packages
+from .startup_info import get_missing_required, print_required_python_packages
 from .diagnostics import get_logger
 
 
 log = get_logger(__name__)
+
+
+def _build_missing_deps_window(
+    app: "ObdDashboardApp",
+    missing: list[tuple[str, str, str]],
+) -> Adw.ApplicationWindow:
+    win = Adw.ApplicationWindow(application=app)
+    win.set_default_size(560, 440)
+    win.set_title("DrivePulse")
+
+    toolbar_view = Adw.ToolbarView()
+    toolbar_view.add_top_bar(Adw.HeaderBar())
+
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+    status = Adw.StatusPage()
+    status.set_icon_name("dialog-warning-symbolic")
+    status.set_title("Fehlende Abhängigkeiten")
+    status.set_description(
+        "Einige Pakete fehlen. Die App könnte fehlerhaft laufen.\n"
+        "Installiere die fehlenden Pakete und starte die App erneut."
+    )
+    outer.append(status)
+
+    list_box = Gtk.ListBox()
+    list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+    list_box.add_css_class("boxed-list")
+    list_box.set_margin_start(24)
+    list_box.set_margin_end(24)
+    list_box.set_margin_bottom(24)
+
+    for name, cmd, desc in missing:
+        row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        row_box.set_margin_start(12)
+        row_box.set_margin_end(12)
+        row_box.set_margin_top(10)
+        row_box.set_margin_bottom(10)
+
+        name_label = Gtk.Label(label=f"<b>{name}</b>", use_markup=True, xalign=0)
+        desc_label = Gtk.Label(label=desc, xalign=0)
+        desc_label.add_css_class("dim-label")
+        cmd_label = Gtk.Label(label=cmd, selectable=True, xalign=0)
+        cmd_label.add_css_class("monospace")
+
+        row_box.append(name_label)
+        row_box.append(desc_label)
+        row_box.append(cmd_label)
+        list_box.append(row_box)
+
+    outer.append(list_box)
+
+    scroll = Gtk.ScrolledWindow(vexpand=True)
+    scroll.set_child(outer)
+    toolbar_view.set_content(scroll)
+
+    # Button bar
+    btn_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    btn_bar.set_margin_start(16)
+    btn_bar.set_margin_end(16)
+    btn_bar.set_margin_top(12)
+    btn_bar.set_margin_bottom(12)
+    btn_bar.set_halign(Gtk.Align.END)
+
+    cancel_btn = Gtk.Button(label="Abbrechen")
+    cancel_btn.connect("clicked", lambda _: app.quit())
+
+    continue_btn = Gtk.Button(label="Trotzdem starten")
+    continue_btn.add_css_class("suggested-action")
+
+    def _on_continue(_btn: Gtk.Button) -> None:
+        win.close()
+        app.window = DashboardWindow(app)
+        app.window.present()
+
+    continue_btn.connect("clicked", _on_continue)
+
+    btn_bar.append(cancel_btn)
+    btn_bar.append(continue_btn)
+    toolbar_view.add_bottom_bar(btn_bar)
+
+    win.set_content(toolbar_view)
+    return win
 
 
 class ObdDashboardApp(Adw.Application):
@@ -81,7 +163,12 @@ class ObdDashboardApp(Adw.Application):
         register_local_icon()
         load_user_themes(THEMES_DIR)
         if self.window is None:
-            self.window = DashboardWindow(self)
+            missing = get_missing_required()
+            if missing:
+                log.warning("Missing required dependencies: %s", [m[0] for m in missing])
+                self.window = _build_missing_deps_window(self, missing)
+            else:
+                self.window = DashboardWindow(self)
         self.window.present()
 
 
