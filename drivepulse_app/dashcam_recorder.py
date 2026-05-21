@@ -154,6 +154,10 @@ class DashcamRecorder:
         self._stop_event.clear()
         with self._lock:
             self._segments.clear()
+            # Adopt files left by previous sessions so _prune() can enforce
+            # max_segments across restarts and clean up stale files immediately.
+            self._segments.extend(sorted(self.rolling_dir.glob("dc_*.mp4")))
+        self._prune()
         self.is_recording = True
         self._thread = threading.Thread(target=self._record_loop, daemon=True, name="dashcam")
         self._thread.start()
@@ -312,9 +316,15 @@ class DashcamRecorder:
                 def _init(pl=pl, wp=with_preview, r=_result, ev=_ready) -> bool:
                     try:
                         p = _Gst.parse_launch(pl)
-                        p.get_by_name("mux").connect(
-                            "format-location", self._on_gst_format_location
+                        mux = p.get_by_name("mux")
+                        mux.connect("format-location", self._on_gst_format_location)
+                        # Fragmented MP4: write a self-contained moof/mdat every 2 s.
+                        # Each fragment is independently decodable, so a crash or
+                        # power cut leaves at most ~2 s of the current segment unplayable.
+                        frag_props = _Gst.Structure.new_from_string(
+                            "props,fragment-duration=(uint)2000"
                         )
+                        mux.set_property("muxer-properties", frag_props)
                         if wp:
                             try:
                                 paintable = (
@@ -360,19 +370,21 @@ class DashcamRecorder:
                 self._gst_pipeline = pipeline
                 log.info("gst in-proc recording active: src=%s preview=%s", src, with_preview)
 
-                # Poll bus until stop is requested or an error/EOS arrives.
+                # Drain ALL bus messages so the queue never grows unbounded.
+                # Filtering only ERROR|EOS would leave QoS, StateChanged, etc.
+                # piling up in memory for the full duration of the recording.
                 while not self._stop_event.is_set():
-                    msg = bus.timed_pop_filtered(
-                        100_000_000,  # 100 ms
-                        _Gst.MessageType.ERROR | _Gst.MessageType.EOS,
-                    )
+                    msg = bus.timed_pop_filtered(100_000_000, _Gst.MessageType.ANY)
                     if msg is None:
                         continue
                     if msg.type == _Gst.MessageType.ERROR:
                         err, _ = msg.parse_error()
                         log.warning("gst recording error: %s", err)
                         self._stop_event.set()
-                    break
+                        break
+                    if msg.type == _Gst.MessageType.EOS:
+                        break
+                    # All other types consumed and discarded
 
                 # Finalise: send EOS and wait for it to reach all sinks so that
                 # splitmuxsink / mp4mux can write the moov atom before we stop.
@@ -447,7 +459,7 @@ class DashcamRecorder:
                 f"{src} ! videoconvert ! videoflip method=0"
                 f"{osd_elements}"
                 f" ! x264enc tune=zerolatency speed-preset=ultrafast quantizer=28"
-                f" ! h264parse ! mp4mux faststart=true"
+                f" ! h264parse ! mp4mux fragment-duration=2000"
                 f" ! filesink location={out}"
             )
             cmd = ["gst-launch-1.0", "-e"] + pipeline.split()
@@ -468,7 +480,7 @@ class DashcamRecorder:
         base_out = [
             "-t", str(duration_s),
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-            "-movflags", "+faststart", "-an",
+            "-movflags", "+empty_moov+default_base_moof", "-frag_duration", "2000000", "-an",
             "-metadata:s:v:0", f"rotate={self.rotation}",
         ]
         lat, lon = self.lat, self.lon
