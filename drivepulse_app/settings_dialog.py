@@ -487,9 +487,33 @@ class SettingsDialog(Adw.NavigationPage):
             description=_translate(self.language, "settings.bt_obd.desc"),
         )
 
+        _exp_css = Gtk.CssProvider()
+        _exp_css.load_from_data(
+            b".dp-bt-exp .expander-row-header button.expander"
+            b" { min-width:0; min-height:0; padding:0; opacity:0; }"
+        )
+
         def _make_bt_expander() -> Adw.ExpanderRow:
             exp = Adw.ExpanderRow()
             exp.set_expanded(False)
+            exp.add_css_class("dp-bt-exp")
+            exp.get_style_context().add_provider(
+                _exp_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
+            img = Gtk.Image.new_from_icon_name("dp-chevron-down-symbolic")
+            img.set_pixel_size(20)
+            btn = Gtk.Button()
+            btn.set_child(img)
+            btn.set_valign(Gtk.Align.CENTER)
+            btn.add_css_class("flat")
+            btn.connect("clicked", lambda _b, e=exp: e.set_expanded(not e.get_expanded()))
+            exp.add_suffix(btn)
+            exp.connect(
+                "notify::expanded",
+                lambda e, _p, i=img: i.set_from_icon_name(
+                    "dp-chevron-up-symbolic" if e.get_expanded() else "dp-chevron-down-symbolic"
+                ),
+            )
             return exp
 
         self._bt_expander = _make_bt_expander()
