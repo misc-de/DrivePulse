@@ -261,10 +261,17 @@ class DashcamRecorder:
           1. tee → gtk4paintablesink (preview) + x264enc → splitmuxsink (recording)
           2. x264enc → splitmuxsink only (recording without preview)
 
+        Pipeline creation and gtk4paintablesink setup run on the GTK main thread
+        (via GLib.idle_add) so the GL rendering context is correct.  The recording
+        thread blocks on threading.Event while the main thread initialises, then
+        takes over for the long-running poll loop.
+
         Returns True if a pipeline started and handled recording (even on later error).
         Returns False if no pipeline started at all — caller falls through to external
         gst-launch-1.0 / ffmpeg.
         """
+        import threading as _threading
+
         sources = [
             "droidcamsrc",
             "pipewiresrc",
@@ -272,7 +279,7 @@ class DashcamRecorder:
             f"v4l2src device={self.camera}",
             "autovideosrc",
         ]
-        seg_ns = self.segment_minutes * 60 * 1_000_000_000  # segment length in nanoseconds
+        seg_ns = self.segment_minutes * 60 * 1_000_000_000  # nanoseconds
         rec_tail = (
             f"! x264enc tune=zerolatency speed-preset=ultrafast quantizer=28 "
             f"! h264parse ! splitmuxsink name=mux "
@@ -296,41 +303,64 @@ class DashcamRecorder:
                 else:
                     pl = f"{src} ! videoconvert ! videoflip method=0 ! queue {rec_tail}"
 
+                # ── Initialise pipeline on the GTK main thread ─────────────────
+                # gtk4paintablesink must connect to the GTK rendering context,
+                # which is only valid on the main thread.
+                _result: dict[str, Any] = {}
+                _ready = _threading.Event()
+
+                def _init(pl=pl, wp=with_preview, r=_result, ev=_ready) -> bool:
+                    try:
+                        p = _Gst.parse_launch(pl)
+                        p.get_by_name("mux").connect(
+                            "format-location", self._on_gst_format_location
+                        )
+                        if wp:
+                            try:
+                                paintable = (
+                                    p.get_by_name("preview")
+                                    .get_property("paintable")
+                                )
+                                r["paintable"] = paintable
+                                if self.on_preview_ready and paintable:
+                                    self.on_preview_ready(paintable)
+                            except Exception:
+                                pass
+                        p.set_state(_Gst.State.PLAYING)
+                        r["pipeline"] = p
+                    except Exception as exc:
+                        r["exc"] = exc
+                        log.debug("gst init failed: %s", exc)
+                    finally:
+                        ev.set()
+                    return False  # remove idle source
+
                 log.debug("gst in-proc attempt src=%s preview=%s", src, with_preview)
-                try:
-                    pipeline = _Gst.parse_launch(pl)
-                except Exception as exc:
-                    log.debug("gst parse_launch failed: %s", exc)
+                _GLib.idle_add(_init)
+                if not _ready.wait(timeout=5):
+                    log.debug("gst main-thread init timed out")
+                    continue
+                if "exc" in _result or "pipeline" not in _result:
                     continue
 
-                mux = pipeline.get_by_name("mux")
-                mux.connect("format-location", self._on_gst_format_location)
+                pipeline = _result["pipeline"]
                 bus = pipeline.get_bus()
-                pipeline.set_state(_Gst.State.PLAYING)
-                ret = pipeline.get_state(3_000_000_000)  # wait up to 3 s for PLAYING
 
+                # Wait for PLAYING on recording thread (blocks here, not on main thread)
+                ret = pipeline.get_state(3_000_000_000)
                 if ret[0] == _Gst.StateChangeReturn.FAILURE:
                     pipeline.set_state(_Gst.State.NULL)
-                    log.debug("gst pipeline failed to reach PLAYING: src=%s preview=%s", src, with_preview)
+                    log.debug("gst PLAYING failed: src=%s preview=%s", src, with_preview)
                     continue
 
                 if self._stop_event.is_set():
                     pipeline.set_state(_Gst.State.NULL)
                     return True
 
-                # Expose preview paintable to the UI (main thread via idle_add)
-                if with_preview:
-                    try:
-                        paintable = pipeline.get_by_name("preview").get_property("paintable")
-                        if self.on_preview_ready and paintable:
-                            _GLib.idle_add(self.on_preview_ready, paintable)
-                    except Exception:
-                        pass  # gtk4paintablesink not accessible; preview stays dark
-
                 self._gst_pipeline = pipeline
                 log.info("gst in-proc recording active: src=%s preview=%s", src, with_preview)
 
-                # Block until stop is requested; poll bus for fatal errors.
+                # Poll bus until stop is requested or an error/EOS arrives.
                 while not self._stop_event.is_set():
                     msg = bus.timed_pop_filtered(
                         100_000_000,  # 100 ms
@@ -342,15 +372,18 @@ class DashcamRecorder:
                         err, _ = msg.parse_error()
                         log.warning("gst recording error: %s", err)
                         self._stop_event.set()
-                    break  # EOS or error — exit poll loop
+                    break
 
-                # Finalise: flush and close the current segment file.
+                # Finalise: send EOS and wait for it to reach all sinks so that
+                # splitmuxsink / mp4mux can write the moov atom before we stop.
                 pipeline.send_event(_Gst.Event.new_eos())
-                pipeline.get_state(5_000_000_000)  # wait up to 5 s for EOS to propagate
+                bus.timed_pop_filtered(
+                    5_000_000_000,  # 5 s
+                    _Gst.MessageType.EOS | _Gst.MessageType.ERROR,
+                )
                 pipeline.set_state(_Gst.State.NULL)
                 self._gst_pipeline = None
 
-                # Fire on_segment_done for the last open segment.
                 last = self._gst_last_seg
                 self._gst_last_seg = None
                 if last is not None and self.on_segment_done:
