@@ -48,6 +48,21 @@ class CarsDetailRenderMixin:
                 if self._live_identity.get(identity_key):
                     d[special_key] = self._live_identity[identity_key]
             return d, _translate(self.language, "cars.live.title")
+        if (self._selected_scan_id is not None
+                and self.db is not None
+                and self._selected_car_id is not None):
+            try:
+                data = self.db.get_scan_data(self._selected_scan_id)
+                scans = self.db.list_scans_for_car(self._selected_car_id)
+                scan_meta = next(
+                    (s for s in scans if int(s["id"]) == self._selected_scan_id), None
+                )
+                if scan_meta:
+                    ts = self._parse_ts(scan_meta["scanned_at"])
+                    label = ts.strftime("%d.%m.%Y  %H:%M") if ts else str(self._selected_scan_id)
+                    return self._flatten_profile(data), label
+            except Exception:
+                pass
         for entry in self._profiles:
             if str(entry["path"]) == self._selected_source:
                 vin = entry.get("vin", "")
@@ -55,6 +70,16 @@ class CarsDetailRenderMixin:
                 label = brand if brand else _translate(self.language, "cars.unknown")
                 if vin:
                     label = f"{label} · …{vin[-5:]}"
+                scans_list = []
+                if self.db is not None and entry.get("car_id"):
+                    try:
+                        scans_list = self.db.list_scans_for_car(entry["car_id"])
+                    except Exception:
+                        pass
+                if scans_list:
+                    latest = scans_list[0]
+                    ts = self._parse_ts(latest["scanned_at"])
+                    label = ts.strftime("%d.%m.%Y  %H:%M") if ts else label
                 return self._flatten_profile(entry["data"]), label
         return {}, "—"
 
@@ -116,8 +141,9 @@ class CarsDetailRenderMixin:
         cat_key, cat_name_key, _icon_name, items = cat_meta
         self.content_title.set_text(_translate(self.language, cat_name_key))
 
+        is_live = self._selected_source == self.LIVE_ID
         data, source_label = self._current_data()
-        self.content_subtitle.set_text("")
+        self.content_subtitle.set_text("" if is_live else source_label)
 
         if cat_key == "trips":
             self._render_trips_into_value_list()
@@ -136,16 +162,29 @@ class CarsDetailRenderMixin:
             return
 
         _vin_data_keys = set(VIN_DATA_SPECIAL_KEYS.values())
-        is_live = self._selected_source == self.LIVE_ID
         for pid_key, label_key in items:
             raw = data.get(pid_key)
             value_text, is_unknown = self._format_entry(pid_key, raw)
             if is_unknown and pid_key in _vin_data_keys:
                 continue
             label = _translate(self.language, label_key)
-            if is_live and not pid_key.startswith("__"):
-                live_key = _PID_TO_LIVE_KEY.get(pid_key)
-                stats = self._live_session_stats.get(live_key) if live_key else None
+            if not pid_key.startswith("__"):
+                if is_live:
+                    live_key = _PID_TO_LIVE_KEY.get(pid_key)
+                    stats = self._live_session_stats.get(live_key) if live_key else None
+                else:
+                    stats = self._scan_pid_stats.get(pid_key)
+                    if stats and "avg" in stats:
+                        avg = stats["avg"]
+                        unit = _unit_display(stats.get("unit", ""), getattr(self, "language", "de"))
+                        if abs(avg) >= 100:
+                            avg_str = f"{avg:.0f}"
+                        elif abs(avg) >= 10:
+                            avg_str = f"{avg:.1f}"
+                        else:
+                            avg_str = f"{avg:.2f}"
+                        value_text = f"{avg_str} {unit}".strip()
+                        is_unknown = False
                 row = self._make_live_stats_row(label, value_text, stats, is_unknown)
             else:
                 row = self._make_stacked_row(label, value_text, is_unknown)

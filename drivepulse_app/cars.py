@@ -110,6 +110,8 @@ class CarsPage(
         self._trip_selected_ids: set[int] = set()
         self._scan_select_mode: bool = False
         self._scan_selected_ids: set[int] = set()
+        self._selected_scan_id: int | None = None
+        self._scan_pid_stats: dict[str, dict] = {}
         self._run_select_mode: bool = False
         self._run_selected_ids: set[int] = set()
         self._photo_select_mode: bool = False
@@ -426,8 +428,62 @@ class CarsPage(
                     self.category_list.select_row(row)
                     break
 
+    def _select_scan(self, scan_id: int) -> None:
+        self._selected_scan_id = scan_id
+        if self._detail_pushed:
+            self._render_detail()
+
+    def _bg_compute_scan_stats(self) -> None:
+        stats: dict[str, dict] = {}
+        if self.db is None or self._selected_car_id is None:
+            GLib.idle_add(self._apply_scan_pid_stats, stats)
+            return
+        try:
+            scans = self.db.list_scans_for_car(self._selected_car_id)
+        except Exception:
+            GLib.idle_add(self._apply_scan_pid_stats, stats)
+            return
+        from .cars_metadata import _parse_profile_pid_key
+        for scan_meta in scans:
+            try:
+                data = self.db.get_scan_data(int(scan_meta["id"]))
+            except Exception:
+                continue
+            for raw_key, raw_val in (data.get("live_data") or {}).items():
+                pid = _parse_profile_pid_key(raw_key)
+                if not pid:
+                    continue
+                if isinstance(raw_val, dict):
+                    v = raw_val.get("value")
+                    unit = str(raw_val.get("unit", ""))
+                else:
+                    v = raw_val
+                    unit = ""
+                try:
+                    num = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if pid not in stats:
+                    stats[pid] = {"min": num, "max": num, "sum": num, "count": 1, "unit": unit}
+                else:
+                    stats[pid]["min"] = min(stats[pid]["min"], num)
+                    stats[pid]["max"] = max(stats[pid]["max"], num)
+                    stats[pid]["sum"] += num
+                    stats[pid]["count"] += 1
+        for s in stats.values():
+            s["avg"] = s["sum"] / s["count"]
+        GLib.idle_add(self._apply_scan_pid_stats, stats)
+
+    def _apply_scan_pid_stats(self, stats: dict) -> bool:
+        self._scan_pid_stats = stats
+        if self._detail_pushed and self._selected_source != self.LIVE_ID:
+            self._render_detail()
+        return False
+
     def _open_detail(self, source: str) -> None:
         self._selected_source = source
+        self._selected_scan_id = None
+        self._scan_pid_stats = {}
         self._selected_car_id = None
         if source == self.LIVE_ID:
             title = _translate(self.language, "cars.live.title")
@@ -457,6 +513,8 @@ class CarsPage(
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
         self._update_photo_upload_btn_visibility()
+        if self._selected_car_id is not None:
+            threading.Thread(target=self._bg_compute_scan_stats, daemon=True).start()
         if not self._detail_pushed:
             self.nav_view.push(self._detail_page)
             self._detail_pushed = True
@@ -468,6 +526,8 @@ class CarsPage(
             self._trip_selected_ids = set()
             self._scan_select_mode = False
             self._scan_selected_ids = set()
+            self._selected_scan_id = None
+            self._scan_pid_stats = {}
             self._run_select_mode = False
             self._run_selected_ids = set()
             self._photo_select_mode = False

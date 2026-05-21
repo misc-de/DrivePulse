@@ -11,7 +11,7 @@ window.dp-theme-racing .dp-gauge-bg > * {
   background-color: #0a0803;
 }"""
 
-from draw_helpers import _txt, _norm, _arc_track, _cardinal, _ARC_START, _ARC_END, _ARC_SPAN, _draw_last_trip_strip
+from draw_helpers import _txt, _norm, _arc_track, _cardinal, _ARC_START, _ARC_END, _ARC_SPAN
 from common import _translate
 
 
@@ -183,12 +183,10 @@ def _draw_impl(cr: Any, width: int, height: int, data: Any, dark: bool) -> None:
     cr.paint()
     accent = (0.95, 0.42, 0.08)
     sec_accent = accent
-    strip_h = max(28.0, height * 0.072)
     if width >= height:
-        _draw_rings_landscape(cr, width, height - strip_h, data, accent, sec_accent, pal)
+        _draw_rings_landscape(cr, width, height, data, accent, sec_accent, pal)
     else:
-        _draw_rings_portrait(cr, width, height - strip_h, data, accent, sec_accent, pal)
-    _draw_last_trip_strip(cr, 0, height - strip_h, width, strip_h, data)
+        _draw_rings_portrait(cr, width, height, data, accent, sec_accent, pal)
 
 
 def draw(cr: Any, width: int, height: int, data: Any) -> None:
