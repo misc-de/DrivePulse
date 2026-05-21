@@ -351,9 +351,13 @@ class DashcamPage(Gtk.Box):
         self._lock_save_btn.add_css_class("pill")
         self._lock_save_btn.set_halign(Gtk.Align.CENTER)
         self._lock_save_btn.set_valign(Gtk.Align.CENTER)
-        self._lock_save_btn.set_vexpand(True)
         self._lock_save_btn.connect("clicked", self._on_lock_save)
-        self._lock_overlay.append(self._lock_save_btn)
+
+        self._lock_btn_rotator = RotatedContainer()
+        self._lock_btn_rotator.set_hexpand(True)
+        self._lock_btn_rotator.set_vexpand(True)
+        self._lock_btn_rotator.set_child(self._lock_save_btn)
+        self._lock_overlay.append(self._lock_btn_rotator)
 
         wake = Gtk.GestureClick()
         wake.connect("pressed", self._on_lock_tap)
@@ -521,6 +525,7 @@ class DashcamPage(Gtk.Box):
         landscape = angle in (90, 270)
         self._is_landscape = landscape
         self._apply_bar_position(angle, landscape)
+        self._lock_btn_rotator.set_rotation(angle)
 
     def _apply_bar_position(self, angle: int, is_landscape: bool) -> None:
         """Reposition + rotate the control bar to follow physical orientation.
