@@ -110,52 +110,108 @@ class CarsStopWatchRunsMixin:
         max_gps = results.get("max_gps_kmh")
         max_g = results.get("max_g")
 
+        # ── Summary metric cards ──────────────────────────────────────
+        metrics: list[tuple[str, str]] = []
+        if max_obd is not None:
+            metrics.append((_translate(self.language, "cars.stopwatch_run.max_obd"), f"{max_obd:.0f} km/h"))
+        if max_gps is not None:
+            metrics.append((_translate(self.language, "cars.stopwatch_run.max_gps"), f"{max_gps:.0f} km/h"))
+        if max_g is not None:
+            metrics.append((_translate(self.language, "cars.stopwatch_run.max_g"), f"{max_g:.2f} g"))
+
+        if metrics:
+            summary_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            summary_box.set_homogeneous(True)
+            summary_box.set_margin_top(12)
+            summary_box.set_margin_bottom(4)
+            summary_box.set_margin_start(12)
+            summary_box.set_margin_end(12)
+
+            for cap, val in metrics:
+                card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                card.add_css_class("card")
+                val_lbl = Gtk.Label(label=val)
+                val_lbl.add_css_class("title-2")
+                val_lbl.add_css_class("monospace")
+                val_lbl.set_margin_top(10)
+                val_lbl.set_margin_start(8)
+                val_lbl.set_margin_end(8)
+                cap_lbl = Gtk.Label(label=cap)
+                cap_lbl.add_css_class("caption")
+                cap_lbl.add_css_class("dim-label")
+                cap_lbl.set_margin_bottom(10)
+                cap_lbl.set_margin_start(8)
+                cap_lbl.set_margin_end(8)
+                card.append(val_lbl)
+                card.append(cap_lbl)
+                summary_box.append(card)
+
+            box.append(summary_box)
+
+        # ── Times table ───────────────────────────────────────────────
         group = Adw.PreferencesGroup()
-        group.set_margin_top(12)
+        group.set_margin_top(8)
         group.set_margin_bottom(12)
         group.set_margin_start(12)
         group.set_margin_end(12)
         box.append(group)
 
-        def _add_row(title: str, val: str) -> None:
-            r = Adw.ActionRow()
-            r.set_title(GLib.markup_escape_text(title))
-            lbl = Gtk.Label(label=val)
-            lbl.add_css_class("monospace")
-            lbl.set_valign(Gtk.Align.CENTER)
-            r.add_suffix(lbl)
-            r.set_activatable(False)
-            group.add(r)
+        def _add_time_row(title: str, obd_t: float | None, gps_t: float | None) -> None:
+            row = Adw.ActionRow()
+            row.set_title(GLib.markup_escape_text(title))
+            row.set_activatable(False)
 
-        if max_obd is not None:
-            _add_row(_translate(self.language, "cars.stopwatch_run.max_obd"), f"{max_obd:.0f} km/h")
-        if max_gps is not None:
-            _add_row(_translate(self.language, "cars.stopwatch_run.max_gps"), f"{max_gps:.0f} km/h")
-        if max_g is not None:
-            _add_row(_translate(self.language, "cars.stopwatch_run.max_g"), f"{max_g:.3f} g")
+            sfx = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+            sfx.set_valign(Gtk.Align.CENTER)
+
+            obd_val_lbl: Gtk.Label | None = None
+            gps_val_lbl: Gtk.Label | None = None
+
+            if obd_t is not None:
+                col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+                col.set_halign(Gtk.Align.END)
+                src = Gtk.Label(label="OBD")
+                src.add_css_class("caption")
+                src.add_css_class("dim-label")
+                obd_val_lbl = Gtk.Label(label=f"{obd_t:.2f} s")
+                obd_val_lbl.add_css_class("monospace")
+                col.append(src)
+                col.append(obd_val_lbl)
+                sfx.append(col)
+
+            if gps_t is not None:
+                col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+                col.set_halign(Gtk.Align.END)
+                src = Gtk.Label(label="GPS")
+                src.add_css_class("caption")
+                src.add_css_class("dim-label")
+                gps_val_lbl = Gtk.Label(label=f"{gps_t:.2f} s")
+                gps_val_lbl.add_css_class("monospace")
+                col.append(src)
+                col.append(gps_val_lbl)
+                sfx.append(col)
+
+            if obd_val_lbl and gps_val_lbl and obd_t is not None and gps_t is not None:
+                if obd_t <= gps_t:
+                    obd_val_lbl.add_css_class("accent")
+                else:
+                    gps_val_lbl.add_css_class("accent")
+
+            row.add_suffix(sfx)
+            group.add(row)
 
         for target_str in sorted(targets.keys(), key=lambda s: float(s)):
             v = targets[target_str]
             obd_t = v.get("obd")
             gps_t = v.get("gps")
-            parts: list[str] = []
-            if obd_t is not None:
-                parts.append(f"OBD {obd_t:.2f} s")
-            if gps_t is not None:
-                parts.append(f"GPS {gps_t:.2f} s")
-            if parts:
-                _add_row(f"0–{target_str} km/h", "  ·  ".join(parts))
+            if obd_t is not None or gps_t is not None:
+                _add_time_row(f"0–{target_str} km/h", obd_t, gps_t)
 
         for range_str, v in ranges.items():
             obd_t = v.get("obd")
             gps_t = v.get("gps")
-            parts = []
-            if obd_t is not None:
-                parts.append(f"OBD {obd_t:.2f} s")
-            if gps_t is not None:
-                parts.append(f"GPS {gps_t:.2f} s")
-            if parts:
-                _add_row(f"{range_str} km/h", "  ·  ".join(parts))
+            if obd_t is not None or gps_t is not None:
+                _add_time_row(f"{range_str} km/h", obd_t, gps_t)
 
         del_btn = Gtk.Button(label=_translate(self.language, "cars.stopwatch_run.delete_title"))
         del_btn.add_css_class("destructive-action")
