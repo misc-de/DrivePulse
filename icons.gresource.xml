@@ -6,6 +6,7 @@
     <file alias="playback-speed-symbolic.svg">icons/hicolor/symbolic/actions/playback-speed-symbolic.svg</file>
     <file alias="thermometer-symbolic.svg">icons/hicolor/symbolic/actions/thermometer-symbolic.svg</file>
     <file alias="globe-symbolic.svg">icons/hicolor/symbolic/actions/globe-symbolic.svg</file>
+    <file alias="dp-tour-plan-symbolic.svg">icons/hicolor/symbolic/actions/dp-tour-plan-symbolic.svg</file>
     <file alias="info-symbolic.svg">icons/hicolor/symbolic/actions/info-symbolic.svg</file>
     <file alias="step_object_LinearMotor-symbolic.svg">icons/hicolor/symbolic/actions/step_object_LinearMotor-symbolic.svg</file>
     <file alias="stopwatch-symbolic.svg">icons/hicolor/symbolic/actions/stopwatch-symbolic.svg</file>

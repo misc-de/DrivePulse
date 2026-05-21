@@ -26,6 +26,7 @@ gi.require_version("Adw", "1")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
+from .db import DriveDB
 from .diagnostics import get_logger
 from . import tts_service
 from .map_shumate import SHUMATE_OK, MapShumateMixin
@@ -73,6 +74,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         on_tour_stopped: Callable[[], None] | None = None,
         on_tour_resumed: Callable[[], None] | None = None,
         on_tts_enabled_changed: Callable[[bool], None] | None = None,
+        db: DriveDB | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
@@ -206,12 +208,16 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._entries_container: Gtk.Box | None = None
         self._search_bar: Gtk.Box | None = None
 
+        self._map_db: DriveDB | None = db
+
         # Tour top-nav
         self._tour_topnav: Gtk.Box | None = None
         self._tour_plan_btn: Gtk.ToggleButton | None = None
         self._tour_load_btn: Gtk.Button | None = None
         self._tour_save_btn: Gtk.Button | None = None
         self._tour_plan_active: bool = False
+        self._tour_list_panel: Gtk.Box | None = None
+        self._tour_listbox: Gtk.ListBox | None = None
 
         self._build_tour_topnav()
         self._build_search_bar()
@@ -424,6 +430,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._tour_coords = []
         self._abort_tour()
         self._set_tour_controls_visible(False)
+        if self._tour_save_btn is not None:
+            self._tour_save_btn.set_visible(False)
         if self._backend == "webkit":
             self._js("mapClearRoute()")
         else:
@@ -659,6 +667,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             f"{distance_prefix}{format_distance(distance_m, self.units)}"
         )
         self._set_tour_controls_visible(True)
+        if self._tour_save_btn is not None:
+            self._tour_save_btn.set_visible(True)
         if self._steps_toggle_btn is not None and self._steps_toggle_btn.get_active():
             self._rebuild_steps_list()
             if self._steps_panel is not None:

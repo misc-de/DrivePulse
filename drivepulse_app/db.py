@@ -109,6 +109,13 @@ CREATE TABLE IF NOT EXISTS car_photos (
     label       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_car_photos_car ON car_photos(car_id, taken_at DESC);
+
+CREATE TABLE IF NOT EXISTS saved_tours (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    waypoints_json  TEXT NOT NULL
+);
 """
 
 
@@ -673,6 +680,28 @@ class DriveDB:
                     ),
                 )
             self._conn.execute("DELETE FROM share_conflicts WHERE id=?", (conflict_id,))
+            self._conn.commit()
+
+    # ── Saved tours ───────────────────────────────────────────────────────────
+
+    def save_tour(self, name: str, waypoints_json: str, created_at: str) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO saved_tours (name, created_at, waypoints_json) VALUES (?,?,?)",
+                (name, created_at, waypoints_json),
+            )
+            self._conn.commit()
+            return cur.lastrowid  # type: ignore[return-value]
+
+    def list_saved_tours(self) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM saved_tours ORDER BY created_at DESC"
+            ).fetchall()
+
+    def delete_saved_tour(self, tour_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM saved_tours WHERE id=?", (tour_id,))
             self._conn.commit()
 
 

@@ -248,6 +248,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             on_tour_stopped=self._on_tour_stopped,
             on_tour_resumed=self._on_tour_resumed,
             on_tts_enabled_changed=self._set_tts_enabled,
+            db=self.db,
         )
         from . import tts_service as _tts_svc
         _tts_svc.set_backend(self.tts_backend)
