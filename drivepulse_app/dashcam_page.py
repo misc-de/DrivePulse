@@ -238,6 +238,7 @@ class DashcamPage(Gtk.Box):
         # widget lists kept in sync across portrait/landscape layouts
         self._toggle_btns: list[Gtk.Button] = []
         self._save_btns:   list[Gtk.Button] = []
+        self._clips_btns:  list[Gtk.MenuButton] = []
 
         self._build_ui()
         self._update_status()
@@ -399,6 +400,7 @@ class DashcamPage(Gtk.Box):
         self._clips_popover.connect("show", lambda _: self._update_saved_list())
         clips_btn.add_css_class("circular")
         clips_btn.add_css_class("osd")
+        self._clips_btns.append(clips_btn)
         btn_row.append(clips_btn)
 
         box.append(btn_row)
@@ -717,6 +719,8 @@ class DashcamPage(Gtk.Box):
             else:
                 btn.remove_css_class("destructive-action")
                 btn.add_css_class("suggested-action")
+        for btn in self._clips_btns:
+            btn.set_visible(not rec)
 
     def _update_status(self) -> None:
         pass
