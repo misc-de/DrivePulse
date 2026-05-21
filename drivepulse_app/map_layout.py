@@ -160,9 +160,13 @@ class MapLayoutMixin:
 
         self._tour_listbox = listbox
 
+        toolbar_view = Adw.ToolbarView()
+        toolbar_view.add_top_bar(Adw.HeaderBar())
+        toolbar_view.set_content(page_box)
+
         page = Adw.NavigationPage()
         page.set_title(_translate(self.language, "map.topnav.load"))
-        page.set_child(page_box)
+        page.set_child(toolbar_view)
         nav_view.push(page)
         self._rebuild_tour_list()
 
@@ -316,8 +320,6 @@ class MapLayoutMixin:
         self._update_placeholders()
 
         self._loaded_tour_id = int(tour["id"])
-        if self._tour_plan_btn is not None and not self._tour_plan_btn.get_active():
-            self._tour_plan_btn.set_active(True)
         nav_view = getattr(self, "_nav_view", None)
         if nav_view is not None:
             nav_view.pop()
