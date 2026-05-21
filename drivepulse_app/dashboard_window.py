@@ -381,6 +381,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         toolbar_view.set_content(stack_overlay)
 
         self._nav_visible = True
+        self._dashcam_is_recording = False
         self._last_swipe_time = 0.0
         self._tap_press_time = 0.0
         self._tap_press_x = 0.0
@@ -503,8 +504,18 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             _tts_svc.cancel_download(model)
 
     def _on_dashcam_recording_changed(self, recording: bool) -> None:
+        self._dashcam_is_recording = recording
         self._dashcam_rec_box.set_visible(recording)
         self.dashcam_stack_page.set_needs_attention(recording)
+        self._refresh_dashcam_nav()
+
+    def _refresh_dashcam_nav(self) -> None:
+        on_cam = self.view_stack.get_visible_child_name() == self.PAGE_DASHCAM
+        hide = self._dashcam_is_recording and on_cam
+        visible = self._nav_visible and not hide
+        self.header.set_visible(visible)
+        self.switcher_bar.set_visible(visible)
+        self.switcher_top.set_visible(visible)
 
     def _apply_page_rotation(self, angle: int) -> None:
         self._current_rotation = angle
@@ -621,6 +632,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         elif prev == self.PAGE_DASHCAM:
             self.dashcam_page.on_hidden()
         self._last_visible_page = page
+
+        # Hide nav on dashcam tab while recording; restore when leaving.
+        self._refresh_dashcam_nav()
 
     # Hold the simulated drive for this long after the tour starts, matching
     # mapStartTour's camera settle window in map.html so the car doesn't pull
