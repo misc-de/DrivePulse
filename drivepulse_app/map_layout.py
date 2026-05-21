@@ -1,7 +1,7 @@
 """Map page UI construction mixin — _build_* methods, CSS, step list."""
 from __future__ import annotations
 
-from gi.repository import Gdk, GLib, GObject, Gtk
+from gi.repository import Adw, Gdk, GLib, GObject, Gtk
 
 from .common import _translate
 from .map_services import MAP_ICONS, MAP_LABEL_KEYS, MAP_TYPES, format_distance, maneuver_icon, maneuver_text_key
@@ -132,7 +132,7 @@ class MapLayoutMixin:
         for btn in (load_btn, plan_btn, save_btn):
             bar.append(btn)
 
-        self.append(bar)
+        self._map_content_box.append(bar)
 
     def _on_tour_plan_toggled(self, btn: Gtk.ToggleButton) -> None:
         self._tour_plan_active = btn.get_active()
@@ -141,12 +141,30 @@ class MapLayoutMixin:
         GLib.idle_add(self._nudge_map_resize)
 
     def _on_tour_load_clicked(self, _btn: object) -> None:
-        if self._tour_list_panel is None:
+        nav_view = getattr(self, "_nav_view", None)
+        if nav_view is None:
             return
-        visible = not self._tour_list_panel.get_visible()
-        if visible:
-            self._rebuild_tour_list()
-        self._tour_list_panel.set_visible(visible)
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        page_box.set_hexpand(True)
+        page_box.set_vexpand(True)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+
+        listbox = Gtk.ListBox()
+        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        listbox.add_css_class("navigation-sidebar")
+        scrolled.set_child(listbox)
+        page_box.append(scrolled)
+
+        self._tour_listbox = listbox
+
+        page = Adw.NavigationPage()
+        page.set_title(_translate(self.language, "map.topnav.load"))
+        page.set_child(page_box)
+        nav_view.push(page)
+        self._rebuild_tour_list()
 
     def _on_tour_save_clicked(self, _btn: object) -> None:
         import json as _json
@@ -154,61 +172,58 @@ class MapLayoutMixin:
         db = getattr(self, "_map_db", None)
         if db is None:
             return
+
         waypoints = [e.get_text().strip() for _, e, __ in self._entry_rows]
         names = [w for w in waypoints if w]
         if len(names) >= 2:
-            name = f"{names[0]} → {names[-1]}"
+            default_name = f"{names[0]} → {names[-1]}"
         elif names:
-            name = names[0]
+            default_name = names[0]
         else:
-            name = datetime.now().strftime("%d.%m.%Y")
-        db.save_tour(name, _json.dumps(waypoints), datetime.now(timezone.utc).isoformat())
-        if self._status_lbl is not None:
-            prev = self._status_lbl.get_text()
-            self._status_lbl.set_text(_translate(self.language, "map.tours.saved"))
-            GLib.timeout_add(2000, lambda: self._status_lbl.set_text(prev) or False)
+            default_name = datetime.now().strftime("%d.%m.%Y")
 
-    def _build_tour_list_panel(self) -> Gtk.Widget:
-        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        wrap.add_css_class("dp-steps-panel")
-        wrap.set_halign(Gtk.Align.START)
-        wrap.set_valign(Gtk.Align.START)
-        wrap.set_margin_start(12)
-        wrap.set_margin_top(12)
-        wrap.set_size_request(300, -1)
-        wrap.set_visible(False)
+        loaded_id: int | None = getattr(self, "_loaded_tour_id", None)
 
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        header.set_margin_start(10)
-        header.set_margin_end(6)
-        header.set_margin_top(8)
-        header.set_margin_bottom(6)
-        title_lbl = Gtk.Label(label=_translate(self.language, "map.topnav.load"))
-        title_lbl.add_css_class("heading")
-        title_lbl.set_hexpand(True)
-        title_lbl.set_halign(Gtk.Align.START)
-        close_btn = Gtk.Button(icon_name="window-close-symbolic")
-        close_btn.add_css_class("flat")
-        close_btn.add_css_class("circular")
-        close_btn.connect("clicked", lambda _b: wrap.set_visible(False))
-        header.append(title_lbl)
-        header.append(close_btn)
-        wrap.append(header)
-        wrap.append(Gtk.Separator())
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content_box.set_margin_top(6)
+        content_box.set_margin_bottom(6)
 
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_max_content_height(380)
-        scrolled.set_propagate_natural_height(True)
-        listbox = Gtk.ListBox()
-        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        listbox.add_css_class("navigation-sidebar")
-        scrolled.set_child(listbox)
-        wrap.append(scrolled)
+        name_entry = Gtk.Entry()
+        name_entry.set_text(default_name)
+        name_entry.set_activates_default(True)
+        content_box.append(name_entry)
 
-        self._tour_list_panel = wrap
-        self._tour_listbox = listbox
-        return wrap
+        save_new_check: Gtk.CheckButton | None = None
+        if loaded_id is not None:
+            save_new_check = Gtk.CheckButton(
+                label=_translate(self.language, "map.tours.save_as_new")
+            )
+            save_new_check.set_active(False)
+            content_box.append(save_new_check)
+
+        dialog = Adw.AlertDialog(heading=_translate(self.language, "map.topnav.save"))
+        dialog.set_extra_child(content_box)
+        dialog.add_response("cancel", _translate(self.language, "map.tours.cancel"))
+        dialog.add_response("save", _translate(self.language, "map.tours.do_save"))
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "save":
+                return
+            name = name_entry.get_text().strip() or default_name
+            as_new = save_new_check is None or save_new_check.get_active()
+            wp_json = _json.dumps(waypoints)
+            now = datetime.now(timezone.utc).isoformat()
+            if not as_new and loaded_id is not None:
+                db.update_saved_tour(loaded_id, name, wp_json)
+            else:
+                tid = db.save_tour(name, wp_json, now)
+                self._loaded_tour_id = tid
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
 
     def _rebuild_tour_list(self) -> None:
         if self._tour_listbox is None:
@@ -300,10 +315,12 @@ class MapLayoutMixin:
             entry.set_text(text)
         self._update_placeholders()
 
+        self._loaded_tour_id = int(tour["id"])
         if self._tour_plan_btn is not None and not self._tour_plan_btn.get_active():
             self._tour_plan_btn.set_active(True)
-        if self._tour_list_panel is not None:
-            self._tour_list_panel.set_visible(False)
+        nav_view = getattr(self, "_nav_view", None)
+        if nav_view is not None:
+            nav_view.pop()
         self._on_route_clicked(None)
 
     def _delete_saved_tour(self, tour_id: int) -> None:
@@ -347,7 +364,7 @@ class MapLayoutMixin:
             action.append(w)
         bar.append(action)
         bar.set_visible(False)
-        self.append(bar)
+        self._map_content_box.append(bar)
 
     def _make_entry_row(self) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
@@ -504,11 +521,10 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_zoom_controls())
             overlay.add_overlay(self._build_tour_controls())
             overlay.add_overlay(self._build_steps_panel())
-            overlay.add_overlay(self._build_tour_list_panel())
             overlay.add_overlay(self._build_maneuver_overlay())
             overlay.add_overlay(self._build_map_state_overlay())
 
-        self.append(overlay)
+        self._map_content_box.append(overlay)
 
         if self._backend == "shumate":
             self._apply_initial_overlay_state()
