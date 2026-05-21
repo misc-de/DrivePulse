@@ -313,6 +313,8 @@ class DashboardTelemetryMixin:
             self._live_coolant_min = None
             self._live_coolant_max = None
             self._live_speed_max = None
+            for _g in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
+                _g.reset_minmax()
 
         if current_trip_id is None:
             return
