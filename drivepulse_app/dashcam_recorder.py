@@ -7,11 +7,26 @@ import subprocess
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from .diagnostics import get_logger
 
 log = get_logger(__name__)
+
+# ── GStreamer (optional) ────────────────────────────────────────────────────────
+# Used for in-process recording so preview and capture share one pipeline,
+# eliminating the V4L2 device-busy race and providing live preview while recording.
+_GST_OK = False
+try:
+    import gi as _gi
+    _gi.require_version("Gst", "1.0")
+    from gi.repository import Gst as _Gst   # type: ignore[attr-defined]
+    from gi.repository import GLib as _GLib  # type: ignore[attr-defined]
+    _Gst.init(None)
+    _GST_OK = True
+except Exception:
+    _Gst = None   # type: ignore[assignment]
+    _GLib = None  # type: ignore[assignment]
 
 _VIDEOS_DIR = Path.home() / "Videos" / "Dashcam"
 
@@ -114,13 +129,18 @@ class DashcamRecorder:
         self.speed_osd:     bool = False           # show speed in video (GPS → OBD fallback)
         self.units:         str  = "metric"
 
-        self._proc:        subprocess.Popen | None = None
-        self._thread:      threading.Thread | None = None
-        self._stop_event   = threading.Event()
-        self._lock         = threading.Lock()
-        self._segments:    list[Path] = []
-        self._seg_started: datetime | None = None
-        self._osd_txt:     Path | None = None
+        # Called on the GTK main thread when in-process GStreamer provides a preview.
+        self.on_preview_ready: Callable[[Any], None] | None = None
+
+        self._proc:          subprocess.Popen | None = None
+        self._thread:        threading.Thread | None = None
+        self._stop_event     = threading.Event()
+        self._lock           = threading.Lock()
+        self._segments:      list[Path] = []
+        self._seg_started:   datetime | None = None
+        self._osd_txt:       Path | None = None
+        self._gst_pipeline:  Any = None
+        self._gst_last_seg:  Path | None = None
 
         self.is_recording: bool = False
 
@@ -145,7 +165,8 @@ class DashcamRecorder:
         self._stop_event.set()
         self._kill_proc()
         if self._thread:
-            self._thread.join(timeout=8)
+            # GStreamer EOS finalisation can take a few seconds; give it time.
+            self._thread.join(timeout=10)
 
     def save_event(self) -> list[Path]:
         """Copy previous + current segment to protected_dir. Returns saved paths."""
@@ -213,6 +234,11 @@ class DashcamRecorder:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _record_loop(self) -> None:
+        # Prefer in-process GStreamer: single pipeline with tee for preview + recording.
+        # Falls back to external gst-launch-1.0 / ffmpeg when GStreamer is unavailable
+        # or when required plugins (x264enc, gtk4paintablesink) are missing.
+        if _GST_OK and self._run_gst_recording():
+            return
         while not self._stop_event.is_set():
             seg = self._next_segment_path()
             with self._lock:
@@ -227,6 +253,129 @@ class DashcamRecorder:
             if not ok and not self._stop_event.is_set():
                 break
             self._prune()
+
+    def _run_gst_recording(self) -> bool:
+        """In-process GStreamer recording with optional live preview via tee.
+
+        Tries two pipeline variants per camera source:
+          1. tee → gtk4paintablesink (preview) + x264enc → splitmuxsink (recording)
+          2. x264enc → splitmuxsink only (recording without preview)
+
+        Returns True if a pipeline started and handled recording (even on later error).
+        Returns False if no pipeline started at all — caller falls through to external
+        gst-launch-1.0 / ffmpeg.
+        """
+        sources = [
+            "droidcamsrc",
+            "pipewiresrc",
+            "libcamerasrc",
+            f"v4l2src device={self.camera}",
+            "autovideosrc",
+        ]
+        seg_ns = self.segment_minutes * 60 * 1_000_000_000  # segment length in nanoseconds
+        rec_tail = (
+            f"! x264enc tune=zerolatency speed-preset=ultrafast quantizer=28 "
+            f"! h264parse ! splitmuxsink name=mux "
+            f"max-size-time={seg_ns} muxer-factory=mp4mux "
+            f"location={self.rolling_dir}/dc_%05d.mp4"
+        )
+
+        for src in sources:
+            if self._stop_event.is_set():
+                return True
+            self._gst_last_seg = None
+
+            for with_preview in (True, False):
+                if with_preview:
+                    pl = (
+                        f"{src} ! videoconvert ! videoflip method=0 ! tee name=t "
+                        f"t. ! queue max-size-buffers=2 leaky=downstream "
+                        f"! gtk4paintablesink name=preview sync=false "
+                        f"t. ! queue {rec_tail}"
+                    )
+                else:
+                    pl = f"{src} ! videoconvert ! videoflip method=0 ! queue {rec_tail}"
+
+                log.debug("gst in-proc attempt src=%s preview=%s", src, with_preview)
+                try:
+                    pipeline = _Gst.parse_launch(pl)
+                except Exception as exc:
+                    log.debug("gst parse_launch failed: %s", exc)
+                    continue
+
+                mux = pipeline.get_by_name("mux")
+                mux.connect("format-location", self._on_gst_format_location)
+                bus = pipeline.get_bus()
+                pipeline.set_state(_Gst.State.PLAYING)
+                ret = pipeline.get_state(3_000_000_000)  # wait up to 3 s for PLAYING
+
+                if ret[0] == _Gst.StateChangeReturn.FAILURE:
+                    pipeline.set_state(_Gst.State.NULL)
+                    log.debug("gst pipeline failed to reach PLAYING: src=%s preview=%s", src, with_preview)
+                    continue
+
+                if self._stop_event.is_set():
+                    pipeline.set_state(_Gst.State.NULL)
+                    return True
+
+                # Expose preview paintable to the UI (main thread via idle_add)
+                if with_preview:
+                    try:
+                        paintable = pipeline.get_by_name("preview").get_property("paintable")
+                        if self.on_preview_ready and paintable:
+                            _GLib.idle_add(self.on_preview_ready, paintable)
+                    except Exception:
+                        pass  # gtk4paintablesink not accessible; preview stays dark
+
+                self._gst_pipeline = pipeline
+                log.info("gst in-proc recording active: src=%s preview=%s", src, with_preview)
+
+                # Block until stop is requested; poll bus for fatal errors.
+                while not self._stop_event.is_set():
+                    msg = bus.timed_pop_filtered(
+                        100_000_000,  # 100 ms
+                        _Gst.MessageType.ERROR | _Gst.MessageType.EOS,
+                    )
+                    if msg is None:
+                        continue
+                    if msg.type == _Gst.MessageType.ERROR:
+                        err, _ = msg.parse_error()
+                        log.warning("gst recording error: %s", err)
+                        self._stop_event.set()
+                    break  # EOS or error — exit poll loop
+
+                # Finalise: flush and close the current segment file.
+                pipeline.send_event(_Gst.Event.new_eos())
+                pipeline.get_state(5_000_000_000)  # wait up to 5 s for EOS to propagate
+                pipeline.set_state(_Gst.State.NULL)
+                self._gst_pipeline = None
+
+                # Fire on_segment_done for the last open segment.
+                last = self._gst_last_seg
+                self._gst_last_seg = None
+                if last is not None and self.on_segment_done:
+                    self.on_segment_done(last)
+
+                return True
+
+        return False  # no source started — fall through to external-process path
+
+    def _on_gst_format_location(self, _splitmux: Any, _fragment_id: int) -> str:
+        """splitmuxsink format-location signal — fired on the GStreamer streaming thread."""
+        # Close out previous segment
+        prev = self._gst_last_seg
+        if prev is not None and self.on_segment_done:
+            self.on_segment_done(prev)
+        # Open next segment
+        seg = self._next_segment_path()
+        self._gst_last_seg = seg
+        self._seg_started = datetime.now(timezone.utc)
+        with self._lock:
+            self._segments.append(seg)
+        if self.on_segment_start:
+            self.on_segment_start(seg)
+        self._prune()
+        return str(seg)
 
     def _next_segment_path(self) -> Path:
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")

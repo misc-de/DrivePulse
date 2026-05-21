@@ -222,6 +222,7 @@ class DashcamPage(Gtk.Box):
             on_segment_done=lambda p:  GLib.idle_add(self._on_segment_done, p),
             on_error=lambda msg:       GLib.idle_add(self._show_error, msg),
         )
+        self._recorder.on_preview_ready = self._on_preview_ready
 
         # Called on the GTK main thread whenever recording starts or stops.
         self.on_recording_changed: "Callable[[bool], None] | None" = None
@@ -433,6 +434,12 @@ class DashcamPage(Gtk.Box):
     def _on_preview_failed(self, _msg: str) -> None:
         pass
 
+    def _on_preview_ready(self, paintable: Any) -> bool:
+        """Called on the main thread when GStreamer in-process recording provides a preview."""
+        self._preview_pic.set_paintable(paintable)
+        self._no_cam_icon.set_visible(False)
+        return False
+
     # ── Public setters (called from dashboard_settings) ───────────────────────
 
     def set_camera(self, camera: str) -> None:
@@ -485,11 +492,12 @@ class DashcamPage(Gtk.Box):
     def on_shown(self) -> None:
         """Called when the Dashcam tab becomes visible.
 
-        Starts the camera preview lazily.  Idempotent — `_CameraPreview.start`
-        is a no-op if the pipeline is already alive (e.g. when a recording is
-        running and the user returns to the tab).
+        Starts the preview-only pipeline when not recording.  During recording
+        the GStreamer tee pipeline already provides the live preview — starting
+        a second pipeline would conflict with the camera device.
         """
-        self._preview.start()
+        if not self._recorder.is_recording:
+            self._preview.start()
 
     def on_hidden(self) -> None:
         """Called when the user navigates away from the Dashcam tab.
