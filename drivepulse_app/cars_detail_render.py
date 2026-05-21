@@ -30,6 +30,7 @@ from .cars_metadata import (
 
 _PID_TO_LIVE_KEY: dict[str, str] = {pid: key for key, pid in LIVE_KEY_TO_PID.items()}
 from .cars_scan_widgets import _format_scan_date
+from .scan_chart_dialog import ScanChartDialog
 
 
 class CarsDetailRenderMixin:
@@ -160,6 +161,7 @@ class CarsDetailRenderMixin:
                 if is_live:
                     live_key = _PID_TO_LIVE_KEY.get(pid_key)
                     stats = self._live_session_stats.get(live_key) if live_key else None
+                    on_click = None
                 else:
                     stats = self._scan_pid_stats.get(pid_key)
                     if stats and "avg" in stats:
@@ -173,7 +175,13 @@ class CarsDetailRenderMixin:
                             avg_str = f"{avg:.2f}"
                         value_text = f"⌀ {avg_str} {unit}".strip()
                         is_unknown = False
-                row = self._make_live_stats_row(label, value_text, stats, is_unknown)
+                    if stats and len(stats.get("values") or []) > 1:
+                        def _make_cb(lbl: str, s: dict) -> "callable":
+                            return lambda: ScanChartDialog(lbl, s, getattr(self, "language", "de")).present(self)
+                        on_click = _make_cb(label, stats)
+                    else:
+                        on_click = None
+                row = self._make_live_stats_row(label, value_text, stats, is_unknown, on_click)
             else:
                 row = self._make_stacked_row(label, value_text, is_unknown)
             self.value_list.append(row)
@@ -240,15 +248,33 @@ class CarsDetailRenderMixin:
         value_text: str,
         stats: "dict | None",
         is_unknown: bool,
+        on_click: "callable | None" = None,
     ) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
-        row.set_activatable(False)
+        row.set_activatable(on_click is not None)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        outer.set_margin_top(10)
+        outer.set_margin_bottom(10)
+        outer.set_margin_start(14)
+        outer.set_margin_end(14)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-        box.set_margin_start(14)
-        box.set_margin_end(14)
+        box.set_hexpand(True)
+        outer.append(box)
+
+        if on_click is not None:
+            arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
+            arrow.set_pixel_size(12)
+            arrow.add_css_class("dim-label")
+            arrow.set_valign(Gtk.Align.CENTER)
+            outer.append(arrow)
+
+            gesture = Gtk.GestureClick()
+            gesture.connect("released", lambda g, _n, _x, _y: on_click())
+            row.add_controller(gesture)
+
+        row.set_child(outer)
 
         title_lbl = Gtk.Label(label=label, xalign=0.0)
         title_lbl.set_halign(Gtk.Align.START)
@@ -262,7 +288,7 @@ class CarsDetailRenderMixin:
         value_lbl.set_hexpand(True)
         value_lbl.set_wrap(True)
         value_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        value_lbl.set_selectable(True)
+        value_lbl.set_selectable(on_click is None)
         if is_unknown:
             value_lbl.add_css_class("dim-label")
         box.append(value_lbl)
@@ -289,5 +315,4 @@ class CarsDetailRenderMixin:
             stats_lbl.add_css_class("caption")
             box.append(stats_lbl)
 
-        row.set_child(box)
         return row

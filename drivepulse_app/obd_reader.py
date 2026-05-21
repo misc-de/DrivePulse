@@ -79,9 +79,9 @@ class ObdReader(GObject.Object):
         self._obd_log_enabled: bool = True
         self._mock_simulator = MockObdSimulator()
         if obd is None:
-            self.mock_reason = "python-obd fehlt"
+            self.mock_reason = "python-obd missing"
         elif force_mock:
-            self.mock_reason = "Manuell aktiviert"
+            self.mock_reason = "Manually enabled"
         else:
             self.mock_reason = ""
         self.mock = obd is None or force_mock
@@ -186,11 +186,11 @@ class ObdReader(GObject.Object):
         self.force_mock = force_mock
         if force_mock:
             self.mock = True
-            self.mock_reason = "Manuell aktiviert"
+            self.mock_reason = "Manually enabled"
         else:
             self._force_reconnect = True
             if obd is None:
-                self.mock_reason = "python-obd fehlt"
+                self.mock_reason = "python-obd missing"
             else:
                 self.mock_reason = ""
 
@@ -338,7 +338,7 @@ class ObdReader(GObject.Object):
                         self._connection_log("connect_exception", port=self._configured_port, error=repr(exc), error_type=type(exc).__name__)
                 if not success:
                     self.mock = True
-                    self.mock_reason = f"Dongle nicht erreichbar: {self._configured_port}"
+                    self.mock_reason = f"Dongle unreachable: {self._configured_port}"
                     self._connection_log("connect_failed", reason=self.mock_reason, port=self._configured_port, fallback="mock")
             return
 
@@ -480,8 +480,8 @@ class ObdReader(GObject.Object):
 
     def _connection_status(self) -> str:
         if self.mock:
-            return f"Mock: {self.mock_reason or 'aktiv'}"
-        return f"OBD verbunden: {self.connected_port or 'auto'}"
+            return f"Mock: {self.mock_reason or 'active'}"
+        return f"OBD connected: {self.connected_port or 'auto'}"
 
     def _maybe_reconnect_after_read(self, payload: dict[str, Any]) -> None:
         if self.mock:

@@ -18,43 +18,43 @@ def _emit(line: str) -> None:
 
 
 REQUIRED_PYTHON_PACKAGES = (
-    ("PyGObject",     "gi",           "GTK4 / libadwaita Python-Bindings"),
-    ("pycairo",       "cairo",        "Cairo-Zeichenbibliothek (Gauges, Dashboard)"),
-    ("pyserial",      "serial",       "Serielle Bluetooth/USB-Port-Anbindung"),
-    ("obd",           "obd",          "OBD-II Dongle-Anbindung"),
-    ("requests",      "requests",     "HTTP-Client (Routing, Geocoding, Updates)"),
-    ("cryptography",  "cryptography", "TLS-Verschlüsselung (Gerätesync)"),
+    ("PyGObject",     "gi",           "GTK4 / libadwaita Python bindings"),
+    ("pycairo",       "cairo",        "Cairo drawing library (gauges, dashboard)"),
+    ("pyserial",      "serial",       "Serial Bluetooth/USB port support"),
+    ("obd",           "obd",          "OBD-II dongle support"),
+    ("requests",      "requests",     "HTTP client (routing, geocoding, updates)"),
+    ("cryptography",  "cryptography", "TLS encryption (device sync)"),
 )
 
 OPTIONAL_PYTHON_PACKAGES = (
-    ("urllib3", "urllib3", "HTTP-Pool (wird mit requests mitgeliefert)"),
+    ("urllib3", "urllib3", "HTTP pool (bundled with requests)"),
 )
 
 # (display_name, gi_namespace, gi_version, apt_hint, description, required)
 GI_LIBRARIES = (
-    ("GTK 4",       "Gtk",      "4.0", "gir1.2-gtk-4.0",       "GTK4-Widgets",                            True),
-    ("libadwaita",  "Adw",      "1",   "gir1.2-adw-1",          "GNOME-Design-Widgets",                    True),
-    ("GdkPixbuf",   "GdkPixbuf","2.0", "gir1.2-gdkpixbuf-2.0", "Bildformate (QR-Code-Anzeige)",           True),
-    ("WebKit 6",    "WebKit",   "6.0", "gir1.2-webkit-6.0",     "Karten-Backend (Vektor-3D, bevorzugt)",  False),
-    ("Shumate",     "Shumate",  "1.0", "gir1.2-shumate-1.0",    "Karten-Backend (Raster, Fallback)",      False),
-    ("GStreamer",   "Gst",      "1.0", "gir1.2-gstreamer-1.0",  "Dashcam-Aufnahme & QR-Scanner",          False),
+    ("GTK 4",       "Gtk",      "4.0", "gir1.2-gtk-4.0",       "GTK4 widgets",                           True),
+    ("libadwaita",  "Adw",      "1",   "gir1.2-adw-1",          "GNOME design widgets",                   True),
+    ("GdkPixbuf",   "GdkPixbuf","2.0", "gir1.2-gdkpixbuf-2.0", "Image formats (QR code display)",        True),
+    ("WebKit 6",    "WebKit",   "6.0", "gir1.2-webkit-6.0",     "Map backend (vector 3D, preferred)",    False),
+    ("Shumate",     "Shumate",  "1.0", "gir1.2-shumate-1.0",    "Map backend (raster, fallback)",        False),
+    ("GStreamer",   "Gst",      "1.0", "gir1.2-gstreamer-1.0",  "Dashcam recording & QR scanner",        False),
 )
 
 SYSTEM_BINARIES = (
-    ("espeak-ng", "Sprachausgabe — einfach, immer verfügbar (Fallback)", False),
-    ("piper",     "Sprachausgabe — natürliche neuronale Stimmen (empfohlen)", False),
-    ("aplay",     "Audio-Wiedergabe für Piper TTS (ALSA)", False),
+    ("espeak-ng", "Text-to-speech — simple, always available (fallback)", False),
+    ("piper",     "Text-to-speech — natural neural voices (recommended)", False),
+    ("aplay",     "Audio playback for Piper TTS (ALSA)", False),
 )
 
 
 def _py_status(package_name: str, module_name: str) -> tuple[bool, str]:
     installed = util.find_spec(module_name) is not None
     if not installed:
-        return False, "fehlt"
+        return False, "missing"
     try:
-        return True, f"installiert ({metadata.version(package_name)})"
+        return True, f"installed ({metadata.version(package_name)})"
     except metadata.PackageNotFoundError:
-        return True, "installiert"
+        return True, "installed"
 
 
 def _gi_status(namespace: str, version: str) -> tuple[bool, str]:
@@ -62,13 +62,13 @@ def _gi_status(namespace: str, version: str) -> tuple[bool, str]:
         import gi
         gi.require_version(namespace, version)
         getattr(__import__("gi.repository", fromlist=[namespace]), namespace)
-        return True, "verfügbar"
+        return True, "available"
     except Exception:
-        return False, "fehlt"
+        return False, "missing"
 
 
 def print_required_python_packages() -> None:
-    _emit("Python-Pakete (erforderlich):")
+    _emit("Python packages (required):")
     all_ok = True
     for pkg, mod, desc in REQUIRED_PYTHON_PACKAGES:
         ok, status = _py_status(pkg, mod)
@@ -77,13 +77,13 @@ def print_required_python_packages() -> None:
         mark = "✓" if ok else "✗"
         _emit(f"  {mark} {pkg}: {status} — {desc}")
 
-    _emit("Python-Pakete (optional):")
+    _emit("Python packages (optional):")
     for pkg, mod, desc in OPTIONAL_PYTHON_PACKAGES:
         ok, status = _py_status(pkg, mod)
         mark = "✓" if ok else "–"
         _emit(f"  {mark} {pkg}: {status} — {desc}")
 
-    _emit("GI-Bibliotheken:")
+    _emit("GI libraries:")
     for name, ns, ver, apt, desc, required in GI_LIBRARIES:
         ok, status = _gi_status(ns, ver)
         if required and not ok:
@@ -97,10 +97,10 @@ def print_required_python_packages() -> None:
         else:
             mark = "–"
             hint = f"  →  sudo apt install {apt}"
-        label = "erforderlich" if required else "optional"
+        label = "required" if required else "optional"
         _emit(f"  {mark} {name} ({label}): {status} — {desc}{hint}")
 
-    _emit("Systemprogramme:")
+    _emit("System binaries:")
     piper_found = False
     for binary, desc, required in SYSTEM_BINARIES:
         found = shutil.which(binary) is not None
@@ -109,24 +109,24 @@ def print_required_python_packages() -> None:
         if required and not found:
             all_ok = False
         mark = "✓" if found else ("✗" if required else "–")
-        status = "gefunden" if found else "nicht installiert"
-        label = "erforderlich" if required else "optional"
+        status = "found" if found else "not installed"
+        label = "required" if required else "optional"
         hint = f"  →  sudo apt install {binary}" if not found and binary != "piper" else ""
         _emit(f"  {mark} {binary} ({label}): {status} — {desc}{hint}")
     if not piper_found:
-        _emit("  ℹ  Piper (empfohlen): pip install piper-tts")
-        _emit("     Stimmen: https://huggingface.co/rhasspy/piper-voices/tree/main")
-        _emit("     Ablage:  ~/.local/share/piper/<modell>.onnx")
+        _emit("  ℹ  Piper (recommended): pip install piper-tts")
+        _emit("     Voices: https://huggingface.co/rhasspy/piper-voices/tree/main")
+        _emit("     Path:   ~/.local/share/piper/<model>.onnx")
 
     if not all_ok:
-        _emit("  ⚠  Einige erforderliche Pakete fehlen – die App startet möglicherweise nicht korrekt.")
+        _emit("  ⚠  Some required packages are missing – the app may not start correctly.")
 
-    _emit("OBD-Konfiguration:")
+    _emit("OBD configuration:")
     _emit(f"  - OBD_PORT: {OBD_PORT or 'auto (/dev/rfcomm*, /dev/ttyUSB*, /dev/ttyACM*)'}")
     _emit(f"  - OBD_BAUDRATE: {OBD_BAUDRATE or 'auto'}")
     _emit(f"  - OBD_TIMEOUT: {OBD_TIMEOUT_SECONDS:.1f}s")
-    _emit(f"  - OBD_FAST: {'an' if OBD_FAST else 'aus'}")
+    _emit(f"  - OBD_FAST: {'on' if OBD_FAST else 'off'}")
     if OBD_PORT is None:
-        _emit("  - Bluetooth-Hinweis: ELM327 koppeln und z. B. mit OBD_PORT=/dev/rfcomm0 starten.")
-        _emit("  - Direktes BT: OBD_BT_ADDR=AA:BB:CC:DD:EE:FF (oder AA:BB:CC:DD:EE:FF:Kanal)")
-        _emit("  - socat-Brücke: OBD_SOCKET_URL=socket://localhost:35000")
+        _emit("  - Bluetooth hint: pair ELM327 and start with e.g. OBD_PORT=/dev/rfcomm0")
+        _emit("  - Direct BT: OBD_BT_ADDR=AA:BB:CC:DD:EE:FF (or AA:BB:CC:DD:EE:FF:channel)")
+        _emit("  - socat bridge: OBD_SOCKET_URL=socket://localhost:35000")
