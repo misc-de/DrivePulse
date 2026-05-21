@@ -23,7 +23,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 from .db import DriveDB
@@ -216,8 +216,23 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._tour_load_btn: Gtk.Button | None = None
         self._tour_save_btn: Gtk.Button | None = None
         self._tour_plan_active: bool = False
-        self._tour_list_panel: Gtk.Box | None = None
         self._tour_listbox: Gtk.ListBox | None = None
+        self._loaded_tour_id: int | None = None
+
+        # NavigationView wraps all map content — enables sub-page push/pop
+        self._nav_view: Adw.NavigationView = Adw.NavigationView()
+        self._nav_view.set_hexpand(True)
+        self._nav_view.set_vexpand(True)
+        self.append(self._nav_view)
+
+        self._map_content_box: Gtk.Box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self._map_content_box.set_hexpand(True)
+        self._map_content_box.set_vexpand(True)
+        _main_nav_page = Adw.NavigationPage()
+        _main_nav_page.set_tag("map-main")
+        _main_nav_page.set_can_pop(False)
+        _main_nav_page.set_child(self._map_content_box)
+        self._nav_view.add(_main_nav_page)
 
         self._build_tour_topnav()
         self._build_search_bar()
@@ -428,6 +443,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._tour_steps = []
         self._tour_step_idx = 0
         self._tour_coords = []
+        self._loaded_tour_id = None
         self._abort_tour()
         self._set_tour_controls_visible(False)
         if self._tour_save_btn is not None:

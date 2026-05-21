@@ -704,5 +704,13 @@ class DriveDB:
             self._conn.execute("DELETE FROM saved_tours WHERE id=?", (tour_id,))
             self._conn.commit()
 
+    def update_saved_tour(self, tour_id: int, name: str, waypoints_json: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE saved_tours SET name=?, waypoints_json=? WHERE id=?",
+                (name, waypoints_json, tour_id),
+            )
+            self._conn.commit()
+
 
 from .trip_recorder import TripRecorder  # noqa: E402
