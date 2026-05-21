@@ -313,7 +313,8 @@ class SettingsDialog(Adw.NavigationPage):
         obd_devices = scan_obd_devices()  # (label, port, is_present)
         self._obd_port_values: list[str | None] = [None]
 
-        dongle_store = Gio.ListStore(item_type=DeviceItem)
+        self._dongle_store = Gio.ListStore(item_type=DeviceItem)
+        dongle_store = self._dongle_store
         dongle_store.append(DeviceItem(
             label=_translate(self.language, "settings.obd_dongle.auto"),
             port=None,
@@ -379,6 +380,7 @@ class SettingsDialog(Adw.NavigationPage):
             selected_idx = self._obd_port_values.index(current_obd_port)
         self.dongle_row.set_selected(selected_idx)
         self.dongle_row.connect("notify::selected", self._on_dongle_selected)
+        self._dongle_updating = False
         obd_group.add(self.dongle_row)
 
         # ── App page ──────────────────────────────────────────────────────────
@@ -915,7 +917,38 @@ class SettingsDialog(Adw.NavigationPage):
         if self.on_mock_mode_changed is not None:
             self.on_mock_mode_changed(self.mock_switch.get_active())
 
+    def _refresh_dongle_dropdown(self, selected_port: str | None) -> None:
+        """Re-scan OBD devices and rebuild the dongle dropdown, selecting selected_port."""
+        self._dongle_updating = True
+        try:
+            obd_devices = scan_obd_devices()
+            self._obd_port_values = [None]
+            self._dongle_store.remove_all()
+            self._dongle_store.append(DeviceItem(
+                label=_translate(self.language, "settings.obd_dongle.auto"),
+                port=None,
+                is_present=False,
+                is_connected=(selected_port is None),
+            ))
+            for lbl, port, is_present in obd_devices:
+                self._dongle_store.append(DeviceItem(
+                    label=lbl,
+                    port=port,
+                    is_present=is_present,
+                    is_connected=(port == selected_port),
+                ))
+                self._obd_port_values.append(port)
+            selected_idx = 0
+            if selected_port in self._obd_port_values:
+                selected_idx = self._obd_port_values.index(selected_port)
+            self.dongle_row.set_selected(selected_idx)
+            self.dongle_row.set_subtitle("")
+        finally:
+            self._dongle_updating = False
+
     def _on_dongle_selected(self, *_args: Any) -> None:
+        if self._dongle_updating:
+            return
         if self.on_obd_port_changed is not None:
             idx = self.dongle_row.get_selected()
             port = self._obd_port_values[idx] if 0 <= idx < len(self._obd_port_values) else None
@@ -1162,6 +1195,7 @@ class SettingsDialog(Adw.NavigationPage):
             btn.add_css_class("success")
             if self.on_obd_port_changed is not None:
                 self.on_obd_port_changed(dev)
+            self._refresh_dongle_dropdown(dev)
         else:
             # rfcomm bind failed — try direct RFCOMM socket as fallback
             row.set_subtitle(_translate(self.language, "settings.bt_obd.trying_direct"))
@@ -1205,6 +1239,7 @@ class SettingsDialog(Adw.NavigationPage):
             btn.add_css_class("success")
             if self.on_obd_port_changed is not None:
                 self.on_obd_port_changed(bt_port)
+            self._refresh_dongle_dropdown(bt_port)
         else:
             row.set_subtitle(f"✗ {err}")
             btn.set_label(_translate(self.language, "settings.bt_obd.connect"))
