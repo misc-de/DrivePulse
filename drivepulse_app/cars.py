@@ -430,8 +430,14 @@ class CarsPage(
 
     def _select_scan(self, scan_id: int) -> None:
         self._selected_scan_id = scan_id
-        if self._detail_pushed:
-            self._render_detail()
+        if not self._detail_pushed:
+            return
+        # Switch to "vehicle" category so the loaded scan data is visible
+        target = "vehicle"
+        for row in self._cat_rows:
+            if getattr(row, "cat_key", "") == target:
+                self.category_list.select_row(row)
+                break  # _on_category_selected → _render_detail handles the rest
 
     def _bg_compute_scan_stats(self) -> None:
         stats: dict[str, dict] = {}

@@ -49,8 +49,10 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
         except Exception:
             scans = []
 
+        latest_scan_at: str | None = None
         if scans:
             latest = scans[0]
+            latest_scan_at = str(latest["scanned_at"]) if latest["scanned_at"] else None
             try:
                 data = db.get_scan_data(int(latest["id"]))
             except Exception:
@@ -84,6 +86,7 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
             "brand": brand,
             "label": row["label"] or "",
             "scan_label": label_str,
+            "latest_scan_at": latest_scan_at,
             "car_id": car_id,
             "trip_count": int(row["trip_count"] or 0),
             "total_km": float(row["total_km"] or 0.0),
