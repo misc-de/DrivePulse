@@ -48,7 +48,7 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
   - GPS tracking with auto-follow and map rotation
   - 2D / 3D map view toggle, satellite and night map types
   - Traffic incidents on German motorways (Autobahn)
-- **Voice navigation (TTS)**
+- **Voice navigation (TTS) under heavy construction !**
   - Reads out OSRM maneuver instructions via `espeak-ng` (no street names, just direction + distance)
   - Announces at 500 m, 200 m and 50 m before each maneuver
   - Language: English or German (or follow app language)
