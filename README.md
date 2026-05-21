@@ -53,7 +53,6 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
   - Announces at 500 m, 200 m and 50 m before each maneuver
   - Language: English or German (or follow app language)
   - Voice: male or female
-  - Configurable in Settings → Tour
 - **Dashcam**
   - Continuous rolling buffer recording (configurable segment length and count)
   - One-tap event save to preserve clips around an incident
