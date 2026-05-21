@@ -65,21 +65,9 @@ class CarsDetailRenderMixin:
                 pass
         for entry in self._profiles:
             if str(entry["path"]) == self._selected_source:
-                vin = entry.get("vin", "")
-                brand = entry.get("brand") or ""
-                label = brand if brand else _translate(self.language, "cars.unknown")
-                if vin:
-                    label = f"{label} · …{vin[-5:]}"
-                scans_list = []
-                if self.db is not None and entry.get("car_id"):
-                    try:
-                        scans_list = self.db.list_scans_for_car(entry["car_id"])
-                    except Exception:
-                        pass
-                if scans_list:
-                    latest = scans_list[0]
-                    ts = self._parse_ts(latest["scanned_at"])
-                    label = ts.strftime("%d.%m.%Y  %H:%M") if ts else label
+                raw_ts = entry.get("latest_scan_at")
+                ts = self._parse_ts(raw_ts) if raw_ts else None
+                label = ts.strftime("%d.%m.%Y  %H:%M") if ts else (entry.get("scan_label") or "—")
                 return self._flatten_profile(entry["data"]), label
         return {}, "—"
 
