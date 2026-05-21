@@ -163,16 +163,16 @@ class WebcamQRScanner:
                 return
             symbol = structure.get_value("symbol")
             if not symbol:
-                log.warning("barcode message ohne lesbaren Text: %s", structure.to_string())
+                log.warning("barcode message without readable text: %s", structure.to_string())
                 return
             text = str(symbol).strip()
             if not text:
                 return
-            log.info("QR-Code gelesen: %s…", text[:80])
+            log.info("QR code read: %s…", text[:80])
             if self._filter_fn and not self._filter_fn(text):
-                log.info("QR-Code ignoriert (kein Match)")
+                log.info("QR code ignored (no match)")
                 return
-            log.info("QR-Code akzeptiert")
+            log.info("QR code accepted")
             self._finished = True
             self._stop_pipeline()
             self.on_success(text)

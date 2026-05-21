@@ -182,13 +182,13 @@ def bind_bt_to_rfcomm(addr: str, channel: int = 1) -> tuple[str, str] | tuple[No
             if result.returncode == 0:
                 return dev, ""
         except FileNotFoundError as exc:
-            return None, f"rfcomm nicht gefunden: {exc}"
+            return None, f"rfcomm not found: {exc}"
         except subprocess.TimeoutExpired:
-            return None, "Zeitüberschreitung beim Binden"
+            return None, "Timeout while binding"
         except Exception as exc:
             return None, str(exc)
 
-    return None, "rfcomm bind fehlgeschlagen (returncode != 0)"
+    return None, "rfcomm bind failed (returncode != 0)"
 
 
 OBD_CANDIDATE_PATHS = [

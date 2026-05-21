@@ -482,11 +482,11 @@ class SyncDialog(Adw.NavigationPage):
             try:
                 pairing = parse_pairing_url(url_text, SyncServer.PORT)
             except TimeoutError:
-                log.warning("_do_pair: QR-Code abgelaufen")
+                log.warning("_do_pair: QR code expired")
                 GLib.idle_add(_set, self._t("sync.client.expired"))
                 return
             except ValueError as exc:
-                log.warning("_do_pair: URL ungültig: %s", exc)
+                log.warning("_do_pair: URL invalid: %s", exc)
                 GLib.idle_add(_set, self._t("sync.error", error=str(exc)))
                 return
 
@@ -496,15 +496,15 @@ class SyncDialog(Adw.NavigationPage):
 
             log.info("_do_pair: verify fingerprint…")
             if not client.verify_fingerprint():
-                log.warning("_do_pair: Fingerprint-Verifikation fehlgeschlagen")
+                log.warning("_do_pair: fingerprint verification failed")
                 GLib.idle_add(_set, self._t("sync.client.fp_error"))
                 return
             log.info("_do_pair: Fingerprint ok, pairing…")
             if not client.pair(pairing.pairing_token):
-                log.warning("_do_pair: Pairing fehlgeschlagen")
+                log.warning("_do_pair: pairing failed")
                 GLib.idle_add(_set, self._t("sync.error", error="Pairing failed"))
                 return
-            log.info("_do_pair: Pairing erfolgreich")
+            log.info("_do_pair: pairing successful")
 
             self._active_client = client
             self._keepalive_stop.clear()
@@ -787,14 +787,14 @@ class SyncDialog(Adw.NavigationPage):
                     client.mark_pending_scheduled()
                     GLib.idle_add(lambda m=pending: self._trigger_pending_sync(m))
             elif result is False:
-                log.info("Server aktiv getrennt — trenne Verbindung sofort")
+                log.info("Server actively disconnected — disconnecting immediately")
                 GLib.idle_add(self.disconnect)
                 return
             else:
                 failures += 1
-                log.warning("Keepalive-Ping flüchtiger Fehler (%d/3)", failures)
+                log.warning("Keepalive ping transient error (%d/3)", failures)
                 if failures >= 3:
-                    log.info("3 aufeinanderfolgende Fehler — trenne Verbindung")
+                    log.info("3 consecutive errors — disconnecting")
                     GLib.idle_add(self.disconnect)
                     return
 

@@ -450,7 +450,9 @@ class CarsPage(
             GLib.idle_add(self._apply_scan_pid_stats, stats)
             return
         from .cars_metadata import _parse_profile_pid_key
+        raw_values: dict[str, list[tuple[str, float]]] = {}
         for scan_meta in scans:
+            ts_str = str(scan_meta.get("scanned_at") or "")
             try:
                 data = self.db.get_scan_data(int(scan_meta["id"]))
             except Exception:
@@ -476,8 +478,12 @@ class CarsPage(
                     stats[pid]["max"] = max(stats[pid]["max"], num)
                     stats[pid]["sum"] += num
                     stats[pid]["count"] += 1
-        for s in stats.values():
+                raw_values.setdefault(pid, []).append((ts_str, num))
+        for pid, s in stats.items():
             s["avg"] = s["sum"] / s["count"]
+            pts = raw_values.get(pid) or []
+            pts.sort(key=lambda t: t[0])
+            s["values"] = pts
         GLib.idle_add(self._apply_scan_pid_stats, stats)
 
     def _apply_scan_pid_stats(self, stats: dict) -> bool:

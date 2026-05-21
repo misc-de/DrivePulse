@@ -102,17 +102,17 @@ class ObdScanner:
 
         # Mode 03: stored DTCs
         done += 1
-        self._emit("scanning", done / total_steps, "DTC (gespeichert)")
+        self._emit("scanning", done / total_steps, "DTC (stored)")
         dtcs = self._query_dtc_list(getattr(self.obd.commands, "GET_DTC", None))
 
         # Mode 07: pending DTCs
         done += 1
-        self._emit("scanning", done / total_steps, "DTC (ausstehend)")
+        self._emit("scanning", done / total_steps, "DTC (pending)")
         pending_dtcs = self._query_dtc_list(getattr(self.obd.commands, "PENDING_DTC", None))
 
         # Mode 09: vehicle info (VIN already done, add extras)
         done += 1
-        self._emit("scanning", done / total_steps, "Fahrzeuginfo")
+        self._emit("scanning", done / total_steps, "Vehicle info")
         vehicle_info: dict[str, Any] = {}
         if vin:
             vehicle_info["VIN"] = vin

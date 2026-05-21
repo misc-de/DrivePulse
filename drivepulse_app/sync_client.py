@@ -203,12 +203,12 @@ class SyncClient:
             if isinstance(reason, OSError) and getattr(reason, "errno", None) in (
                 errno.ECONNREFUSED, errno.ECONNRESET, errno.ENOTCONN,
             ):
-                log.info("Ping: Server nicht erreichbar (ECONNREFUSED/RESET) %s:%s", self._host, self._port)
+                log.info("Ping: server unreachable (ECONNREFUSED/RESET) %s:%s", self._host, self._port)
                 return False
-            log.warning("Ping flüchtiger Fehler %s:%s: %s", self._host, self._port, exc)
+            log.warning("Ping transient error %s:%s: %s", self._host, self._port, exc)
             return None
         except Exception as exc:
-            log.warning("Ping fehlgeschlagen %s:%s: %s", self._host, self._port, exc)
+            log.warning("Ping failed %s:%s: %s", self._host, self._port, exc)
             return None
 
     def get_pending_sync(self) -> str | None:
