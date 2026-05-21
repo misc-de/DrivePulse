@@ -171,7 +171,7 @@ class CarsDetailRenderMixin:
                             avg_str = f"{avg:.1f}"
                         else:
                             avg_str = f"{avg:.2f}"
-                        value_text = f"{avg_str} {unit}".strip()
+                        value_text = f"⌀ {avg_str} {unit}".strip()
                         is_unknown = False
                 row = self._make_live_stats_row(label, value_text, stats, is_unknown)
             else:
