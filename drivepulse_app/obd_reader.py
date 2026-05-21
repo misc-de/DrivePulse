@@ -98,7 +98,7 @@ class ObdReader(GObject.Object):
             payload = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "event": event,
-                "obd_port": OBD_PORT,
+                "obd_port": self._configured_port or OBD_PORT,
                 "obd_baudrate": OBD_BAUDRATE,
                 "obd_timeout": OBD_TIMEOUT_SECONDS,
                 "obd_fast": OBD_FAST,
