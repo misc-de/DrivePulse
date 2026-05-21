@@ -272,6 +272,8 @@ class Gauge(Gtk.DrawingArea):
             max_value=max_value,
         )
         self.active = False
+        self._min_recorded: float | None = None
+        self._max_recorded: float | None = None
         self.set_content_width(1)
         self.set_content_height(1)
         self.set_size_request(1, 1)
@@ -283,10 +285,28 @@ class Gauge(Gtk.DrawingArea):
             self.state.value = self.state.min_value
             self.active = False
         else:
-            self.state.value = max(self.state.min_value, min(self.state.max_value, value))
+            clamped = max(self.state.min_value, min(self.state.max_value, value))
+            self.state.value = clamped
             self.state.label = label if label is not None else f"{value:.0f}"
             self.active = True
+            if self._min_recorded is None or clamped < self._min_recorded:
+                self._min_recorded = clamped
+            if self._max_recorded is None or clamped > self._max_recorded:
+                self._max_recorded = clamped
         self.queue_draw()
+
+    def reset_minmax(self) -> None:
+        self._min_recorded = None
+        self._max_recorded = None
+        self.queue_draw()
+
+    @property
+    def min_recorded(self) -> float | None:
+        return self._min_recorded
+
+    @property
+    def max_recorded(self) -> float | None:
+        return self._max_recorded
 
     def set_theme(self, theme: str) -> None:
         self.theme = theme

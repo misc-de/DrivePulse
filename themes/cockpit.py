@@ -38,6 +38,44 @@ def _palette(dark: bool) -> dict:
     )
 
 
+def _draw_minmax_markers(
+    cr: Any,
+    cx: float,
+    cy: float,
+    radius: float,
+    line_width: float,
+    start_angle: float,
+    span: float,
+    gauge: Any,
+    active_alpha: float,
+) -> None:
+    if not gauge.active:
+        return
+    lo = gauge.state.min_value
+    hi = gauge.state.max_value
+    rng = hi - lo
+    if rng <= 0:
+        return
+    mark_r = radius + line_width * 1.4
+    mark_half = math.radians(2.0)  # ±2° → 4° Bogen
+    cr.set_line_width(4.0)
+    cr.set_line_cap(1)
+    min_rec = gauge.min_recorded
+    max_rec = gauge.max_recorded
+    if min_rec is not None:
+        n = max(0.0, min(1.0, (min_rec - lo) / rng))
+        a = start_angle + span * n
+        cr.set_source_rgba(0.20, 0.90, 0.35, 0.95 * active_alpha)
+        cr.arc(cx, cy, mark_r, a - mark_half, a + mark_half)
+        cr.stroke()
+    if max_rec is not None:
+        n = max(0.0, min(1.0, (max_rec - lo) / rng))
+        a = start_angle + span * n
+        cr.set_source_rgba(0.95, 0.18, 0.18, 0.95 * active_alpha)
+        cr.arc(cx, cy, mark_r, a - mark_half, a + mark_half)
+        cr.stroke()
+
+
 def _draw_impl(cr: Any, width: int, height: int, gauge: Any, dark: bool) -> None:
     pal = _palette(dark)
     cx, cy, size, radius, line_width, start_angle, end_angle, span, normalized = gauge.arc_params(width, height)
@@ -50,6 +88,8 @@ def _draw_impl(cr: Any, width: int, height: int, gauge: Any, dark: bool) -> None
     cr.set_source_rgba(o[0], o[1], o[2], o[3] * active_alpha)
     cr.arc(cx, cy, radius + line_width * 1.4, start_angle, end_angle)
     cr.stroke()
+
+    _draw_minmax_markers(cr, cx, cy, radius, line_width, start_angle, span, gauge, active_alpha)
 
     cr.set_line_width(line_width)
     cr.set_line_cap(1)
