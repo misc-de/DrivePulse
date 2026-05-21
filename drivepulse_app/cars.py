@@ -452,7 +452,7 @@ class CarsPage(
         from .cars_metadata import _parse_profile_pid_key
         raw_values: dict[str, list[tuple[str, float]]] = {}
         for scan_meta in scans:
-            ts_str = str(scan_meta.get("scanned_at") or "")
+            ts_str = str(scan_meta["scanned_at"] or "")
             try:
                 data = self.db.get_scan_data(int(scan_meta["id"]))
             except Exception:
