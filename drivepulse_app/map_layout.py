@@ -115,7 +115,7 @@ class MapLayoutMixin:
         self._tour_load_btn = load_btn
 
         plan_btn = Gtk.ToggleButton()
-        plan_btn.set_child(_child("map-symbolic", "map.topnav.plan"))
+        plan_btn.set_child(_child("dp-tour-plan-symbolic", "map.topnav.plan"))
         plan_btn.add_css_class("flat")
         plan_btn.set_hexpand(True)
         plan_btn.connect("toggled", self._on_tour_plan_toggled)
@@ -126,6 +126,7 @@ class MapLayoutMixin:
         save_btn.add_css_class("flat")
         save_btn.set_hexpand(True)
         save_btn.connect("clicked", self._on_tour_save_clicked)
+        save_btn.set_visible(False)
         self._tour_save_btn = save_btn
 
         for btn in (load_btn, plan_btn, save_btn):
@@ -140,10 +141,176 @@ class MapLayoutMixin:
         GLib.idle_add(self._nudge_map_resize)
 
     def _on_tour_load_clicked(self, _btn: object) -> None:
-        pass
+        if self._tour_list_panel is None:
+            return
+        visible = not self._tour_list_panel.get_visible()
+        if visible:
+            self._rebuild_tour_list()
+        self._tour_list_panel.set_visible(visible)
 
     def _on_tour_save_clicked(self, _btn: object) -> None:
-        pass
+        import json as _json
+        from datetime import datetime, timezone
+        db = getattr(self, "_map_db", None)
+        if db is None:
+            return
+        waypoints = [e.get_text().strip() for _, e, __ in self._entry_rows]
+        names = [w for w in waypoints if w]
+        if len(names) >= 2:
+            name = f"{names[0]} → {names[-1]}"
+        elif names:
+            name = names[0]
+        else:
+            name = datetime.now().strftime("%d.%m.%Y")
+        db.save_tour(name, _json.dumps(waypoints), datetime.now(timezone.utc).isoformat())
+        if self._status_lbl is not None:
+            prev = self._status_lbl.get_text()
+            self._status_lbl.set_text(_translate(self.language, "map.tours.saved"))
+            GLib.timeout_add(2000, lambda: self._status_lbl.set_text(prev) or False)
+
+    def _build_tour_list_panel(self) -> Gtk.Widget:
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        wrap.add_css_class("dp-steps-panel")
+        wrap.set_halign(Gtk.Align.START)
+        wrap.set_valign(Gtk.Align.START)
+        wrap.set_margin_start(12)
+        wrap.set_margin_top(12)
+        wrap.set_size_request(300, -1)
+        wrap.set_visible(False)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header.set_margin_start(10)
+        header.set_margin_end(6)
+        header.set_margin_top(8)
+        header.set_margin_bottom(6)
+        title_lbl = Gtk.Label(label=_translate(self.language, "map.topnav.load"))
+        title_lbl.add_css_class("heading")
+        title_lbl.set_hexpand(True)
+        title_lbl.set_halign(Gtk.Align.START)
+        close_btn = Gtk.Button(icon_name="window-close-symbolic")
+        close_btn.add_css_class("flat")
+        close_btn.add_css_class("circular")
+        close_btn.connect("clicked", lambda _b: wrap.set_visible(False))
+        header.append(title_lbl)
+        header.append(close_btn)
+        wrap.append(header)
+        wrap.append(Gtk.Separator())
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_max_content_height(380)
+        scrolled.set_propagate_natural_height(True)
+        listbox = Gtk.ListBox()
+        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        listbox.add_css_class("navigation-sidebar")
+        scrolled.set_child(listbox)
+        wrap.append(scrolled)
+
+        self._tour_list_panel = wrap
+        self._tour_listbox = listbox
+        return wrap
+
+    def _rebuild_tour_list(self) -> None:
+        if self._tour_listbox is None:
+            return
+        child = self._tour_listbox.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self._tour_listbox.remove(child)
+            child = nxt
+
+        db = getattr(self, "_map_db", None)
+        tours = db.list_saved_tours() if db is not None else []
+
+        if not tours:
+            row = Gtk.ListBoxRow()
+            row.set_activatable(False)
+            row.set_selectable(False)
+            lbl = Gtk.Label(label=_translate(self.language, "map.tours.empty"))
+            lbl.add_css_class("dim-label")
+            lbl.set_margin_top(14)
+            lbl.set_margin_bottom(14)
+            row.set_child(lbl)
+            self._tour_listbox.append(row)
+            return
+
+        import json as _json
+        for tour in tours:
+            tour_id = int(tour["id"])
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(tour["created_at"])
+                date_str = dt.strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                date_str = str(tour["created_at"])[:16]
+
+            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            row_box.set_margin_start(4)
+            row_box.set_margin_end(4)
+            row_box.set_margin_top(2)
+            row_box.set_margin_bottom(2)
+
+            text_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            text_col.set_hexpand(True)
+            text_col.set_valign(Gtk.Align.CENTER)
+            name_lbl = Gtk.Label(label=str(tour["name"]), xalign=0.0)
+            name_lbl.add_css_class("dp-steps-instr")
+            name_lbl.set_max_width_chars(24)
+            name_lbl.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
+            date_lbl = Gtk.Label(label=date_str, xalign=0.0)
+            date_lbl.add_css_class("dim-label")
+            date_lbl.add_css_class("caption")
+            text_col.append(name_lbl)
+            text_col.append(date_lbl)
+
+            load_btn = Gtk.Button()
+            load_btn.add_css_class("flat")
+            load_btn.set_hexpand(True)
+            load_btn.set_child(text_col)
+            tour_data = dict(tour)
+            load_btn.connect("clicked", lambda _b, td=tour_data: self._load_saved_tour(td))
+
+            del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+            del_btn.add_css_class("flat")
+            del_btn.add_css_class("circular")
+            del_btn.set_valign(Gtk.Align.CENTER)
+            del_btn.connect("clicked", lambda _b, tid=tour_id: self._delete_saved_tour(tid))
+
+            row_box.append(load_btn)
+            row_box.append(del_btn)
+
+            row = Gtk.ListBoxRow()
+            row.set_activatable(False)
+            row.set_selectable(False)
+            row.set_child(row_box)
+            self._tour_listbox.append(row)
+
+    def _load_saved_tour(self, tour: dict) -> None:
+        import json as _json
+        waypoints: list[str] = _json.loads(tour["waypoints_json"])
+
+        # Adjust entry row count to match saved waypoints (min 2)
+        target = max(2, len(waypoints))
+        while len(self._entry_rows) < target:
+            self._insert_entry_after(self._entry_rows[-1][0])
+        while len(self._entry_rows) > target:
+            self._remove_entry(self._entry_rows[-1][0])
+
+        for (_, entry, __), text in zip(self._entry_rows, waypoints):
+            entry.set_text(text)
+        self._update_placeholders()
+
+        if self._tour_plan_btn is not None and not self._tour_plan_btn.get_active():
+            self._tour_plan_btn.set_active(True)
+        if self._tour_list_panel is not None:
+            self._tour_list_panel.set_visible(False)
+        self._on_route_clicked(None)
+
+    def _delete_saved_tour(self, tour_id: int) -> None:
+        db = getattr(self, "_map_db", None)
+        if db is not None:
+            db.delete_saved_tour(tour_id)
+        self._rebuild_tour_list()
 
     def _build_search_bar(self) -> None:
         bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -337,6 +504,7 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_zoom_controls())
             overlay.add_overlay(self._build_tour_controls())
             overlay.add_overlay(self._build_steps_panel())
+            overlay.add_overlay(self._build_tour_list_panel())
             overlay.add_overlay(self._build_maneuver_overlay())
             overlay.add_overlay(self._build_map_state_overlay())
 

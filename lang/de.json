@@ -172,6 +172,8 @@
   "map.topnav.load": "Touren laden",
   "map.topnav.plan": "Tour planen",
   "map.topnav.save": "Tour speichern",
+  "map.tours.empty": "Keine gespeicherten Touren",
+  "map.tours.saved": "Tour gespeichert",
   "map.zoom_in": "Vergrößern",
   "map.zoom_out": "Verkleinern",
   "map.view.switch_to_3d": "3D-Ansicht aktivieren",

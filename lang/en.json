@@ -172,6 +172,8 @@
   "map.topnav.load": "Load tours",
   "map.topnav.plan": "Plan tour",
   "map.topnav.save": "Save tour",
+  "map.tours.empty": "No saved tours",
+  "map.tours.saved": "Tour saved",
   "map.zoom_in": "Zoom in",
   "map.zoom_out": "Zoom out",
   "map.view.switch_to_3d": "Switch to 3D view",
