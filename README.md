@@ -16,8 +16,8 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
 <img width="270" alt="Screenshot from 2026-05-20 15:27:23" src="https://github.com/user-attachments/assets/4c587e3f-2d2a-4d2f-b634-54db573c4111" />
 <img width="270" alt="Screenshot from 2026-05-20 15:27:30" src="https://github.com/user-attachments/assets/e97a6892-e589-4170-baa5-53408a11dbaa" />
 <img width="270" alt="Screenshot from 2026-05-20 15:27:44" src="https://github.com/user-attachments/assets/73e6f51a-7127-4624-a078-963d2659dc16" />
-<img width="270" alt="Screenshot from 2026-05-20 17:28:59" src="https://github.com/user-attachments/assets/e5231748-5111-47a9-b508-8e5ba3f4c14b" />
 <img width="270" alt="Screenshot from 2026-05-21 15:26:27" src="https://github.com/user-attachments/assets/fbc09e8d-91c0-47cb-bbbe-93f4db0fb095" />
+<img width="270" alt="Screenshot from 2026-05-21 11:30:55" src="https://github.com/user-attachments/assets/6b4162f0-4d46-411b-b410-d84bb2b4eed9" />
 <img width="270" alt="Screenshot from 2026-05-20 15:26:31" src="https://github.com/user-attachments/assets/bfa59330-3453-4d5e-8faf-b8b77d90d1e4" />
 <img width="270" alt="Screenshot from 2026-05-20 15:27:08" src="https://github.com/user-attachments/assets/d6b19ceb-3621-487d-bb20-aa61cb94c7a6" />
 <img width="270" alt="Screenshot from 2026-05-20 15:28:02" src="https://github.com/user-attachments/assets/c15c68e5-32a9-46e6-a8c0-98df3c190800" />
