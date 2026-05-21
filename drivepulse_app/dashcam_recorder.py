@@ -286,7 +286,7 @@ class DashcamRecorder:
         seg_ns = self.segment_minutes * 60 * 1_000_000_000  # nanoseconds
         rec_tail = (
             f"! x264enc tune=zerolatency speed-preset=ultrafast quantizer=28 "
-            f"! h264parse ! splitmuxsink name=mux "
+            f"! h264parse ! splitmuxsink name=mux async-finalize=true "
             f"max-size-time={seg_ns} muxer-factory=mp4mux "
             f"location={self.rolling_dir}/dc_%05d.mp4"
         )
