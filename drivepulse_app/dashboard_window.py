@@ -620,6 +620,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if self.view_stack.get_visible_child_name() == self.PAGE_MAP:
             self.map_page.set_nav_visible(visible)
 
+    _GPS_REQUIRED_PAGES = frozenset(["dashboard", "stopwatch", "map"])
+
     def _on_visible_page_changed(self, _stack: Adw.ViewStack, _pspec: Any) -> None:
         page = self.view_stack.get_visible_child_name()
         if page == self.PAGE_CARS:
@@ -627,6 +629,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 self._set_nav_visible(True)
         if page == self.PAGE_MAP:
             GLib.timeout_add(50, self.map_page.on_shown)
+        if page in self._GPS_REQUIRED_PAGES:
+            self.gps_reader.ensure_active()
 
         # Dashcam preview is started lazily and torn down when the user leaves
         # the tab — except the recorder keeps running across tab switches so a
