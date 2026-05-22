@@ -773,6 +773,25 @@ class SyncDialog(Adw.NavigationPage):
         ).start()
         return False
 
+    def _pull_and_import_share(self, client: SyncClient) -> None:
+        try:
+            payload = client.pull_pending_share()
+            if payload is None:
+                return
+            from .share_protocol import share_import as _share_import
+            result = _share_import(self._db, payload)
+            added = (
+                result.get("trips_added", 0)
+                + result.get("runs_added", 0)
+                + result.get("scans_added", 0)
+                + result.get("photos_added", 0)
+                + result.get("tours_added", 0)
+            )
+            if self._on_sync_complete and added > 0:
+                GLib.idle_add(self._on_sync_complete)
+        except Exception:
+            log.exception("Could not pull/import pending share from server")
+
     def _keepalive_loop(self, client: SyncClient) -> None:
         """Pingt den Server alle 10 Sekunden.
         False (ECONNREFUSED) → sofort trennen.
@@ -786,6 +805,13 @@ class SyncDialog(Adw.NavigationPage):
                 if pending:
                     client.mark_pending_scheduled()
                     GLib.idle_add(lambda m=pending: self._trigger_pending_sync(m))
+                if client.get_pending_share():
+                    client.mark_pending_share_scheduled()
+                    threading.Thread(
+                        target=self._pull_and_import_share,
+                        args=(client,),
+                        daemon=True,
+                    ).start()
             elif result is False:
                 log.info("Server actively disconnected — disconnecting immediately")
                 GLib.idle_add(self.disconnect)
@@ -848,4 +874,22 @@ class SyncDialog(Adw.NavigationPage):
             self._closed = True
         if not self._server_survived_dialog:
             self._stop_server()
+
+
+class ServerShareClient:
+    """Wraps SyncServer so share icons work when this device is the server.
+
+    Stores the payload in the server's pending-share queue; the connected
+    client picks it up on its next keepalive ping via /share/pending.
+    """
+
+    def __init__(self, server: "SyncServer") -> None:
+        self._server = server
+
+    def vehicle_check(self, vin_hash: str) -> bool | None:
+        return True
+
+    def share_import(self, payload: dict) -> dict | None:
+        self._server.set_pending_share(payload)
+        return {"ok": True, "queued": True}
         self._cancel_scanner()

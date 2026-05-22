@@ -58,6 +58,22 @@ class SyncServer:
         self.last_activity: float = 0.0
         self.last_ping: float = 0.0
         self.pending_sync_mode: str | None = None
+        self._pending_share_payload: dict | None = None
+        self._pending_share_lock = threading.Lock()
+
+    def set_pending_share(self, payload: dict) -> None:
+        with self._pending_share_lock:
+            self._pending_share_payload = payload
+
+    def take_pending_share(self) -> dict | None:
+        with self._pending_share_lock:
+            payload = self._pending_share_payload
+            self._pending_share_payload = None
+            return payload
+
+    def has_pending_share(self) -> bool:
+        with self._pending_share_lock:
+            return self._pending_share_payload is not None
 
     def start(self) -> None:
         if self._cancelled:
@@ -290,7 +306,23 @@ class _SyncHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/ping":
             self._srv.reset_session_timer()
-            self._send_json(200, {"ok": True, "sync": self._srv.pending_sync_mode})
+            self._send_json(200, {
+                "ok": True,
+                "sync": self._srv.pending_sync_mode,
+                "share": self._srv.has_pending_share(),
+            })
+            return
+
+        if self.path == "/share/pending":
+            if not self._check_bearer():
+                self._send_json(403, {"ok": False, "error": "unauthorized"})
+                return
+            payload = self._srv.take_pending_share()
+            if payload is None:
+                self._send_json(200, {"ok": True, "empty": True})
+                return
+            self._srv.last_activity = time.time()
+            self._send_json(200, {"ok": True, "payload": payload})
             return
 
         if self.path == "/sync/export":

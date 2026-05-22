@@ -602,7 +602,9 @@ class CarsPage(
             self._share_selected_scans()
         elif self._run_select_mode:
             self._share_selected_runs()
-        elif not self._photo_select_mode:
+        elif self._photo_select_mode:
+            self._share_selected_photos()
+        else:
             self._share_vehicle()
 
     def _share_vehicle(self) -> None:
@@ -634,21 +636,35 @@ class CarsPage(
         dialog.present(self)
 
     def _share_selected_trips(self) -> None:
+        ids = list(self._trip_selected_ids)
+        self._exit_trip_select_mode()
         from .share_flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_trips(
-            self._selected_car_id, list(self._trip_selected_ids)
+            self._selected_car_id, ids
         )
 
     def _share_selected_scans(self) -> None:
+        ids = list(self._scan_selected_ids)
+        self._exit_scan_select_mode()
         from .share_flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_scans(
-            self._selected_car_id, list(self._scan_selected_ids)
+            self._selected_car_id, ids
         )
 
     def _share_selected_runs(self) -> None:
+        ids = list(self._run_selected_ids)
+        self._exit_run_select_mode()
         from .share_flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_runs(
-            self._selected_car_id, list(self._run_selected_ids)
+            self._selected_car_id, ids
+        )
+
+    def _share_selected_photos(self) -> None:
+        ids = list(self._photo_selected_ids)
+        self._exit_photo_select_mode()
+        from .share_flow import ShareFlow
+        ShareFlow(self, self.db, self.language, self.get_sync_client).share_photos(
+            self._selected_car_id, ids
         )
 
     def _share_run(self, run_id: int) -> None:

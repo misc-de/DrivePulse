@@ -153,6 +153,8 @@ class DriveDB:
                 "ALTER TABLE acceleration_runs ADD COLUMN seen_at TEXT",
                 "ALTER TABLE acceleration_runs ADD COLUMN shared_at TEXT",
                 "ALTER TABLE cars ADD COLUMN vin_data_json TEXT",
+                "ALTER TABLE car_photos ADD COLUMN seen_at TEXT",
+                "ALTER TABLE car_photos ADD COLUMN shared_at TEXT",
             ):
                 try:
                     self._conn.execute(stmt)
@@ -534,13 +536,19 @@ class DriveDB:
 
     # ---------------------------------------------------------- Car photos
 
-    def add_car_photo(self, car_id: int, filename: str, taken_at: str | None = None) -> int:
+    def add_car_photo(
+        self,
+        car_id: int,
+        filename: str,
+        taken_at: str | None = None,
+        shared_at: str | None = None,
+    ) -> int:
         ts = taken_at or datetime.now(timezone.utc).isoformat()
         with self._lock:
             cur = self._conn.cursor()
             cur.execute(
-                "INSERT INTO car_photos(car_id, filename, taken_at) VALUES(?,?,?)",
-                (car_id, filename, ts),
+                "INSERT INTO car_photos(car_id, filename, taken_at, shared_at) VALUES(?,?,?,?)",
+                (car_id, filename, ts, shared_at),
             )
             self._conn.commit()
             return int(cur.lastrowid)
@@ -548,7 +556,7 @@ class DriveDB:
     def list_photos_for_car(self, car_id: int) -> list[sqlite3.Row]:
         with self._lock:
             return list(self._conn.execute(
-                "SELECT id, car_id, filename, taken_at, label"
+                "SELECT id, car_id, filename, taken_at, label, seen_at, shared_at"
                 " FROM car_photos WHERE car_id=? ORDER BY taken_at DESC",
                 (car_id,),
             ).fetchall())
@@ -603,6 +611,15 @@ class DriveDB:
             self._conn.execute(
                 "UPDATE acceleration_runs SET seen_at=? WHERE id=? AND seen_at IS NULL",
                 (now, run_id),
+            )
+            self._conn.commit()
+
+    def mark_photo_seen(self, photo_id: int) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE car_photos SET seen_at=? WHERE id=? AND seen_at IS NULL",
+                (now, photo_id),
             )
             self._conn.commit()
 
