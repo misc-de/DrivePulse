@@ -612,10 +612,26 @@ class CarsPage(
         )
 
     def _share_trip(self, trip_id: int) -> None:
-        from .share_flow import ShareFlow
-        ShareFlow(self, self.db, self.language, self.get_sync_client).share_trips(
-            self._selected_car_id, [trip_id]
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "share.trip_confirm_title"),
+            body=_translate(self.language, "share.trip_confirm_body"),
         )
+        dialog.add_response("cancel", _translate(self.language, "share.cancel"))
+        dialog.add_response("send", _translate(self.language, "share.send"))
+        dialog.set_response_appearance("send", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("send")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "send":
+                return
+            from .share_flow import ShareFlow
+            ShareFlow(self, self.db, self.language, self.get_sync_client).share_trips(
+                self._selected_car_id, [trip_id]
+            )
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
 
     def _share_selected_trips(self) -> None:
         from .share_flow import ShareFlow

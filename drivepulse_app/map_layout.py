@@ -324,6 +324,12 @@ class MapLayoutMixin:
             tour_data = dict(tour)
             load_btn.connect("clicked", lambda _b, td=tour_data: self._load_saved_tour(td))
 
+            share_btn = Gtk.Button(icon_name="share-alt-symbolic")
+            share_btn.add_css_class("flat")
+            share_btn.add_css_class("circular")
+            share_btn.set_valign(Gtk.Align.CENTER)
+            share_btn.connect("clicked", lambda _b, td=tour_data: self._share_saved_tour(td))
+
             del_btn = Gtk.Button(icon_name="user-trash-symbolic")
             del_btn.add_css_class("flat")
             del_btn.add_css_class("circular")
@@ -331,6 +337,7 @@ class MapLayoutMixin:
             del_btn.connect("clicked", lambda _b, tid=tour_id: self._delete_saved_tour(tid))
 
             row_box.append(load_btn)
+            row_box.append(share_btn)
             row_box.append(del_btn)
 
             row = Gtk.ListBoxRow()
@@ -378,6 +385,26 @@ class MapLayoutMixin:
             if db is not None:
                 db.delete_saved_tour(tour_id)
             self._rebuild_tour_list()
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
+
+    def _share_saved_tour(self, tour: dict) -> None:
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "share.tour_confirm_title"),
+            body=_translate(self.language, "share.tour_confirm_body"),
+        )
+        dialog.add_response("cancel", _translate(self.language, "share.cancel"))
+        dialog.add_response("send", _translate(self.language, "share.send"))
+        dialog.set_response_appearance("send", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("send")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "send":
+                return
+            from .share_flow import ShareFlow
+            ShareFlow(self, self._map_db, self.language, getattr(self, "get_sync_client", None)).share_tour(tour)
 
         dialog.connect("response", _on_response)
         dialog.present(self.get_root())
