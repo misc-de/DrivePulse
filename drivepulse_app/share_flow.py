@@ -118,6 +118,40 @@ class ShareFlow:
             return
         self._check_and_proceed_vehicle(client, car, mode="scan", scan_ids=scan_ids)
 
+    def share_tour(self, tour: dict) -> None:
+        client = self._get_client()
+        if client is None:
+            self._show_toast(self._t("share.no_sync"))
+            return
+
+        def _bg() -> None:
+            try:
+                from .share_protocol import build_tour_payload
+                payload = {
+                    "version": 1,
+                    "type": "share_tours",
+                    "tours": [build_tour_payload(tour)],
+                }
+                result = client.share_import(payload)
+                GLib.idle_add(_on_result, result)
+            except Exception as exc:
+                log.exception("Tour share failed")
+                GLib.idle_add(self._show_toast, f"Fehler: {exc}")
+
+        def _on_result(result: dict | None) -> bool:
+            if result is None or not result.get("ok"):
+                err = result.get("error", "?") if isinstance(result, dict) else "?"
+                self._show_toast(f"Fehler: {err}")
+                return False
+            n = result.get("tours_added", 0)
+            if n:
+                self._show_toast(f"Tour übertragen")
+            else:
+                self._show_toast(self._t("share.nothing_new"))
+            return False
+
+        threading.Thread(target=_bg, daemon=True).start()
+
     def share_runs(self, car_id: int | None, run_ids: list[int]) -> None:
         client = self._get_client()
         if client is None:

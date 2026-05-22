@@ -78,6 +78,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         on_tts_enabled_changed: Callable[[bool], None] | None = None,
         on_map_tapped: Callable[[], None] | None = None,
         db: DriveDB | None = None,
+        get_sync_client: Callable | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
@@ -150,6 +151,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._snapped_lat: float | None = None
         self._snapped_lon: float | None = None
         self._snapped_cum_m: float = 0.0
+        # Original waypoints for the current tour — used by auto-rerouting to
+        # preserve the destination when the driver deviates from the route.
+        self._tour_waypoints: list[tuple[float, float]] = []
         self._dnd_src_idx: int = -1
         # TTS state
         self._tts_enabled: bool = False
@@ -225,6 +229,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._search_bar: Gtk.Box | None = None
 
         self._map_db: DriveDB | None = db
+        self.get_sync_client: Callable | None = get_sync_client
 
         # Tour top-nav
         self._tour_topnav: Gtk.Box | None = None
@@ -327,6 +332,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             self._snapped_lon = slon
             self._gps_route_idx = seg_idx
             self._snapped_cum_m = scum
+            if self._tour_active:
+                off_dist_m = haversine(lat, lon, slat, slon)
+                self._check_off_route(off_dist_m, time.monotonic())
         else:
             self._snapped_lat = None
             self._snapped_lon = None
@@ -714,6 +722,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._compute_route_progress_tables()
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
+        self._tour_waypoints = list(all_points)
         prefix = _translate(self.language, "map.duration_prefix")
         distance_prefix = _translate(self.language, "map.distance_prefix")
         self._status_lbl.set_text(

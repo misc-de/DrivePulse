@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 
 from gi.repository import GLib
 
 from .common import _translate
-from .map_services import format_distance, haversine, mock_speed_kmh, osrm_route, maneuver_icon, maneuver_text_key
+from .map_services import (
+    format_distance, format_duration, haversine, mock_speed_kmh,
+    osrm_route, valhalla_route, maneuver_icon, maneuver_text_key,
+)
 from gi.repository import Gtk as _Gtk
 from . import tts_service
 from .diagnostics import get_logger
@@ -46,6 +50,18 @@ class MapTourMixin:
 
     _TTS_THRESHOLDS = (300, 80)
 
+    # Off-route detection: reroute automatically when the perpendicular distance
+    # from the GPS to the snapped route position exceeds this threshold for a
+    # sustained period. Speed gate prevents rerouting while nearly stationary
+    # (GPS drift, waiting at traffic lights).
+    _OFF_ROUTE_M = 50.0          # metres off-route to start the timer
+    _OFF_ROUTE_CONFIRM_S = 8.0   # seconds off-route before rerouting fires
+    _REROUTE_COOLDOWN_S = 30.0   # minimum gap between successive auto-reroutes
+    _REROUTE_MIN_SPEED_KMH = 10.0  # don't reroute below this speed
+
+    _off_route_since: float = 0.0
+    _last_reroute_time: float = 0.0
+
     def _on_tour_start_clicked(self, _btn: object) -> None:
         if self._start_coord is None:
             return
@@ -71,6 +87,8 @@ class MapTourMixin:
         self._snapped_lat = None
         self._snapped_lon = None
         self._snapped_cum_m = 0.0
+        self._off_route_since = 0.0
+        self._last_reroute_time = 0.0
         self._speed_zones = self._build_speed_zones()
         self._prerender_upcoming_steps(0, 5)
         self._set_nav_chrome_visible(False)
@@ -104,6 +122,7 @@ class MapTourMixin:
 
     def _pause_tour(self) -> None:
         """Pause an active tour — keep route and progress so it can resume."""
+        self._off_route_since = 0.0
         self._tour_active = False
         self._tour_paused = True
         self._set_tour_button("resume")
@@ -137,6 +156,8 @@ class MapTourMixin:
         self._snapped_lat = None
         self._snapped_lon = None
         self._snapped_cum_m = 0.0
+        self._off_route_since = 0.0
+        self._last_reroute_time = 0.0
         self._tts_last_step_idx = -1
         self._tts_spoken_thresholds = set()
         self._tts_prerender_step_idx = -1
@@ -360,14 +381,23 @@ class MapTourMixin:
                 and distance_m > self._step_min_dist + self._MANEUVER_PASS_GROWTH_M
             )
 
-            # Route-progress fallback: once we've travelled past the start
-            # position of the NEXT step, the current maneuver is behind us
-            # no matter what the haversine math says.
+            # Route-progress fallback: the maneuver is behind us when we've
+            # driven MANEUVER_CLOSEST_M past its own position on the route,
+            # OR past the next step's start + 5 m — whichever fires first.
+            # Anchoring on the *current* step's position (not just the next
+            # step's start) lets the multi-step loop skip cleanly over steps
+            # that were missed when the driver rejoins the route further ahead.
             if not passed and self._step_cum_m:
-                next_idx = self._tour_step_idx + 1
-                if next_idx < len(self._step_cum_m):
-                    # +5 m buffer prevents oscillating right at the boundary
-                    if progress_m > self._step_cum_m[next_idx] + 5.0:
+                curr_idx = self._tour_step_idx
+                next_idx = curr_idx + 1
+                if curr_idx < len(self._step_cum_m):
+                    maneuver_behind_m = self._step_cum_m[curr_idx] + self._MANEUVER_CLOSEST_M
+                    step_end_m = (
+                        self._step_cum_m[next_idx] + 5.0
+                        if next_idx < len(self._step_cum_m)
+                        else float("inf")
+                    )
+                    if progress_m > min(maneuver_behind_m, step_end_m):
                         passed = True
 
             if not passed:
@@ -546,6 +576,120 @@ class MapTourMixin:
             self._lane_row.append(box)
 
         self._lane_row.set_visible(True)
+
+    # ── Auto-rerouting ────────────────────────────────────────────────────────
+
+    def _check_off_route(self, off_dist_m: float, now: float) -> None:
+        """Called each GPS tick with the perpendicular distance to the route."""
+        speed_kmh = self._gps_speed_mps * 3.6
+        if off_dist_m <= self._OFF_ROUTE_M or speed_kmh < self._REROUTE_MIN_SPEED_KMH:
+            self._off_route_since = 0.0
+            return
+        if self._off_route_since == 0.0:
+            self._off_route_since = now
+            return
+        if now - self._off_route_since < self._OFF_ROUTE_CONFIRM_S:
+            return
+        if now - self._last_reroute_time < self._REROUTE_COOLDOWN_S:
+            return
+        self._trigger_reroute()
+
+    def _trigger_reroute(self) -> None:
+        if self._gps_lat is None or self._gps_lon is None:
+            return
+        waypoints = getattr(self, "_tour_waypoints", None)
+        if not waypoints:
+            return
+        # Current GPS position → all remaining original waypoints (skip old start)
+        new_points = [(self._gps_lat, self._gps_lon)] + list(waypoints[1:])
+        self._last_reroute_time = time.monotonic()
+        self._off_route_since = 0.0
+        log.info("Off-route: recalculating route from current GPS position")
+        threading.Thread(
+            target=self._fetch_reroute_bg,
+            args=(new_points,),
+            daemon=True,
+        ).start()
+
+    def _fetch_reroute_bg(self, all_points: list[tuple[float, float]]) -> None:
+        try:
+            result = (
+                valhalla_route(all_points, self._routing_mode)
+                or osrm_route(all_points, self._routing_mode)
+            )
+        except Exception:
+            log.exception("Auto-reroute fetch failed")
+            result = None
+        GLib.idle_add(self._apply_rerouted_route, all_points, result)
+
+    def _apply_rerouted_route(
+        self,
+        all_points: list[tuple[float, float]],
+        result: "tuple[list[list[float]], float, float, list[dict]] | None",
+    ) -> bool:
+        if result is None or not self._tour_active:
+            return False
+        coords, duration_s, distance_m, steps = result
+        if not steps or not coords:
+            return False
+
+        self._tour_steps = steps
+        self._tour_step_idx = 0
+        self._step_min_dist = None
+        self._tour_coords = list(coords)
+        self._gps_route_idx = 0
+        self._snapped_lat = None
+        self._snapped_lon = None
+        self._snapped_cum_m = 0.0
+        self._compute_route_progress_tables()
+        self._start_coord = all_points[0]
+        self._end_coord = all_points[-1]
+        self._tour_waypoints = list(all_points)
+        self._route_coords = coords
+        self._tts_last_step_idx = -1
+        self._tts_spoken_thresholds = set()
+        self._tts_prerender_step_idx = -1
+        self._lane_step_idx = -1
+        self._speed_zones = self._build_speed_zones()
+        self._prerender_upcoming_steps(0, 5)
+        self._skip_non_actionable_steps()
+        self._update_maneuver_overlay()
+        self._highlight_active_step()
+
+        prefix = _translate(self.language, "map.duration_prefix")
+        distance_prefix = _translate(self.language, "map.distance_prefix")
+        if self._status_lbl is not None:
+            self._status_lbl.set_text(
+                f"{prefix}{format_duration(duration_s)} / "
+                f"{distance_prefix}{format_distance(distance_m, self.units)}"
+            )
+
+        if self._backend == "webkit":
+            self._js(f"mapSetRoute({json.dumps(coords)})")
+            pts_js = json.dumps([[p[0], p[1]] for p in all_points])
+            self._js(f"mapSetWaypoints({pts_js})")
+        elif self._shumate_map is not None:
+            self._shumate_set_path(self._path_layer, coords)
+            if self._wp_layer is not None:
+                self._wp_layer.remove_all()
+                for i, pt in enumerate(all_points):
+                    role = "start" if i == 0 else ("end" if i == len(all_points) - 1 else "via")
+                    self._wp_layer.add_marker(self._make_wp_marker(pt[0], pt[1], role))
+
+        if (
+            self._steps_toggle_btn is not None
+            and self._steps_toggle_btn.get_active()
+            and self._steps_listbox is not None
+        ):
+            self._rebuild_steps_list()
+            if self._steps_panel is not None:
+                self._steps_panel.set_visible(bool(self._tour_steps))
+
+        if self._on_tour_resumed is not None:
+            self._on_tour_resumed()
+
+        log.info("Route recalculated: %.1f km, %d steps", distance_m / 1000, len(steps))
+        return False
 
     def _tts_announce(self, step: dict, distance_m: float) -> None:
         if not self._tts_enabled:

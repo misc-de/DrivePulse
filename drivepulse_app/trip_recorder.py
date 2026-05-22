@@ -1,10 +1,32 @@
 """Trip recording state machine for DrivePulse."""
 from __future__ import annotations
 
+import math
+import time
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .db import DriveDB
+
+from .diagnostics import get_logger
+
+log = get_logger(__name__)
+
+# GPS-Ausreißer-Filter: Punkte, die eine höhere implizite Geschwindigkeit als
+# diesen Schwellwert ergeben, werden verworfen. 250 km/h liegt deutlich über
+# jeder realistischen Fahrgeschwindigkeit und toleriert trotzdem GPS-Rauschen.
+_MAX_GPS_SPEED_MS = 250.0 / 3.6
+# Nach einer GPS-Pause länger als diese Zeit ist der letzte Standort veraltet —
+# erster neuer Punkt wird bedingungslos akzeptiert (z. B. nach Tunnel).
+_GPS_GAP_RESET_S = 30.0
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return 6_371_000.0 * 2 * math.asin(math.sqrt(min(a, 1.0)))
 
 
 class TripRecorder:
@@ -18,6 +40,7 @@ class TripRecorder:
         self.trip_id: int | None = None
         self._last_gps: dict[str, float] = {}
         self._last_obd_ts: float = 0.0
+        self._last_gps_ts: float = 0.0
 
     # Identitäts-Update — typischerweise nach erfolgreichem Scan
     def set_car(
@@ -44,6 +67,21 @@ class TripRecorder:
     def update_gps(self, *, lat: float | None = None, lon: float | None = None,
                    altitude_m: float | None = None, heading_deg: float | None = None,
                    gps_speed_kmh: float | None = None) -> None:
+        now = time.monotonic()
+        if lat is not None and lon is not None:
+            prev_lat = self._last_gps.get("lat")
+            prev_lon = self._last_gps.get("lon")
+            if prev_lat is not None and prev_lon is not None:
+                dt = now - self._last_gps_ts
+                if 0 < dt < _GPS_GAP_RESET_S:
+                    dist_m = _haversine_m(prev_lat, prev_lon, lat, lon)
+                    if dist_m / dt > _MAX_GPS_SPEED_MS:
+                        log.debug(
+                            "GPS outlier rejected: %.0f m in %.1f s (%.0f km/h implied)",
+                            dist_m, dt, dist_m / dt * 3.6,
+                        )
+                        return
+            self._last_gps_ts = now
         if lat is not None:
             self._last_gps["lat"] = lat
         if lon is not None:

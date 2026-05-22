@@ -123,8 +123,33 @@ def _trips_identical(existing: Any, incoming: dict) -> bool:
     return True
 
 
+def build_tour_payload(tour: Any) -> dict:
+    return {
+        "name": tour["name"],
+        "created_at": tour["created_at"],
+        "waypoints_json": tour["waypoints_json"],
+    }
+
+
 def share_import(db: DriveDB, payload: dict) -> dict:
-    if not isinstance(payload, dict) or payload.get("version") != 1 or payload.get("type") != "share":
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        log.warning("Ignoring invalid share payload")
+        return {"ok": False, "error": "invalid payload"}
+
+    if payload.get("type") == "share_tours":
+        now = datetime.now(timezone.utc).isoformat()
+        existing = {t["name"]: t for t in db.list_saved_tours()}
+        tours_added = 0
+        for tour in payload.get("tours") or []:
+            if not isinstance(tour, dict) or not tour.get("name"):
+                continue
+            if tour["name"] in existing:
+                continue
+            db.save_tour(tour["name"], tour.get("waypoints_json", "[]"), tour.get("created_at") or now)
+            tours_added += 1
+        return {"ok": True, "tours_added": tours_added}
+
+    if payload.get("type") != "share":
         log.warning("Ignoring invalid share payload")
         return {"ok": False, "error": "invalid payload"}
 
