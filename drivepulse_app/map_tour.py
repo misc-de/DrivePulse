@@ -7,7 +7,7 @@ import threading
 from gi.repository import GLib
 
 from .common import _translate
-from .map_services import format_distance, haversine, mock_speed_kmh, osrm_route, maneuver_icon, maneuver_text_key
+from .map_services import format_distance, haversine, osrm_route, maneuver_icon, maneuver_text_key
 from . import tts_service
 from .diagnostics import get_logger
 
@@ -64,18 +64,24 @@ class MapTourMixin:
         self._tour_paused = False
         self._tour_completed = False
         self._tour_step_idx = 0
+        self._tts_prerender_step_idx = -1
         self._step_min_dist = None
         self._gps_route_idx = 0
         self._snapped_lat = None
         self._snapped_lon = None
         self._snapped_cum_m = 0.0
         self._speed_zones = self._build_speed_zones()
+        self._prerender_upcoming_steps(0, 5)
         self._set_nav_chrome_visible(False)
         self._set_tour_button("stop")
         self._update_maneuver_overlay()
         self._highlight_active_step()
         if self._on_tour_started is not None and self._tour_coords:
-            self._on_tour_started(self._tour_coords, self._speed_zones)
+            self._on_tour_started(
+                self._tour_coords,
+                self._speed_zones,
+                self._build_maneuver_positions(),
+            )
         self._set_follow(True)
         if self._backend == "webkit":
             self._js(f"mapStartTour({lat}, {lon})")
@@ -132,8 +138,10 @@ class MapTourMixin:
         self._snapped_cum_m = 0.0
         self._tts_last_step_idx = -1
         self._tts_spoken_thresholds = set()
+        self._tts_prerender_step_idx = -1
         self._speed_zones = []
         tts_service.stop()
+        tts_service.clear_audio_cache()
         self._set_nav_chrome_visible(True)
         self._set_tour_button("start")
         if self._backend == "webkit":
@@ -238,25 +246,36 @@ class MapTourMixin:
                 cum += float(step.get("distance") or 0.0)
 
     def _build_speed_zones(self) -> list[tuple[float, float]]:
-        """Build a list of (cum_dist_m, speed_kmh) breakpoints from route steps.
+        """Build a list of (cum_dist_m, speed_kmh) breakpoints from Valhalla speed_limit data.
 
-        Prefers Valhalla's ``speed_limit`` field when present; falls back to the
-        ref-based heuristic (A*→120, B*/L*→70, no ref→40) for OSRM routes.
+        Only uses real speed limit values from Valhalla's ``speed_limit`` field.
+        Steps without a real speed limit are skipped so the sign is hidden on
+        routes where only mock/heuristic data would be available (OSRM-only routes).
         """
         if not self._tour_steps or not self._step_cum_m:
             return []
         zones: list[tuple[float, float]] = []
         prev_speed: float | None = None
         for i, step in enumerate(self._tour_steps):
-            if "speed_limit" in step:
-                speed = float(step["speed_limit"])
-            else:
-                speed = mock_speed_kmh(step.get("ref", ""))
+            if "speed_limit" not in step:
+                continue
+            speed = float(step["speed_limit"])
             if speed != prev_speed:
                 cum = self._step_cum_m[i] if i < len(self._step_cum_m) else 0.0
                 zones.append((cum, speed))
                 prev_speed = speed
         return zones
+
+    def _build_maneuver_positions(self) -> list[float]:
+        """Return cumulative distances (m) for each actionable turn maneuver."""
+        skip = self._NON_ACTIONABLE_STEP_TYPES | {"depart", "arrive"}
+        positions: list[float] = []
+        for i, step in enumerate(self._tour_steps):
+            if step.get("type", "") in skip:
+                continue
+            if i < len(self._step_cum_m):
+                positions.append(self._step_cum_m[i])
+        return positions
 
     def _gps_progress_m(self) -> float:
         """Return how far the GPS fix has progressed along the route, in m.
@@ -360,6 +379,11 @@ class MapTourMixin:
             self._skip_non_actionable_steps()
             # Loop continues to check whether the newly active step is also passed.
 
+        # When the active step changes, pre-render the next batch of announcements.
+        if self._tour_step_idx != self._tts_prerender_step_idx:
+            self._tts_prerender_step_idx = self._tour_step_idx
+            self._prerender_upcoming_steps(self._tour_step_idx, 5)
+
         step = self._tour_steps[self._tour_step_idx]
         distance_m = haversine(pos_lat, pos_lon, step["lat"], step["lon"])
         m_type = step.get("type", "")
@@ -437,6 +461,33 @@ class MapTourMixin:
         self._speed_zone_lbl.set_text(str(int(speed)))
         self._speed_zone_overlay.set_visible(True)
 
+    def _prerender_upcoming_steps(self, from_idx: int, count: int = 5) -> None:
+        """Pre-render TTS audio for the next *count* steps starting at *from_idx*.
+
+        Uses threshold distances (300 m, 80 m) to approximate the spoken text.
+        At typical speeds the 80 m threshold collapses to maneuver-text-only
+        (heard_dist < 60 m), so that variant always matches exactly.
+        """
+        if not self._tts_enabled:
+            return
+        lang = self._tts_effective_language()
+        gender = self._tts_voice
+        for i in range(from_idx, min(from_idx + count, len(self._tour_steps))):
+            step = self._tour_steps[i]
+            if step.get("type") in {"depart", "arrive"}:
+                continue
+            maneuver_text = _translate(
+                lang, maneuver_text_key(step.get("type", ""), step.get("modifier", ""))
+            )
+            for threshold_m in self._TTS_THRESHOLDS:
+                heard_dist = float(threshold_m)
+                if heard_dist > 60:
+                    dist_text = self._tts_distance_text(heard_dist, lang)
+                    text = _translate(lang, "tts.in_distance").format(distance=dist_text) + " " + maneuver_text
+                else:
+                    text = maneuver_text
+                tts_service.prerender(text, lang, gender, quality=self._tts_quality)
+
     def _tts_announce(self, step: dict, distance_m: float) -> None:
         if not self._tts_enabled:
             return
@@ -453,4 +504,4 @@ class MapTourMixin:
             text = _translate(lang, "tts.in_distance").format(distance=dist_text) + " " + maneuver_text
         else:
             text = maneuver_text
-        tts_service.speak(text, lang, self._tts_voice)
+        tts_service.speak(text, lang, self._tts_voice, quality=self._tts_quality)

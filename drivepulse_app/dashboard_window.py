@@ -91,6 +91,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.tts_backend: str = self.settings.get("tts_backend", "espeak")
         self.tts_language: str = self.settings.get("tts_language", "auto")
         self.tts_voice: str = self.settings.get("tts_voice", "female")
+        self.tts_quality: str = self.settings.get("tts_quality", "high")
         self.log_app_enabled: bool = bool(self.settings.get("log_app_enabled", True))
         self.log_obd_enabled: bool = bool(self.settings.get("log_obd_enabled", True))
         self.vindecoder_api_key: str = self.settings.get("vindecoder_api_key") or ""
@@ -256,10 +257,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         _tts_svc.set_download_callback(self._on_piper_dl_progress)
         self._piper_dl_current_model: str | None = None
         if self.tts_backend == "piper":
-            _tts_svc.ensure_models(self.tts_language, self.tts_voice)
+            _tts_svc.ensure_models(self.tts_language, self.tts_voice, self.tts_quality)
         self.map_page.set_tts_enabled(self.tts_enabled)
         self.map_page.set_tts_language(self.tts_language)
         self.map_page.set_tts_voice(self.tts_voice)
+        self.map_page.set_tts_quality(self.tts_quality)
         self._map_rotator = RotatedContainer()
         self._map_rotator.set_child(self.map_page)
         self._map_rotator.set_hexpand(True)
@@ -655,6 +657,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self,
         coords: list[list[float]],
         speed_zones: list[tuple[float, float]],
+        maneuver_m: list[float] | None = None,
     ) -> None:
         self._cancel_pending_sim_start()
         if not self.mock_mode:
@@ -664,16 +667,18 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self._start_mock_sim_delayed,
             list(coords),
             list(speed_zones),
+            list(maneuver_m) if maneuver_m else [],
         )
 
     def _start_mock_sim_delayed(
         self,
         coords: list[list[float]],
         speed_zones: list[tuple[float, float]],
+        maneuver_m: list[float],
     ) -> bool:
         self._pending_sim_start_id = None
         if self.mock_mode:
-            self.mock_tour_sim.start(coords, speed_zones)
+            self.mock_tour_sim.start(coords, speed_zones, maneuver_m)
         return False  # one-shot
 
     def _cancel_pending_sim_start(self) -> None:

@@ -72,7 +72,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         on_poi_visible_changed: Callable[[bool], None] | None = None,
         on_traffic_visible_changed: Callable[[bool], None] | None = None,
         on_3d_view_changed: Callable[[bool], None] | None = None,
-        on_tour_started: Callable[[list[list[float]], list[tuple[float, float]]], None] | None = None,
+        on_tour_started: Callable[[list[list[float]], list[tuple[float, float]], list[float]], None] | None = None,
         on_tour_stopped: Callable[[], None] | None = None,
         on_tour_resumed: Callable[[], None] | None = None,
         on_tts_enabled_changed: Callable[[bool], None] | None = None,
@@ -155,6 +155,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._tts_enabled: bool = False
         self._tts_language: str = "auto"
         self._tts_voice: str = "female"
+        self._tts_quality: str = "high"
         self._tts_last_step_idx: int = -1
         self._tts_spoken_thresholds: set[int] = set()
 
@@ -548,6 +549,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
 
     def set_tts_voice(self, voice: str) -> None:
         self._tts_voice = voice if voice in {"male", "female"} else "female"
+
+    def set_tts_quality(self, quality: str) -> None:
+        self._tts_quality = quality if quality in {"low", "medium", "high"} else "high"
 
     # ── Mock mode / map state ─────────────────────────────────────────────────
 

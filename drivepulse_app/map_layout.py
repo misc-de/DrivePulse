@@ -70,17 +70,16 @@ _MANEUVER_CSS = b"""
 /* Speed-limit sign - classic European round white/red circle */
 .dp-speed-sign {
   background-color: #ffffff;
-  border: 5px solid #cc0000;
+  border: 6px solid #cc0000;
   border-radius: 9999px;
-  min-width: 68px;
-  min-height: 68px;
+  min-width: 88px;
+  min-height: 88px;
   box-shadow: 0 3px 10px rgba(0,0,0,0.45);
 }
 .dp-speed-sign label {
   color: #111111;
-  font-size: 21px;
+  font-size: 27px;
   font-weight: 900;
-  padding: 4px;
 }
 """
 _maneuver_css_installed = False
@@ -707,10 +706,14 @@ class MapLayoutMixin:
         sign.add_css_class("dp-speed-sign")
         sign.set_halign(Gtk.Align.CENTER)
         sign.set_valign(Gtk.Align.CENTER)
+        sign.set_size_request(88, 88)
 
         lbl = Gtk.Label(label="")
         lbl.set_halign(Gtk.Align.CENTER)
         lbl.set_valign(Gtk.Align.CENTER)
+        lbl.set_hexpand(True)
+        lbl.set_vexpand(True)
+        lbl.set_justify(Gtk.Justification.CENTER)
         sign.append(lbl)
         wrap.append(sign)
 

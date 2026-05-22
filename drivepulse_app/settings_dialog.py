@@ -149,6 +149,8 @@ class SettingsDialog(Adw.NavigationPage):
         on_tts_language_changed: Callable[[str], None] | None = None,
         current_tts_voice: str = "female",
         on_tts_voice_changed: Callable[[str], None] | None = None,
+        current_tts_quality: str = "high",
+        on_tts_quality_changed: Callable[[str], None] | None = None,
         current_log_app_enabled: bool = True,
         on_log_app_enabled_changed: Callable[[bool], None] | None = None,
         current_log_obd_enabled: bool = True,
@@ -194,6 +196,7 @@ class SettingsDialog(Adw.NavigationPage):
         self.on_tts_backend_changed = on_tts_backend_changed
         self.on_tts_language_changed = on_tts_language_changed
         self.on_tts_voice_changed = on_tts_voice_changed
+        self.on_tts_quality_changed = on_tts_quality_changed
         self.on_log_app_enabled_changed = on_log_app_enabled_changed
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self.on_vindecoder_api_key_changed = on_vindecoder_api_key_changed
@@ -317,6 +320,7 @@ class SettingsDialog(Adw.NavigationPage):
         # TTS rows
         self._TTS_LANGUAGES = ["auto", "en", "de"]
         self._TTS_VOICES = ["male", "female"]
+        self._TTS_QUALITIES = ["low", "medium", "high"]
         # Backend list: always include espeak; add piper only when available.
         self._TTS_BACKENDS = ["espeak"] + (["piper"] if tts_service.PIPER_AVAILABLE else [])
 
@@ -354,7 +358,22 @@ class SettingsDialog(Adw.NavigationPage):
         self.tts_voice_row.set_selected(sel_tts_voice)
         self.tts_voice_row.connect("notify::selected", self._on_tts_voice_selected)
 
-        # Piper download progress row — hidden until a download is active.
+        tts_quality_model = Gtk.StringList()
+        for key in self._TTS_QUALITIES:
+            tts_quality_model.append(_translate(self.language, f"settings.tts.quality.{key}"))
+        self.tts_quality_row = Adw.ComboRow(title=_translate(self.language, "settings.tts.quality"))
+        self.tts_quality_row.set_model(tts_quality_model)
+        _safe_quality = current_tts_quality if current_tts_quality in self._TTS_QUALITIES else "high"
+        self.tts_quality_row.set_selected(self._TTS_QUALITIES.index(_safe_quality))
+        self.tts_quality_row.connect("notify::selected", self._on_tts_quality_selected)
+
+        # Language/voice/quality are piper-only options — hide them for espeak.
+        _piper_selected = _safe_backend == "piper"
+        self.tts_language_row.set_visible(_piper_selected)
+        self.tts_voice_row.set_visible(_piper_selected)
+        self.tts_quality_row.set_visible(_piper_selected)
+
+        # Download progress row — shown directly below voice options when a download runs.
         self._piper_dl_row = Adw.ActionRow()
         self._piper_dl_row.set_visible(False)
         self._piper_dl_bar = Gtk.ProgressBar()
@@ -610,6 +629,7 @@ class SettingsDialog(Adw.NavigationPage):
         tts_group.add(self.tts_backend_row)
         tts_group.add(self.tts_language_row)
         tts_group.add(self.tts_voice_row)
+        tts_group.add(self.tts_quality_row)
         tts_group.add(self._piper_dl_row)
         tour_page.add(tts_group)
 
@@ -1076,9 +1096,13 @@ class SettingsDialog(Adw.NavigationPage):
             self.on_tts_enabled_changed(row.get_active())
 
     def _on_tts_backend_selected(self, *_args: Any) -> None:
+        idx = self.tts_backend_row.get_selected()
+        backend = self._TTS_BACKENDS[idx] if 0 <= idx < len(self._TTS_BACKENDS) else "espeak"
+        piper = backend == "piper"
+        self.tts_language_row.set_visible(piper)
+        self.tts_voice_row.set_visible(piper)
+        self.tts_quality_row.set_visible(piper)
         if self.on_tts_backend_changed is not None:
-            idx = self.tts_backend_row.get_selected()
-            backend = self._TTS_BACKENDS[idx] if 0 <= idx < len(self._TTS_BACKENDS) else "espeak"
             self.on_tts_backend_changed(backend)
 
     def _on_tts_language_selected(self, *_args: Any) -> None:
@@ -1092,6 +1116,12 @@ class SettingsDialog(Adw.NavigationPage):
             idx = self.tts_voice_row.get_selected()
             voice = self._TTS_VOICES[idx] if 0 <= idx < len(self._TTS_VOICES) else "female"
             self.on_tts_voice_changed(voice)
+
+    def _on_tts_quality_selected(self, *_args: Any) -> None:
+        if self.on_tts_quality_changed is not None:
+            idx = self.tts_quality_row.get_selected()
+            quality = self._TTS_QUALITIES[idx] if 0 <= idx < len(self._TTS_QUALITIES) else "high"
+            self.on_tts_quality_changed(quality)
 
     def _on_piper_dl_progress(self, model_name: str, fraction: float) -> None:
         """Callback from tts_service — runs on GLib main loop."""
