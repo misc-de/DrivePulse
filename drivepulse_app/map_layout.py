@@ -665,6 +665,8 @@ class MapLayoutMixin:
         _press: list = [0.0, 0.0, 0.0]  # monotonic, x, y
 
         def _on_event(_ctrl: Gtk.EventControllerLegacy, event: Gdk.Event) -> bool:
+            if event is None:
+                return False
             etype = event.get_event_type()
             if etype in (Gdk.EventType.BUTTON_PRESS, Gdk.EventType.TOUCH_BEGIN):
                 ok, x, y = event.get_position()

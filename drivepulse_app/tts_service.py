@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import atexit
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -43,9 +44,9 @@ _current_proc: subprocess.Popen | None = None
 # Active backend — changed by set_backend() when the user picks one in Settings.
 _backend: str = "espeak"
 
-# Pre-rendered audio cache: text-hash → Path to raw PCM file.
+# Pre-rendered audio cache: text-hash → (Path to raw PCM file, sample_rate).
 # Populated by prerender(); consumed (and file deleted) by speak() on cache hit.
-_audio_cache: dict[str, Path] = {}
+_audio_cache: dict[str, tuple[Path, int]] = {}
 _cache_lock = threading.Lock()
 _CACHE_LIMIT = 40
 
@@ -294,6 +295,15 @@ def _piper_model_path(language: str, gender: str, quality: str = "high") -> Path
     return None
 
 
+def _piper_sample_rate(model_path: Path) -> int:
+    """Read the sample rate from the model's .onnx.json config (default 22050)."""
+    try:
+        cfg = json.loads(Path(str(model_path) + ".json").read_text(encoding="utf-8"))
+        return int(cfg["audio"]["sample_rate"])
+    except Exception:
+        return 22050
+
+
 def piper_model_available(language: str, gender: str, quality: str = "high") -> bool:
     """True when piper binary and the matching model file are both present."""
     return PIPER_AVAILABLE and _piper_model_path(language, gender, quality) is not None
@@ -310,7 +320,7 @@ def _cache_key(text: str, language: str, gender: str, quality: str = "high") -> 
 def clear_audio_cache() -> None:
     """Delete all pre-rendered PCM files and clear the cache (e.g. on tour end)."""
     with _cache_lock:
-        for p in _audio_cache.values():
+        for p, _sr in _audio_cache.values():
             try:
                 p.unlink(missing_ok=True)
             except Exception:
@@ -371,16 +381,17 @@ def _prerender_sync(text: str, language: str, gender: VoiceGender, quality: str,
             piper_proc.wait()
             if piper_proc.returncode == 0 and data:
                 tmp.write_bytes(data)
+                sample_rate = _piper_sample_rate(model)
                 with _cache_lock:
                     if len(_audio_cache) >= _CACHE_LIMIT:
                         oldest_key = next(iter(_audio_cache))
-                        old_path = _audio_cache.pop(oldest_key)
+                        old_path, _ = _audio_cache.pop(oldest_key)
                         try:
                             old_path.unlink(missing_ok=True)
                         except Exception:
                             pass
-                    _audio_cache[key] = tmp
-                log.debug("TTS pre-render cached: %.40s…", text)
+                    _audio_cache[key] = (tmp, sample_rate)
+                log.debug("TTS pre-render cached (%d Hz): %.40s…", sample_rate, text)
                 return
         except Exception as exc:
             log.debug("TTS pre-render subprocess error: %s", exc)
@@ -395,11 +406,11 @@ def _prerender_sync(text: str, language: str, gender: VoiceGender, quality: str,
             _prerender_active.discard(key)
 
 
-def _play_cached_file(path: Path) -> "subprocess.Popen | None":
+def _play_cached_file(path: Path, sample_rate: int = 22050) -> "subprocess.Popen | None":
     """Play a pre-rendered raw PCM file via aplay (instant — no piper needed)."""
     try:
         return subprocess.Popen(
-            ["aplay", "-r", "22050", "-f", "S16_LE", "-c", "1", "-q", str(path)],
+            ["aplay", "-r", str(sample_rate), "-f", "S16_LE", "-c", "1", "-q", str(path)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -491,15 +502,18 @@ def _speak_sync(
 
     t0 = time.monotonic()
     cached_path: Path | None = None
+    cached_sr: int = 22050
 
     if backend == "piper" and PIPER_AVAILABLE:
         key = _cache_key(text, language, gender, quality)
         with _cache_lock:
-            cached_path = _audio_cache.pop(key, None)
+            cached_entry = _audio_cache.pop(key, None)
 
+        if cached_entry is not None:
+            cached_path, cached_sr = cached_entry
         if cached_path is not None and cached_path.exists():
-            proc = _play_cached_file(cached_path)
-            log.debug("TTS cache hit: %.40s…", text)
+            proc = _play_cached_file(cached_path, cached_sr)
+            log.debug("TTS cache hit (%d Hz): %.40s…", cached_sr, text)
         else:
             cached_path = None
             proc = _launch_piper(text, language, gender, quality)
@@ -585,7 +599,7 @@ def _launch_piper(
         )
         echo.stdout.close()  # let echo exit when piper closes the pipe
         aplay = subprocess.Popen(
-            ["aplay", "-r", "22050", "-f", "S16_LE", "-c", "1", "-q"],
+            ["aplay", "-r", str(_piper_sample_rate(model)), "-f", "S16_LE", "-c", "1", "-q"],
             stdin=piper_proc.stdout,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
