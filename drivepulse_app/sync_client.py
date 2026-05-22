@@ -24,6 +24,12 @@ class SyncClient:
         self._device_id = device_id
         self._session_token: str | None = None
         self._fingerprint_verified = False
+        # Once verify_fingerprint() has matched the SPKI hash from the QR code
+        # against the live peer cert, pin the full cert PEM here so every
+        # subsequent request can require ssl.CERT_REQUIRED against it. Without
+        # this, a LAN MitM could substitute its own cert after pairing and
+        # the bearer-authenticated requests would still go through to it.
+        self._pinned_cert_pem: str | None = None
         self.server_hostname: str = ""
         self.last_contact: float = 0.0
         self.last_ping: float = 0.0
@@ -35,8 +41,20 @@ class SyncClient:
     def _make_ssl_context(self) -> ssl.SSLContext:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+        # CN of the server cert is "drivepulse", not the peer IP — hostname
+        # matching is meaningless here, identity is established by the pinned
+        # cert itself.
         ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        if self._pinned_cert_pem is not None:
+            # Self-signed peer cert acts as its own root CA. Loading it as the
+            # only trusted CA forces every handshake to present exactly this
+            # cert; anything else fails at TLS, before bearer tokens leak.
+            ctx.verify_mode = ssl.CERT_REQUIRED
+            ctx.load_verify_locations(cadata=self._pinned_cert_pem)
+        else:
+            # Only reached during the initial verify_fingerprint() probe —
+            # the SPKI hash from the QR code is the trust anchor there.
+            ctx.verify_mode = ssl.CERT_NONE
         return ctx
 
     def _base_url(self) -> str:
@@ -57,10 +75,16 @@ class SyncClient:
                 cert_der,
                 self._spki_fingerprint,
             )
+            if self._fingerprint_verified:
+                # Pin the verified cert so _make_ssl_context() can enforce
+                # CERT_REQUIRED on every subsequent request, not just rely on
+                # the one-time SPKI check that has already happened here.
+                self._pinned_cert_pem = ssl.DER_cert_to_PEM_cert(cert_der)
             return self._fingerprint_verified
         except Exception:
             log.exception("Could not verify sync peer fingerprint for %s:%s", self._host, self._port)
             self._fingerprint_verified = False
+            self._pinned_cert_pem = None
             return False
 
     def pair(self, pairing_token: str) -> bool:
