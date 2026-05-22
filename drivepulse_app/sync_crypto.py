@@ -21,14 +21,31 @@ log = get_logger(__name__)
 def generate_tls_keypair(cert_path: Path, key_path: Path) -> None:
     # Always regenerate — each server session gets a fresh ephemeral keypair.
     cert_path.parent.mkdir(parents=True, exist_ok=True)
+    # Restrict the sync directory itself so the key never lives in a
+    # world-readable directory even briefly. mode=0o700 only applies on POSIX.
+    try:
+        os.chmod(cert_path.parent, 0o700)
+    except OSError:
+        pass
     key = ec.generate_private_key(ec.SECP256R1())
-    key_path.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.TraditionalOpenSSL,
-            serialization.NoEncryption(),
-        )
+    key_bytes = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
     )
+    # Create the key file with restrictive permissions from the start —
+    # avoid the window where write_bytes would produce a 0644 file.
+    fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, key_bytes)
+    finally:
+        os.close(fd)
+    # Ensure the mode is correct even if the file already existed with
+    # a wider mode (e.g. left over from a pre-fix install).
+    try:
+        os.chmod(key_path, 0o600)
+    except OSError:
+        pass
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "drivepulse")])
     now = datetime.datetime.now(datetime.timezone.utc)
     cert = (

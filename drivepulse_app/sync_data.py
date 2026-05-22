@@ -193,6 +193,7 @@ def save_paired_devices(devices: list[dict[str, Any]]) -> None:
         atomic_write_text(
             PAIRED_DEVICES_FILE,
             json.dumps(devices, ensure_ascii=False, indent=2),
+            mode=0o600,
         )
     except OSError:
         log.exception("Could not save paired devices to %s", PAIRED_DEVICES_FILE)

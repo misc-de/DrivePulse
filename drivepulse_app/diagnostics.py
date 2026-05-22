@@ -63,7 +63,12 @@ def append_jsonl(
             fh.write(encoded)
 
 
-def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+def atomic_write_text(
+    path: Path,
+    content: str,
+    encoding: str = "utf-8",
+    mode: int | None = None,
+) -> None:
     """Write *content* to *path* atomically via a sibling temp file + rename.
 
     A plain ``Path.write_text`` truncates the live file before writing.
@@ -74,12 +79,18 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None
 
     ``os.replace`` is atomic on POSIX and on Windows when source and
     destination live on the same filesystem.
+
+    *mode* is applied to the temp file *before* the rename, so the live
+    file is never world-readable for an instant. Use ``0o600`` for files
+    holding secrets (API keys, TLS material, paired-device fingerprints).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     try:
         with tmp.open("w", encoding=encoding) as fh:
             fh.write(content)
+        if mode is not None:
+            os.chmod(tmp, mode)
         os.replace(tmp, path)
     except Exception:
         try:
