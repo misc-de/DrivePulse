@@ -162,6 +162,38 @@ def test_atomic_write_text_creates_parent_directory(tmp_path):
     assert target.read_text(encoding="utf-8") == "hi"
 
 
+def test_atomic_write_text_applies_mode_before_rename(tmp_path):
+    """Files holding secrets (API keys, paired-device fingerprints) must
+    not be world-readable for any window. mode=0o600 is applied to the
+    temp file before os.replace, so the live file is never visible to
+    other users on the system."""
+    import os
+    import stat
+
+    from drivepulse_app.diagnostics import atomic_write_text
+
+    target = tmp_path / "secret.json"
+    atomic_write_text(target, '{"api_key": "hunter2"}', mode=0o600)
+
+    mode = stat.S_IMODE(os.stat(target).st_mode)
+    assert mode == 0o600, f"expected 0o600, got 0o{mode:o}"
+
+
+def test_atomic_write_text_default_mode_unchanged(tmp_path):
+    """No mode= argument should not chmod the file."""
+    import os
+    import stat
+
+    from drivepulse_app.diagnostics import atomic_write_text
+
+    target = tmp_path / "public.txt"
+    atomic_write_text(target, "hello")
+    mode = stat.S_IMODE(os.stat(target).st_mode)
+    # We don't pin the exact umask-derived value; just verify chmod did NOT
+    # restrict to 0o600 (which the secret-write path would).
+    assert mode != 0o600
+
+
 def test_append_jsonl_drops_oldest_backup_at_backup_count(tmp_path):
     """Once foo.jsonl.N exists, the next rotation must overwrite it
     rather than letting backups accumulate forever."""

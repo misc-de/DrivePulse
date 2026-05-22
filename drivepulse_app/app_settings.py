@@ -194,4 +194,5 @@ def save_settings(settings: dict[str, Any]) -> None:
             },
             indent=2,
         ),
+        mode=0o600,
     )

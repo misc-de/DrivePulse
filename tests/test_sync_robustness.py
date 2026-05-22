@@ -365,6 +365,52 @@ def test_sync_poller_treats_other_http_errors_as_offline(monkeypatch):
     assert poller._ping("127.0.0.1", 8765) is False
 
 
+def test_generate_tls_keypair_writes_key_with_0600_mode(tmp_path):
+    """The ephemeral TLS private key holds the server's identity. It must
+    never be world-readable, even momentarily — other users on the system
+    could MitM the sync session by impersonating the server."""
+    import os
+    import stat
+
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync_crypto import generate_tls_keypair
+
+    cert_path = tmp_path / "sync" / "cert.pem"
+    key_path = tmp_path / "sync" / "key.pem"
+
+    generate_tls_keypair(cert_path, key_path)
+
+    key_mode = stat.S_IMODE(os.stat(key_path).st_mode)
+    assert key_mode == 0o600, f"expected 0o600 on key.pem, got 0o{key_mode:o}"
+    # Cert is public; we don't pin its mode.
+
+    dir_mode = stat.S_IMODE(os.stat(key_path.parent).st_mode)
+    assert dir_mode == 0o700, f"expected 0o700 on sync/, got 0o{dir_mode:o}"
+
+
+def test_generate_tls_keypair_overwrites_loose_permissions(tmp_path):
+    """If the file already existed from a pre-fix install with 0644,
+    the regeneration path must tighten it down to 0600."""
+    import os
+    import stat
+
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync_crypto import generate_tls_keypair
+
+    sync_dir = tmp_path / "sync"
+    sync_dir.mkdir()
+    key_path = sync_dir / "key.pem"
+    cert_path = sync_dir / "cert.pem"
+    # Simulate a pre-fix file left at 0644.
+    key_path.write_bytes(b"stale")
+    os.chmod(key_path, 0o644)
+
+    generate_tls_keypair(cert_path, key_path)
+
+    key_mode = stat.S_IMODE(os.stat(key_path).st_mode)
+    assert key_mode == 0o600
+
+
 def test_sync_handler_ping_rejects_unauthenticated_caller():
     """An unauthenticated /ping must not reset the session timer or leak state.
 
