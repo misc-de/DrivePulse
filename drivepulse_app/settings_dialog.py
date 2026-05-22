@@ -32,61 +32,32 @@ class DeviceItem(GObject.Object):
 
 
 class _BtExpander:
-    """Expander row for BT device lists using bundled icons (no system icon dependency)."""
+    """Expander row for BT device lists, backed by Adw.ExpanderRow."""
 
     def __init__(self) -> None:
-        self._expanded = False
-
-        self._header = Adw.ActionRow()
-        self._header.set_activatable(True)
-        self._header.connect("activated", self._toggle)
-
-        self._chevron = Gtk.Image.new_from_icon_name("dp-chevron-down-symbolic")
-        self._chevron.set_pixel_size(16)
-        self._chevron.set_valign(Gtk.Align.CENTER)
-        self._header.add_suffix(self._chevron)
-
-        self._rows_box = Gtk.ListBox()
-        self._rows_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._rows_box.add_css_class("boxed-list")
-
-        self._revealer = Gtk.Revealer()
-        self._revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-        self._revealer.set_transition_duration(200)
-        self._revealer.set_reveal_child(False)
-        self._revealer.set_child(self._rows_box)
-
-        self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.widget.append(self._header)
-        self.widget.append(self._revealer)
-
-    def _toggle(self, *_: object) -> None:
-        self.set_expanded(not self._expanded)
-
-    def set_expanded(self, value: bool) -> None:
-        self._expanded = value
-        self._revealer.set_reveal_child(value)
-        self._chevron.set_from_icon_name(
-            "dp-chevron-up-symbolic" if value else "dp-chevron-down-symbolic"
-        )
-
-    def get_expanded(self) -> bool:
-        return self._expanded
+        self._expander = Adw.ExpanderRow()
+        self.widget = self._expander
 
     def set_title(self, title: str) -> None:
-        self._header.set_title(title)
+        self._expander.set_title(title)
 
     def set_subtitle(self, subtitle: str) -> None:
-        self._header.set_subtitle(subtitle)
+        self._expander.set_subtitle(subtitle)
 
     def add_action(self, widget: Gtk.Widget) -> None:
-        self._header.add_suffix(widget)
+        self._expander.add_action(widget)
 
     def add_row(self, row: Gtk.Widget) -> None:
-        self._rows_box.append(row)
+        self._expander.add_row(row)
 
     def remove(self, row: Gtk.Widget) -> None:
-        self._rows_box.remove(row)
+        self._expander.remove(row)
+
+    def get_expanded(self) -> bool:
+        return self._expander.get_expanded()
+
+    def set_expanded(self, value: bool) -> None:
+        self._expander.set_expanded(value)
 
 
 class SettingsDialog(Adw.NavigationPage):
