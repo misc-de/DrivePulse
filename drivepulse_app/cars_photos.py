@@ -111,6 +111,11 @@ class CarsPhotosMixin:
         lbl.set_margin_bottom(4)
         tile.append(lbl)
 
+        keys = photo.keys() if hasattr(photo, "keys") else []
+        shared_at = photo["shared_at"] if "shared_at" in keys else None
+        seen_at = photo["seen_at"] if "seen_at" in keys else None
+        is_new_shared = shared_at and not seen_at
+
         if self._photo_select_mode:
             overlay = Gtk.Overlay()
             overlay.set_child(tile)
@@ -126,6 +131,29 @@ class CarsPhotosMixin:
             )
             overlay.add_overlay(chk)
             child.set_child(overlay)
+        elif is_new_shared:
+            overlay = Gtk.Overlay()
+            overlay.set_child(tile)
+            dot = Gtk.Label(label="●")
+            dot.add_css_class("accent")
+            dot.set_valign(Gtk.Align.START)
+            dot.set_halign(Gtk.Align.END)
+            dot.set_margin_top(4)
+            dot.set_margin_end(4)
+            overlay.add_overlay(dot)
+            child.set_child(overlay)
+            lp = Gtk.GestureLongPress()
+            lp.connect(
+                "pressed",
+                lambda _g, _x, _y, pid=photo_id: self._enter_photo_select_mode(pid),
+            )
+            child.add_controller(lp)
+            click = Gtk.GestureClick()
+            click.connect(
+                "released",
+                lambda _g, _n, _x, _y, pid=photo_id: self._open_photo_viewer(pid),
+            )
+            child.add_controller(click)
         else:
             child.set_child(tile)
             lp = Gtk.GestureLongPress()
@@ -278,6 +306,11 @@ class CarsPhotosMixin:
         if not photo_path.exists():
             return
 
+        try:
+            self.db.mark_photo_seen(photo_id)
+        except Exception:
+            log.exception("Could not mark photo seen id=%s", photo_id)
+
         picture = Gtk.Picture()
         picture.set_file(Gio.File.new_for_path(str(photo_path)))
         picture.set_content_fit(Gtk.ContentFit.CONTAIN)
@@ -289,8 +322,18 @@ class CarsPhotosMixin:
 
         self._set_trash(lambda: self._confirm_delete_photo(photo_id))
 
+        def _on_share_photo() -> None:
+            from .share_flow import ShareFlow
+            ShareFlow(self, self.db, self.language, self.get_sync_client).share_photos(
+                self._selected_car_id, [photo_id]
+            )
+
         page = Adw.NavigationPage(
-            child=self._wrap_sub_page(picture, title),
+            child=self._wrap_sub_page(
+                picture,
+                title,
+                on_share=_on_share_photo if self._is_sync_active() else None,
+            ),
             title=title,
         )
         page.set_tag(f"photo-{photo_id}")

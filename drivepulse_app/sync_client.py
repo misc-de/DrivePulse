@@ -29,6 +29,8 @@ class SyncClient:
         self.last_ping: float = 0.0
         self._last_pending_sync: str | None = None
         self._pending_scheduled: bool = False
+        self._pending_share: bool = False
+        self._pending_share_scheduled: bool = False
 
     def _make_ssl_context(self) -> ssl.SSLContext:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -193,6 +195,10 @@ class SyncClient:
                     if pending != self._last_pending_sync:
                         self._last_pending_sync = pending
                         self._pending_scheduled = False
+                    share_pending = bool(data.get("share"))
+                    if share_pending and not self._pending_share:
+                        self._pending_share = True
+                        self._pending_share_scheduled = False
                 except Exception:
                     pass
                 self.last_ping = time.time()
@@ -219,6 +225,33 @@ class SyncClient:
 
     def mark_pending_scheduled(self) -> None:
         self._pending_scheduled = True
+
+    def get_pending_share(self) -> bool:
+        return self._pending_share and not self._pending_share_scheduled
+
+    def mark_pending_share_scheduled(self) -> None:
+        self._pending_share_scheduled = True
+        self._pending_share = False
+
+    def pull_pending_share(self) -> dict | None:
+        if not self._fingerprint_verified or not self._session_token:
+            return None
+        try:
+            req = urllib.request.Request(
+                f"{self._base_url()}/share/pending",
+                headers=self._auth_headers(),
+                method="GET",
+            )
+            ctx = self._make_ssl_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+                result: dict[str, Any] = json.loads(resp.read())
+            self.last_contact = time.time()
+            if result.get("empty"):
+                return None
+            return result.get("payload")
+        except Exception:
+            log.exception("Could not pull pending share from %s:%s", self._host, self._port)
+            return None
 
     def disconnect(self) -> None:
         """Benachrichtigt den Server dass dieser Client sich trennt."""

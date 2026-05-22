@@ -1,9 +1,11 @@
 """Share protocol: payload builders, VIN helpers, and server-side import logic."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from .db import DriveDB
@@ -123,6 +125,37 @@ def _trips_identical(existing: Any, incoming: dict) -> bool:
     return True
 
 
+def build_photos_payload(
+    db: DriveDB,
+    car_id: int,
+    photo_ids: list[int] | None = None,
+    photos_dir: Path | None = None,
+) -> list[dict]:
+    if photos_dir is None:
+        from .common import LOG_DIR
+        photos_dir = LOG_DIR / "car_photos"
+    photos = db.list_photos_for_car(car_id)
+    out = []
+    for photo in photos:
+        if photo_ids is not None and int(photo["id"]) not in photo_ids:
+            continue
+        path = photos_dir / str(car_id) / photo["filename"]
+        if not path.exists():
+            continue
+        try:
+            data_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+        except Exception:
+            log.exception("Could not read photo file %s", path)
+            continue
+        out.append({
+            "taken_at": photo["taken_at"],
+            "label": photo["label"],
+            "filename": photo["filename"],
+            "data_b64": data_b64,
+        })
+    return out
+
+
 def build_tour_payload(tour: Any) -> dict:
     return {
         "name": tour["name"],
@@ -131,7 +164,7 @@ def build_tour_payload(tour: Any) -> dict:
     }
 
 
-def share_import(db: DriveDB, payload: dict) -> dict:
+def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> dict:
     if not isinstance(payload, dict) or payload.get("version") != 1:
         log.warning("Ignoring invalid share payload")
         return {"ok": False, "error": "invalid payload"}
@@ -153,10 +186,15 @@ def share_import(db: DriveDB, payload: dict) -> dict:
         log.warning("Ignoring invalid share payload")
         return {"ok": False, "error": "invalid payload"}
 
+    if photos_dir is None:
+        from .common import LOG_DIR
+        photos_dir = LOG_DIR / "car_photos"
+
     now = datetime.now(timezone.utc).isoformat()
     trips_added = 0
     runs_added = 0
     scans_added = 0
+    photos_added = 0
     conflicts = 0
 
     vehicle = payload.get("vehicle") or {}
@@ -317,10 +355,50 @@ def share_import(db: DriveDB, payload: dict) -> dict:
             db._conn.commit()
         scans_added += 1
 
+    # ---- photos ----
+    existing_photos = db.list_photos_for_car(car_id)
+    existing_photos_by_at = {p["taken_at"]: p for p in existing_photos}
+
+    for photo in payload.get("photos") or []:
+        if not isinstance(photo, dict):
+            continue
+        taken_at = photo.get("taken_at")
+        data_b64 = photo.get("data_b64")
+        filename = photo.get("filename") or ""
+        if not taken_at or not data_b64:
+            continue
+        if taken_at in existing_photos_by_at:
+            conflicts += 1
+            continue
+        try:
+            photo_bytes = base64.b64decode(data_b64)
+        except Exception:
+            log.exception("Could not decode photo data for taken_at=%s", taken_at)
+            continue
+        ext = Path(filename).suffix or ".jpg"
+        dest_dir = photos_dir / str(car_id)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        import uuid as _uuid
+        dest_name = f"{_uuid.uuid4().hex}{ext}"
+        dest_path = dest_dir / dest_name
+        try:
+            dest_path.write_bytes(photo_bytes)
+        except Exception:
+            log.exception("Could not write shared photo to %s", dest_path)
+            continue
+        try:
+            db.add_car_photo(car_id, dest_name, taken_at, shared_at=now)
+        except Exception:
+            log.exception("Could not insert shared photo record taken_at=%s", taken_at)
+            dest_path.unlink(missing_ok=True)
+            continue
+        photos_added += 1
+
     return {
         "ok": True,
         "trips_added": trips_added,
         "runs_added": runs_added,
         "scans_added": scans_added,
+        "photos_added": photos_added,
         "conflicts": conflicts,
     }

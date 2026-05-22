@@ -143,6 +143,9 @@ class ShareFlow:
                 err = result.get("error", "?") if isinstance(result, dict) else "?"
                 self._show_toast(f"Fehler: {err}")
                 return False
+            if result.get("queued"):
+                self._show_toast(self._t("share.queued"))
+                return False
             n = result.get("tours_added", 0)
             if n:
                 self._show_toast(f"Tour übertragen")
@@ -165,6 +168,19 @@ class ShareFlow:
             return
         self._check_and_proceed_vehicle(client, car, mode="run", run_ids=run_ids)
 
+    def share_photos(self, car_id: int | None, photo_ids: list[int]) -> None:
+        client = self._get_client()
+        if client is None:
+            self._show_toast(self._t("share.no_sync"))
+            return
+        if car_id is None or not photo_ids:
+            return
+        car = self._get_car_row(car_id)
+        if car is None or not car["vin_hash"]:
+            self._show_toast(self._t("share.no_vin"))
+            return
+        self._check_and_proceed_vehicle(client, car, mode="photos", photo_ids=photo_ids)
+
     # ------------------------------------------------------------------
     # Internal flow
     # ------------------------------------------------------------------
@@ -177,6 +193,7 @@ class ShareFlow:
         trip_ids: list[int] | None = None,
         run_ids: list[int] | None = None,
         scan_ids: list[int] | None = None,
+        photo_ids: list[int] | None = None,
     ) -> None:
         vin_hash = car["vin_hash"]
 
@@ -194,11 +211,12 @@ class ShareFlow:
             if known:
                 self._proceed(client, car, anon=False, include_obd=False,
                               mode=mode, trip_ids=trip_ids, run_ids=run_ids,
-                              scan_ids=scan_ids, vehicle_known=True)
+                              scan_ids=scan_ids, photo_ids=photo_ids, vehicle_known=True)
             else:
                 self._show_unknown_vehicle_dialog(
                     client, car, mode=mode,
                     trip_ids=trip_ids, run_ids=run_ids, scan_ids=scan_ids,
+                    photo_ids=photo_ids,
                 )
             return False
 
@@ -212,6 +230,7 @@ class ShareFlow:
         trip_ids: list[int] | None,
         run_ids: list[int] | None,
         scan_ids: list[int] | None,
+        photo_ids: list[int] | None = None,
     ) -> None:
         dialog = Adw.AlertDialog(
             heading=self._t("share.vehicle_unknown_title"),
@@ -236,7 +255,7 @@ class ShareFlow:
             self._proceed(
                 client, car, anon=True, include_obd=include_obd,
                 mode=mode, trip_ids=trip_ids, run_ids=run_ids,
-                scan_ids=scan_ids, vehicle_known=False,
+                scan_ids=scan_ids, photo_ids=photo_ids, vehicle_known=False,
             )
 
         dialog.connect("response", _on_response)
@@ -253,6 +272,7 @@ class ShareFlow:
         run_ids: list[int] | None,
         scan_ids: list[int] | None,
         vehicle_known: bool,
+        photo_ids: list[int] | None = None,
     ) -> None:
         if mode == "vehicle":
             self._show_vehicle_share_dialog(
@@ -265,7 +285,9 @@ class ShareFlow:
                 include_trips=mode == "trips",
                 include_runs=mode == "run",
                 include_scans=mode == "scan",
+                include_photos=mode == "photos",
                 trip_ids=trip_ids, run_ids=run_ids, scan_ids=scan_ids,
+                photo_ids=photo_ids,
             )
 
     def _show_vehicle_share_dialog(
@@ -309,6 +331,15 @@ class ShareFlow:
         scans_row.set_activatable_widget(scans_check)
         group.add(scans_row)
 
+        photos_check = Gtk.CheckButton()
+        photos_check.set_active(False)
+        photos_check.set_valign(Gtk.Align.CENTER)
+        photos_row = Adw.ActionRow()
+        photos_row.set_title(self._t("share.include_photos"))
+        photos_row.add_prefix(photos_check)
+        photos_row.set_activatable_widget(photos_check)
+        group.add(photos_row)
+
         dialog.set_extra_child(group)
         dialog.add_response("cancel", self._t("share.cancel"))
         dialog.add_response("send", self._t("share.send"))
@@ -326,7 +357,8 @@ class ShareFlow:
                 include_trips=trips_check.get_active(),
                 include_runs=runs_check.get_active(),
                 include_scans=scans_check.get_active(),
-                trip_ids=None, run_ids=None, scan_ids=None,
+                include_photos=photos_check.get_active(),
+                trip_ids=None, run_ids=None, scan_ids=None, photo_ids=None,
             )
 
         dialog.connect("response", _on_response)
@@ -344,8 +376,13 @@ class ShareFlow:
         trip_ids: list[int] | None,
         run_ids: list[int] | None,
         scan_ids: list[int] | None,
+        include_photos: bool = False,
+        photo_ids: list[int] | None = None,
     ) -> None:
-        from .share_protocol import build_vehicle_block, build_trips_payload, build_runs_payload, build_scans_payload
+        from .share_protocol import (
+            build_vehicle_block, build_trips_payload, build_runs_payload,
+            build_scans_payload, build_photos_payload,
+        )
 
         car_id = int(car["id"])
 
@@ -359,6 +396,7 @@ class ShareFlow:
                     "trips": [],
                     "stopwatch_runs": [],
                     "scans": [],
+                    "photos": [],
                 }
                 if include_trips:
                     payload["trips"] = build_trips_payload(self._db, car_id, trip_ids=trip_ids)
@@ -366,6 +404,8 @@ class ShareFlow:
                     payload["stopwatch_runs"] = build_runs_payload(self._db, car_id, run_ids=run_ids)
                 if include_scans:
                     payload["scans"] = build_scans_payload(self._db, car_id, scan_ids=scan_ids)
+                if include_photos:
+                    payload["photos"] = build_photos_payload(self._db, car_id, photo_ids=photo_ids)
 
                 result = client.share_import(payload)
                 GLib.idle_add(_on_result, result)
@@ -379,9 +419,13 @@ class ShareFlow:
                 err = result.get("error", "?") if isinstance(result, dict) else "?"
                 self._show_toast(f"Fehler: {err}")
                 return False
+            if result.get("queued"):
+                self._show_toast(self._t("share.queued"))
+                return False
             trips_n = result.get("trips_added", 0)
             runs_n = result.get("runs_added", 0)
             scans_n = result.get("scans_added", 0)
+            photos_n = result.get("photos_added", 0)
             conflicts_n = result.get("conflicts", 0)
             parts = []
             if trips_n:
@@ -390,6 +434,8 @@ class ShareFlow:
                 parts.append(f"{runs_n} Läufe")
             if scans_n:
                 parts.append(f"{scans_n} Scans")
+            if photos_n:
+                parts.append(f"{photos_n} Fotos")
             if parts:
                 self._show_toast(f"Übertragen: {', '.join(parts)}")
             elif conflicts_n:

@@ -841,7 +841,13 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if dialog is None:
             return None
         client = getattr(dialog, "_active_client", None)
-        return client if isinstance(client, SyncClient) else None
+        if isinstance(client, SyncClient):
+            return client
+        server = getattr(dialog, "_server", None)
+        if server is not None and server._paired:
+            from .sync_dialog import ServerShareClient
+            return ServerShareClient(server)
+        return None
 
     def _update_conflict_badge(self) -> None:
         try:
