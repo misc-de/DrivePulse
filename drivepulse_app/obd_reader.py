@@ -1,7 +1,6 @@
 """Background OBD reader, connection management and mock fallback."""
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import threading
@@ -32,7 +31,7 @@ from .common import (
     POLL_INTERVAL_SECONDS,
 )
 from .bluetooth_bridge import BluetoothPtyBridge
-from .diagnostics import get_logger
+from .diagnostics import append_jsonl, get_logger
 from .mock_obd import MockObdSimulator
 from .obd_adapter import AdapterInfo, probe_adapter, raw_send, _serial_port
 from .obd_devices import candidate_bt_addresses, parse_bt_port
@@ -96,7 +95,6 @@ class ObdReader(GObject.Object):
         if not self._obd_log_enabled or self.mock:
             return
         try:
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
             payload = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "event": event,
@@ -107,8 +105,7 @@ class ObdReader(GObject.Object):
                 "python_obd_available": obd is not None,
                 **fields,
             }
-            with CONNECTION_LOG_FILE.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+            append_jsonl(CONNECTION_LOG_FILE, payload)
         except Exception:
             log.exception("Could not write OBD connection log event=%s", event)
 
@@ -573,8 +570,6 @@ class ObdReader(GObject.Object):
         if not self._obd_log_enabled or self.mock:
             return
         try:
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
-            with LOG_FILE.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            append_jsonl(LOG_FILE, payload)
         except Exception:
             log.exception("Could not write OBD payload log")
