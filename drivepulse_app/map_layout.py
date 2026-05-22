@@ -1,6 +1,9 @@
 """Map page UI construction mixin — _build_* methods, CSS, step list."""
 from __future__ import annotations
 
+import math
+import time as _time
+
 from gi.repository import Adw, Gdk, GLib, GObject, Gtk
 
 from .common import _translate
@@ -64,6 +67,21 @@ _MANEUVER_CSS = b"""
 .dark .dp-steps-row-done { opacity: 0.55; }
 .dp-tour-topnav { padding: 2px 4px; }
 .dp-tour-topnav button label { font-size: 11px; }
+/* Speed-limit sign - classic European round white/red circle */
+.dp-speed-sign {
+  background-color: #ffffff;
+  border: 5px solid #cc0000;
+  border-radius: 9999px;
+  min-width: 68px;
+  min-height: 68px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+}
+.dp-speed-sign label {
+  color: #111111;
+  font-size: 21px;
+  font-weight: 900;
+  padding: 4px;
+}
 """
 _maneuver_css_installed = False
 
@@ -541,11 +559,13 @@ class MapLayoutMixin:
         content.set_valign(Gtk.Align.FILL)
 
         if self._backend != "none":
+            self._install_map_tap_controller(content)
             overlay.add_overlay(self._build_fab())
             overlay.add_overlay(self._build_zoom_controls())
             overlay.add_overlay(self._build_tour_controls())
             overlay.add_overlay(self._build_steps_panel())
             overlay.add_overlay(self._build_maneuver_overlay())
+            overlay.add_overlay(self._build_speed_zone_overlay())
             overlay.add_overlay(self._build_map_state_overlay())
 
         self._map_content_box.append(overlay)
@@ -636,6 +656,66 @@ class MapLayoutMixin:
         wrap.append(self._map_state_lbl)
 
         self._map_state_overlay = wrap
+        return wrap
+
+    def _install_map_tap_controller(self, widget: Gtk.Widget) -> None:
+        """Attach a capture-phase legacy controller to the map widget so a short
+        tap toggles navigation visibility — the same as on all other pages.
+        Adding it to the map content widget (not the overlay) means FAB button
+        taps do not trigger the toggle."""
+        _press: list = [0.0, 0.0, 0.0]  # monotonic, x, y
+
+        def _on_event(_ctrl: Gtk.EventControllerLegacy, event: Gdk.Event) -> bool:
+            etype = event.get_event_type()
+            if etype in (Gdk.EventType.BUTTON_PRESS, Gdk.EventType.TOUCH_BEGIN):
+                ok, x, y = event.get_position()
+                if ok:
+                    _press[0] = _time.monotonic()
+                    _press[1] = x
+                    _press[2] = y
+            elif etype in (Gdk.EventType.BUTTON_RELEASE, Gdk.EventType.TOUCH_END):
+                if _press[0] == 0.0:
+                    return False
+                now = _time.monotonic()
+                ok, x, y = event.get_position()
+                duration = now - _press[0]
+                _press[0] = 0.0
+                if not ok:
+                    return False
+                moved = math.hypot(x - _press[1], y - _press[2])
+                if duration <= 0.30 and moved <= 14.0:
+                    cb = getattr(self, "_on_map_tapped", None)
+                    if cb is not None:
+                        GLib.idle_add(cb)
+            return False  # never consume — map interaction stays intact
+
+        ctrl = Gtk.EventControllerLegacy()
+        ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        ctrl.connect("event", _on_event)
+        widget.add_controller(ctrl)
+
+    def _build_speed_zone_overlay(self) -> Gtk.Widget:
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        wrap.set_halign(Gtk.Align.START)
+        wrap.set_valign(Gtk.Align.END)
+        wrap.set_margin_start(12)
+        wrap.set_margin_bottom(36)
+        wrap.set_can_target(False)
+        wrap.set_visible(False)
+
+        sign = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        sign.add_css_class("dp-speed-sign")
+        sign.set_halign(Gtk.Align.CENTER)
+        sign.set_valign(Gtk.Align.CENTER)
+
+        lbl = Gtk.Label(label="")
+        lbl.set_halign(Gtk.Align.CENTER)
+        lbl.set_valign(Gtk.Align.CENTER)
+        sign.append(lbl)
+        wrap.append(sign)
+
+        self._speed_zone_overlay = wrap
+        self._speed_zone_lbl = lbl
         return wrap
 
     def _build_zoom_controls(self) -> Gtk.Widget:
