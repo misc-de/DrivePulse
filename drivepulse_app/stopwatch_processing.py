@@ -172,15 +172,5 @@ class StopWatchProcessingMixin:
             )
             self._show_replay()
             self.status_label.set_text(_translate(self.language, "stopwatch.done"))
-            if self.on_run_complete is not None:
-                combined = {
-                    "targets": {str(k): dict(v) for k, v in self.results.items()},
-                    "ranges": {str(k): dict(v) for k, v in self.range_results.items()},
-                    "max_obd_kmh": self.max_obd_speed,
-                    "max_obd_t": self._max_obd_speed_t,
-                    "max_gps_kmh": self.max_gps_speed,
-                    "max_gps_t": self._max_gps_speed_t,
-                    "max_g": self.max_g,
-                }
-                samples_list = [list(s) for s in self._run_samples]
-                self.on_run_complete(combined, samples_list)
+            # Persisting is now manual: reveal the "Messung abspeichern" button.
+            self.reveal_save_button()

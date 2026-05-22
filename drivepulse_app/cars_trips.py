@@ -134,7 +134,7 @@ class CarsTripsMixin:
                 page_content,
                 title,
                 on_rename=_on_rename,
-                on_share=lambda: self._share_trip(trip_id),
+                on_share=(lambda: self._share_trip(trip_id)) if self._is_sync_active() else None,
                 on_delete=lambda: self._confirm_delete_trip(trip_id),
             ),
             title=title,
