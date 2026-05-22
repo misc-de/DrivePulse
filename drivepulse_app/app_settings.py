@@ -46,6 +46,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "vindecoder_api_key": "",
     "vindecoder_secret_key": "",
     "autodev_api_key": "",
+    "routing_mode": "car",
+    "route_avoid_motorway": False,
+    "route_avoid_toll": False,
+    "route_avoid_ferry": False,
+    "route_avoid_unpaved": False,
 }
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
@@ -53,6 +58,7 @@ _VALID_TTS_BACKENDS = {"espeak", "piper"}
 _VALID_TTS_LANGUAGES = {"auto", "en", "de"}
 _VALID_TTS_VOICES = {"male", "female"}
 _VALID_TTS_QUALITIES = {"low", "medium", "high"}
+_VALID_ROUTING_MODES = {"car", "truck", "motorcycle", "bicycle", "pedestrian"}
 
 
 def _bounded_int(value: Any, default: int, lower: int, upper: int) -> int:
@@ -127,6 +133,11 @@ def load_settings() -> dict[str, Any]:
         "vindecoder_api_key": str(data.get("vindecoder_api_key") or ""),
         "vindecoder_secret_key": str(data.get("vindecoder_secret_key") or ""),
         "autodev_api_key": str(data.get("autodev_api_key") or ""),
+        "routing_mode": data.get("routing_mode") if data.get("routing_mode") in _VALID_ROUTING_MODES else DEFAULT_SETTINGS["routing_mode"],
+        "route_avoid_motorway": bool(data.get("route_avoid_motorway", DEFAULT_SETTINGS["route_avoid_motorway"])),
+        "route_avoid_toll": bool(data.get("route_avoid_toll", DEFAULT_SETTINGS["route_avoid_toll"])),
+        "route_avoid_ferry": bool(data.get("route_avoid_ferry", DEFAULT_SETTINGS["route_avoid_ferry"])),
+        "route_avoid_unpaved": bool(data.get("route_avoid_unpaved", DEFAULT_SETTINGS["route_avoid_unpaved"])),
     }
 
 
@@ -175,6 +186,11 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "vindecoder_api_key": str(settings.get("vindecoder_api_key") or ""),
                 "vindecoder_secret_key": str(settings.get("vindecoder_secret_key") or ""),
                 "autodev_api_key": str(settings.get("autodev_api_key") or ""),
+                "routing_mode": settings.get("routing_mode") if settings.get("routing_mode") in _VALID_ROUTING_MODES else DEFAULT_SETTINGS["routing_mode"],
+                "route_avoid_motorway": bool(settings.get("route_avoid_motorway", False)),
+                "route_avoid_toll": bool(settings.get("route_avoid_toll", False)),
+                "route_avoid_ferry": bool(settings.get("route_avoid_ferry", False)),
+                "route_avoid_unpaved": bool(settings.get("route_avoid_unpaved", False)),
             },
             indent=2,
         ),

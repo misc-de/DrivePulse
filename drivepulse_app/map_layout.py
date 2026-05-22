@@ -7,7 +7,15 @@ import time as _time
 from gi.repository import Adw, Gdk, GLib, GObject, Gtk
 
 from .common import _translate
-from .map_services import MAP_ICONS, MAP_LABEL_KEYS, MAP_TYPES, format_distance, maneuver_icon, maneuver_text_key
+from .map_services import (
+    MAP_ICONS,
+    MAP_LABEL_KEYS,
+    MAP_TYPES,
+    ROUTING_MODES,
+    format_distance,
+    maneuver_icon,
+    maneuver_text_key,
+)
 
 # Inline CSS for the in-tour navigation banner.  Adwaita's ".osd"/".card" classes
 # on a Box don't reliably paint a dark translucent background under the labels —
@@ -427,6 +435,9 @@ class MapLayoutMixin:
         self._update_placeholders()
         self._update_remove_sensitivity()
 
+        # Options row: routing mode dropdown + collapsible "avoid" checkboxes
+        bar.append(self._build_routing_options_row())
+
         # Action row: [route-btn] [status]
         action = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
@@ -445,6 +456,74 @@ class MapLayoutMixin:
         bar.append(action)
         bar.set_visible(False)
         self._map_content_box.append(bar)
+
+    def _build_routing_options_row(self) -> Gtk.Widget:
+        """Build the row with routing-mode dropdown and a collapsible
+        'avoid' options panel (Autobahn / Maut / Fähren / Schotter)."""
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+
+        labels = [_translate(self.language, f"map.routing.{m}") for m in ROUTING_MODES]
+        string_list = Gtk.StringList.new(labels)
+        dropdown = Gtk.DropDown(model=string_list)
+        try:
+            dropdown.set_selected(ROUTING_MODES.index(self._routing_mode))
+        except ValueError:
+            dropdown.set_selected(0)
+        dropdown.connect("notify::selected", self._on_routing_mode_dropdown_changed)
+        dropdown.set_tooltip_text(_translate(self.language, "map.routing.mode"))
+        self._routing_mode_dropdown = dropdown
+        head.append(dropdown)
+
+        toggle = Gtk.ToggleButton(icon_name="emblem-system-symbolic")
+        toggle.add_css_class("flat")
+        toggle.set_tooltip_text(_translate(self.language, "map.routing.options"))
+        head.append(toggle)
+        outer.append(head)
+
+        revealer = Gtk.Revealer()
+        revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        revealer.set_reveal_child(False)
+        toggle.connect(
+            "toggled",
+            lambda b: revealer.set_reveal_child(b.get_active()),
+        )
+
+        checks_box = Gtk.FlowBox()
+        checks_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        checks_box.set_max_children_per_line(2)
+        checks_box.set_min_children_per_line(1)
+        checks_box.set_column_spacing(8)
+        checks_box.set_row_spacing(2)
+
+        for key in ("motorway", "toll", "ferry", "unpaved"):
+            cb = Gtk.CheckButton(label=_translate(self.language, f"map.routing.avoid.{key}"))
+            cb.set_active(self._route_avoid.get(key, False))
+            cb.connect("toggled", self._on_route_avoid_toggled, key)
+            self._route_avoid_checks[key] = cb
+            checks_box.insert(cb, -1)
+
+        revealer.set_child(checks_box)
+        outer.append(revealer)
+        return outer
+
+    def _on_routing_mode_dropdown_changed(self, dropdown: Gtk.DropDown, _pspec: object) -> None:
+        idx = dropdown.get_selected()
+        if 0 <= idx < len(ROUTING_MODES):
+            mode = ROUTING_MODES[idx]
+            if mode != self._routing_mode:
+                self._routing_mode = mode
+                if self._on_routing_mode_changed is not None:
+                    self._on_routing_mode_changed(mode)
+
+    def _on_route_avoid_toggled(self, btn: Gtk.CheckButton, key: str) -> None:
+        active = btn.get_active()
+        if self._route_avoid.get(key) == active:
+            return
+        self._route_avoid[key] = active
+        if self._on_route_avoid_changed is not None:
+            self._on_route_avoid_changed(key, active)
 
     def _make_entry_row(self) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
