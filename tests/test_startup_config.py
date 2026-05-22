@@ -6,7 +6,7 @@ def test_python_package_status_reports_missing(monkeypatch, drivepulse_module):
 
     monkeypatch.setattr(startup_info.util, "find_spec", lambda module_name: None)
 
-    assert startup_info._py_status("missing", "missing") == (False, "fehlt")
+    assert startup_info._py_status("missing", "missing") == (False, "missing")
 
 
 def test_python_package_status_reports_installed_without_metadata(monkeypatch, drivepulse_module):
@@ -19,7 +19,7 @@ def test_python_package_status_reports_installed_without_metadata(monkeypatch, d
 
     monkeypatch.setattr(startup_info.metadata, "version", raise_not_found)
 
-    assert startup_info._py_status("PyGObject", "gi") == (True, "installiert")
+    assert startup_info._py_status("PyGObject", "gi") == (True, "installed")
 
 
 def test_python_package_status_reports_version(monkeypatch, drivepulse_module):
@@ -28,14 +28,14 @@ def test_python_package_status_reports_version(monkeypatch, drivepulse_module):
     monkeypatch.setattr(startup_info.util, "find_spec", lambda module_name: object())
     monkeypatch.setattr(startup_info.metadata, "version", lambda package_name: "1.2.3")
 
-    assert startup_info._py_status("pyserial", "serial") == (True, "installiert (1.2.3)")
+    assert startup_info._py_status("pyserial", "serial") == (True, "installed (1.2.3)")
 
 
 def test_print_required_python_packages_includes_obd_config(monkeypatch, capsys, drivepulse_module):
     from drivepulse_app import startup_info
 
-    monkeypatch.setattr(startup_info, "_py_status", lambda package, module: (True, "installiert"))
-    monkeypatch.setattr(startup_info, "_gi_status", lambda namespace, version: (True, "verfügbar"))
+    monkeypatch.setattr(startup_info, "_py_status", lambda package, module: (True, "installed"))
+    monkeypatch.setattr(startup_info, "_gi_status", lambda namespace, version: (True, "available"))
     monkeypatch.setattr(startup_info.shutil, "which", lambda binary: f"/usr/bin/{binary}")
     monkeypatch.setattr(startup_info, "OBD_PORT", "/dev/rfcomm0")
     monkeypatch.setattr(startup_info, "OBD_BAUDRATE", 38400)
@@ -45,15 +45,15 @@ def test_print_required_python_packages_includes_obd_config(monkeypatch, capsys,
     startup_info.print_required_python_packages()
 
     output = capsys.readouterr().out
-    assert "PyGObject: installiert" in output
-    assert "pyserial: installiert" in output
-    assert "obd: installiert" in output
+    assert "PyGObject: installed" in output
+    assert "pyserial: installed" in output
+    assert "obd: installed" in output
     assert "GTK 4" in output
     assert "espeak-ng" in output
     assert "OBD_PORT: /dev/rfcomm0" in output
     assert "OBD_BAUDRATE: 38400" in output
     assert "OBD_TIMEOUT: 2.5s" in output
-    assert "OBD_FAST: an" in output
+    assert "OBD_FAST: on" in output
 
 
 def test_translate_uses_english_fallback_and_german_translation(drivepulse_module):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 
 def test_import_data_ignores_unsupported_payload(tmp_path):
     from drivepulse_app.db import DriveDB
@@ -159,6 +161,7 @@ def test_parse_pairing_url_rejects_out_of_range_port():
 
 
 def test_sync_client_refuses_pairing_before_fingerprint_verification():
+    pytest.importorskip("cryptography")
     from drivepulse_app.sync_client import SyncClient
 
     client = SyncClient("127.0.0.1", 8765, "fingerprint", "device")
@@ -171,6 +174,7 @@ def test_sync_client_refuses_pairing_before_fingerprint_verification():
 def test_get_local_ip_uses_timeout_and_fallback(monkeypatch):
     import socket
 
+    pytest.importorskip("cryptography")
     from drivepulse_app import sync_crypto
 
     calls = []
@@ -197,6 +201,7 @@ def test_get_local_ip_uses_timeout_and_fallback(monkeypatch):
 
 
 def test_sync_identity_replaces_empty_persisted_device_id(monkeypatch, tmp_path):
+    pytest.importorskip("cryptography")
     from drivepulse_app import sync_identity
 
     sync_dir = tmp_path / "sync"
@@ -325,9 +330,86 @@ def test_sync_handler_rejects_oversized_body(monkeypatch):
     assert _SyncHandler._check_bearer(handler) is True
 
 
+def test_sync_poller_treats_403_as_reachable(monkeypatch):
+    """The reachability poller does not have the session bearer, so /ping
+    answers 403. A 403 still proves the peer is up — the poller must report
+    "reachable" in that case, not "offline"."""
+    import urllib.error
+    import urllib.request
+
+    from drivepulse_app.sync_poller import SyncPoller
+
+    def fake_urlopen(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            url="https://x/ping", code=403, msg="forbidden", hdrs=None, fp=None
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    poller = SyncPoller(lambda _: None)
+    assert poller._ping("127.0.0.1", 8765) is True
+
+
+def test_sync_poller_treats_other_http_errors_as_offline(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    from drivepulse_app.sync_poller import SyncPoller
+
+    def fake_urlopen(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            url="https://x/ping", code=500, msg="boom", hdrs=None, fp=None
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    poller = SyncPoller(lambda _: None)
+    assert poller._ping("127.0.0.1", 8765) is False
+
+
+def test_sync_handler_ping_rejects_unauthenticated_caller():
+    """An unauthenticated /ping must not reset the session timer or leak state.
+
+    Regression: prior to this fix, /ping was reachable without the bearer token,
+    so anyone on the LAN could keep the post-pairing session alive indefinitely
+    by spamming pings.
+    """
+    from types import SimpleNamespace
+
+    from drivepulse_app.sync_server import _SyncHandler
+
+    reset_calls = []
+    srv = SimpleNamespace(
+        _session_token="secret",
+        _session_expiry=0,
+        reset_session_timer=lambda: reset_calls.append(1),
+        pending_sync_mode=None,
+        has_pending_share=lambda: False,
+    )
+    handler = _SyncHandler.__new__(_SyncHandler)
+    handler._srv = srv
+    handler.path = "/ping"
+    handler.headers = {}  # no Authorization
+    responses = []
+    handler._send_json = lambda code, data: responses.append((code, data))
+
+    _SyncHandler.do_GET(handler)
+
+    assert responses == [(403, {"ok": False, "error": "unauthorized"})]
+    assert reset_calls == []
+
+    # With the correct bearer, /ping succeeds and resets the session timer.
+    handler.headers = {"Authorization": "Bearer secret"}
+    responses.clear()
+    _SyncHandler.do_GET(handler)
+
+    assert reset_calls == [1]
+    assert responses and responses[0][0] == 200
+    assert responses[0][1]["ok"] is True
+
+
 def test_sync_dialog_blocks_server_start_without_user_action(drivepulse_module):
     import threading
 
+    pytest.importorskip("cryptography")
     from drivepulse_app.sync_dialog import SyncDialog
 
     dialog = SyncDialog.__new__(SyncDialog)
@@ -346,6 +428,7 @@ def test_sync_dialog_blocks_server_start_without_user_action(drivepulse_module):
 def test_sync_dialog_stop_invalidates_pending_server_start(drivepulse_module):
     import threading
 
+    pytest.importorskip("cryptography")
     from drivepulse_app.sync_dialog import SyncDialog
 
     dialog = SyncDialog.__new__(SyncDialog)
@@ -365,6 +448,7 @@ def test_sync_dialog_stop_invalidates_pending_server_start(drivepulse_module):
 def test_sync_dialog_close_stops_server_and_invalidates_starts(drivepulse_module):
     import threading
 
+    pytest.importorskip("cryptography")
     from drivepulse_app.sync_dialog import SyncDialog
 
     class FakeServer:

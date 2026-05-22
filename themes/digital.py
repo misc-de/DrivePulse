@@ -1,5 +1,4 @@
 """Digital dashboard theme for DrivePulse."""
-import math
 from typing import Any
 
 import cairo

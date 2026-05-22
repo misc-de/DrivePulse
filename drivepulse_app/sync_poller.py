@@ -4,6 +4,7 @@ from __future__ import annotations
 import ssl
 import threading
 import time
+import urllib.error
 import urllib.request
 from typing import Callable
 
@@ -72,5 +73,9 @@ class SyncPoller:
             )
             with urllib.request.urlopen(req, context=ctx, timeout=PING_TIMEOUT_S) as resp:
                 return resp.status == 200
+        except urllib.error.HTTPError as exc:
+            # /ping requires the bearer token; the poller doesn't have one.
+            # A 403 still proves the server is reachable and responding.
+            return exc.code == 403
         except Exception:
             return False
