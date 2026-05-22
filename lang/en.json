@@ -526,6 +526,7 @@
   "share.send": "Transfer",
   "share.nothing_new": "Nothing new to transfer",
   "share.queued": "Will be transferred on next ping",
+  "share.error": "Error: {detail}",
   "share.conflicts_tooltip": "Resolve conflicts",
   "share.conflicts_title": "Share conflicts",
   "share.conflict_discard": "Discard",
