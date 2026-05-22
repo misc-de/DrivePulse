@@ -128,7 +128,7 @@ class CarsScansMixin:
             child=self._wrap_sub_page(
                 page_content,
                 title,
-                on_share=(lambda: self._share_scan(scan_id)) if self._is_sync_active() else None,
+                on_share=lambda: self._share_scan(scan_id),
             ),
             title=title,
         )

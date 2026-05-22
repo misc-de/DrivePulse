@@ -229,7 +229,7 @@ class CarsStopWatchRunsMixin:
             child=self._wrap_sub_page(
                 scrolled,
                 title,
-                on_share=(lambda: self._share_run(run_id)) if self._is_sync_active() else None,
+                on_share=lambda: self._share_run(run_id),
             ),
             title=title,
         )
