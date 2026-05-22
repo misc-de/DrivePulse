@@ -4,8 +4,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-import cairo
-
 from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 
 _GRAD_STOPS = [

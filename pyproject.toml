@@ -18,7 +18,13 @@ drivepulse = "drivepulse_app.app:main"
 
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["drivepulse", "theme_defaults"]
+
+[tool.setuptools.packages.find]
+include = ["drivepulse_app*", "themes*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

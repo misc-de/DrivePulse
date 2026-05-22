@@ -305,6 +305,9 @@ class _SyncHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/ping":
+            if not self._check_bearer():
+                self._send_json(403, {"ok": False, "error": "unauthorized"})
+                return
             self._srv.reset_session_timer()
             self._send_json(200, {
                 "ok": True,

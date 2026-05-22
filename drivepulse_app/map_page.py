@@ -29,8 +29,8 @@ from .common import SOURCE_LANGUAGE, _normalize_language, _translate
 from .db import DriveDB
 from .diagnostics import get_logger
 from . import tts_service
-from .map_shumate import SHUMATE_OK, MapShumateMixin
-from .map_webkit import WEBKIT_OK, MapWebKitMixin
+from .map_shumate import MapShumateMixin
+from .map_webkit import MapWebKitMixin
 from .map_layout import MapLayoutMixin
 from .map_tour import MapTourMixin
 from .map_traffic import MapTrafficMixin

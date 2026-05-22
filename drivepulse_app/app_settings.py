@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language
+from .common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language  # noqa: F401
 from .diagnostics import get_logger
 
 
