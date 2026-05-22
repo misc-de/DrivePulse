@@ -365,6 +365,121 @@ def test_sync_poller_treats_other_http_errors_as_offline(monkeypatch):
     assert poller._ping("127.0.0.1", 8765) is False
 
 
+def test_sync_client_pins_cert_for_subsequent_requests(monkeypatch, tmp_path):
+    """Regression: verify_fingerprint() used to do a one-time SPKI match and
+    leave every subsequent request at ssl.CERT_NONE. A LAN MitM could then
+    substitute its own cert after pairing. Now the peer cert is pinned and
+    _make_ssl_context() requires CERT_REQUIRED with that cert as the only
+    trusted CA."""
+    import socket
+    import ssl
+
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync_client import SyncClient
+    from drivepulse_app.sync_crypto import generate_tls_keypair, get_spki_fingerprint
+
+    # Build a real self-signed cert/key pair so the SSL plumbing has
+    # something legitimate to chew on.
+    cert_path = tmp_path / "cert.pem"
+    key_path = tmp_path / "key.pem"
+    generate_tls_keypair(cert_path, key_path)
+    spki = get_spki_fingerprint(cert_path)
+    cert_der_bytes = ssl.PEM_cert_to_DER_cert(cert_path.read_text())
+
+    client = SyncClient("127.0.0.1", 9999, spki, "device-x")
+
+    # Before verify_fingerprint, _make_ssl_context falls back to CERT_NONE
+    # — that path is only legitimate for the initial probe.
+    ctx = client._make_ssl_context()
+    assert ctx.verify_mode == ssl.CERT_NONE
+    assert client._pinned_cert_pem is None
+
+    # Now stub verify_fingerprint's network call so it sees our real cert.
+    class FakeSock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def getpeercert(self, binary_form=False):
+            return cert_der_bytes if binary_form else {}
+
+    class FakeContext:
+        def wrap_socket(self, sock, server_hostname=None):
+            return FakeSock()
+
+    monkeypatch.setattr(ssl, "SSLContext", lambda *_a, **_k: FakeContext())
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: object())
+
+    assert client.verify_fingerprint() is True
+    assert client._pinned_cert_pem is not None
+    assert "BEGIN CERTIFICATE" in client._pinned_cert_pem
+
+
+def test_sync_client_make_context_requires_cert_after_pinning(tmp_path):
+    """After the cert is pinned, every fresh SSLContext must require it."""
+    import ssl
+
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync_client import SyncClient
+    from drivepulse_app.sync_crypto import generate_tls_keypair
+
+    cert_path = tmp_path / "cert.pem"
+    key_path = tmp_path / "key.pem"
+    generate_tls_keypair(cert_path, key_path)
+
+    client = SyncClient("127.0.0.1", 9999, "fingerprint", "device-x")
+    client._pinned_cert_pem = cert_path.read_text()
+
+    ctx = client._make_ssl_context()
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.check_hostname is False
+    # The pinned cert should be the only thing trusted: any unrelated cert
+    # loaded into a vanilla context would not match.
+    stats = ctx.cert_store_stats()
+    assert stats["x509_ca"] >= 1
+
+
+def test_sync_client_failed_verify_clears_pinned_cert(monkeypatch, tmp_path):
+    """If a re-verification ever fails (wrong SPKI), the previously pinned
+    cert must be dropped so we don't keep talking to an attacker's session
+    state."""
+    import socket
+    import ssl
+
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync_client import SyncClient
+    from drivepulse_app.sync_crypto import generate_tls_keypair
+
+    cert_path = tmp_path / "cert.pem"
+    key_path = tmp_path / "key.pem"
+    generate_tls_keypair(cert_path, key_path)
+
+    client = SyncClient("127.0.0.1", 9999, "wrong-fingerprint", "device-x")
+    client._pinned_cert_pem = "stale"
+
+    class FakeSock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def getpeercert(self, binary_form=False):
+            return ssl.PEM_cert_to_DER_cert(cert_path.read_text())
+
+    class FakeContext:
+        def wrap_socket(self, sock, server_hostname=None):
+            return FakeSock()
+
+    monkeypatch.setattr(ssl, "SSLContext", lambda *_a, **_k: FakeContext())
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: object())
+
+    assert client.verify_fingerprint() is False
+    assert client._pinned_cert_pem is None
+
+
 def test_generate_tls_keypair_writes_key_with_0600_mode(tmp_path):
     """The ephemeral TLS private key holds the server's identity. It must
     never be world-readable, even momentarily — other users on the system
