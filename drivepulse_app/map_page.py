@@ -46,6 +46,7 @@ from .map_services import (
     maneuver_text_key,
     osrm_route,
     resolve_route_points,
+    snap_to_route,
 )
 
 log = get_logger(__name__)
@@ -70,7 +71,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         on_poi_visible_changed: Callable[[bool], None] | None = None,
         on_traffic_visible_changed: Callable[[bool], None] | None = None,
         on_3d_view_changed: Callable[[bool], None] | None = None,
-        on_tour_started: Callable[[list[list[float]]], None] | None = None,
+        on_tour_started: Callable[[list[list[float]], list[tuple[float, float]]], None] | None = None,
         on_tour_stopped: Callable[[], None] | None = None,
         on_tour_resumed: Callable[[], None] | None = None,
         on_tts_enabled_changed: Callable[[bool], None] | None = None,
@@ -142,6 +143,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         # monotonically along the route so a single backwards GPS jitter
         # doesn't undo progress.
         self._gps_route_idx: int = 0
+        # Route-snapped position; set during active/paused tour, None otherwise.
+        self._snapped_lat: float | None = None
+        self._snapped_lon: float | None = None
+        self._snapped_cum_m: float = 0.0
         self._dnd_src_idx: int = -1
         # TTS state
         self._tts_enabled: bool = False
@@ -302,6 +307,22 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._gps_heading = heading or 0.0
         self._gps_speed_mps = (speed_kmh / 3.6) if speed_kmh is not None else self._gps_speed_mps
 
+        # Snap GPS onto the nearest route segment during active/paused navigation.
+        if (self._tour_active or self._tour_paused) and len(self._tour_coords) >= 2 and self._route_cum_m:
+            slat, slon, seg_idx, scum = snap_to_route(
+                lat, lon, self._tour_coords, self._route_cum_m, self._gps_route_idx
+            )
+            self._snapped_lat = slat
+            self._snapped_lon = slon
+            self._gps_route_idx = seg_idx
+            self._snapped_cum_m = scum
+        else:
+            self._snapped_lat = None
+            self._snapped_lon = None
+
+        display_lat = self._snapped_lat if self._snapped_lat is not None else lat
+        display_lon = self._snapped_lon if self._snapped_lon is not None else lon
+
         # During an active tour always re-engage follow so the map tracks the driver.
         if self._tour_active and not self._follow_gps:
             self._set_follow(True)
@@ -310,11 +331,11 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             now = time.monotonic()
             if now - self._last_map_js >= self._MAP_JS_INTERVAL:
                 self._last_map_js = now
-                self._js(f"mapSetCar({lat}, {lon}, {self._gps_heading})")
+                self._js(f"mapSetCar({display_lat}, {display_lon}, {self._gps_heading})")
         elif self._backend == "shumate" and self._shumate_map is not None:
-            self._update_shumate_gps(lat, lon)
+            self._update_shumate_gps(display_lat, display_lon)
             if self._follow_gps:
-                self._goto(lat, lon)
+                self._goto(display_lat, display_lon)
 
         if self._tour_active or self._tour_paused:
             self._update_maneuver_overlay()
@@ -673,6 +694,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._step_min_dist = None
         self._tour_coords = list(coords) if coords else []
         self._gps_route_idx = 0
+        self._snapped_lat = None
+        self._snapped_lon = None
+        self._snapped_cum_m = 0.0
         self._compute_route_progress_tables()
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
