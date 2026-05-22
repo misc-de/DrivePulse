@@ -521,5 +521,9 @@
   "share.conflicts_tooltip": "Resolve conflicts",
   "share.conflicts_title": "Share conflicts",
   "share.conflict_discard": "Discard",
-  "share.conflict_apply": "Apply"
+  "share.conflict_apply": "Apply",
+  "share.conflict_type_trip": "Trip",
+  "share.conflict_type_run": "Stopwatch run",
+  "share.conflict_type_scan": "Scan",
+  "share.conflict_received": "Received: {ts}"
 }

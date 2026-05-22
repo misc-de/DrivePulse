@@ -541,5 +541,9 @@
   "share.conflicts_tooltip": "Konflikte auflösen",
   "share.conflicts_title": "Share-Konflikte",
   "share.conflict_discard": "Verwerfen",
-  "share.conflict_apply": "Übernehmen"
+  "share.conflict_apply": "Übernehmen",
+  "share.conflict_type_trip": "Fahrt",
+  "share.conflict_type_run": "Stoppuhr-Lauf",
+  "share.conflict_type_scan": "Scan",
+  "share.conflict_received": "Empfangen: {ts}"
 }
