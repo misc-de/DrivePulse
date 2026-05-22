@@ -77,6 +77,13 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         on_tour_resumed: Callable[[], None] | None = None,
         on_tts_enabled_changed: Callable[[bool], None] | None = None,
         on_map_tapped: Callable[[], None] | None = None,
+        routing_mode: str = "car",
+        route_avoid_motorway: bool = False,
+        route_avoid_toll: bool = False,
+        route_avoid_ferry: bool = False,
+        route_avoid_unpaved: bool = False,
+        on_routing_mode_changed: Callable[[str], None] | None = None,
+        on_route_avoid_changed: Callable[[str, bool], None] | None = None,
         db: DriveDB | None = None,
         get_sync_client: Callable | None = None,
     ) -> None:
@@ -119,7 +126,19 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         # Route coords [[lon, lat], ...] — kept for traffic proximity filtering
         self._route_coords: list[list[float]] = []
         self._map_type_idx: int = 0
-        self._routing_mode: str = "car"
+        from .map_services import ROUTING_MODES as _RM
+        self._routing_mode: str = routing_mode if routing_mode in _RM else "car"
+        self._route_avoid: dict[str, bool] = {
+            "motorway": bool(route_avoid_motorway),
+            "toll": bool(route_avoid_toll),
+            "ferry": bool(route_avoid_ferry),
+            "unpaved": bool(route_avoid_unpaved),
+        }
+        self._on_routing_mode_changed = on_routing_mode_changed
+        self._on_route_avoid_changed = on_route_avoid_changed
+        # UI widgets created lazily in _build_search_bar
+        self._routing_mode_dropdown: Gtk.DropDown | None = None
+        self._route_avoid_checks: dict[str, Gtk.CheckButton] = {}
         self._start_coord: tuple[float, float] | None = None
         self._end_coord: tuple[float, float] | None = None
         self._tour_active: bool = False
@@ -685,7 +704,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             if all_points is None:
                 GLib.idle_add(self._route_error)
                 return
-            result = valhalla_route(all_points, self._routing_mode) or osrm_route(all_points, self._routing_mode)
+            result = (
+                valhalla_route(all_points, self._routing_mode, avoid=self._route_avoid)
+                or osrm_route(all_points, self._routing_mode, avoid=self._route_avoid)
+            )
         except Exception:
             log.exception("Could not compute map route")
             GLib.idle_add(self._route_error)
@@ -778,6 +800,20 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             self._zoom_in_btn.set_tooltip_text(_translate(self.language, "map.zoom_in"))
         if self._zoom_out_btn is not None:
             self._zoom_out_btn.set_tooltip_text(_translate(self.language, "map.zoom_out"))
+        # Refresh routing-options widgets (dropdown labels + checkbox labels)
+        if self._routing_mode_dropdown is not None:
+            from .map_services import ROUTING_MODES as _RM
+            labels = [_translate(self.language, f"map.routing.{m}") for m in _RM]
+            self._routing_mode_dropdown.set_model(Gtk.StringList.new(labels))
+            try:
+                self._routing_mode_dropdown.set_selected(_RM.index(self._routing_mode))
+            except ValueError:
+                pass
+            self._routing_mode_dropdown.set_tooltip_text(
+                _translate(self.language, "map.routing.mode")
+            )
+        for key, cb in self._route_avoid_checks.items():
+            cb.set_label(_translate(self.language, f"map.routing.avoid.{key}"))
         if self._tour_start_lbl is not None:
             if self._tour_active:
                 self._set_tour_button("stop")

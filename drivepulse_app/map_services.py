@@ -15,8 +15,17 @@ GeocodeFn = Callable[[str], tuple[float, float] | None]
 
 ROUTING_BACKENDS = ["osrm", "valhalla"]
 
+# Supported routing modes (used by both OSRM and Valhalla via per-backend maps below)
+ROUTING_MODES = ["car", "truck", "motorcycle", "bicycle", "pedestrian"]
+
 _VALHALLA_URL = "https://valhalla.openstreetmap.de/route"
-_VALHALLA_COSTING = {"car": "auto", "bicycle": "bicycle", "motorcycle": "motorcycle"}
+_VALHALLA_COSTING = {
+    "car": "auto",
+    "truck": "truck",
+    "motorcycle": "motorcycle",
+    "bicycle": "bicycle",
+    "pedestrian": "pedestrian",
+}
 
 # Valhalla integer maneuver type → (osrm_type, osrm_modifier)
 _VALHALLA_MANEUVER: dict[int, tuple[str, str]] = {
@@ -73,7 +82,22 @@ TILE_URLS = {
 }
 
 BAB_BASE = "https://verkehr.autobahn.de/o/autobahn"
-OSRM_PROFILE = {"car": "driving", "bicycle": "cycling", "motorcycle": "driving"}
+OSRM_PROFILE = {
+    "car": "driving",
+    "truck": "driving",
+    "motorcycle": "driving",
+    "bicycle": "cycling",
+    "pedestrian": "foot",
+}
+
+# Avoid-options structure passed to osrm_route/valhalla_route.
+# Keys are independent — set any combination.
+DEFAULT_ROUTE_AVOID: dict[str, bool] = {
+    "motorway": False,  # Autobahnen meiden
+    "toll": False,      # Mautstraßen meiden
+    "ferry": False,     # Fähren meiden
+    "unpaved": False,   # unbefestigte / Schotter-Straßen meiden
+}
 
 # Autobahnen with sections in North Rhine-Westphalia (NRW).
 NRW_AUTOBAHNEN = frozenset([
@@ -161,14 +185,26 @@ def osrm_route(
     waypoints: list[tuple[float, float]],
     mode: str,
     http_get_fn: HttpGet = http_get,
+    avoid: dict[str, bool] | None = None,
 ) -> tuple[list[list[float]], float, float, list[dict]] | None:
     if len(waypoints) < 2:
         return None
     profile = OSRM_PROFILE.get(mode, "driving")
     coord_str = ";".join(f"{lon},{lat}" for lat, lon in waypoints)
+    # OSRM's `exclude` parameter is only honoured by the public demo for the
+    # driving profile; foot/cycling profiles don't define those classes.
+    exclude_parts: list[str] = []
+    if avoid and profile == "driving":
+        if avoid.get("motorway"):
+            exclude_parts.append("motorway")
+        if avoid.get("toll"):
+            exclude_parts.append("toll")
+        if avoid.get("ferry"):
+            exclude_parts.append("ferry")
+    extra = f"&exclude={','.join(exclude_parts)}" if exclude_parts else ""
     url = (
         f"https://router.project-osrm.org/route/v1/{profile}/{coord_str}"
-        "?overview=full&geometries=geojson&steps=true"
+        f"?overview=full&geometries=geojson&steps=true{extra}"
     )
     data = http_get_fn(url)
     if data and data.get("code") == "Ok" and data.get("routes"):
@@ -255,6 +291,7 @@ def valhalla_route(
     waypoints: list[tuple[float, float]],
     mode: str,
     http_get_fn: HttpGet = http_get,
+    avoid: dict[str, bool] | None = None,
 ) -> tuple[list[list[float]], float, float, list[dict]] | None:
     """Route via Valhalla (valhalla.openstreetmap.de).
 
@@ -266,11 +303,31 @@ def valhalla_route(
         return None
     costing = _VALHALLA_COSTING.get(mode, "auto")
     locations = [{"lon": lon, "lat": lat} for lat, lon in waypoints]
-    body = {
+    body: dict[str, Any] = {
         "locations": locations,
         "costing": costing,
         "directions_options": {"units": "kilometers"},
     }
+    # Valhalla expresses avoidance as costing_options preferences (0.0 strongly
+    # discourages, 1.0 neutral).  Only auto/truck/motorcycle honour
+    # use_highways/use_tolls; ferries and unpaved apply across modes.
+    if avoid:
+        opts: dict[str, Any] = {}
+        if avoid.get("motorway") and costing in {"auto", "truck", "motorcycle"}:
+            opts["use_highways"] = 0.0
+        if avoid.get("toll") and costing in {"auto", "truck", "motorcycle"}:
+            opts["use_tolls"] = 0.0
+        if avoid.get("ferry"):
+            opts["use_ferry"] = 0.0
+        if avoid.get("unpaved"):
+            # Valhalla auto/truck use `use_tracks`; bicycle uses
+            # `avoid_bad_surfaces` for similar effect.
+            if costing == "bicycle":
+                opts["avoid_bad_surfaces"] = 1.0
+            else:
+                opts["use_tracks"] = 0.0
+        if opts:
+            body["costing_options"] = {costing: opts}
     url = f"{_VALHALLA_URL}?json={urllib.parse.quote(_json.dumps(body, separators=(',', ':')))}"
     data = http_get_fn(url)
     if not data:
