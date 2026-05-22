@@ -69,13 +69,13 @@ class MapTourMixin:
         self._snapped_lat = None
         self._snapped_lon = None
         self._snapped_cum_m = 0.0
+        self._speed_zones = self._build_speed_zones()
         self._set_nav_chrome_visible(False)
         self._set_tour_button("stop")
         self._update_maneuver_overlay()
         self._highlight_active_step()
         if self._on_tour_started is not None and self._tour_coords:
-            speed_zones = self._build_speed_zones()
-            self._on_tour_started(self._tour_coords, speed_zones)
+            self._on_tour_started(self._tour_coords, self._speed_zones)
         self._set_follow(True)
         if self._backend == "webkit":
             self._js(f"mapStartTour({lat}, {lon})")
@@ -132,6 +132,7 @@ class MapTourMixin:
         self._snapped_cum_m = 0.0
         self._tts_last_step_idx = -1
         self._tts_spoken_thresholds = set()
+        self._speed_zones = []
         tts_service.stop()
         self._set_nav_chrome_visible(True)
         self._set_tour_button("start")
@@ -143,6 +144,8 @@ class MapTourMixin:
             self._guide_path_layer.remove_all()
         if self._maneuver_overlay is not None:
             self._maneuver_overlay.set_visible(False)
+        if self._speed_zone_overlay is not None:
+            self._speed_zone_overlay.set_visible(False)
         self._highlight_active_step()
         if was_running and self._on_tour_stopped is not None:
             self._on_tour_stopped()
@@ -237,15 +240,18 @@ class MapTourMixin:
     def _build_speed_zones(self) -> list[tuple[float, float]]:
         """Build a list of (cum_dist_m, speed_kmh) breakpoints from route steps.
 
-        Each breakpoint marks where a new speed limit takes effect.  The list is
-        sorted ascending by cumulative distance so the simulator can binary-search it.
+        Prefers Valhalla's ``speed_limit`` field when present; falls back to the
+        ref-based heuristic (A*→120, B*/L*→70, no ref→40) for OSRM routes.
         """
         if not self._tour_steps or not self._step_cum_m:
             return []
         zones: list[tuple[float, float]] = []
         prev_speed: float | None = None
         for i, step in enumerate(self._tour_steps):
-            speed = mock_speed_kmh(step.get("ref", ""))
+            if "speed_limit" in step:
+                speed = float(step["speed_limit"])
+            else:
+                speed = mock_speed_kmh(step.get("ref", ""))
             if speed != prev_speed:
                 cum = self._step_cum_m[i] if i < len(self._step_cum_m) else 0.0
                 zones.append((cum, speed))
@@ -374,6 +380,7 @@ class MapTourMixin:
         self._maneuver_overlay.set_visible(True)
         self._highlight_active_step()
         self._update_tts(step, distance_m)
+        self._update_speed_zone_overlay()
 
     def _update_tts(self, step: dict, distance_m: float) -> None:
         if not self._tts_enabled:
@@ -410,6 +417,25 @@ class MapTourMixin:
             return _translate(lang, "tts.distance.m").format(n=n)
         km = round(meters / 1000, 1)
         return _translate(lang, "tts.distance.km").format(n=km)
+
+    def _update_speed_zone_overlay(self) -> None:
+        if self._speed_zone_overlay is None or self._speed_zone_lbl is None:
+            return
+        if not self._speed_zones:
+            self._speed_zone_overlay.set_visible(False)
+            return
+        progress_m = self._gps_progress_m()
+        speed: float | None = None
+        for cum_m, spd in self._speed_zones:
+            if cum_m <= progress_m:
+                speed = spd
+            else:
+                break
+        if speed is None:
+            self._speed_zone_overlay.set_visible(False)
+            return
+        self._speed_zone_lbl.set_text(str(int(speed)))
+        self._speed_zone_overlay.set_visible(True)
 
     def _tts_announce(self, step: dict, distance_m: float) -> None:
         if not self._tts_enabled:

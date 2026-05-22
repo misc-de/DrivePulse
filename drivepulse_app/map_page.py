@@ -47,6 +47,7 @@ from .map_services import (
     osrm_route,
     resolve_route_points,
     snap_to_route,
+    valhalla_route,
 )
 
 log = get_logger(__name__)
@@ -75,6 +76,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         on_tour_stopped: Callable[[], None] | None = None,
         on_tour_resumed: Callable[[], None] | None = None,
         on_tts_enabled_changed: Callable[[bool], None] | None = None,
+        on_map_tapped: Callable[[], None] | None = None,
         db: DriveDB | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -104,6 +106,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._on_tour_stopped = on_tour_stopped
         self._on_tour_resumed = on_tour_resumed
         self._on_tts_enabled_changed = on_tts_enabled_changed
+        self._on_map_tapped = on_map_tapped
         self._tts_btn: Gtk.ToggleButton | None = None
 
         self._gps_lat: float | None = None
@@ -160,6 +163,11 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._maneuver_icon: Gtk.Image | None = None
         self._maneuver_distance_lbl: Gtk.Label | None = None
         self._maneuver_instr_lbl: Gtk.Label | None = None
+
+        # Speed zone overlay (bottom-left, visible during active/paused tour)
+        self._speed_zone_overlay: Gtk.Box | None = None
+        self._speed_zone_lbl: Gtk.Label | None = None
+        self._speed_zones: list[tuple[float, float]] = []
 
         # Backend: "webkit" | "shumate" | "none"
         self._backend: str = "none"
@@ -663,7 +671,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             if all_points is None:
                 GLib.idle_add(self._route_error)
                 return
-            result = osrm_route(all_points, self._routing_mode)
+            result = valhalla_route(all_points, self._routing_mode) or osrm_route(all_points, self._routing_mode)
         except Exception:
             log.exception("Could not compute map route")
             GLib.idle_add(self._route_error)

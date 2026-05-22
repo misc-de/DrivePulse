@@ -409,6 +409,17 @@ function mapSetCar(lat, lon, heading) {
 
 function mapSetFollow(active) {
   followMode = active;
+  if (!active) {
+    // Sync immediately — don't wait for the next mapSetCar tick.
+    // While _followingGps is true the move-handler keeps the marker pinned to
+    // map.getCenter(), so the arrow visually sticks to the screen while the
+    // user pans.  Clearing it here snaps the marker to the real GPS position
+    // right away so it moves with the map tiles instead.
+    _followingGps = false;
+    if (carMarker && _gpsLat !== null) {
+      carMarker.setLngLat([_gpsLon, _gpsLat]);
+    }
+  }
 }
 
 function mapSetTourActive(active) {

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json as _json
 import math
 import urllib.parse
 from typing import Any, Callable
@@ -11,6 +12,45 @@ from .http_client import http_get
 
 HttpGet = Callable[[str], Any]
 GeocodeFn = Callable[[str], tuple[float, float] | None]
+
+ROUTING_BACKENDS = ["osrm", "valhalla"]
+
+_VALHALLA_URL = "https://valhalla.openstreetmap.de/route"
+_VALHALLA_COSTING = {"car": "auto", "bicycle": "bicycle", "motorcycle": "motorcycle"}
+
+# Valhalla integer maneuver type → (osrm_type, osrm_modifier)
+_VALHALLA_MANEUVER: dict[int, tuple[str, str]] = {
+    0:  ("notification", ""),
+    1:  ("depart",       ""),
+    2:  ("depart",       "right"),
+    3:  ("depart",       "left"),
+    4:  ("arrive",       ""),
+    5:  ("arrive",       "right"),
+    6:  ("arrive",       "left"),
+    7:  ("new name",     ""),
+    8:  ("continue",     "straight"),
+    9:  ("turn",         "slight right"),
+    10: ("turn",         "right"),
+    11: ("turn",         "sharp right"),
+    12: ("turn",         "uturn"),
+    13: ("turn",         "uturn"),
+    14: ("turn",         "sharp left"),
+    15: ("turn",         "left"),
+    16: ("turn",         "slight left"),
+    17: ("on ramp",      "straight"),
+    18: ("on ramp",      "right"),
+    19: ("on ramp",      "left"),
+    20: ("off ramp",     "right"),
+    21: ("off ramp",     "left"),
+    22: ("fork",         "straight"),
+    23: ("fork",         "right"),
+    24: ("fork",         "left"),
+    25: ("merge",        ""),
+    26: ("roundabout",   ""),
+    27: ("exit roundabout", ""),
+    37: ("merge",        "right"),
+    38: ("merge",        "left"),
+}
 
 MAP_TYPES = ["map", "satellite", "dark"]
 MAP_LABEL_KEYS = {
@@ -184,6 +224,107 @@ def mock_speed_kmh(ref: str) -> float:
     if first == "A" and (len(r) == 1 or not r[1].isalpha()):
         return 120.0
     return 70.0
+
+
+def _decode_polyline(encoded: str, precision: int = 6) -> list[list[float]]:
+    """Decode a Valhalla/Google encoded polyline into [[lon, lat], ...] pairs."""
+    factor = 10 ** precision
+    result: list[list[float]] = []
+    index = lat = lon = 0
+
+    def _next_coord() -> int:
+        nonlocal index
+        shift = val = 0
+        while True:
+            b = ord(encoded[index]) - 63
+            index += 1
+            val |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        return ~(val >> 1) if val & 1 else val >> 1
+
+    while index < len(encoded):
+        lat += _next_coord()
+        lon += _next_coord()
+        result.append([lon / factor, lat / factor])
+    return result
+
+
+def valhalla_route(
+    waypoints: list[tuple[float, float]],
+    mode: str,
+    http_get_fn: HttpGet = http_get,
+) -> tuple[list[list[float]], float, float, list[dict]] | None:
+    """Route via Valhalla (valhalla.openstreetmap.de).
+
+    Returns the same (coords, duration_s, distance_m, steps) tuple as
+    osrm_route so callers are backend-agnostic.  Steps include a
+    ``speed_limit`` key (km/h) when Valhalla provides one.
+    """
+    if len(waypoints) < 2:
+        return None
+    costing = _VALHALLA_COSTING.get(mode, "auto")
+    locations = [{"lon": lon, "lat": lat} for lat, lon in waypoints]
+    body = {
+        "locations": locations,
+        "costing": costing,
+        "directions_options": {"units": "kilometers"},
+    }
+    url = f"{_VALHALLA_URL}?json={urllib.parse.quote(_json.dumps(body, separators=(',', ':')))}"
+    data = http_get_fn(url)
+    if not data:
+        return None
+    try:
+        trip = data["trip"]
+        summary = trip["summary"]
+        duration_s = float(summary["time"])
+        distance_m = float(summary["length"]) * 1000.0
+        legs = trip.get("legs") or []
+        # Decode the full route geometry from the first leg's shape.
+        coords: list[list[float]] = []
+        for leg in legs:
+            coords.extend(_decode_polyline(leg.get("shape", "")))
+        if not coords:
+            return None
+        steps = _flatten_valhalla_maneuvers(legs)
+        return coords, duration_s, distance_m, steps
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _flatten_valhalla_maneuvers(legs: list[dict]) -> list[dict]:
+    """Convert Valhalla maneuver objects into our internal step format."""
+    result: list[dict] = []
+    for leg in legs:
+        shape = _decode_polyline(leg.get("shape", ""))
+        for man in leg.get("maneuvers") or []:
+            vtype = int(man.get("type") or 0)
+            osrm_type, osrm_mod = _VALHALLA_MANEUVER.get(vtype, ("turn", ""))
+            # Position: first shape point of this maneuver.
+            begin_idx = int(man.get("begin_shape_index") or 0)
+            if begin_idx < len(shape):
+                lon, lat = shape[begin_idx][0], shape[begin_idx][1]
+            elif shape:
+                lon, lat = shape[0][0], shape[0][1]
+            else:
+                continue
+            names: list[str] = man.get("street_names") or man.get("begin_street_names") or []
+            speed_limit = man.get("speed_limit")
+            step: dict[str, Any] = {
+                "lat": lat,
+                "lon": lon,
+                "type": osrm_type,
+                "modifier": osrm_mod,
+                "name": names[0] if names else "",
+                "ref": "",
+                "distance": float(man.get("length") or 0.0) * 1000.0,
+                "exit": man.get("roundabout_exit_count"),
+            }
+            if speed_limit is not None:
+                step["speed_limit"] = float(speed_limit)
+            result.append(step)
+    return result
 
 
 def resolve_route_points(
