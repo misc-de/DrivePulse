@@ -1,11 +1,13 @@
 """Small logging helpers for DrivePulse runtime diagnostics."""
 from __future__ import annotations
 
+import json
 import logging
 import logging.handlers
 import os
 import threading
 from pathlib import Path
+from typing import Any
 
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -14,8 +16,73 @@ _LOG_MAX_BYTES = 5 * 1024 * 1024
 _LOG_BACKUP_COUNT = 3
 _ROOT_LOGGER_NAME = "drivepulse_app"
 
+# Telemetry JSONL files are written from background threads at up to ~2 Hz
+# (obd-log.jsonl) and rare connection events (connection-log.jsonl). They
+# would otherwise grow unbounded — cap them with simple size-based rotation.
+_JSONL_MAX_BYTES = 10 * 1024 * 1024
+_JSONL_BACKUP_COUNT = 2
+
 _root_setup_lock = threading.Lock()
 _root_configured = False
+_jsonl_locks: dict[Path, threading.Lock] = {}
+_jsonl_locks_guard = threading.Lock()
+
+
+def _jsonl_lock_for(path: Path) -> threading.Lock:
+    with _jsonl_locks_guard:
+        lock = _jsonl_locks.get(path)
+        if lock is None:
+            lock = threading.Lock()
+            _jsonl_locks[path] = lock
+        return lock
+
+
+def append_jsonl(
+    path: Path,
+    payload: dict[str, Any],
+    max_bytes: int = _JSONL_MAX_BYTES,
+    backup_count: int = _JSONL_BACKUP_COUNT,
+) -> None:
+    """Append one JSON line to *path*, rotating once it exceeds *max_bytes*.
+
+    Rotation renames ``foo.jsonl`` → ``foo.jsonl.1`` → ``foo.jsonl.2`` and
+    truncates the live file. Serialized per-path so concurrent writers from
+    the reader and scanner threads don't double-rotate.
+    """
+    line = json.dumps(payload, ensure_ascii=False, default=str) + "\n"
+    encoded = line.encode("utf-8")
+    with _jsonl_lock_for(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            current = path.stat().st_size
+        except FileNotFoundError:
+            current = 0
+        if current > 0 and current + len(encoded) > max_bytes:
+            _rotate_jsonl(path, backup_count)
+        with path.open("ab") as fh:
+            fh.write(encoded)
+
+
+def _rotate_jsonl(path: Path, backup_count: int) -> None:
+    """Shift foo.jsonl → foo.jsonl.1 → … → foo.jsonl.N, dropping the oldest."""
+    oldest = path.with_suffix(path.suffix + f".{backup_count}")
+    try:
+        oldest.unlink(missing_ok=True)
+    except OSError:
+        pass
+    for i in range(backup_count - 1, 0, -1):
+        src = path.with_suffix(path.suffix + f".{i}")
+        dst = path.with_suffix(path.suffix + f".{i + 1}")
+        if src.exists():
+            try:
+                src.rename(dst)
+            except OSError:
+                pass
+    if path.exists():
+        try:
+            path.rename(path.with_suffix(path.suffix + ".1"))
+        except OSError:
+            pass
 
 
 def _configure_root_logger() -> None:

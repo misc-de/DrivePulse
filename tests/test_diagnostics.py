@@ -71,3 +71,57 @@ def test_set_log_enabled_disables_all_child_loggers(monkeypatch, tmp_path):
 
     diag.set_log_enabled(True)
     assert child.getEffectiveLevel() == logging.INFO
+
+
+def test_append_jsonl_writes_one_line_per_call(tmp_path):
+    """Each payload becomes one JSON line. The file is created on demand."""
+    from drivepulse_app.diagnostics import append_jsonl
+
+    target = tmp_path / "stream.jsonl"
+    append_jsonl(target, {"a": 1})
+    append_jsonl(target, {"b": "two", "umlaut": "ö"})
+
+    lines = target.read_text(encoding="utf-8").splitlines()
+    assert lines == ['{"a": 1}', '{"b": "two", "umlaut": "ö"}']
+
+
+def test_append_jsonl_rotates_when_max_bytes_exceeded(tmp_path):
+    """Regression: obd-log.jsonl used to grow without bound at ~2 Hz.
+    append_jsonl must rename the live file aside once it crosses the size
+    threshold and start a fresh one for the next payload."""
+    from drivepulse_app.diagnostics import append_jsonl
+
+    target = tmp_path / "stream.jsonl"
+    payload = {"speed": 100, "rpm": 2500}  # serializes to 25 bytes incl. newline
+    append_jsonl(target, payload, max_bytes=60, backup_count=2)
+    append_jsonl(target, payload, max_bytes=60, backup_count=2)
+    # Two writes (~50 bytes) fit under the 60-byte cap; no rotation yet.
+    assert target.exists()
+    assert not target.with_suffix(".jsonl.1").exists()
+
+    # Third write pushes total over 60 bytes → rotation, then fresh write.
+    append_jsonl(target, payload, max_bytes=60, backup_count=2)
+    rotated = target.with_suffix(".jsonl.1")
+    assert rotated.exists(), "live file should have been moved aside on rotation"
+    assert target.exists(), "a fresh live file should exist for the new write"
+    # The new live file holds only the most recent payload.
+    new_lines = target.read_text(encoding="utf-8").splitlines()
+    assert len(new_lines) == 1
+
+
+def test_append_jsonl_drops_oldest_backup_at_backup_count(tmp_path):
+    """Once foo.jsonl.N exists, the next rotation must overwrite it
+    rather than letting backups accumulate forever."""
+    from drivepulse_app.diagnostics import append_jsonl
+
+    target = tmp_path / "stream.jsonl"
+    payload = {"x": "y" * 30}
+    # Force rotations: cap=50 means almost every write rotates.
+    for _ in range(6):
+        append_jsonl(target, payload, max_bytes=50, backup_count=2)
+
+    assert target.exists()
+    assert target.with_suffix(".jsonl.1").exists()
+    assert target.with_suffix(".jsonl.2").exists()
+    # Backup count is 2 — there must not be a .3.
+    assert not target.with_suffix(".jsonl.3").exists()
