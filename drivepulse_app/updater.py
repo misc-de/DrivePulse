@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -209,7 +210,7 @@ def _run_migrations() -> None:
             continue
         try:
             r = subprocess.run(
-                ["python3", str(script)],
+                [sys.executable, str(script)],
                 cwd=_APP_DIR,
                 timeout=60,
                 capture_output=True,
