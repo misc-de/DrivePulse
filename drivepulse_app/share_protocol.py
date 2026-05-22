@@ -301,6 +301,19 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
         if not run_at:
             continue
         if run_at in existing_runs_by_at:
+            existing_run = existing_runs_by_at[run_at]
+            existing_full = db.get_stopwatch_run(int(existing_run["id"]))
+            if (existing_full.get("results") == run.get("results", {})
+                    and existing_full.get("samples") == run.get("samples", [])):
+                continue  # identical, skip silently
+            conflict_data = json.dumps(run, ensure_ascii=False)
+            with db._lock:
+                db._conn.execute(
+                    "INSERT INTO share_conflicts(type, car_id, local_id, incoming_json, received_at)"
+                    " VALUES(?,?,?,?,?)",
+                    ("run", car_id, int(existing_run["id"]), conflict_data, now),
+                )
+                db._conn.commit()
             conflicts += 1
             continue
         with db._lock:
@@ -333,6 +346,22 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
         if not scanned_at:
             continue
         if scanned_at in existing_scans_by_at:
+            existing_scan = existing_scans_by_at[scanned_at]
+            existing_data = db.get_scan_data(int(existing_scan["id"]))
+            try:
+                incoming_data = json.loads(scan.get("data_json", "{}"))
+            except Exception:
+                incoming_data = {}
+            if existing_data == incoming_data:
+                continue  # identical, skip silently
+            conflict_data = json.dumps(scan, ensure_ascii=False)
+            with db._lock:
+                db._conn.execute(
+                    "INSERT INTO share_conflicts(type, car_id, local_id, incoming_json, received_at)"
+                    " VALUES(?,?,?,?,?)",
+                    ("scan", car_id, int(existing_scan["id"]), conflict_data, now),
+                )
+                db._conn.commit()
             conflicts += 1
             continue
         with db._lock:

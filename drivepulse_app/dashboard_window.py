@@ -893,10 +893,28 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             except Exception:
                 conflicts = []
             for c in conflicts:
+                import json as _json
+                try:
+                    incoming = _json.loads(c["incoming_json"])
+                except Exception:
+                    incoming = {}
+                typ = c["type"]
+                type_label = {
+                    "trip": t("share.conflict_type_trip"),
+                    "run": t("share.conflict_type_run"),
+                    "scan": t("share.conflict_type_scan"),
+                }.get(typ, typ)
+                item_ts_raw = (
+                    incoming.get("started_at")
+                    or incoming.get("run_at")
+                    or incoming.get("scanned_at")
+                    or ""
+                )
+                item_ts = item_ts_raw[:16].replace("T", " ") if item_ts_raw else ""
                 row = Adw.ActionRow()
-                row.set_title(f"{c['type']} #{c['local_id']}")
-                ts = c["received_at"][:16] if c["received_at"] else ""
-                row.set_subtitle(ts)
+                row.set_title(type_label + (f"  {item_ts}" if item_ts else ""))
+                received = c["received_at"][:16].replace("T", " ") if c["received_at"] else ""
+                row.set_subtitle(t("share.conflict_received", ts=received) if received else "")
 
                 cid = int(c["id"])
 
