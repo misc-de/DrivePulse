@@ -164,10 +164,26 @@ def _flatten_route_steps(legs: list[dict]) -> list[dict]:
                 "type": str(man.get("type") or ""),
                 "modifier": str(man.get("modifier") or ""),
                 "name": str(step.get("name") or ""),
+                "ref": str(step.get("ref") or ""),
                 "distance": float(step.get("distance") or 0.0),
                 "exit": man.get("exit"),
             })
     return result
+
+
+def mock_speed_kmh(ref: str) -> float:
+    """Return a realistic mock speed for a road segment based on its OSRM ref tag.
+
+    A* (Autobahn) → 120 km/h, B* (Bundesstraße) / other refs → 70 km/h,
+    no ref (urban streets) → 40 km/h.
+    """
+    r = ref.strip()
+    if not r:
+        return 40.0
+    first = r[0].upper()
+    if first == "A" and (len(r) == 1 or not r[1].isalpha()):
+        return 120.0
+    return 70.0
 
 
 def resolve_route_points(
@@ -319,6 +335,69 @@ def maneuver_text_key(maneuver_type: str, modifier: str) -> str:
     if modifier == "right":
         return "map.maneuver.turn.right"
     return "map.maneuver.straight"
+
+
+def snap_to_route(
+    lat: float,
+    lon: float,
+    coords: list[list[float]],  # [[lon, lat], ...]
+    cum_m: list[float],
+    start_idx: int = 0,
+    window: int = 200,
+) -> tuple[float, float, int, float]:
+    """Project (lat, lon) onto the nearest forward route segment.
+
+    Only searches from *start_idx* up to *window* segments ahead so the
+    result advances monotonically — no GPS jitter can snap backward.
+
+    Returns (snapped_lat, snapped_lon, seg_idx, cum_m_to_snap).
+    Falls back to the raw position when no valid segment exists.
+    """
+    n = len(coords)
+    if n < 2 or not cum_m:
+        return lat, lon, start_idx, cum_m[start_idx] if cum_m and start_idx < len(cum_m) else 0.0
+
+    cos_lat = math.cos(math.radians(lat))
+    lo = max(0, start_idx)
+    hi = min(n - 1, lo + window)
+
+    best_seg = min(lo, n - 2)
+    best_t = 0.0
+    best_dist2 = float("inf")
+
+    for i in range(lo, hi):
+        ax = coords[i][0] * cos_lat
+        ay = coords[i][1]
+        bx = coords[i + 1][0] * cos_lat
+        by = coords[i + 1][1]
+        px = lon * cos_lat
+        py = lat
+
+        abx = bx - ax
+        aby = by - ay
+        ab2 = abx * abx + aby * aby
+        if ab2 == 0.0:
+            t = 0.0
+        else:
+            t = (px - ax) * abx + (py - ay) * aby
+            t = max(0.0, min(1.0, t / ab2))
+
+        dx = px - (ax + t * abx)
+        dy = py - (ay + t * aby)
+        d2 = dx * dx + dy * dy
+
+        if d2 < best_dist2:
+            best_dist2 = d2
+            best_seg = i
+            best_t = t
+
+    a = coords[best_seg]
+    b = coords[best_seg + 1]
+    snapped_lat = a[1] + best_t * (b[1] - a[1])
+    snapped_lon = a[0] + best_t * (b[0] - a[0])
+    seg_len = haversine(a[1], a[0], b[1], b[0])
+    snapped_cum = cum_m[best_seg] + best_t * seg_len
+    return snapped_lat, snapped_lon, best_seg, snapped_cum
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

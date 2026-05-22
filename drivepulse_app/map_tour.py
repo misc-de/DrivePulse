@@ -7,7 +7,7 @@ import threading
 from gi.repository import GLib
 
 from .common import _translate
-from .map_services import format_distance, haversine, osrm_route, maneuver_icon, maneuver_text_key
+from .map_services import format_distance, haversine, mock_speed_kmh, osrm_route, maneuver_icon, maneuver_text_key
 from . import tts_service
 from .diagnostics import get_logger
 
@@ -66,12 +66,16 @@ class MapTourMixin:
         self._tour_step_idx = 0
         self._step_min_dist = None
         self._gps_route_idx = 0
+        self._snapped_lat = None
+        self._snapped_lon = None
+        self._snapped_cum_m = 0.0
         self._set_nav_chrome_visible(False)
         self._set_tour_button("stop")
         self._update_maneuver_overlay()
         self._highlight_active_step()
         if self._on_tour_started is not None and self._tour_coords:
-            self._on_tour_started(self._tour_coords)
+            speed_zones = self._build_speed_zones()
+            self._on_tour_started(self._tour_coords, speed_zones)
         self._set_follow(True)
         if self._backend == "webkit":
             self._js(f"mapStartTour({lat}, {lon})")
@@ -123,6 +127,9 @@ class MapTourMixin:
         self._tour_completed = False
         self._step_min_dist = None
         self._gps_route_idx = 0
+        self._snapped_lat = None
+        self._snapped_lon = None
+        self._snapped_cum_m = 0.0
         self._tts_last_step_idx = -1
         self._tts_spoken_thresholds = set()
         tts_service.stop()
@@ -227,12 +234,35 @@ class MapTourMixin:
                 self._step_cum_m.append(cum)
                 cum += float(step.get("distance") or 0.0)
 
+    def _build_speed_zones(self) -> list[tuple[float, float]]:
+        """Build a list of (cum_dist_m, speed_kmh) breakpoints from route steps.
+
+        Each breakpoint marks where a new speed limit takes effect.  The list is
+        sorted ascending by cumulative distance so the simulator can binary-search it.
+        """
+        if not self._tour_steps or not self._step_cum_m:
+            return []
+        zones: list[tuple[float, float]] = []
+        prev_speed: float | None = None
+        for i, step in enumerate(self._tour_steps):
+            speed = mock_speed_kmh(step.get("ref", ""))
+            if speed != prev_speed:
+                cum = self._step_cum_m[i] if i < len(self._step_cum_m) else 0.0
+                zones.append((cum, speed))
+                prev_speed = speed
+        return zones
+
     def _gps_progress_m(self) -> float:
         """Return how far the GPS fix has progressed along the route, in m.
 
-        Implemented as: monotonically-advancing nearest vertex + half the
-        next-segment to account for the user being between vertices.
+        When snap_to_route already ran in update_gps(), returns the cached
+        fractional-segment cumulative distance — more accurate than the old
+        vertex-only search.  Falls back to the vertex search when no snap is
+        available (e.g. before the first GPS fix after a tour start).
         """
+        if self._snapped_lat is not None:
+            return self._snapped_cum_m
+
         if (
             not self._tour_coords
             or not self._route_cum_m
@@ -240,9 +270,6 @@ class MapTourMixin:
             or self._gps_lon is None
         ):
             return 0.0
-        # Scan forward from the last known position — cheap, and prevents a
-        # route that doubles back on itself from snapping back to an earlier
-        # vertex when the user is just passing close by it.
         best_i = self._gps_route_idx
         best_d = float("inf")
         for i in range(self._gps_route_idx, len(self._tour_coords)):
@@ -271,6 +298,11 @@ class MapTourMixin:
 
         self._skip_non_actionable_steps()
 
+        # Use snapped position for distance calculations when available —
+        # eliminates GPS-off-road noise and gives more accurate maneuver distances.
+        pos_lat = self._snapped_lat if self._snapped_lat is not None else self._gps_lat
+        pos_lon = self._snapped_lon if self._snapped_lon is not None else self._gps_lon
+
         # How far we've driven along the route, in metres.  This is the
         # primary "have we passed step N yet?" signal because it uses
         # OSRM's own per-step distance values, which stay accurate even
@@ -284,7 +316,7 @@ class MapTourMixin:
         for _ in range(len(self._tour_steps)):
             step = self._tour_steps[self._tour_step_idx]
             distance_m = haversine(
-                self._gps_lat, self._gps_lon, step["lat"], step["lon"]
+                pos_lat, pos_lon, step["lat"], step["lon"]
             )
 
             # Track the closest approach seen so far for this step.
@@ -323,9 +355,7 @@ class MapTourMixin:
             # Loop continues to check whether the newly active step is also passed.
 
         step = self._tour_steps[self._tour_step_idx]
-        distance_m = haversine(
-            self._gps_lat, self._gps_lon, step["lat"], step["lon"]
-        )
+        distance_m = haversine(pos_lat, pos_lon, step["lat"], step["lon"])
         m_type = step.get("type", "")
         m_modifier = step.get("modifier", "")
         name = step.get("name", "") or ""

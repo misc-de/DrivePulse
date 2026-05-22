@@ -1,6 +1,7 @@
 """Mock tour simulator: drives along an OSRM route geometry and emits GPS payloads."""
 from __future__ import annotations
 
+import bisect
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -20,7 +21,12 @@ PayloadFn = Callable[[dict[str, Any]], Any]
 
 
 class MockTourSimulator:
-    """Walks an OSRM route at a target speed and emits "gps"-source payloads.
+    """Walks an OSRM route at speed-zone-aware speeds and emits "gps"-source payloads.
+
+    Speed zones are supplied as a list of (cum_dist_m, speed_kmh) breakpoints
+    (sorted ascending).  When the car reaches a breakpoint the speed changes
+    automatically: 40 km/h in cities, 70 km/h on rural roads, 120 km/h on
+    motorways.  Falls back to *target_kmh* when no zones are provided.
 
     Coords are expected in OSRM geometry order: list of [lon, lat] pairs.
     """
@@ -29,17 +35,38 @@ class MockTourSimulator:
 
     def __init__(self, on_payload: PayloadFn, target_kmh: float = 50.0) -> None:
         self._on_payload = on_payload
-        self._target_kmh = float(target_kmh)
+        self._default_kmh = float(target_kmh)
         self._coords: list[tuple[float, float]] = []  # (lat, lon)
         self._seg_idx = 0
         self._seg_progress_m = 0.0
+        self._cum_dist_m = 0.0          # total metres driven so far
+        self._speed_zones: list[tuple[float, float]] = []   # (cum_dist_m, kmh)
+        self._zone_starts: list[float] = []                 # parallel index for bisect
         self._timeout_id: int | None = None
         self._last_tick = 0.0
+
+    # ── current speed ─────────────────────────────────────────────────────────
+
+    def _speed_at(self, cum_m: float) -> float:
+        """Return the target speed in km/h for the given cumulative distance."""
+        if not self._speed_zones:
+            return self._default_kmh
+        # Find the last zone whose start is ≤ cum_m
+        idx = bisect.bisect_right(self._zone_starts, cum_m) - 1
+        if idx < 0:
+            return self._default_kmh
+        return self._speed_zones[idx][1]
+
+    # ── lifecycle ─────────────────────────────────────────────────────────────
 
     def is_running(self) -> bool:
         return self._timeout_id is not None
 
-    def start(self, coords: list[list[float]], target_kmh: float | None = None) -> None:
+    def start(
+        self,
+        coords: list[list[float]],
+        speed_zones: list[tuple[float, float]] | None = None,
+    ) -> None:
         self.stop()
         if not coords or len(coords) < 2:
             return
@@ -59,8 +86,9 @@ class MockTourSimulator:
         self._coords = cleaned
         self._seg_idx = 0
         self._seg_progress_m = 0.0
-        if target_kmh is not None:
-            self._target_kmh = float(target_kmh)
+        self._cum_dist_m = 0.0
+        self._speed_zones = sorted(speed_zones, key=lambda z: z[0]) if speed_zones else []
+        self._zone_starts = [z[0] for z in self._speed_zones]
         self._last_tick = time.monotonic()
         self._emit_current()
         self._timeout_id = GLib.timeout_add(self.TICK_MS, self._on_tick)
@@ -80,11 +108,14 @@ class MockTourSimulator:
         self._emit_current()
         self._timeout_id = GLib.timeout_add(self.TICK_MS, self._on_tick)
 
+    # ── tick ──────────────────────────────────────────────────────────────────
+
     def _on_tick(self) -> bool:
         now = time.monotonic()
         dt = max(0.0, now - self._last_tick)
         self._last_tick = now
-        advance_m = (self._target_kmh / 3.6) * dt
+        current_kmh = self._speed_at(self._cum_dist_m)
+        advance_m = (current_kmh / 3.6) * dt
         finished = self._advance(advance_m)
         self._emit_current(arrived=finished)
         if finished:
@@ -93,7 +124,7 @@ class MockTourSimulator:
         return True
 
     def _advance(self, meters: float) -> bool:
-        """Move forward by `meters` along the polyline. Returns True if route end reached."""
+        """Move forward by *meters* along the polyline. Returns True when the end is reached."""
         while meters > 0 and self._seg_idx < len(self._coords) - 1:
             cur = self._coords[self._seg_idx]
             nxt = self._coords[self._seg_idx + 1]
@@ -105,11 +136,15 @@ class MockTourSimulator:
                 continue
             if meters < remain:
                 self._seg_progress_m += meters
+                self._cum_dist_m += meters
                 return False
             meters -= remain
+            self._cum_dist_m += remain
             self._seg_idx += 1
             self._seg_progress_m = 0.0
         return self._seg_idx >= len(self._coords) - 1
+
+    # ── position helpers ──────────────────────────────────────────────────────
 
     def _current_position(self) -> tuple[float, float]:
         if self._seg_idx >= len(self._coords) - 1:
@@ -140,7 +175,7 @@ class MockTourSimulator:
     def _emit_current(self, arrived: bool = False) -> None:
         lat, lon = self._current_position()
         heading = self._current_heading()
-        speed = 0.0 if arrived else self._target_kmh
+        speed = 0.0 if arrived else self._speed_at(self._cum_dist_m)
         payload: dict[str, Any] = {
             "source": "gps",
             "gps_lat": {"value": lat, "unit": "degree"},

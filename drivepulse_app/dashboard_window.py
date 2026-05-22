@@ -650,19 +650,29 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     # away while the user is still reading the freshly opened navigation card.
     _TOUR_SETTLE_MS = 3000
 
-    def _on_tour_started(self, coords: list[list[float]]) -> None:
+    def _on_tour_started(
+        self,
+        coords: list[list[float]],
+        speed_zones: list[tuple[float, float]],
+    ) -> None:
         self._cancel_pending_sim_start()
         if not self.mock_mode:
             return
-        coords_copy = list(coords)
         self._pending_sim_start_id = GLib.timeout_add(
-            self._TOUR_SETTLE_MS, self._start_mock_sim_delayed, coords_copy
+            self._TOUR_SETTLE_MS,
+            self._start_mock_sim_delayed,
+            list(coords),
+            list(speed_zones),
         )
 
-    def _start_mock_sim_delayed(self, coords: list[list[float]]) -> bool:
+    def _start_mock_sim_delayed(
+        self,
+        coords: list[list[float]],
+        speed_zones: list[tuple[float, float]],
+    ) -> bool:
         self._pending_sim_start_id = None
         if self.mock_mode:
-            self.mock_tour_sim.start(coords)
+            self.mock_tour_sim.start(coords, speed_zones)
         return False  # one-shot
 
     def _cancel_pending_sim_start(self) -> None:
