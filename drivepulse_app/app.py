@@ -83,8 +83,6 @@ def _build_missing_deps_window(
     toolbar_view = Adw.ToolbarView()
     toolbar_view.add_top_bar(Adw.HeaderBar())
 
-    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
     status = Adw.StatusPage()
     status.set_icon_name("dialog-warning-symbolic")
     status.set_title("Fehlende Abhängigkeiten")
@@ -92,13 +90,11 @@ def _build_missing_deps_window(
         "Einige Pakete fehlen. Die App könnte fehlerhaft laufen.\n"
         "Installiere die fehlenden Pakete und starte die App erneut."
     )
-    outer.append(status)
 
     list_box = Gtk.ListBox()
     list_box.set_selection_mode(Gtk.SelectionMode.NONE)
     list_box.add_css_class("boxed-list")
-    list_box.set_margin_start(24)
-    list_box.set_margin_end(24)
+    list_box.set_margin_top(24)
     list_box.set_margin_bottom(24)
 
     for name, cmd, desc in missing:
@@ -109,9 +105,9 @@ def _build_missing_deps_window(
         row_box.set_margin_bottom(10)
 
         name_label = Gtk.Label(label=f"<b>{name}</b>", use_markup=True, xalign=0)
-        desc_label = Gtk.Label(label=desc, xalign=0)
+        desc_label = Gtk.Label(label=desc, xalign=0, wrap=True)
         desc_label.add_css_class("dim-label")
-        cmd_label = Gtk.Label(label=cmd, selectable=True, xalign=0)
+        cmd_label = Gtk.Label(label=cmd, selectable=True, xalign=0, wrap=True)
         cmd_label.add_css_class("monospace")
 
         row_box.append(name_label)
@@ -119,10 +115,10 @@ def _build_missing_deps_window(
         row_box.append(cmd_label)
         list_box.append(row_box)
 
-    outer.append(list_box)
+    status.set_child(list_box)
 
     scroll = Gtk.ScrolledWindow(vexpand=True)
-    scroll.set_child(outer)
+    scroll.set_child(status)
     toolbar_view.set_content(scroll)
 
     # Button bar
@@ -131,12 +127,13 @@ def _build_missing_deps_window(
     btn_bar.set_margin_end(16)
     btn_bar.set_margin_top(12)
     btn_bar.set_margin_bottom(12)
-    btn_bar.set_halign(Gtk.Align.END)
+    btn_bar.set_halign(Gtk.Align.FILL)
+    btn_bar.set_homogeneous(True)
 
-    cancel_btn = Gtk.Button(label="Abbrechen")
+    cancel_btn = Gtk.Button(label="Abbrechen", hexpand=True)
     cancel_btn.connect("clicked", lambda _: app.quit())
 
-    continue_btn = Gtk.Button(label="Trotzdem starten")
+    continue_btn = Gtk.Button(label="Trotzdem starten", hexpand=True)
     continue_btn.add_css_class("suggested-action")
 
     def _on_continue(_btn: Gtk.Button) -> None:
