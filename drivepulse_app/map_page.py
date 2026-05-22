@@ -38,6 +38,7 @@ from .map_services import (
     MAP_ICONS,
     MAP_LABEL_KEYS,
     MAP_TYPES,
+    compute_route,
     format_distance,
     format_duration,
     geocode,
@@ -704,10 +705,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             if all_points is None:
                 GLib.idle_add(self._route_error)
                 return
-            result = (
-                valhalla_route(all_points, self._routing_mode, avoid=self._route_avoid)
-                or osrm_route(all_points, self._routing_mode, avoid=self._route_avoid)
-            )
+            result = compute_route(all_points, self._routing_mode, avoid=self._route_avoid)
         except Exception:
             log.exception("Could not compute map route")
             GLib.idle_add(self._route_error)
