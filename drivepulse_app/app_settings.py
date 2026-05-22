@@ -40,6 +40,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tts_backend": "espeak",
     "tts_language": "auto",
     "tts_voice": "female",
+    "tts_quality": "high",
     "log_app_enabled": True,
     "log_obd_enabled": True,
     "vindecoder_api_key": "",
@@ -51,6 +52,7 @@ _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
 _VALID_TTS_BACKENDS = {"espeak", "piper"}
 _VALID_TTS_LANGUAGES = {"auto", "en", "de"}
 _VALID_TTS_VOICES = {"male", "female"}
+_VALID_TTS_QUALITIES = {"low", "medium", "high"}
 
 
 def _bounded_int(value: Any, default: int, lower: int, upper: int) -> int:
@@ -119,6 +121,7 @@ def load_settings() -> dict[str, Any]:
         "tts_backend": data.get("tts_backend") if data.get("tts_backend") in _VALID_TTS_BACKENDS else DEFAULT_SETTINGS["tts_backend"],
         "tts_language": data.get("tts_language") if data.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
         "tts_voice": data.get("tts_voice") if data.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
+        "tts_quality": data.get("tts_quality") if data.get("tts_quality") in _VALID_TTS_QUALITIES else DEFAULT_SETTINGS["tts_quality"],
         "log_app_enabled": bool(data.get("log_app_enabled", DEFAULT_SETTINGS["log_app_enabled"])),
         "log_obd_enabled": bool(data.get("log_obd_enabled", DEFAULT_SETTINGS["log_obd_enabled"])),
         "vindecoder_api_key": str(data.get("vindecoder_api_key") or ""),
@@ -166,6 +169,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "tts_backend": settings.get("tts_backend") if settings.get("tts_backend") in _VALID_TTS_BACKENDS else DEFAULT_SETTINGS["tts_backend"],
                 "tts_language": settings.get("tts_language") if settings.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
                 "tts_voice": settings.get("tts_voice") if settings.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
+                "tts_quality": settings.get("tts_quality") if settings.get("tts_quality") in _VALID_TTS_QUALITIES else DEFAULT_SETTINGS["tts_quality"],
                 "log_app_enabled": bool(settings.get("log_app_enabled", True)),
                 "log_obd_enabled": bool(settings.get("log_obd_enabled", True)),
                 "vindecoder_api_key": str(settings.get("vindecoder_api_key") or ""),

@@ -58,6 +58,7 @@ class DashboardSettingsMixin:
                 "tts_backend": getattr(self, "tts_backend", "espeak"),
                 "tts_language": getattr(self, "tts_language", "auto"),
                 "tts_voice": getattr(self, "tts_voice", "female"),
+                "tts_quality": getattr(self, "tts_quality", "high"),
                 "log_app_enabled": getattr(self, "log_app_enabled", True),
                 "log_obd_enabled": getattr(self, "log_obd_enabled", True),
                 "vindecoder_api_key": getattr(self, "vindecoder_api_key", ""),
@@ -148,6 +149,8 @@ class DashboardSettingsMixin:
             on_tts_language_changed=self._set_tts_language,
             current_tts_voice=getattr(self, "tts_voice", "female"),
             on_tts_voice_changed=self._set_tts_voice,
+            current_tts_quality=getattr(self, "tts_quality", "high"),
+            on_tts_quality_changed=self._set_tts_quality,
             current_log_app_enabled=getattr(self, "log_app_enabled", True),
             on_log_app_enabled_changed=self._set_log_app_enabled,
             current_log_obd_enabled=getattr(self, "log_obd_enabled", True),
@@ -245,7 +248,8 @@ class DashboardSettingsMixin:
         if backend == "piper":
             lang = getattr(self, "tts_language", "auto")
             voice = getattr(self, "tts_voice", "female")
-            tts_service.ensure_models(lang, voice)
+            quality = getattr(self, "tts_quality", "high")
+            tts_service.ensure_models(lang, voice, quality)
 
     def _set_tts_language(self, language: str) -> None:
         self.tts_language = language
@@ -254,7 +258,7 @@ class DashboardSettingsMixin:
             self.map_page.set_tts_language(language)
         if getattr(self, "tts_backend", "espeak") == "piper":
             from . import tts_service
-            tts_service.ensure_models(language, getattr(self, "tts_voice", "female"))
+            tts_service.ensure_models(language, getattr(self, "tts_voice", "female"), getattr(self, "tts_quality", "high"))
 
     def _set_tts_voice(self, voice: str) -> None:
         self.tts_voice = voice
@@ -263,7 +267,16 @@ class DashboardSettingsMixin:
             self.map_page.set_tts_voice(voice)
         if getattr(self, "tts_backend", "espeak") == "piper":
             from . import tts_service
-            tts_service.ensure_models(getattr(self, "tts_language", "auto"), voice)
+            tts_service.ensure_models(getattr(self, "tts_language", "auto"), voice, getattr(self, "tts_quality", "high"))
+
+    def _set_tts_quality(self, quality: str) -> None:
+        self.tts_quality = quality
+        self._save_settings()
+        if hasattr(self, "map_page"):
+            self.map_page.set_tts_quality(quality)
+        if getattr(self, "tts_backend", "espeak") == "piper":
+            from . import tts_service
+            tts_service.ensure_models(getattr(self, "tts_language", "auto"), getattr(self, "tts_voice", "female"), quality)
 
     def _set_log_app_enabled(self, enabled: bool) -> None:
         self.log_app_enabled = enabled

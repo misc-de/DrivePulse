@@ -33,6 +33,13 @@ class MockTourSimulator:
 
     TICK_MS = 250  # 4 Hz, matches MapPage's max JS push rate
 
+    # Speed applied when the simulated car is approaching or passing a turn.
+    _TURN_KMH = 10.0
+    # How far before the maneuver point to start slowing down.
+    _TURN_APPROACH_M = 60.0
+    # How far past the maneuver point before resuming normal speed.
+    _TURN_CLEAR_M = 25.0
+
     def __init__(self, on_payload: PayloadFn, target_kmh: float = 50.0) -> None:
         self._on_payload = on_payload
         self._default_kmh = float(target_kmh)
@@ -42,6 +49,7 @@ class MockTourSimulator:
         self._cum_dist_m = 0.0          # total metres driven so far
         self._speed_zones: list[tuple[float, float]] = []   # (cum_dist_m, kmh)
         self._zone_starts: list[float] = []                 # parallel index for bisect
+        self._maneuver_m: list[float] = []                  # sorted turn positions
         self._timeout_id: int | None = None
         self._last_tick = 0.0
 
@@ -49,6 +57,10 @@ class MockTourSimulator:
 
     def _speed_at(self, cum_m: float) -> float:
         """Return the target speed in km/h for the given cumulative distance."""
+        # Slow to _TURN_KMH within the approach/clear window of any turn maneuver.
+        for turn_m in self._maneuver_m:
+            if turn_m - self._TURN_APPROACH_M <= cum_m <= turn_m + self._TURN_CLEAR_M:
+                return self._TURN_KMH
         if not self._speed_zones:
             return self._default_kmh
         # Find the last zone whose start is ≤ cum_m
@@ -66,6 +78,7 @@ class MockTourSimulator:
         self,
         coords: list[list[float]],
         speed_zones: list[tuple[float, float]] | None = None,
+        maneuver_m: list[float] | None = None,
     ) -> None:
         self.stop()
         if not coords or len(coords) < 2:
@@ -89,6 +102,7 @@ class MockTourSimulator:
         self._cum_dist_m = 0.0
         self._speed_zones = sorted(speed_zones, key=lambda z: z[0]) if speed_zones else []
         self._zone_starts = [z[0] for z in self._speed_zones]
+        self._maneuver_m = sorted(maneuver_m) if maneuver_m else []
         self._last_tick = time.monotonic()
         self._emit_current()
         self._timeout_id = GLib.timeout_add(self.TICK_MS, self._on_tick)

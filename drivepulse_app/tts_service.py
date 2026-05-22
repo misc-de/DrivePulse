@@ -6,8 +6,12 @@ Backends (in preference order when configured):
 """
 from __future__ import annotations
 
+import atexit
+import hashlib
+import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -39,6 +43,16 @@ _current_proc: subprocess.Popen | None = None
 # Active backend — changed by set_backend() when the user picks one in Settings.
 _backend: str = "espeak"
 
+# Pre-rendered audio cache: text-hash → Path to raw PCM file.
+# Populated by prerender(); consumed (and file deleted) by speak() on cache hit.
+_audio_cache: dict[str, Path] = {}
+_cache_lock = threading.Lock()
+_CACHE_LIMIT = 40
+
+# Tracks which pre-renders are currently running to avoid duplicate work.
+_prerender_active: set[str] = set()
+_prerender_set_lock = threading.Lock()
+
 # Measured TTS launch latency in seconds (time from speak() call to audible output).
 # espeak is fast (~0.2s); piper needs ONNX inference (~1.0-2.0s on first call).
 # Updated via exponential moving average from actual measurements.
@@ -62,12 +76,21 @@ _PIPER_DIRS: list[Path] = [
     Path("/usr/local/share/piper"),
 ]
 
-# Preferred model name per (language, gender) combination.
-_PIPER_MODELS: dict[tuple[str, str], str] = {
-    ("de", "female"): "de_DE-kerstin-low",
-    ("de", "male"):   "de_DE-thorsten-high",
-    ("en", "female"): "en_US-lessac-high",
-    ("en", "male"):   "en_US-ryan-high",
+# Preferred model name per (language, gender, quality) combination.
+# kerstin is only published in "low"; all quality values map to it.
+_PIPER_MODELS: dict[tuple[str, str, str], str] = {
+    ("de", "female", "low"):    "de_DE-kerstin-low",
+    ("de", "female", "medium"): "de_DE-kerstin-low",
+    ("de", "female", "high"):   "de_DE-kerstin-low",
+    ("de", "male",   "low"):    "de_DE-thorsten-low",
+    ("de", "male",   "medium"): "de_DE-thorsten-medium",
+    ("de", "male",   "high"):   "de_DE-thorsten-high",
+    ("en", "female", "low"):    "en_US-lessac-low",
+    ("en", "female", "medium"): "en_US-lessac-medium",
+    ("en", "female", "high"):   "en_US-lessac-high",
+    ("en", "male",   "low"):    "en_US-ryan-low",
+    ("en", "male",   "medium"): "en_US-ryan-medium",
+    ("en", "male",   "high"):   "en_US-ryan-high",
 }
 
 # Public flag: True when the `piper` binary is on PATH.
@@ -258,9 +281,9 @@ def _espeak_voice(language: str, gender: VoiceGender) -> str:
     return f"{lang}{suffix}"
 
 
-def _piper_model_path(language: str, gender: str) -> Path | None:
-    """Return the first found .onnx model path for this lang/gender, or None."""
-    key = (_effective_lang(language), gender)
+def _piper_model_path(language: str, gender: str, quality: str = "high") -> Path | None:
+    """Return the first found .onnx model path for this lang/gender/quality, or None."""
+    key = (_effective_lang(language), gender, quality)
     model_name = _PIPER_MODELS.get(key)
     if not model_name:
         return None
@@ -271,14 +294,119 @@ def _piper_model_path(language: str, gender: str) -> Path | None:
     return None
 
 
-def piper_model_available(language: str, gender: str) -> bool:
+def piper_model_available(language: str, gender: str, quality: str = "high") -> bool:
     """True when piper binary and the matching model file are both present."""
-    return PIPER_AVAILABLE and _piper_model_path(language, gender) is not None
+    return PIPER_AVAILABLE and _piper_model_path(language, gender, quality) is not None
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def _cache_key(text: str, language: str, gender: str, quality: str = "high") -> str:
+    return hashlib.md5(f"{language}:{gender}:{quality}:{text}".encode()).hexdigest()
+
+
+def clear_audio_cache() -> None:
+    """Delete all pre-rendered PCM files and clear the cache (e.g. on tour end)."""
+    with _cache_lock:
+        for p in _audio_cache.values():
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
+        _audio_cache.clear()
+
+
+atexit.register(clear_audio_cache)
+
+
+def prerender(text: str, language: str, gender: VoiceGender = "female", speed: int = 150, quality: str = "high") -> None:
+    """Pre-render *text* to a cached PCM file in the background (piper only).
+
+    A subsequent speak() call with the same text/language/gender/quality will find the
+    file in cache and skip piper entirely — just aplay, which starts instantly.
+    No-op when piper is unavailable or the entry is already cached/in-progress.
+    """
+    if _backend != "piper" or not PIPER_AVAILABLE:
+        return
+    key = _cache_key(text, language, gender, quality)
+    with _cache_lock:
+        if key in _audio_cache:
+            return
+    with _prerender_set_lock:
+        if key in _prerender_active:
+            return
+        _prerender_active.add(key)
+    threading.Thread(
+        target=_prerender_sync,
+        args=(text, language, gender, quality, key),
+        daemon=True,
+        name="tts-prerender",
+    ).start()
+
+
+def _prerender_sync(text: str, language: str, gender: VoiceGender, quality: str, key: str) -> None:
+    try:
+        model = _piper_model_path(language, gender, quality)
+        if model is None:
+            return
+        fd, tmp_path_str = tempfile.mkstemp(suffix=".pcm", prefix="drivepulse_tts_")
+        os.close(fd)
+        tmp = Path(tmp_path_str)
+        try:
+            echo = subprocess.Popen(
+                ["echo", text],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            piper_proc = subprocess.Popen(
+                ["piper", "--model", str(model), "--output-raw"],
+                stdin=echo.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            echo.stdout.close()
+            data = piper_proc.stdout.read()
+            piper_proc.wait()
+            if piper_proc.returncode == 0 and data:
+                tmp.write_bytes(data)
+                with _cache_lock:
+                    if len(_audio_cache) >= _CACHE_LIMIT:
+                        oldest_key = next(iter(_audio_cache))
+                        old_path = _audio_cache.pop(oldest_key)
+                        try:
+                            old_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                    _audio_cache[key] = tmp
+                log.debug("TTS pre-render cached: %.40s…", text)
+                return
+        except Exception as exc:
+            log.debug("TTS pre-render subprocess error: %s", exc)
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+    except Exception as exc:
+        log.debug("TTS pre-render error: %s", exc)
+    finally:
+        with _prerender_set_lock:
+            _prerender_active.discard(key)
+
+
+def _play_cached_file(path: Path) -> "subprocess.Popen | None":
+    """Play a pre-rendered raw PCM file via aplay (instant — no piper needed)."""
+    try:
+        return subprocess.Popen(
+            ["aplay", "-r", "22050", "-f", "S16_LE", "-c", "1", "-q", str(path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as exc:
+        log.warning("TTS cached play error: %s", exc)
+    return None
+
 
 def set_backend(backend: str) -> None:
     """Switch active backend.  Unknown values fall back to 'espeak'."""
@@ -286,19 +414,19 @@ def set_backend(backend: str) -> None:
     _backend = backend if backend in {"espeak", "piper"} else "espeak"
 
 
-def ensure_models(language: str, gender: str) -> None:
-    """Pre-fetch the Piper model for *language*/*gender* if not already present.
+def ensure_models(language: str, gender: str, quality: str = "high") -> None:
+    """Pre-fetch the Piper model for *language*/*gender*/*quality* if not already present.
 
     Safe to call from the UI thread — download runs in a daemon thread.
     No-op when piper binary is missing or model already exists.
     """
     if not PIPER_AVAILABLE:
         return
-    key = (_effective_lang(language), gender)
+    key = (_effective_lang(language), gender, quality)
     model_name = _PIPER_MODELS.get(key)
     if not model_name:
         return
-    if _piper_model_path(language, gender) is not None:
+    if _piper_model_path(language, gender, quality) is not None:
         return  # already on disk
     with _download_lock:
         if model_name in _download_in_progress:
@@ -316,11 +444,12 @@ def speak(
     language: str,
     gender: VoiceGender = "female",
     speed: int = 150,
+    quality: str = "high",
 ) -> None:
     """Speak *text* asynchronously, cancelling any ongoing utterance."""
     threading.Thread(
         target=_speak_sync,
-        args=(text, language, gender, speed, _backend),
+        args=(text, language, gender, speed, _backend, quality),
         daemon=True,
     ).start()
 
@@ -347,6 +476,7 @@ def _speak_sync(
     gender: VoiceGender,
     speed: int,
     backend: str,
+    quality: str = "high",
 ) -> None:
     global _current_proc
 
@@ -360,18 +490,34 @@ def _speak_sync(
             _current_proc = None
 
     t0 = time.monotonic()
+    cached_path: Path | None = None
+
     if backend == "piper" and PIPER_AVAILABLE:
-        proc = _launch_piper(text, language, gender)
-        if proc is None:
-            key = (_effective_lang(language), gender)
-            model_name = _PIPER_MODELS.get(key, "")
-            if model_name not in _download_in_progress:
-                log.info("Piper model not yet available for %s/%s — using espeak-ng", language, gender)
-            proc = _launch_espeak(text, language, gender, speed)
+        key = _cache_key(text, language, gender, quality)
+        with _cache_lock:
+            cached_path = _audio_cache.pop(key, None)
+
+        if cached_path is not None and cached_path.exists():
+            proc = _play_cached_file(cached_path)
+            log.debug("TTS cache hit: %.40s…", text)
+        else:
+            cached_path = None
+            proc = _launch_piper(text, language, gender, quality)
+            if proc is None:
+                piper_key = (_effective_lang(language), gender, quality)
+                model_name = _PIPER_MODELS.get(piper_key, "")
+                if model_name not in _download_in_progress:
+                    log.info("Piper model not yet available for %s/%s/%s — using espeak-ng", language, gender, quality)
+                proc = _launch_espeak(text, language, gender, speed)
     else:
         proc = _launch_espeak(text, language, gender, speed)
 
     if proc is None:
+        if cached_path is not None:
+            try:
+                cached_path.unlink(missing_ok=True)
+            except Exception:
+                pass
         return
 
     with _lock:
@@ -386,6 +532,12 @@ def _speak_sync(
     with _lock:
         if _current_proc is proc:
             _current_proc = None
+
+    if cached_path is not None:
+        try:
+            cached_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _launch_espeak(
@@ -412,8 +564,9 @@ def _launch_piper(
     text: str,
     language: str,
     gender: str,
+    quality: str = "high",
 ) -> subprocess.Popen | None:
-    model = _piper_model_path(language, gender)
+    model = _piper_model_path(language, gender, quality)
     if model is None:
         return None
     try:
