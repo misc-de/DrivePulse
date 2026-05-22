@@ -6,7 +6,7 @@ from typing import Any
 
 from .common import LOG_DIR
 from .db import DriveDB
-from .diagnostics import get_logger
+from .diagnostics import atomic_write_text, get_logger
 
 PAIRED_DEVICES_FILE = LOG_DIR / "paired_devices.json"
 log = get_logger(__name__)
@@ -190,10 +190,9 @@ def load_paired_devices() -> list[dict[str, Any]]:
 
 def save_paired_devices(devices: list[dict[str, Any]]) -> None:
     try:
-        PAIRED_DEVICES_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PAIRED_DEVICES_FILE.write_text(
+        atomic_write_text(
+            PAIRED_DEVICES_FILE,
             json.dumps(devices, ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
     except OSError:
         log.exception("Could not save paired devices to %s", PAIRED_DEVICES_FILE)

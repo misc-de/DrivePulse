@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .common import APP_VERSION, LOG_DIR
-from .diagnostics import get_logger
+from .diagnostics import atomic_write_text, get_logger
 
 log = get_logger(__name__)
 
@@ -223,5 +223,4 @@ def _run_migrations() -> None:
         except Exception as exc:
             log.warning("Migration %s error: %s", script.name, exc)
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    done_file.write_text(json.dumps(sorted(done)), encoding="utf-8")
+    atomic_write_text(done_file, json.dumps(sorted(done)))

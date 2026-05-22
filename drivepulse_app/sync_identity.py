@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .common import LOG_DIR
-from .diagnostics import get_logger
+from .diagnostics import atomic_write_text, get_logger
 from .sync_crypto import generate_device_id
 
 
@@ -24,7 +24,7 @@ def get_or_create_device_id() -> str:
             if device_id:
                 return device_id
         device_id = generate_device_id()
-        DEVICE_ID_FILE.write_text(device_id)
+        atomic_write_text(DEVICE_ID_FILE, device_id)
         return device_id
     except Exception:
         log.exception("Could not load or persist sync device id")
