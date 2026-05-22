@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -61,7 +62,7 @@ def _clean(val: Any) -> str:
 
 def _fetch_nhtsa(vin: str) -> dict[str, Any]:
     try:
-        url = _NHTSA_URL.format(vin.upper())
+        url = _NHTSA_URL.format(urllib.parse.quote(vin.upper(), safe=""))
         req = urllib.request.Request(url, headers={"User-Agent": "DrivePulse/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -81,7 +82,7 @@ def _fetch_nhtsa(vin: str) -> dict[str, Any]:
 
 def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
     try:
-        url = _AUTODEV_URL.format(vin.upper())
+        url = _AUTODEV_URL.format(urllib.parse.quote(vin.upper(), safe=""))
         req = urllib.request.Request(
             url,
             headers={
@@ -126,7 +127,11 @@ def _fetch_vindecoder(vin: str, api_key: str, secret_key: str) -> dict[str, Any]
         control = hashlib.sha1(
             f"{vin_upper}|decode|{api_key}|{secret_key}".encode()
         ).hexdigest()[:10]
-        url = _VINDECODER_URL.format(api_key, control, vin_upper)
+        url = _VINDECODER_URL.format(
+            urllib.parse.quote(api_key, safe=""),
+            control,
+            urllib.parse.quote(vin_upper, safe=""),
+        )
         req = urllib.request.Request(url, headers={"User-Agent": "DrivePulse/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
