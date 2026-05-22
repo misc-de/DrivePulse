@@ -348,29 +348,33 @@ def valhalla_route(
     # discourages, 1.0 neutral).  Only auto/truck/motorcycle honour
     # use_highways/use_tolls; ferries and unpaved apply across modes.
     if avoid:
+        # We send both the experimental HARD exclude flags
+        # (exclude_highways/tolls/ferries/unpaved) and the SOFT preference
+        # factors (use_highways/use_tolls/use_ferry).
+        #
+        # The hard flags require service_limits.allow_hard_exclusions on
+        # the server.  If it's off (as on most public deployments), the
+        # server returns a warning and ignores them — without failing the
+        # request — so the soft factors still apply.  If hard exclusions
+        # are enabled, the route avoids the features in the interior of
+        # the route entirely.  Default use_* factors are 0.5, so 0.0 is
+        # a meaningful preference shift even when hard flags are ignored.
         opts: dict[str, Any] = {}
         if avoid.get("motorway") and costing in {"auto", "truck", "motorcycle"}:
+            opts["exclude_highways"] = True
             opts["use_highways"] = 0.0
         if avoid.get("toll") and costing in {"auto", "truck", "motorcycle"}:
+            opts["exclude_tolls"] = True
             opts["use_tolls"] = 0.0
         if avoid.get("ferry"):
+            opts["exclude_ferries"] = True
             opts["use_ferry"] = 0.0
         if avoid.get("unpaved"):
-            # Valhalla auto/truck use `use_tracks`; bicycle uses
-            # `avoid_bad_surfaces` for similar effect.
+            # Hard flag is 0/1, not boolean.  Bicycle uses a separate factor.
             if costing == "bicycle":
                 opts["avoid_bad_surfaces"] = 1.0
             else:
-                opts["use_tracks"] = 0.0
-        # Without this flag, Valhalla's `use_*=0` preferences are evaluated
-        # against the precomputed hierarchy and may still pick motorways /
-        # tolls when they look much faster.  Disabling hierarchy pruning
-        # forces Valhalla to evaluate the full graph and honor avoidance
-        # strictly.  It is more CPU-intensive on the server, but the public
-        # endpoint accepts it and routes are still returned in normal time
-        # for typical inner-European trips.
-        if opts and costing in {"auto", "truck", "motorcycle"}:
-            opts["disable_hierarchy_pruning"] = True
+                opts["exclude_unpaved"] = 1
         if opts:
             body["costing_options"] = {costing: opts}
     url = f"{_VALHALLA_URL}?json={urllib.parse.quote(_json.dumps(body, separators=(',', ':')))}"
