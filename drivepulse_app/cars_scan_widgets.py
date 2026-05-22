@@ -20,6 +20,13 @@ def _decode(val: Any) -> str:
     return str(val) if val is not None else "—"
 
 
+def _dtc_parts(entry: Any) -> tuple[str, str]:
+    """Return (code, description) from a DTC entry — supports dict (new) and plain string (legacy)."""
+    if isinstance(entry, dict):
+        return entry.get("code", "?"), entry.get("description", "")
+    return str(entry) if entry is not None else "?", ""
+
+
 def _safe_int(value: Any) -> int:
     try:
         return int(value or 0)
@@ -114,8 +121,11 @@ def _build_scan_detail_widget(
         dtc_lb.add_css_class("boxed-list")
         dtc_lb.set_valign(Gtk.Align.START)
         for code in dtcs:
+            dtc_code, dtc_desc = _dtc_parts(code)
             r = Adw.ActionRow()
-            r.set_title(GLib.markup_escape_text(_decode(code)))
+            r.set_title(GLib.markup_escape_text(dtc_code))
+            if dtc_desc:
+                r.set_subtitle(GLib.markup_escape_text(dtc_desc))
             r.add_css_class("error")
             dtc_lb.append(r)
         outer.append(dtc_lb)
@@ -134,8 +144,11 @@ def _build_scan_detail_widget(
         p_lb.add_css_class("boxed-list")
         p_lb.set_valign(Gtk.Align.START)
         for code in pending_dtcs:
+            dtc_code, dtc_desc = _dtc_parts(code)
             r = Adw.ActionRow()
-            r.set_title(GLib.markup_escape_text(_decode(code)))
+            r.set_title(GLib.markup_escape_text(dtc_code))
+            if dtc_desc:
+                r.set_subtitle(GLib.markup_escape_text(dtc_desc))
             p_lb.append(r)
         outer.append(p_lb)
 

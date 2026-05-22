@@ -14,6 +14,7 @@ gi.require_version("GLib", "2.0")
 from gi.repository import GLib  # noqa: E402
 
 from .diagnostics import get_logger
+from .obd_adapter import AdapterInfo, AdapterKind, batch_query_stpx, probe_adapter
 
 
 log = get_logger(__name__)
@@ -33,6 +34,8 @@ class ObdScanner:
         yield_between_queries: float = 0.0,
         stop_event: threading.Event | None = None,
         obd_module: Any = None,
+        raw_send_locked: Callable[[str], str] | None = None,
+        adapter_info: AdapterInfo | None = None,
     ) -> None:
         self.connection = connection
         self.port = port or "unknown"
@@ -43,7 +46,13 @@ class ObdScanner:
         # When provided, the scanner queries the OBD bus through this callable so
         # the reader thread can safely interleave its own queries via a shared lock.
         self._query_locked = query_locked or (lambda cmd: connection.query(cmd))
-        self._yield = max(0.0, yield_between_queries)
+        self._raw_send_locked = raw_send_locked
+        self._adapter_info = adapter_info
+        # Adapter-specific yield overrides the caller's default when known.
+        if adapter_info is not None:
+            self._yield = adapter_info.optimal_yield_s
+        else:
+            self._yield = max(0.0, yield_between_queries)
         self._stop_event = stop_event
 
     def _emit(self, status: str, progress: float, current: str = "") -> None:
@@ -60,6 +69,14 @@ class ObdScanner:
             return
 
         self._emit("scanning", 0.0, "VIN")
+
+        # Probe adapter when not pre-supplied (e.g. first scan after connect).
+        if self._adapter_info is None and self._raw_send_locked is not None:
+            self._adapter_info = probe_adapter(
+                self.connection, locked_raw=self._raw_send_locked
+            )
+            if self._adapter_info is not None:
+                self._yield = self._adapter_info.optimal_yield_s
 
         vin = self._query_vin()
         if vin:
@@ -84,21 +101,20 @@ class ObdScanner:
         total_steps = max(1, len(mode1_cmds) + 4)
         done = 0
 
-        # Mode 01: snapshot of all supported live-data PIDs
+        # Mode 01: snapshot of all supported live-data PIDs.
+        # STN/OBDLink: use STPX batch query (many PIDs per CAN frame → seconds not minutes).
+        # ELM327: fall back to single-query loop.
         live_data: dict[str, Any] = {}
-        for cmd in mode1_cmds:
-            if self._stop_event is not None and self._stop_event.is_set():
-                return
-            done += 1
-            self._emit("scanning", done / total_steps, str(cmd))
-            try:
-                r = self._query_locked(cmd)
-                if not r.is_null():
-                    live_data[str(cmd)] = self._to_plain(r)
-            except Exception as exc:
-                live_data[str(cmd)] = {"error": str(exc)}
-            if self._yield:
-                time.sleep(self._yield)
+        use_batch = (
+            self._adapter_info is not None
+            and self._adapter_info.supports_stpx
+            and self._raw_send_locked is not None
+        )
+        if use_batch:
+            live_data = self._run_mode1_batch(mode1_cmds, total_steps)
+            done = len(mode1_cmds)
+        else:
+            done = self._run_mode1_single(mode1_cmds, live_data, total_steps, done)
 
         # Mode 03: stored DTCs
         done += 1
@@ -131,12 +147,18 @@ class ObdScanner:
 
         done += 1
         self._emit("saving", done / total_steps, "Profil speichern")
+        adapter_kind = (
+            self._adapter_info.kind.value if self._adapter_info else AdapterKind.UNKNOWN.value
+        )
+        adapter_version = self._adapter_info.version if self._adapter_info else ""
         profile = {
             "scanned_at": datetime.now(timezone.utc).isoformat(),
             "identity": identity,
             "vin": vin,
             "port": self.port,
             "protocol": self._get_protocol(),
+            "adapter_kind": adapter_kind,
+            "adapter_version": adapter_version,
             "supported_pids": sorted(str(c) for c in getattr(self.connection, "supported_commands", set())),
             "live_data": live_data,
             "dtcs": dtcs,
@@ -154,6 +176,68 @@ class ObdScanner:
             protocol=profile.get("protocol"),
         )
         self._emit_complete(profile)
+
+    def _run_mode1_single(
+        self,
+        mode1_cmds: list[Any],
+        live_data: dict[str, Any],
+        total_steps: int,
+        done: int,
+    ) -> int:
+        """Query Mode 01 PIDs one-by-one via python-obd. Returns updated *done* counter."""
+        for cmd in mode1_cmds:
+            if self._stop_event is not None and self._stop_event.is_set():
+                return done
+            done += 1
+            self._emit("scanning", done / total_steps, str(cmd))
+            try:
+                r = self._query_locked(cmd)
+                if not r.is_null():
+                    live_data[str(cmd)] = self._to_plain(r)
+            except Exception as exc:
+                live_data[str(cmd)] = {"error": str(exc)}
+            if self._yield:
+                time.sleep(self._yield)
+        return done
+
+    def _run_mode1_batch(
+        self,
+        mode1_cmds: list[Any],
+        total_steps: int,
+    ) -> dict[str, Any]:
+        """Query Mode 01 PIDs via STPX batch command (STN/OBDLink only).
+
+        PIDs not covered by the STPX decode table fall back to single queries
+        so the result dict is always as complete as the single-query path.
+        """
+        from .obd_adapter import _MODE1_DECODE  # noqa: PLC0415
+
+        self._emit("scanning", 0.05, "STPX batch")
+
+        # Partition PIDs: those with a known STPX decoder vs. the rest.
+        batch_pids: list[int] = []
+        fallback_cmds: list[Any] = []
+        for cmd in mode1_cmds:
+            pid = getattr(cmd, "pid", None)
+            if pid is not None and pid in _MODE1_DECODE:
+                batch_pids.append(pid)
+            else:
+                fallback_cmds.append(cmd)
+
+        live_data: dict[str, Any] = {}
+
+        # Batch path
+        if batch_pids and self._raw_send_locked is not None:
+            live_data.update(batch_query_stpx(self._raw_send_locked, batch_pids))
+
+        self._emit("scanning", 0.7, "STPX batch done")
+
+        # Single-query fallback for PIDs not in the decode table
+        if fallback_cmds:
+            done_fb = 0
+            self._run_mode1_single(fallback_cmds, live_data, max(1, len(fallback_cmds)), done_fb)
+
+        return live_data
 
     def _emit_identity(self, vin: str | None, identity: str,
                        cal_id: Any = None, cvn: Any = None, protocol: Any = None) -> None:
@@ -190,13 +274,19 @@ class ObdScanner:
             log.info("Could not query VIN during OBD scan", exc_info=True)
         return None
 
-    def _query_dtc_list(self, cmd: Any) -> list[str]:
+    def _query_dtc_list(self, cmd: Any) -> list[dict]:
         if cmd is None:
             return []
         try:
             r = self._query_locked(cmd)
             if not r.is_null() and r.value:
-                return [str(d) for d in r.value]
+                result = []
+                for d in r.value:
+                    if isinstance(d, (tuple, list)) and len(d) >= 2:
+                        result.append({"code": str(d[0]), "description": str(d[1])})
+                    else:
+                        result.append({"code": str(d), "description": ""})
+                return result
         except Exception:
             log.info("Could not query DTC command %s", cmd, exc_info=True)
         return []
