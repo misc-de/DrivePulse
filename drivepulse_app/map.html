@@ -739,6 +739,25 @@ window.addEventListener('DOMContentLoaded', () => {
     if (initialized || ++_initTries > 20) { clearInterval(_initTimer); return; }
     tryInit();
   }, 100);
+
+  // Short tap → notify Python to toggle navigation chrome.
+  // GTK EventControllerLegacy can't reach WebKit (separate GDK surface), so
+  // we detect the tap here and send it through the existing postToPython bridge.
+  (function () {
+    let _t0 = 0, _x0 = 0, _y0 = 0;
+    document.addEventListener('pointerdown', function (e) {
+      _t0 = Date.now(); _x0 = e.clientX; _y0 = e.clientY;
+    }, { passive: true, capture: true });
+    document.addEventListener('pointerup', function (e) {
+      const dt   = Date.now() - _t0;
+      const dist = Math.hypot(e.clientX - _x0, e.clientY - _y0);
+      // Ignore drags and long-presses; ignore taps on MapLibre UI controls.
+      if (dt < 300 && dist < 14 &&
+          !e.target.closest('.maplibregl-ctrl,.maplibregl-ctrl-group')) {
+        try { postToPython({ action: 'map_tapped' }); } catch (_) {}
+      }
+    }, { passive: true, capture: true });
+  })();
 });
 </script>
 </body>
