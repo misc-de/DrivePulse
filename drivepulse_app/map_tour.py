@@ -9,8 +9,8 @@ from gi.repository import GLib
 
 from .common import _translate
 from .map_services import (
-    format_distance, format_duration, haversine, mock_speed_kmh,
-    osrm_route, valhalla_route, maneuver_icon, maneuver_text_key,
+    compute_route, format_distance, format_duration, haversine, mock_speed_kmh,
+    osrm_route, maneuver_icon, maneuver_text_key,
 )
 from gi.repository import Gtk as _Gtk
 from . import tts_service
@@ -617,10 +617,7 @@ class MapTourMixin:
 
     def _fetch_reroute_bg(self, all_points: list[tuple[float, float]]) -> None:
         try:
-            result = (
-                valhalla_route(all_points, self._routing_mode, avoid=self._route_avoid)
-                or osrm_route(all_points, self._routing_mode, avoid=self._route_avoid)
-            )
+            result = compute_route(all_points, self._routing_mode, avoid=self._route_avoid)
         except Exception:
             log.exception("Auto-reroute fetch failed")
             result = None

@@ -7,7 +7,11 @@ import math
 import urllib.parse
 from typing import Any, Callable
 
+from .diagnostics import get_logger
 from .http_client import http_get
+
+
+log = get_logger(__name__)
 
 
 HttpGet = Callable[[str], Any]
@@ -98,6 +102,10 @@ DEFAULT_ROUTE_AVOID: dict[str, bool] = {
     "ferry": False,     # Fähren meiden
     "unpaved": False,   # unbefestigte / Schotter-Straßen meiden
 }
+
+# Driving-class modes whose OSRM profile is "driving" and therefore supports
+# the strict `exclude=motorway,toll,ferry` query.
+_OSRM_HARD_EXCLUDE_MODES = {"car", "truck", "motorcycle"}
 
 # Autobahnen with sections in North Rhine-Westphalia (NRW).
 NRW_AUTOBAHNEN = frozenset([
@@ -220,6 +228,44 @@ def osrm_route(
         steps = _flatten_route_steps(route.get("legs", []))
         return (coords, duration, distance, steps)
     return None
+
+
+def compute_route(
+    waypoints: list[tuple[float, float]],
+    mode: str,
+    http_get_fn: HttpGet = http_get,
+    avoid: dict[str, bool] | None = None,
+) -> tuple[list[list[float]], float, float, list[dict]] | None:
+    """Backend-agnostic route lookup.
+
+    Default priority is Valhalla (richer maneuvers, speed limits) with OSRM
+    as fallback.  When the user requested a HARD avoidance of motorway/toll/
+    ferry and the mode is a driving class, OSRM is tried FIRST — its
+    ``exclude=`` parameter is a hard filter, whereas Valhalla's
+    ``use_highways=0`` is only a soft preference and may still route through
+    a motorway when the detour would be far longer.
+    """
+    hard_exclude = (
+        avoid is not None
+        and mode in _OSRM_HARD_EXCLUDE_MODES
+        and (avoid.get("motorway") or avoid.get("toll") or avoid.get("ferry"))
+    )
+    if hard_exclude:
+        result = osrm_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
+        if result is not None:
+            log.info("Route via OSRM (hard exclude=%s, mode=%s)",
+                     [k for k, v in (avoid or {}).items() if v], mode)
+            return result
+        log.warning(
+            "OSRM hard-exclude failed (avoid=%s); falling back to Valhalla "
+            "which treats avoidance as a soft preference",
+            [k for k, v in (avoid or {}).items() if v],
+        )
+        return valhalla_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
+    return (
+        valhalla_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
+        or osrm_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
+    )
 
 
 def _flatten_route_steps(legs: list[dict]) -> list[dict]:
