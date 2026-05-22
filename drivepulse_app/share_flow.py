@@ -33,6 +33,10 @@ class ShareFlow:
         from .common import _translate
         return _translate(self._language, key)
 
+    def _t_fmt(self, key: str, **values: object) -> str:
+        from .common import _translate
+        return _translate(self._language, key, **values)
+
     def _show_toast(self, msg: str) -> None:
         root = self._parent.get_root()
         if root is not None and hasattr(root, "add_toast"):
@@ -136,12 +140,12 @@ class ShareFlow:
                 GLib.idle_add(_on_result, result)
             except Exception as exc:
                 log.exception("Tour share failed")
-                GLib.idle_add(self._show_toast, f"Fehler: {exc}")
+                GLib.idle_add(self._show_toast, self._t_fmt("share.error", detail=str(exc)))
 
         def _on_result(result: dict | None) -> bool:
             if result is None or not result.get("ok"):
                 err = result.get("error", "?") if isinstance(result, dict) else "?"
-                self._show_toast(f"Fehler: {err}")
+                self._show_toast(self._t_fmt("share.error", detail=str(err)))
                 return False
             if result.get("queued"):
                 self._show_toast(self._t("share.queued"))
@@ -412,12 +416,12 @@ class ShareFlow:
             except Exception as exc:
                 log.exception("Share send failed")
                 _err = str(exc)
-                GLib.idle_add(self._show_toast, f"Fehler: {_err}")
+                GLib.idle_add(self._show_toast, self._t_fmt("share.error", detail=str(_err)))
 
         def _on_result(result: dict | None) -> bool:
             if result is None or not result.get("ok"):
                 err = result.get("error", "?") if isinstance(result, dict) else "?"
-                self._show_toast(f"Fehler: {err}")
+                self._show_toast(self._t_fmt("share.error", detail=str(err)))
                 return False
             if result.get("queued"):
                 self._show_toast(self._t("share.queued"))
