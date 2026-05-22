@@ -367,15 +367,16 @@ def _ty_to_lat(ty: int, zoom: int) -> float:
     return math.degrees(math.atan(math.sinh(n)))
 
 
-_OSM_MAX_TILES = 4  # max tiles per axis at any zoom level
+_OSM_INIT_FIT_TILES = 4   # _pick_zoom: highest zoom where route bbox fits in ≤N tiles
+_OSM_MAX_VIEW_TILES = 10  # _make_view: cap on the loaded tile grid per axis
 
 
 def _pick_zoom(lat_min: float, lat_max: float, lon_min: float, lon_max: float) -> int:
-    """Highest zoom where the bounding box fits in ≤_OSM_MAX_TILES tiles per axis."""
+    """Highest zoom where the bounding box fits in ≤_OSM_INIT_FIT_TILES tiles per axis."""
     for zoom in range(16, 9, -1):
         ntx = _lon_to_tx(lon_max, zoom) - _lon_to_tx(lon_min, zoom) + 1
         nty = _lat_to_ty(lat_min, zoom) - _lat_to_ty(lat_max, zoom) + 1
-        if ntx <= _OSM_MAX_TILES and nty <= _OSM_MAX_TILES:
+        if ntx <= _OSM_INIT_FIT_TILES and nty <= _OSM_INIT_FIT_TILES:
             return zoom
     return 10
 
@@ -517,8 +518,8 @@ def _build_osm_map_widget(
             dlon_max = state.get("disp_lon_max", lon_max)
         except NameError:
             dlat_min, dlat_max, dlon_min, dlon_max = lat_min, lat_max, lon_min, lon_max
-        ntx = max(3, min(_lon_to_tx(dlon_max, z) - _lon_to_tx(dlon_min, z) + 3, _OSM_MAX_TILES))
-        nty = max(3, min(_lat_to_ty(dlat_min, z) - _lat_to_ty(dlat_max, z) + 3, _OSM_MAX_TILES))
+        ntx = max(3, min(_lon_to_tx(dlon_max, z) - _lon_to_tx(dlon_min, z) + 3, _OSM_MAX_VIEW_TILES))
+        nty = max(3, min(_lat_to_ty(dlat_min, z) - _lat_to_ty(dlat_max, z) + 3, _OSM_MAX_VIEW_TILES))
         tx0 = int(cx - ntx / 2)
         ty0 = int(cy - nty / 2)
         tx1 = tx0 + ntx - 1

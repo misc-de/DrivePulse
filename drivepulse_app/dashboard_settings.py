@@ -72,11 +72,11 @@ class DashboardSettingsMixin:
         self.engage_threshold = value
         self._save_settings()
 
-    def _on_stopwatch_run_complete(self, results: dict, samples: list) -> None:
+    def _on_stopwatch_run_complete(self, results: dict, samples: list) -> bool:
         trip_recorder = getattr(self, "trip_recorder", None)
         car_id = trip_recorder.car_id if trip_recorder else None
         if car_id is None:
-            return
+            return False
         try:
             self.db.add_stopwatch_run(
                 car_id=car_id,
@@ -86,8 +86,10 @@ class DashboardSettingsMixin:
                 lon=self._last_gps_lon,
             )
             self.cars_page.refresh_if_showing_car(car_id)
+            return True
         except Exception:
             log.exception("Could not persist stopwatch run")
+            return False
 
     def _save_units(self) -> None:
         self._save_settings()

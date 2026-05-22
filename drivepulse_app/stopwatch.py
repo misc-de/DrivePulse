@@ -94,10 +94,14 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._last_heading_time: float | None = None
         self._lateral_g: float = 0.0
         self.on_mock_start: Callable[[], None] | None = None
-        self.on_run_complete: Callable[[dict, list], None] | None = None
+        # Returns True on successful persistence, False if it could not save
+        # (e.g. no active vehicle). Legacy None-returning callbacks are treated
+        # as success for backward compatibility.
+        self.on_run_complete: Callable[[dict, list], bool | None] | None = None
         self._run_samples: list[tuple[float, float | None, float]] = []  # (elapsed, active_g, lateral_g)
         self._saved_results: dict | None = None
         self._saved_range_results: dict | None = None
+        self._run_persisted: bool = False  # True after the current run was written to the DB
         self._replay_active: bool = False
         self._replay_start_mono: float = 0.0
         self._replay_timer_id: int | None = None
@@ -173,6 +177,13 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self.replay_button.set_visible(False)
         self.replay_button.connect("clicked", self.replay_measurement)
 
+        self.save_button = Gtk.Button()
+        self.save_button.add_css_class("suggested-action")
+        self.save_button.add_css_class("pill")
+        self.save_button.set_hexpand(True)
+        self.save_button.set_visible(False)
+        self.save_button.connect("clicked", self._on_save_clicked)
+
         self.gforce_trigger_check = Gtk.CheckButton()
         self.gforce_trigger_check.connect("toggled", self._on_gforce_trigger_toggled)
 
@@ -203,12 +214,18 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         controls.set_margin_top(8)
-        controls.set_margin_bottom(20)
+        controls.set_margin_bottom(8)
         controls.set_hexpand(True)
         controls.append(self.start_button)
         controls.append(self.abort_button)
         controls.append(self.replay_button)
         controls.append(self.reset_button)
+
+        save_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        save_row.set_margin_bottom(20)
+        save_row.set_hexpand(True)
+        save_row.append(self.save_button)
+        self._save_row = save_row
 
         # GForce canvas — fills right column (landscape) or lower half (portrait).
         self.gforce_canvas = GForceCanvas()
@@ -245,6 +262,7 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._bottom_box.set_hexpand(True)
         self._bottom_box.append(self._trigger_row)
         self._bottom_box.append(controls)
+        self._bottom_box.append(save_row)
 
         # left_col: intro + table only; _bottom_box is added by _apply_layout.
         self.left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -429,6 +447,7 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self.start_button.set_label(_translate(self.language, "stopwatch.start"))
         self.abort_button.set_label(_translate(self.language, "stopwatch.abort"))
         self.reset_button.set_label(_translate(self.language, "stopwatch.reset"))
+        self.save_button.set_label(_translate(self.language, "stopwatch.save"))
         self.gforce_trigger_check.set_label(_translate(self.language, "stopwatch.gforce_trigger"))
         if self.replay_button.get_visible() and not self._replay_active:
             self.replay_button.set_label(_translate(self.language, "stopwatch.replay"))
@@ -589,6 +608,8 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._run_samples = []
         self._saved_results = None
         self._saved_range_results = None
+        self._run_persisted = False
+        self.save_button.set_visible(False)
         self._reset_labels()
         self._set_source_visibility(False, False)
         self._update_maxes_label()
@@ -602,6 +623,8 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self.running = False
         self._show_start()
         self.status_label.set_text(_translate(self.language, "stopwatch.done"))
+        if self._has_unsaved_data():
+            self.save_button.set_visible(True)
 
     def reset_measurement(self, *_args: Any) -> None:
         self._stop_replay()
@@ -626,6 +649,8 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._run_samples = []
         self._saved_results = None
         self._saved_range_results = None
+        self._run_persisted = False
+        self.save_button.set_visible(False)
         self._replay_sample_idx = 0
         self.gforce_canvas.clear()
         self.results = {target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH}
@@ -636,6 +661,58 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._show_start()
         self._set_g_text(None)
         self.status_label.set_text(_translate(self.language, "stopwatch.ready"))
+
+    def _has_unsaved_data(self) -> bool:
+        """True if the current measurement state contains anything worth persisting."""
+        if self._run_persisted:
+            return False
+        if self._run_samples:
+            return True
+        if self.max_g is not None or self.max_obd_speed is not None or self.max_gps_speed is not None:
+            return True
+        for row in self.results.values():
+            if row["obd"] is not None or row["gps"] is not None:
+                return True
+        for row in self.range_results.values():
+            if row["obd"] is not None or row["gps"] is not None:
+                return True
+        return False
+
+    def _build_run_payload(self) -> tuple[dict, list]:
+        combined = {
+            "targets": {str(k): dict(v) for k, v in self.results.items()},
+            "ranges": {str(k): dict(v) for k, v in self.range_results.items()},
+            "max_obd_kmh": self.max_obd_speed,
+            "max_obd_t": self._max_obd_speed_t,
+            "max_gps_kmh": self.max_gps_speed,
+            "max_gps_t": self._max_gps_speed_t,
+            "max_g": self.max_g,
+        }
+        samples_list = [list(s) for s in self._run_samples]
+        return combined, samples_list
+
+    def reveal_save_button(self) -> None:
+        """Called by the processing mixin when a measurement finishes successfully."""
+        if self._has_unsaved_data():
+            self.save_button.set_visible(True)
+
+    def _on_save_clicked(self, *_args: Any) -> None:
+        if self._run_persisted or not self._has_unsaved_data():
+            self.save_button.set_visible(False)
+            return
+        if self.on_run_complete is None:
+            return
+        combined, samples_list = self._build_run_payload()
+        try:
+            ok = self.on_run_complete(combined, samples_list)
+        except Exception:
+            return
+        if ok is False:
+            self.status_label.set_text(_translate(self.language, "stopwatch.save.no_car"))
+            return
+        self._run_persisted = True
+        self.save_button.set_visible(False)
+        self.status_label.set_text(_translate(self.language, "stopwatch.saved"))
 
     def update_gforce_raw(self, x_g: float, y_g: float, z_g: float) -> None:
         """Compute _raw_g_dev for start-detection. Canvas is driven by update_payload only."""

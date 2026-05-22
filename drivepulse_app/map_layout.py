@@ -65,13 +65,16 @@ _MANEUVER_CSS = b"""
 .dp-steps-distance { font-weight: 700; }
 .dp-steps-instr { opacity: 0.90; }
 .dark .dp-steps-panel {
-  background-color: rgba(20, 24, 32, 0.88);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.40);
+  background-color: rgba(8, 10, 14, 0.96);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
 }
-.dark .dp-steps-panel, .dark .dp-steps-panel label { color: #ffffff; }
-.dark .dp-steps-row image { color: #8FCFFF; }
-.dark .dp-steps-row-active { background-color: rgba(143, 207, 255, 0.22); }
-.dark .dp-steps-row-done { opacity: 0.55; }
+.dark .dp-steps-panel, .dark .dp-steps-panel label { color: #f5f7fa; }
+.dark .dp-steps-row image { color: #B6DEFF; }
+.dark .dp-steps-row-active { background-color: rgba(143, 207, 255, 0.30); }
+.dark .dp-steps-row-active label { color: #ffffff; }
+.dark .dp-steps-row-done { opacity: 0.65; }
+.dark .dp-steps-instr { opacity: 1.0; }
+.dark .dp-steps-distance { color: #ffffff; }
 .dp-tour-topnav { padding: 2px 4px; }
 .dp-tour-topnav button label { font-size: 11px; }
 /* Lane guidance row inside the maneuver banner */
@@ -331,11 +334,16 @@ class MapLayoutMixin:
             tour_data = dict(tour)
             load_btn.connect("clicked", lambda _b, td=tour_data: self._load_saved_tour(td))
 
-            share_btn = Gtk.Button(icon_name="share-alt-symbolic")
-            share_btn.add_css_class("flat")
-            share_btn.add_css_class("circular")
-            share_btn.set_valign(Gtk.Align.CENTER)
-            share_btn.connect("clicked", lambda _b, td=tour_data: self._share_saved_tour(td))
+            sync_getter = getattr(self, "get_sync_client", None)
+            sync_active = callable(sync_getter) and sync_getter() is not None
+            if sync_active:
+                share_btn = Gtk.Button(icon_name="share-alt-symbolic")
+                share_btn.add_css_class("flat")
+                share_btn.add_css_class("circular")
+                share_btn.set_valign(Gtk.Align.CENTER)
+                share_btn.connect("clicked", lambda _b, td=tour_data: self._share_saved_tour(td))
+            else:
+                share_btn = None
 
             del_btn = Gtk.Button(icon_name="user-trash-symbolic")
             del_btn.add_css_class("flat")
@@ -344,7 +352,8 @@ class MapLayoutMixin:
             del_btn.connect("clicked", lambda _b, tid=tour_id: self._delete_saved_tour(tid))
 
             row_box.append(load_btn)
-            row_box.append(share_btn)
+            if share_btn is not None:
+                row_box.append(share_btn)
             row_box.append(del_btn)
 
             row = Gtk.ListBoxRow()
