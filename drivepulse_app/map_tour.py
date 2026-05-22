@@ -219,11 +219,7 @@ class MapTourMixin:
     def _fetch_guide_to_start(
         self, gps_lat: float, gps_lon: float, start_lat: float, start_lon: float
     ) -> None:
-        result = osrm_route(
-            [(gps_lat, gps_lon), (start_lat, start_lon)],
-            self._routing_mode,
-            avoid=self._route_avoid,
-        )
+        result = osrm_route([(gps_lat, gps_lon), (start_lat, start_lon)])
         GLib.idle_add(self._guide_result, result)
 
     def _guide_result(
@@ -617,7 +613,7 @@ class MapTourMixin:
 
     def _fetch_reroute_bg(self, all_points: list[tuple[float, float]]) -> None:
         try:
-            result = compute_route(all_points, self._routing_mode, avoid=self._route_avoid)
+            result = compute_route(all_points)
         except Exception:
             log.exception("Auto-reroute fetch failed")
             result = None

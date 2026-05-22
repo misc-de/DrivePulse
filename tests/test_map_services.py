@@ -49,7 +49,7 @@ def test_osrm_route_builds_request_and_parses_result():
             ],
         }
 
-    result = osrm_route([(48.0, 11.0), (49.0, 12.0)], "car", fake_get)
+    result = osrm_route([(48.0, 11.0), (49.0, 12.0)], fake_get)
 
     assert result == ([[11.0, 48.0], [12.0, 49.0]], 125.0, 30000.0, [])
     assert "/route/v1/driving/11.0,48.0;12.0,49.0" in seen_urls[0]
@@ -59,7 +59,7 @@ def test_osrm_route_builds_request_and_parses_result():
 def test_osrm_route_rejects_missing_waypoints():
     from drivepulse_app.map_services import osrm_route
 
-    assert osrm_route([(48.0, 11.0)], "car", lambda _url: {}) is None
+    assert osrm_route([(48.0, 11.0)], lambda _url: {}) is None
 
 
 def test_osrm_route_rejects_malformed_success_response():
@@ -67,12 +67,10 @@ def test_osrm_route_rejects_malformed_success_response():
 
     assert osrm_route(
         [(48.0, 11.0), (49.0, 12.0)],
-        "car",
         lambda _url: {"code": "Ok", "routes": [{"duration": "bad"}]},
     ) is None
     assert osrm_route(
         [(48.0, 11.0), (49.0, 12.0)],
-        "car",
         lambda _url: {"code": "Ok", "routes": [{"geometry": {"coordinates": "bad"}}]},
     ) is None
 

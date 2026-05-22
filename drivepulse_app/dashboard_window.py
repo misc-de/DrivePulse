@@ -84,11 +84,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.dashcam_rolling_dir: str = self.settings.get("dashcam_rolling_dir", "")
         self.dashcam_saved_dir: str = self.settings.get("dashcam_saved_dir", "")
         self.nav_position: str = self.settings.get("nav_position", "bottom")
-        self.routing_mode: str = self.settings.get("routing_mode", "car")
-        self.route_avoid_motorway: bool = bool(self.settings.get("route_avoid_motorway", False))
-        self.route_avoid_toll: bool = bool(self.settings.get("route_avoid_toll", False))
-        self.route_avoid_ferry: bool = bool(self.settings.get("route_avoid_ferry", False))
-        self.route_avoid_unpaved: bool = bool(self.settings.get("route_avoid_unpaved", False))
         self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
         self.dashcam_speed_osd: bool = bool(self.settings.get("dashcam_speed_osd", False))
         self.rotation_mode: str = self.settings.get("rotation_mode", "follow_sensor")
@@ -255,13 +250,6 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             on_tour_resumed=self._on_tour_resumed,
             on_tts_enabled_changed=self._set_tts_enabled,
             on_map_tapped=lambda: self._set_nav_visible(not self._nav_visible),
-            routing_mode=self.routing_mode,
-            route_avoid_motorway=self.route_avoid_motorway,
-            route_avoid_toll=self.route_avoid_toll,
-            route_avoid_ferry=self.route_avoid_ferry,
-            route_avoid_unpaved=self.route_avoid_unpaved,
-            on_routing_mode_changed=self._set_routing_mode,
-            on_route_avoid_changed=self._set_route_avoid,
             db=self.db,
             get_sync_client=self._get_active_sync_client,
         )

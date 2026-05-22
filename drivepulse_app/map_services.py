@@ -19,17 +19,7 @@ GeocodeFn = Callable[[str], tuple[float, float] | None]
 
 ROUTING_BACKENDS = ["osrm", "valhalla"]
 
-# Supported routing modes (used by both OSRM and Valhalla via per-backend maps below)
-ROUTING_MODES = ["car", "truck", "motorcycle", "bicycle", "pedestrian"]
-
 _VALHALLA_URL = "https://valhalla.openstreetmap.de/route"
-_VALHALLA_COSTING = {
-    "car": "auto",
-    "truck": "truck",
-    "motorcycle": "motorcycle",
-    "bicycle": "bicycle",
-    "pedestrian": "pedestrian",
-}
 
 # Valhalla integer maneuver type → (osrm_type, osrm_modifier)
 _VALHALLA_MANEUVER: dict[int, tuple[str, str]] = {
@@ -86,22 +76,6 @@ TILE_URLS = {
 }
 
 BAB_BASE = "https://verkehr.autobahn.de/o/autobahn"
-OSRM_PROFILE = {
-    "car": "driving",
-    "truck": "driving",
-    "motorcycle": "driving",
-    "bicycle": "cycling",
-    "pedestrian": "foot",
-}
-
-# Avoid-options structure passed to osrm_route/valhalla_route.
-# Keys are independent — set any combination.
-DEFAULT_ROUTE_AVOID: dict[str, bool] = {
-    "motorway": False,  # Autobahnen meiden
-    "toll": False,      # Mautstraßen meiden
-    "ferry": False,     # Fähren meiden
-    "unpaved": False,   # unbefestigte / Schotter-Straßen meiden
-}
 
 
 # Autobahnen with sections in North Rhine-Westphalia (NRW).
@@ -188,28 +162,14 @@ def geocode(query: str, http_get_fn: HttpGet = http_get) -> tuple[float, float] 
 
 def osrm_route(
     waypoints: list[tuple[float, float]],
-    mode: str,
     http_get_fn: HttpGet = http_get,
-    avoid: dict[str, bool] | None = None,
 ) -> tuple[list[list[float]], float, float, list[dict]] | None:
     if len(waypoints) < 2:
         return None
-    profile = OSRM_PROFILE.get(mode, "driving")
     coord_str = ";".join(f"{lon},{lat}" for lat, lon in waypoints)
-    # OSRM's `exclude` parameter is only honoured by the public demo for the
-    # driving profile; foot/cycling profiles don't define those classes.
-    exclude_parts: list[str] = []
-    if avoid and profile == "driving":
-        if avoid.get("motorway"):
-            exclude_parts.append("motorway")
-        if avoid.get("toll"):
-            exclude_parts.append("toll")
-        if avoid.get("ferry"):
-            exclude_parts.append("ferry")
-    extra = f"&exclude={','.join(exclude_parts)}" if exclude_parts else ""
     url = (
-        f"https://router.project-osrm.org/route/v1/{profile}/{coord_str}"
-        f"?overview=full&geometries=geojson&steps=true{extra}"
+        f"https://router.project-osrm.org/route/v1/driving/{coord_str}"
+        f"?overview=full&geometries=geojson&steps=true"
     )
     data = http_get_fn(url)
     if data and data.get("code") == "Ok" and data.get("routes"):
@@ -229,33 +189,18 @@ def osrm_route(
 
 def compute_route(
     waypoints: list[tuple[float, float]],
-    mode: str,
     http_get_fn: HttpGet = http_get,
-    avoid: dict[str, bool] | None = None,
 ) -> tuple[list[list[float]], float, float, list[dict]] | None:
-    """Backend-agnostic route lookup.
+    """Backend-agnostic car route lookup.
 
     Valhalla is the primary backend: it returns richer maneuvers + speed
-    limits, and with ``disable_hierarchy_pruning=true`` (set by
-    :func:`valhalla_route` when avoid options are active) it honors
-    ``use_highways=0`` / ``use_tolls=0`` strictly.
-
-    OSRM is kept as a fallback so a route is still returned if Valhalla is
-    unreachable.  OSRM's ``exclude=`` parameter is not supported by the
-    public demo (it uses Contraction Hierarchies), so when OSRM is reached
-    via the fallback it likely returns an unrestricted route — better than
-    nothing, with a warning in the log.
+    limits. OSRM is the fallback so a route is still returned if Valhalla
+    is unreachable.
     """
-    result = valhalla_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
+    result = valhalla_route(waypoints, http_get_fn=http_get_fn)
     if result is not None:
         return result
-    if avoid and any(avoid.values()):
-        log.warning(
-            "Valhalla unavailable; OSRM fallback cannot honor avoid=%s on "
-            "the public demo server — returning the unrestricted route.",
-            [k for k, v in avoid.items() if v],
-        )
-    return osrm_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
+    return osrm_route(waypoints, http_get_fn=http_get_fn)
 
 
 def _flatten_route_steps(legs: list[dict]) -> list[dict]:
@@ -323,70 +268,27 @@ def _decode_polyline(encoded: str, precision: int = 6) -> list[list[float]]:
     return result
 
 
-def _valhalla_costing_opts(
-    costing: str, avoid: dict[str, bool] | None, hard: bool
-) -> dict[str, Any]:
-    """Build the per-costing options dict for a Valhalla request.
-
-    *hard*: include experimental hard-exclude flags
-    (``exclude_highways``/``_tolls``/``_ferries``/``_unpaved``).  Older
-    Valhalla servers (pre-3.5-ish) error out on unknown keys instead of
-    ignoring them, so we always have the option to retry without.
-    """
-    opts: dict[str, Any] = {}
-    if not avoid:
-        return opts
-    if avoid.get("motorway") and costing in {"auto", "truck", "motorcycle"}:
-        if hard:
-            opts["exclude_highways"] = True
-        opts["use_highways"] = 0.0
-    if avoid.get("toll") and costing in {"auto", "truck", "motorcycle"}:
-        if hard:
-            opts["exclude_tolls"] = True
-        opts["use_tolls"] = 0.0
-    if avoid.get("ferry"):
-        if hard:
-            opts["exclude_ferries"] = True
-        opts["use_ferry"] = 0.0
-    if avoid.get("unpaved"):
-        if costing == "bicycle":
-            opts["avoid_bad_surfaces"] = 1.0
-        elif hard:
-            opts["exclude_unpaved"] = 1
-    return opts
-
-
 def valhalla_route(
     waypoints: list[tuple[float, float]],
-    mode: str,
     http_get_fn: HttpGet = http_get,
-    avoid: dict[str, bool] | None = None,
 ) -> tuple[list[list[float]], float, float, list[dict]] | None:
-    """Route via Valhalla (valhalla.openstreetmap.de).
+    """Car route via Valhalla (valhalla.openstreetmap.de).
 
     Returns the same (coords, duration_s, distance_m, steps) tuple as
     osrm_route so callers are backend-agnostic.  Steps include a
     ``speed_limit`` key (km/h) when Valhalla provides one.
-
-    When *avoid* is set, the first attempt includes the experimental
-    hard-exclusion flags.  If the server rejects them (older versions
-    treat unknown keys as errors instead of returning a warning), we
-    retry with only the soft preferences so the user still gets a route.
     """
     if len(waypoints) < 2:
         return None
-    costing = _VALHALLA_COSTING.get(mode, "auto")
+    costing = "auto"
     locations = [{"lon": lon, "lat": lat} for lat, lon in waypoints]
 
-    def _try(hard: bool) -> tuple[list[list[float]], float, float, list[dict]] | None:
+    def _try() -> tuple[list[list[float]], float, float, list[dict]] | None:
         body: dict[str, Any] = {
             "locations": locations,
             "costing": costing,
             "directions_options": {"units": "kilometers"},
         }
-        opts = _valhalla_costing_opts(costing, avoid, hard=hard)
-        if opts:
-            body["costing_options"] = {costing: opts}
         url = f"{_VALHALLA_URL}?json={urllib.parse.quote(_json.dumps(body, separators=(',', ':')))}"
         data = http_get_fn(url)
         if not data:
@@ -407,12 +309,7 @@ def valhalla_route(
         except (KeyError, TypeError, ValueError):
             return None
 
-    if avoid and any(avoid.values()):
-        result = _try(hard=True)
-        if result is not None:
-            return result
-        log.info("Valhalla rejected hard-exclude flags; retrying with soft preferences only")
-    return _try(hard=False)
+    return _try()
 
 
 def _flatten_valhalla_maneuvers(legs: list[dict]) -> list[dict]:

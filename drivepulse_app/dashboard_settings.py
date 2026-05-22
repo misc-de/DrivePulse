@@ -64,11 +64,6 @@ class DashboardSettingsMixin:
                 "vindecoder_api_key": getattr(self, "vindecoder_api_key", ""),
                 "vindecoder_secret_key": getattr(self, "vindecoder_secret_key", ""),
                 "autodev_api_key": getattr(self, "autodev_api_key", ""),
-                "routing_mode": getattr(self, "routing_mode", "car"),
-                "route_avoid_motorway": getattr(self, "route_avoid_motorway", False),
-                "route_avoid_toll": getattr(self, "route_avoid_toll", False),
-                "route_avoid_ferry": getattr(self, "route_avoid_ferry", False),
-                "route_avoid_unpaved": getattr(self, "route_avoid_unpaved", False),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -609,19 +604,6 @@ class DashboardSettingsMixin:
                 bundesweit=getattr(self, "map_traffic_bundesweit", True),
                 nrw=enabled,
             )
-
-    def _set_routing_mode(self, mode: str) -> None:
-        if mode == getattr(self, "routing_mode", "car"):
-            return
-        self.routing_mode = mode
-        self._save_settings()
-
-    def _set_route_avoid(self, key: str, active: bool) -> None:
-        attr = f"route_avoid_{key}"
-        if active == getattr(self, attr, False):
-            return
-        setattr(self, attr, active)
-        self._save_settings()
 
     def _set_last_update_check(self, timestamp: str) -> None:
         self.last_update_check = timestamp

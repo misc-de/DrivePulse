@@ -42,7 +42,7 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
   - server generates a QR code, client scans it in local networks; TLS-encrypted
 - **Navigation (Tour)**
   - Address search via Nominatim geocoding, up to 5 waypoints
-  - Routing via OSRM (car, bicycle, motorcycle)
+  - Car routing via Valhalla with OSRM fallback
   - Turn-by-turn maneuver overlay with icon, distance and instruction
   - Scrollable step list panel
   - GPS tracking with auto-follow and map rotation
