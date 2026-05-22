@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language  # noqa: F401
-from .diagnostics import get_logger
+from .diagnostics import atomic_write_text, get_logger
 
 
 log = get_logger(__name__)
@@ -143,8 +143,8 @@ def load_settings() -> dict[str, Any]:
 
 def save_settings(settings: dict[str, Any]) -> None:
     """Persist normalized settings to settings.json."""
-    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text(
+    atomic_write_text(
+        SETTINGS_FILE,
         json.dumps(
             {
                 "units": settings.get("units", "metric"),
@@ -194,5 +194,4 @@ def save_settings(settings: dict[str, Any]) -> None:
             },
             indent=2,
         ),
-        encoding="utf-8",
     )

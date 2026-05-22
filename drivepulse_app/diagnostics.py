@@ -63,6 +63,32 @@ def append_jsonl(
             fh.write(encoded)
 
 
+def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """Write *content* to *path* atomically via a sibling temp file + rename.
+
+    A plain ``Path.write_text`` truncates the live file before writing.
+    A crash (signal, ENOSPC, power loss) between truncate and write leaves
+    the file empty or partial, and the next read either fails or recovers
+    a stale default — which loses durable state like paired-device
+    fingerprints, app settings, or the migrations-done tracker.
+
+    ``os.replace`` is atomic on POSIX and on Windows when source and
+    destination live on the same filesystem.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with tmp.open("w", encoding=encoding) as fh:
+            fh.write(content)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
 def _rotate_jsonl(path: Path, backup_count: int) -> None:
     """Shift foo.jsonl → foo.jsonl.1 → … → foo.jsonl.N, dropping the oldest."""
     oldest = path.with_suffix(path.suffix + f".{backup_count}")

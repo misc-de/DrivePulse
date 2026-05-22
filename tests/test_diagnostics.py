@@ -109,6 +109,59 @@ def test_append_jsonl_rotates_when_max_bytes_exceeded(tmp_path):
     assert len(new_lines) == 1
 
 
+def test_atomic_write_text_replaces_existing_file(tmp_path):
+    from drivepulse_app.diagnostics import atomic_write_text
+
+    target = tmp_path / "settings.json"
+    target.write_text("original", encoding="utf-8")
+
+    atomic_write_text(target, "replaced")
+
+    assert target.read_text(encoding="utf-8") == "replaced"
+    # Tempfile must not be left behind on success.
+    assert not target.with_name(target.name + ".tmp").exists()
+
+
+def test_atomic_write_text_leaves_original_intact_on_failure(monkeypatch, tmp_path):
+    """Regression: a crash mid-write previously truncated the file. The
+    atomic helper writes to a sibling temp and renames, so if the write
+    raises the original is untouched and the temp is cleaned up."""
+    import os
+
+    from drivepulse_app.diagnostics import atomic_write_text
+
+    target = tmp_path / "paired_devices.json"
+    target.write_text("important original content", encoding="utf-8")
+
+    real_replace = os.replace
+
+    def fail_replace(*_args, **_kwargs):
+        raise OSError("simulated crash")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+
+    try:
+        atomic_write_text(target, "new content that should never land")
+    except OSError:
+        pass
+
+    assert target.read_text(encoding="utf-8") == "important original content"
+    assert not target.with_name(target.name + ".tmp").exists()
+
+    # Restore and confirm the helper still works normally.
+    monkeypatch.setattr(os, "replace", real_replace)
+    atomic_write_text(target, "new content")
+    assert target.read_text(encoding="utf-8") == "new content"
+
+
+def test_atomic_write_text_creates_parent_directory(tmp_path):
+    from drivepulse_app.diagnostics import atomic_write_text
+
+    target = tmp_path / "nested" / "deeper" / "file.txt"
+    atomic_write_text(target, "hi")
+    assert target.read_text(encoding="utf-8") == "hi"
+
+
 def test_append_jsonl_drops_oldest_backup_at_backup_count(tmp_path):
     """Once foo.jsonl.N exists, the next rotation must overwrite it
     rather than letting backups accumulate forever."""
