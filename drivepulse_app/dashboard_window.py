@@ -609,9 +609,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         moved = math.hypot(x - self._tap_press_x, y - self._tap_press_y)
         if duration > self._TAP_MAX_DURATION_S or moved > self._TAP_MAX_MOVE_PX:
             return
-        # Auf der Autos-Seite muss die Navigation jederzeit erreichbar bleiben,
-        # damit der Anwender zurück zu Tachos/Beschleunigung kommt.
-        if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
+        page = self.view_stack.get_visible_child_name()
+        # Karte hat ihren eigenen Tap-Controller — hier nicht doppelt schalten.
+        if page == self.PAGE_MAP:
+            return
+        # In der Detail-Ansicht muss der Zurück-Button erreichbar bleiben.
+        if page == self.PAGE_CARS and self.cars_page.is_detail_open():
             self._set_nav_visible(True)
             return
         self._set_nav_visible(not self._nav_visible)
