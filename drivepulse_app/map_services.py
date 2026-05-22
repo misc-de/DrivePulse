@@ -103,9 +103,6 @@ DEFAULT_ROUTE_AVOID: dict[str, bool] = {
     "unpaved": False,   # unbefestigte / Schotter-Straßen meiden
 }
 
-# Driving-class modes whose OSRM profile is "driving" and therefore supports
-# the strict `exclude=motorway,toll,ferry` query.
-_OSRM_HARD_EXCLUDE_MODES = {"car", "truck", "motorcycle"}
 
 # Autobahnen with sections in North Rhine-Westphalia (NRW).
 NRW_AUTOBAHNEN = frozenset([
@@ -238,34 +235,27 @@ def compute_route(
 ) -> tuple[list[list[float]], float, float, list[dict]] | None:
     """Backend-agnostic route lookup.
 
-    Default priority is Valhalla (richer maneuvers, speed limits) with OSRM
-    as fallback.  When the user requested a HARD avoidance of motorway/toll/
-    ferry and the mode is a driving class, OSRM is tried FIRST — its
-    ``exclude=`` parameter is a hard filter, whereas Valhalla's
-    ``use_highways=0`` is only a soft preference and may still route through
-    a motorway when the detour would be far longer.
+    Valhalla is the primary backend: it returns richer maneuvers + speed
+    limits, and with ``disable_hierarchy_pruning=true`` (set by
+    :func:`valhalla_route` when avoid options are active) it honors
+    ``use_highways=0`` / ``use_tolls=0`` strictly.
+
+    OSRM is kept as a fallback so a route is still returned if Valhalla is
+    unreachable.  OSRM's ``exclude=`` parameter is not supported by the
+    public demo (it uses Contraction Hierarchies), so when OSRM is reached
+    via the fallback it likely returns an unrestricted route — better than
+    nothing, with a warning in the log.
     """
-    hard_exclude = (
-        avoid is not None
-        and mode in _OSRM_HARD_EXCLUDE_MODES
-        and (avoid.get("motorway") or avoid.get("toll") or avoid.get("ferry"))
-    )
-    if hard_exclude:
-        result = osrm_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
-        if result is not None:
-            log.info("Route via OSRM (hard exclude=%s, mode=%s)",
-                     [k for k, v in (avoid or {}).items() if v], mode)
-            return result
+    result = valhalla_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
+    if result is not None:
+        return result
+    if avoid and any(avoid.values()):
         log.warning(
-            "OSRM hard-exclude failed (avoid=%s); falling back to Valhalla "
-            "which treats avoidance as a soft preference",
-            [k for k, v in (avoid or {}).items() if v],
+            "Valhalla unavailable; OSRM fallback cannot honor avoid=%s on "
+            "the public demo server — returning the unrestricted route.",
+            [k for k, v in avoid.items() if v],
         )
-        return valhalla_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
-    return (
-        valhalla_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
-        or osrm_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
-    )
+    return osrm_route(waypoints, mode, http_get_fn=http_get_fn, avoid=avoid)
 
 
 def _flatten_route_steps(legs: list[dict]) -> list[dict]:
@@ -372,6 +362,15 @@ def valhalla_route(
                 opts["avoid_bad_surfaces"] = 1.0
             else:
                 opts["use_tracks"] = 0.0
+        # Without this flag, Valhalla's `use_*=0` preferences are evaluated
+        # against the precomputed hierarchy and may still pick motorways /
+        # tolls when they look much faster.  Disabling hierarchy pruning
+        # forces Valhalla to evaluate the full graph and honor avoidance
+        # strictly.  It is more CPU-intensive on the server, but the public
+        # endpoint accepts it and routes are still returned in normal time
+        # for typical inner-European trips.
+        if opts and costing in {"auto", "truck", "motorcycle"}:
+            opts["disable_hierarchy_pruning"] = True
         if opts:
             body["costing_options"] = {costing: opts}
     url = f"{_VALHALLA_URL}?json={urllib.parse.quote(_json.dumps(body, separators=(',', ':')))}"
