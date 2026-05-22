@@ -67,6 +67,19 @@ _MANEUVER_CSS = b"""
 .dark .dp-steps-row-done { opacity: 0.55; }
 .dp-tour-topnav { padding: 2px 4px; }
 .dp-tour-topnav button label { font-size: 11px; }
+/* Lane guidance row inside the maneuver banner */
+.dp-lane-row { padding: 4px 12px 2px 12px; }
+.dp-lane {
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-width: 42px;
+  min-height: 42px;
+}
+.dp-lane image { color: rgba(255,255,255,0.28); }
+.dp-lane-valid {
+  background-color: rgba(30, 136, 229, 0.55);
+}
+.dp-lane-valid image { color: #ffffff; }
 /* Speed-limit sign - classic European round white/red circle */
 .dp-speed-sign {
   background-color: #ffffff;
@@ -181,8 +194,7 @@ class MapLayoutMixin:
         toolbar_view.add_top_bar(Adw.HeaderBar())
         toolbar_view.set_content(page_box)
 
-        page = Adw.NavigationPage()
-        page.set_title(_translate(self.language, "map.topnav.load"))
+        page = Adw.NavigationPage(title=_translate(self.language, "map.topnav.load"))
         page.set_child(toolbar_view)
         nav_view.push(page)
         self._rebuild_tour_list()
@@ -799,6 +811,14 @@ class MapLayoutMixin:
         card.append(text_box)
 
         outer.append(card)
+
+        lane_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lane_row.add_css_class("dp-lane-row")
+        lane_row.set_halign(Gtk.Align.CENTER)
+        lane_row.set_visible(False)
+        outer.append(lane_row)
+        self._lane_row = lane_row
+
         self._maneuver_overlay = outer
         return outer
 

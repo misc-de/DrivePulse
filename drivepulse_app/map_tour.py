@@ -7,7 +7,8 @@ import threading
 from gi.repository import GLib
 
 from .common import _translate
-from .map_services import format_distance, haversine, osrm_route, maneuver_icon, maneuver_text_key
+from .map_services import format_distance, haversine, mock_speed_kmh, osrm_route, maneuver_icon, maneuver_text_key
+from gi.repository import Gtk as _Gtk
 from . import tts_service
 from .diagnostics import get_logger
 
@@ -140,6 +141,7 @@ class MapTourMixin:
         self._tts_spoken_thresholds = set()
         self._tts_prerender_step_idx = -1
         self._speed_zones = []
+        self._lane_step_idx = -1
         tts_service.stop()
         tts_service.clear_audio_cache()
         self._set_nav_chrome_visible(True)
@@ -152,6 +154,8 @@ class MapTourMixin:
             self._guide_path_layer.remove_all()
         if self._maneuver_overlay is not None:
             self._maneuver_overlay.set_visible(False)
+        if self._lane_row is not None:
+            self._lane_row.set_visible(False)
         if self._speed_zone_overlay is not None:
             self._speed_zone_overlay.set_visible(False)
         self._highlight_active_step()
@@ -246,20 +250,21 @@ class MapTourMixin:
                 cum += float(step.get("distance") or 0.0)
 
     def _build_speed_zones(self) -> list[tuple[float, float]]:
-        """Build a list of (cum_dist_m, speed_kmh) breakpoints from Valhalla speed_limit data.
+        """Build (cum_dist_m, speed_kmh) breakpoints.
 
-        Only uses real speed limit values from Valhalla's ``speed_limit`` field.
-        Steps without a real speed limit are skipped so the sign is hidden on
-        routes where only mock/heuristic data would be available (OSRM-only routes).
+        Prefers Valhalla's real ``speed_limit`` values.  Falls back to the
+        ref-tag heuristic (A* → 120, B* → 70, urban → 40) so the sign is
+        always shown during mock-mode tours where Valhalla data may be absent.
         """
         if not self._tour_steps or not self._step_cum_m:
             return []
         zones: list[tuple[float, float]] = []
         prev_speed: float | None = None
         for i, step in enumerate(self._tour_steps):
-            if "speed_limit" not in step:
-                continue
-            speed = float(step["speed_limit"])
+            if "speed_limit" in step:
+                speed = float(step["speed_limit"])
+            else:
+                speed = mock_speed_kmh(step.get("ref") or "")
             if speed != prev_speed:
                 cum = self._step_cum_m[i] if i < len(self._step_cum_m) else 0.0
                 zones.append((cum, speed))
@@ -405,6 +410,7 @@ class MapTourMixin:
         self._highlight_active_step()
         self._update_tts(step, distance_m)
         self._update_speed_zone_overlay()
+        self._update_lane_guidance(step)
 
     def _update_tts(self, step: dict, distance_m: float) -> None:
         if not self._tts_enabled:
@@ -487,6 +493,59 @@ class MapTourMixin:
                 else:
                     text = maneuver_text
                 tts_service.prerender(text, lang, gender, quality=self._tts_quality)
+
+    # Valhalla lane indication → matching nav icon
+    _LANE_ICON: dict[str, str] = {
+        "left":         "dp-nav-left-symbolic",
+        "slight_left":  "dp-nav-slight-left-symbolic",
+        "straight":     "dp-nav-straight-symbolic",
+        "slight_right": "dp-nav-slight-right-symbolic",
+        "right":        "dp-nav-right-symbolic",
+        "sharp_left":   "dp-nav-sharp-left-symbolic",
+        "sharp_right":  "dp-nav-sharp-right-symbolic",
+        "uturn":        "dp-nav-uturn-symbolic",
+    }
+
+    def _update_lane_guidance(self, step: dict) -> None:
+        if self._lane_row is None:
+            return
+        if self._tour_step_idx == self._lane_step_idx:
+            return  # already rendered for this step
+        self._lane_step_idx = self._tour_step_idx
+
+        # Remove previous lane widgets.
+        child = self._lane_row.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self._lane_row.remove(child)
+            child = nxt
+
+        lanes: list[dict] = step.get("lanes") or []
+        if len(lanes) < 2:
+            self._lane_row.set_visible(False)
+            return
+
+        for lane in lanes:
+            valid = bool(lane.get("valid", False))
+            indications: list[str] = lane.get("indications") or ["straight"]
+            ind = indications[0] if indications else "straight"
+            icon_name = self._LANE_ICON.get(ind, "dp-nav-straight-symbolic")
+
+            box = _Gtk.Box(orientation=_Gtk.Orientation.VERTICAL)
+            box.add_css_class("dp-lane")
+            if valid:
+                box.add_css_class("dp-lane-valid")
+            box.set_halign(_Gtk.Align.CENTER)
+            box.set_valign(_Gtk.Align.CENTER)
+
+            img = _Gtk.Image.new_from_icon_name(icon_name)
+            img.set_pixel_size(26)
+            img.set_halign(_Gtk.Align.CENTER)
+            img.set_valign(_Gtk.Align.CENTER)
+            box.append(img)
+            self._lane_row.append(box)
+
+        self._lane_row.set_visible(True)
 
     def _tts_announce(self, step: dict, distance_m: float) -> None:
         if not self._tts_enabled:

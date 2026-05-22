@@ -164,6 +164,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._maneuver_icon: Gtk.Image | None = None
         self._maneuver_distance_lbl: Gtk.Label | None = None
         self._maneuver_instr_lbl: Gtk.Label | None = None
+        self._lane_row: Gtk.Box | None = None
+        self._lane_step_idx: int = -1
 
         # Speed zone overlay (bottom-left, visible during active/paused tour)
         self._speed_zone_overlay: Gtk.Box | None = None
@@ -242,7 +244,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._map_content_box: Gtk.Box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self._map_content_box.set_hexpand(True)
         self._map_content_box.set_vexpand(True)
-        _main_nav_page = Adw.NavigationPage()
+        _main_nav_page = Adw.NavigationPage(title="Map")
         _main_nav_page.set_tag("map-main")
         _main_nav_page.set_can_pop(False)
         _main_nav_page.set_child(self._map_content_box)

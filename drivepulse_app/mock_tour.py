@@ -34,7 +34,7 @@ class MockTourSimulator:
     TICK_MS = 250  # 4 Hz, matches MapPage's max JS push rate
 
     # Speed applied when the simulated car is approaching or passing a turn.
-    _TURN_KMH = 10.0
+    _TURN_KMH = 20.0
     # How far before the maneuver point to start slowing down.
     _TURN_APPROACH_M = 60.0
     # How far past the maneuver point before resuming normal speed.

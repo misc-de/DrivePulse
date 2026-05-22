@@ -323,6 +323,12 @@ def _flatten_valhalla_maneuvers(legs: list[dict]) -> list[dict]:
             }
             if speed_limit is not None:
                 step["speed_limit"] = float(speed_limit)
+            lanes = man.get("lanes")
+            if lanes:
+                step["lanes"] = lanes
+            sign = man.get("sign")
+            if sign:
+                step["sign"] = sign
             result.append(step)
     return result
 
