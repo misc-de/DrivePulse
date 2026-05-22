@@ -31,6 +31,64 @@ class DeviceItem(GObject.Object):
         self._is_connected = is_connected
 
 
+class _BtExpander:
+    """Expander row for BT device lists using bundled icons (no system icon dependency)."""
+
+    def __init__(self) -> None:
+        self._expanded = False
+
+        self._header = Adw.ActionRow()
+        self._header.set_activatable(True)
+        self._header.connect("activated", self._toggle)
+
+        self._chevron = Gtk.Image.new_from_icon_name("dp-chevron-down-symbolic")
+        self._chevron.set_pixel_size(16)
+        self._chevron.set_valign(Gtk.Align.CENTER)
+        self._header.add_suffix(self._chevron)
+
+        self._rows_box = Gtk.ListBox()
+        self._rows_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._rows_box.add_css_class("boxed-list")
+
+        self._revealer = Gtk.Revealer()
+        self._revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self._revealer.set_transition_duration(200)
+        self._revealer.set_reveal_child(False)
+        self._revealer.set_child(self._rows_box)
+
+        self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.widget.append(self._header)
+        self.widget.append(self._revealer)
+
+    def _toggle(self, *_: object) -> None:
+        self.set_expanded(not self._expanded)
+
+    def set_expanded(self, value: bool) -> None:
+        self._expanded = value
+        self._revealer.set_reveal_child(value)
+        self._chevron.set_from_icon_name(
+            "dp-chevron-up-symbolic" if value else "dp-chevron-down-symbolic"
+        )
+
+    def get_expanded(self) -> bool:
+        return self._expanded
+
+    def set_title(self, title: str) -> None:
+        self._header.set_title(title)
+
+    def set_subtitle(self, subtitle: str) -> None:
+        self._header.set_subtitle(subtitle)
+
+    def add_action(self, widget: Gtk.Widget) -> None:
+        self._header.add_suffix(widget)
+
+    def add_row(self, row: Gtk.Widget) -> None:
+        self._rows_box.append(row)
+
+    def remove(self, row: Gtk.Widget) -> None:
+        self._rows_box.remove(row)
+
+
 class SettingsDialog(Adw.NavigationPage):
     __gtype_name__ = "SettingsDialog"
 
@@ -487,22 +545,7 @@ class SettingsDialog(Adw.NavigationPage):
             description=_translate(self.language, "settings.bt_obd.desc"),
         )
 
-        _exp_css = Gtk.CssProvider()
-        _exp_css.load_from_data(
-            b".dp-bt-exp button.expander"
-            b" { min-width:0; min-height:0; padding:0; opacity:0; }"
-        )
-
-        def _make_bt_expander() -> Adw.ExpanderRow:
-            exp = Adw.ExpanderRow()
-            exp.set_expanded(False)
-            exp.add_css_class("dp-bt-exp")
-            exp.get_style_context().add_provider(
-                _exp_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-            )
-            return exp
-
-        self._bt_expander = _make_bt_expander()
+        self._bt_expander = _BtExpander()
         self._bt_expander.set_title(_translate(self.language, "settings.bt_obd.scan"))
         self._bt_expander.set_subtitle(_translate(self.language, "settings.bt_obd.scan.subtitle"))
         self._bt_device_rows: list[Adw.ActionRow] = []
@@ -513,10 +556,10 @@ class SettingsDialog(Adw.NavigationPage):
         _bt_refresh_btn.set_tooltip_text(_translate(self.language, "settings.bt_obd.refresh"))
         _bt_refresh_btn.connect("clicked", self._on_bt_refresh_clicked)
         self._bt_expander.add_action(_bt_refresh_btn)
-        bt_group.add(self._bt_expander)
+        bt_group.add(self._bt_expander.widget)
 
         # ── Nearby BT devices (discovery scan) ───────────────────────────────
-        self._bt_nearby_expander = _make_bt_expander()
+        self._bt_nearby_expander = _BtExpander()
         self._bt_nearby_expander.set_title(_translate(self.language, "settings.bt_obd.nearby"))
         self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.subtitle"))
         self._bt_nearby_rows: list[Adw.ActionRow] = []
@@ -528,7 +571,7 @@ class SettingsDialog(Adw.NavigationPage):
         _nearby_scan_btn.connect("clicked", self._on_bt_nearby_scan_clicked)
         self._bt_nearby_expander.add_action(_nearby_scan_btn)
         self._bt_nearby_scan_btn = _nearby_scan_btn
-        bt_group.add(self._bt_nearby_expander)
+        bt_group.add(self._bt_nearby_expander.widget)
 
         app_page.add(bt_group)
 
