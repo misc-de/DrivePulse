@@ -30,7 +30,7 @@ from .cars_metadata import (
 
 _PID_TO_LIVE_KEY: dict[str, str] = {pid: key for key, pid in LIVE_KEY_TO_PID.items()}
 from .cars_scan_widgets import _format_scan_date
-from .scan_chart_dialog import ScanChartDialog
+from .scan_chart_page import ScanChartContent
 
 
 class CarsDetailRenderMixin:
@@ -190,9 +190,28 @@ class CarsDetailRenderMixin:
                             plabels: dict,
                             lang: str,
                         ) -> "callable":
-                            return lambda: ScanChartDialog(
-                                lbl, pk, all_s, plabels, lang
-                            ).present(self)
+                            def _open() -> None:
+                                content = ScanChartContent(
+                                    lbl, pk, all_s,
+                                    getattr(self, "_profiles", []),
+                                    getattr(self, "db", None),
+                                    plabels, lang,
+                                )
+                                scroll = Gtk.ScrolledWindow()
+                                scroll.set_policy(
+                                    Gtk.PolicyType.NEVER,
+                                    Gtk.PolicyType.AUTOMATIC,
+                                )
+                                scroll.set_vexpand(True)
+                                scroll.set_hexpand(True)
+                                scroll.set_child(content)
+                                page = Adw.NavigationPage(
+                                    child=self._wrap_sub_page(scroll, lbl),
+                                    title=lbl,
+                                )
+                                page.set_tag(f"scan-chart-{pk}")
+                                self.nav_view.push(page)
+                            return _open
                         on_click = _make_cb(
                             label, pid_key,
                             self._scan_pid_stats, _pid_labels, _lang,
