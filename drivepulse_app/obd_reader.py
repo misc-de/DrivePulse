@@ -34,6 +34,7 @@ from .common import (
 from .bluetooth_bridge import BluetoothPtyBridge
 from .diagnostics import get_logger
 from .mock_obd import MockObdSimulator
+from .obd_adapter import AdapterInfo, probe_adapter, raw_send, _serial_port
 from .obd_devices import candidate_bt_addresses, parse_bt_port
 from .obd_polling import command_map, response_to_plain_value, should_query_key
 from .obd_scanner import ObdScanner
@@ -50,7 +51,7 @@ class ObdReader(GObject.Object):
     # Minimum OBD() timeout for direct BT connections (ELM327 init can be slow over BT)
     _BT_OBD_TIMEOUT = 15.0
     # Periodic re-scan keeps the scan history (DTCs, PIDs) fresh while connected.
-    _RESCAN_INTERVAL_S = float(os.environ.get("OBD_RESCAN_INTERVAL", "900"))
+    _RESCAN_INTERVAL_S = float(os.environ.get("OBD_RESCAN_INTERVAL", "60"))
     # How often to probe for a real dongle while in mock fallback. Lower = faster
     # pickup when the car is started, at the cost of more failed connect attempts.
     _MOCK_RECONNECT_INTERVAL_S = float(os.environ.get("OBD_MOCK_RECONNECT_INTERVAL", "3"))
@@ -70,6 +71,7 @@ class ObdReader(GObject.Object):
         self._force_reconnect = False
         self._scanned_identities: set[str] = set()
         self._last_scan_monotonic: float = 0.0
+        self._adapter_info: AdapterInfo | None = None
         # Serializes access to self.connection between the reader thread and the
         # asynchronous vehicle-scan thread so they can interleave queries safely.
         self._obd_lock = threading.Lock()
@@ -156,6 +158,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=self.connected_port, supported_commands=supported)
+                self._probe_adapter()
                 return True
             self._close_connection()
             bridge.close()
@@ -176,11 +179,26 @@ class ObdReader(GObject.Object):
         finally:
             self.connection = None
             self.connected_port = None
+            self._adapter_info = None
             self._obd_value_cache.clear()
             self._obd_last_query.clear()
         if self._bt_bridge is not None:
             self._bt_bridge.close()
             self._bt_bridge = None
+
+    def _send_raw_locked(self, cmd: str) -> str:
+        """Send a raw AT/ST command while holding the shared OBD serial lock."""
+        port = _serial_port(self.connection)
+        if port is None:
+            return ""
+        with self._obd_lock:
+            return raw_send(port, cmd)
+
+    def _probe_adapter(self) -> None:
+        """Detect adapter type after a successful connection and cache the result."""
+        if self.connection is None or self.mock:
+            return
+        self._adapter_info = probe_adapter(self.connection, locked_raw=self._send_raw_locked)
 
     def set_force_mock(self, force_mock: bool) -> None:
         self.force_mock = force_mock
@@ -409,6 +427,8 @@ class ObdReader(GObject.Object):
         # Mark scan time at start so periodic re-scans don't pile up.
         self._last_scan_monotonic = time.monotonic()
 
+        adapter_info = self._adapter_info
+
         def _worker() -> None:
             try:
                 ObdScanner(
@@ -418,6 +438,8 @@ class ObdReader(GObject.Object):
                     yield_between_queries=0.04,
                     stop_event=self.stop_event,
                     obd_module=obd,
+                    raw_send_locked=self._send_raw_locked,
+                    adapter_info=adapter_info,
                 ).run()
             except Exception as exc:
                 self._connection_log("scan_thread_error", error=repr(exc), error_type=type(exc).__name__)

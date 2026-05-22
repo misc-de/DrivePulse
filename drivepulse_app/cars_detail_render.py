@@ -29,8 +29,13 @@ from .cars_metadata import (
 )
 
 _PID_TO_LIVE_KEY: dict[str, str] = {pid: key for key, pid in LIVE_KEY_TO_PID.items()}
-from .cars_scan_widgets import _format_scan_date
+from .cars_scan_widgets import _format_scan_date, _dtc_parts
 from .scan_chart_page import ScanChartContent
+
+
+def _format_dtc(entry: Any) -> str:
+    code, desc = _dtc_parts(entry)
+    return f"{code}: {desc}" if desc else code
 
 
 class CarsDetailRenderMixin:
@@ -91,9 +96,9 @@ class CarsDetailRenderMixin:
             out[_SPECIAL_SCAN_DATE] = _format_scan_date(data["scanned_at"])
         dtcs = data.get("dtcs") or []
         none_text = _translate(self.language, "cars.dtc.none")
-        out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(str(d) for d in dtcs)
+        out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(_format_dtc(d) for d in dtcs)
         pending = data.get("pending_dtcs") or []
-        out[_SPECIAL_PENDING] = none_text if not pending else "  ".join(str(d) for d in pending)
+        out[_SPECIAL_PENDING] = none_text if not pending else "  ".join(_format_dtc(d) for d in pending)
         for field_key, special_key in VIN_DATA_SPECIAL_KEYS.items():
             val = (data.get("vin_data") or {}).get(field_key)
             if val:

@@ -65,8 +65,8 @@ def scan_profile_dashboard_data(data: dict[str, Any]) -> tuple[dict[str, float |
     if obd_std is not None:
         info["obd_standard"] = str(int(obd_std)) if obd_std == int(obd_std) else str(obd_std)
 
-    dtcs = [str(dtc) for dtc in (data.get("dtcs") or [])]
-    pending = [str(dtc) for dtc in (data.get("pending_dtcs") or [])]
+    dtcs = [d.get("code", str(d)) if isinstance(d, dict) else str(d) for d in (data.get("dtcs") or [])]
+    pending = [d.get("code", str(d)) if isinstance(d, dict) else str(d) for d in (data.get("pending_dtcs") or [])]
     return pids, info, dtcs, pending
 
 
