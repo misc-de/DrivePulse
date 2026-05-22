@@ -323,6 +323,39 @@ def _decode_polyline(encoded: str, precision: int = 6) -> list[list[float]]:
     return result
 
 
+def _valhalla_costing_opts(
+    costing: str, avoid: dict[str, bool] | None, hard: bool
+) -> dict[str, Any]:
+    """Build the per-costing options dict for a Valhalla request.
+
+    *hard*: include experimental hard-exclude flags
+    (``exclude_highways``/``_tolls``/``_ferries``/``_unpaved``).  Older
+    Valhalla servers (pre-3.5-ish) error out on unknown keys instead of
+    ignoring them, so we always have the option to retry without.
+    """
+    opts: dict[str, Any] = {}
+    if not avoid:
+        return opts
+    if avoid.get("motorway") and costing in {"auto", "truck", "motorcycle"}:
+        if hard:
+            opts["exclude_highways"] = True
+        opts["use_highways"] = 0.0
+    if avoid.get("toll") and costing in {"auto", "truck", "motorcycle"}:
+        if hard:
+            opts["exclude_tolls"] = True
+        opts["use_tolls"] = 0.0
+    if avoid.get("ferry"):
+        if hard:
+            opts["exclude_ferries"] = True
+        opts["use_ferry"] = 0.0
+    if avoid.get("unpaved"):
+        if costing == "bicycle":
+            opts["avoid_bad_surfaces"] = 1.0
+        elif hard:
+            opts["exclude_unpaved"] = 1
+    return opts
+
+
 def valhalla_route(
     waypoints: list[tuple[float, float]],
     mode: str,
@@ -334,69 +367,52 @@ def valhalla_route(
     Returns the same (coords, duration_s, distance_m, steps) tuple as
     osrm_route so callers are backend-agnostic.  Steps include a
     ``speed_limit`` key (km/h) when Valhalla provides one.
+
+    When *avoid* is set, the first attempt includes the experimental
+    hard-exclusion flags.  If the server rejects them (older versions
+    treat unknown keys as errors instead of returning a warning), we
+    retry with only the soft preferences so the user still gets a route.
     """
     if len(waypoints) < 2:
         return None
     costing = _VALHALLA_COSTING.get(mode, "auto")
     locations = [{"lon": lon, "lat": lat} for lat, lon in waypoints]
-    body: dict[str, Any] = {
-        "locations": locations,
-        "costing": costing,
-        "directions_options": {"units": "kilometers"},
-    }
-    # Valhalla expresses avoidance as costing_options preferences (0.0 strongly
-    # discourages, 1.0 neutral).  Only auto/truck/motorcycle honour
-    # use_highways/use_tolls; ferries and unpaved apply across modes.
-    if avoid:
-        # We send both the experimental HARD exclude flags
-        # (exclude_highways/tolls/ferries/unpaved) and the SOFT preference
-        # factors (use_highways/use_tolls/use_ferry).
-        #
-        # The hard flags require service_limits.allow_hard_exclusions on
-        # the server.  If it's off (as on most public deployments), the
-        # server returns a warning and ignores them — without failing the
-        # request — so the soft factors still apply.  If hard exclusions
-        # are enabled, the route avoids the features in the interior of
-        # the route entirely.  Default use_* factors are 0.5, so 0.0 is
-        # a meaningful preference shift even when hard flags are ignored.
-        opts: dict[str, Any] = {}
-        if avoid.get("motorway") and costing in {"auto", "truck", "motorcycle"}:
-            opts["exclude_highways"] = True
-            opts["use_highways"] = 0.0
-        if avoid.get("toll") and costing in {"auto", "truck", "motorcycle"}:
-            opts["exclude_tolls"] = True
-            opts["use_tolls"] = 0.0
-        if avoid.get("ferry"):
-            opts["exclude_ferries"] = True
-            opts["use_ferry"] = 0.0
-        if avoid.get("unpaved"):
-            # Hard flag is 0/1, not boolean.  Bicycle uses a separate factor.
-            if costing == "bicycle":
-                opts["avoid_bad_surfaces"] = 1.0
-            else:
-                opts["exclude_unpaved"] = 1
+
+    def _try(hard: bool) -> tuple[list[list[float]], float, float, list[dict]] | None:
+        body: dict[str, Any] = {
+            "locations": locations,
+            "costing": costing,
+            "directions_options": {"units": "kilometers"},
+        }
+        opts = _valhalla_costing_opts(costing, avoid, hard=hard)
         if opts:
             body["costing_options"] = {costing: opts}
-    url = f"{_VALHALLA_URL}?json={urllib.parse.quote(_json.dumps(body, separators=(',', ':')))}"
-    data = http_get_fn(url)
-    if not data:
-        return None
-    try:
-        trip = data["trip"]
-        summary = trip["summary"]
-        duration_s = float(summary["time"])
-        distance_m = float(summary["length"]) * 1000.0
-        legs = trip.get("legs") or []
-        # Decode the full route geometry from the first leg's shape.
-        coords: list[list[float]] = []
-        for leg in legs:
-            coords.extend(_decode_polyline(leg.get("shape", "")))
-        if not coords:
+        url = f"{_VALHALLA_URL}?json={urllib.parse.quote(_json.dumps(body, separators=(',', ':')))}"
+        data = http_get_fn(url)
+        if not data:
             return None
-        steps = _flatten_valhalla_maneuvers(legs)
-        return coords, duration_s, distance_m, steps
-    except (KeyError, TypeError, ValueError):
-        return None
+        try:
+            trip = data["trip"]
+            summary = trip["summary"]
+            duration_s = float(summary["time"])
+            distance_m = float(summary["length"]) * 1000.0
+            legs = trip.get("legs") or []
+            coords: list[list[float]] = []
+            for leg in legs:
+                coords.extend(_decode_polyline(leg.get("shape", "")))
+            if not coords:
+                return None
+            steps = _flatten_valhalla_maneuvers(legs)
+            return coords, duration_s, distance_m, steps
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    if avoid and any(avoid.values()):
+        result = _try(hard=True)
+        if result is not None:
+            return result
+        log.info("Valhalla rejected hard-exclude flags; retrying with soft preferences only")
+    return _try(hard=False)
 
 
 def _flatten_valhalla_maneuvers(legs: list[dict]) -> list[dict]:
