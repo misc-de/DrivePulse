@@ -526,6 +526,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         # Re-render whatever's currently on screen using the new unit system.
         if self._tour_active:
             self._update_maneuver_overlay()
+        if self._backend == "shumate" and hasattr(self, "_shumate_apply_scale_unit"):
+            self._shumate_apply_scale_unit(units)
 
     # ── TTS ───────────────────────────────────────────────────────────────────
 

@@ -52,6 +52,8 @@ class MapShumateMixin:
 
         self._shumate_map.set_map_source(self._sources["map"])
         self._shumate_map.get_scale().set_margin_bottom(24)
+        # Initial scale unit follows the user's settings choice.
+        self._shumate_apply_scale_unit(getattr(self, "units", "metric"))
 
         self._inner_map = (
             self._shumate_map.get_map()
@@ -381,6 +383,27 @@ class MapShumateMixin:
         if area is not None:
             area.set_visible(False)
             area.queue_draw()
+
+    def _shumate_apply_scale_unit(self, units: str) -> None:
+        """Mirror the user's units setting on the shumate scale ruler."""
+        smap = getattr(self, "_shumate_map", None)
+        if smap is None or Shumate is None:
+            return
+        scale = smap.get_scale()
+        if scale is None:
+            return
+        if units == "imperial":
+            unit = getattr(Shumate, "Unit", None)
+            target = getattr(unit, "IMPERIAL", None) if unit is not None else None
+        else:
+            unit = getattr(Shumate, "Unit", None)
+            target = getattr(unit, "METRIC", None) if unit is not None else None
+        if target is not None:
+            try:
+                scale.set_unit(target)
+            except Exception:
+                # Older Shumate APIs may not support set_unit — silently skip.
+                pass
 
     def _shumate_set_scale_offset(self, offset_px: int) -> None:
         """Push the bottom-left scale ruler to the right of the replay chart.
