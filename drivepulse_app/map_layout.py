@@ -622,9 +622,14 @@ class MapLayoutMixin:
 
         trip_id = int(meta["id"])
         samples = list(db.samples_for_trip(trip_id))
+        # Drop samples without a real fix (lat=0, lon=0 means the receiver
+        # hadn't acquired one yet) — otherwise the polyline shoots across the
+        # globe to (0,0) and Shumate ends up centred on the Atlantic with
+        # nothing in cache.
         latlon = [
             (s["lat"], s["lon"]) for s in samples
             if s["lat"] is not None and s["lon"] is not None
+            and not (s["lat"] == 0.0 and s["lon"] == 0.0)
         ]
         if not latlon:
             return
