@@ -60,17 +60,15 @@ class MapShumateMixin:
                 self._shumate_map.set_property("show-zoom-buttons", False)
             except Exception:
                 pass
-        # Park the scale ruler immediately to the left of the FAB's bottom
-        # icon (TTS / speaker) and at the same vertical height.  FAB lives at
-        # halign=END with margin_end=12 and ~36 px circular buttons; sit the
-        # scale on the same baseline (margin_bottom=36) with enough end-margin
-        # to clear the FAB column.
+        # Place the scale ruler at the same bottom-left baseline as the coord
+        # chip so they appear in the same spot (they alternate: scale hides
+        # when coord chip is visible, reappears when coord chip hides).
         scale = self._shumate_map.get_scale()
         if scale is not None:
-            scale.set_halign(Gtk.Align.END)
+            scale.set_halign(Gtk.Align.START)
             scale.set_valign(Gtk.Align.END)
-            scale.set_margin_end(60)
-            scale.set_margin_bottom(31)
+            scale.set_margin_start(8)
+            scale.set_margin_bottom(38)
         # Initial scale unit follows the user's settings choice.
         self._shumate_apply_scale_unit(getattr(self, "units", "metric"))
 

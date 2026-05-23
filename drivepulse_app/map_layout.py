@@ -1408,7 +1408,7 @@ class MapLayoutMixin:
         wrap.set_halign(Gtk.Align.START)
         wrap.set_valign(Gtk.Align.END)
         wrap.set_margin_start(8)
-        wrap.set_margin_bottom(8)
+        wrap.set_margin_bottom(38)
         wrap.set_can_target(False)
         wrap.set_visible(False)
 
