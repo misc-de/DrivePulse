@@ -518,6 +518,21 @@ class MapLayoutMixin:
             self._replay_chart_overlay.set_visible(not minimized)
         if getattr(self, "_replay_chart_restore_btn", None) is not None:
             self._replay_chart_restore_btn.set_visible(minimized)
+        self._refresh_fab_visibility()
+
+    def _refresh_fab_visibility(self) -> None:
+        """Hide the bottom-right map options while the replay chart is open.
+
+        The full chart and the FAB compete for the bottom of the screen, so
+        the FAB only appears when the chart is collapsed (its restore icon
+        sits at the same height on the left).
+        """
+        fab = getattr(self, "_fab", None)
+        if fab is None:
+            return
+        chart = getattr(self, "_replay_chart_overlay", None)
+        chart_open = chart is not None and chart.get_visible()
+        fab.set_visible(not chart_open)
 
     def _populate_replay_info(self, meta: dict, ended_at: str | None) -> None:
         """Fill the top-left info card with car + trip metadata."""
@@ -758,6 +773,7 @@ class MapLayoutMixin:
             # chart's right edge so it stays visible alongside.
             if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_offset"):
                 self._shumate_set_scale_offset(360)
+        self._refresh_fab_visibility()
 
     def _map_show_track(self, latlon_speed: list[tuple[float, float, float | None]]) -> None:
         """Draw a speed-coloured polyline on the live map for replayed samples."""
@@ -810,6 +826,7 @@ class MapLayoutMixin:
         if getattr(self, "_replay_chart_restore_btn", None) is not None:
             self._replay_chart_restore_btn.set_visible(False)
         self._replay_chart_minimized = False
+        self._refresh_fab_visibility()
         self._map_clear_replay_marker()
         if self._backend == "webkit":
             self._js("mapClearColoredTrack()")
@@ -1268,7 +1285,11 @@ class MapLayoutMixin:
         fab.set_halign(Gtk.Align.END)
         fab.set_valign(Gtk.Align.END)
         fab.set_margin_end(12)
-        fab.set_margin_bottom(36)
+        # Sit at the same bottom edge as the replay-chart restore icon
+        # (margin_bottom = 12) so right- and left-side controls line up
+        # when the chart overlay is collapsed.
+        fab.set_margin_bottom(12)
+        self._fab = fab
 
         self._poi_btn = Gtk.ToggleButton(icon_name="mark-location-symbolic")
         self._poi_btn.add_css_class("circular")
