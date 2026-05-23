@@ -85,6 +85,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("011C",                    "cars.pid.011C"),
         (_SPECIAL_SCAN_DATE,        "cars.pid.SCAN_DATE"),
     )),
+    ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
     ("trips", "cars.category.trips", "globe-symbolic", ()),
     ("stopwatch_runs", "cars.category.stopwatch_runs", "stopwatch-symbolic", ()),
     ("photos", "cars.category.photos", "camera-photo-symbolic", ()),
@@ -138,7 +139,6 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         (_SPECIAL_PENDING,    "cars.pid.PENDING_DTC"),
         ("0141", "cars.pid.0141"),
     )),
-    ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
 )
 
 _UNIT_DISPLAY: dict[str, str] = {

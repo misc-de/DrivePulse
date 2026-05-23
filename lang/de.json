@@ -352,7 +352,7 @@
   "cars.photos.delete_title": "Foto löschen?",
   "cars.photos.delete_body": "Dieses Foto wird dauerhaft gelöscht.",
   "cars.photos.delete_multi_body": "{n} Fotos werden dauerhaft gelöscht.",
-  "cars.category.scans": "Scan-Verlauf",
+  "cars.category.scans": "Scan-Verläufe",
   "cars.scans.empty": "Noch keine Scans für dieses Fahrzeug gespeichert.",
   "cars.category.stopwatch_runs": "Stoppuhr-Läufe",
   "cars.stopwatch_runs.empty": "Noch keine Stoppuhr-Läufe für dieses Fahrzeug gespeichert.",
