@@ -184,6 +184,8 @@
   "map.history.kind_trip": "Trip",
   "map.history.kind_tour": "Tour",
   "map.replay.close": "Close overlay",
+  "map.replay.chart_minimize": "Minimize chart",
+  "map.replay.chart_restore": "Show chart",
   "map.replay.distance": "Distance",
   "map.replay.duration": "Duration",
   "map.replay.started": "Started",

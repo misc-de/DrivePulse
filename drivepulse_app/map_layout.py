@@ -424,7 +424,12 @@ class MapLayoutMixin:
         close_btn.add_css_class("flat")
         close_btn.add_css_class("circular")
         close_btn.set_tooltip_text(_translate(self.language, "map.replay.close"))
-        close_btn.connect("clicked", lambda _b: self._clear_replay_overlays())
+        # Only dismiss this info card — the chart overlay and the polyline
+        # stay so the user can keep inspecting the route after hiding the
+        # metadata box.
+        close_btn.connect(
+            "clicked", lambda _b: self._replay_info_overlay.set_visible(False)
+        )
         head.append(close_btn)
         box.append(head)
 
@@ -457,6 +462,27 @@ class MapLayoutMixin:
         box.set_size_request(340, -1)
         box.set_visible(False)
 
+        # Header row with a minimize button on the right.  Kept across
+        # _populate_replay_chart re-renders so the button doesn't get torn
+        # down when the chart contents change.
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        head.append(spacer)
+        min_btn = Gtk.Button(icon_name="window-minimize-symbolic")
+        min_btn.add_css_class("flat")
+        min_btn.add_css_class("circular")
+        min_btn.set_tooltip_text(_translate(self.language, "map.replay.chart_minimize"))
+        min_btn.connect("clicked", lambda _b: self._set_replay_chart_minimized(True))
+        head.append(min_btn)
+        box.append(head)
+        self._replay_chart_header = head
+        self._replay_chart_min_btn = min_btn
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.append(content)
+        self._replay_chart_content = content
+
         css = Gtk.CssProvider()
         css.load_from_data(b".dp-replay-chart { border-radius: 10px; padding: 6px; }")
         box.connect(
@@ -468,7 +494,30 @@ class MapLayoutMixin:
 
         self._replay_chart_overlay = box
         self._replay_chart_widget: Gtk.Widget | None = None
+        self._replay_chart_minimized: bool = False
         return box
+
+    def _build_replay_chart_restore_btn(self) -> Gtk.Widget:
+        """Tiny bottom-left icon that re-opens a minimized chart overlay."""
+        btn = Gtk.Button(icon_name="utilities-system-monitor-symbolic")
+        btn.add_css_class("osd")
+        btn.add_css_class("circular")
+        btn.set_halign(Gtk.Align.START)
+        btn.set_valign(Gtk.Align.END)
+        btn.set_margin_start(12)
+        btn.set_margin_bottom(12)
+        btn.set_tooltip_text(_translate(self.language, "map.replay.chart_restore"))
+        btn.set_visible(False)
+        btn.connect("clicked", lambda _b: self._set_replay_chart_minimized(False))
+        self._replay_chart_restore_btn = btn
+        return btn
+
+    def _set_replay_chart_minimized(self, minimized: bool) -> None:
+        self._replay_chart_minimized = minimized
+        if getattr(self, "_replay_chart_overlay", None) is not None:
+            self._replay_chart_overlay.set_visible(not minimized)
+        if getattr(self, "_replay_chart_restore_btn", None) is not None:
+            self._replay_chart_restore_btn.set_visible(minimized)
 
     def _populate_replay_info(self, meta: dict, ended_at: str | None) -> None:
         """Fill the top-left info card with car + trip metadata."""
@@ -567,14 +616,18 @@ class MapLayoutMixin:
         """
         from .cars_trip_visuals import _build_chart_widget, build_trip_metric_data
 
-        # Tear down anything from a previous replay.
-        child = self._replay_chart_overlay.get_first_child()
+        # Tear down anything from a previous replay (only the content box —
+        # the header with the minimize button is kept across re-renders).
+        content = getattr(self, "_replay_chart_content", None) or self._replay_chart_overlay
+        child = content.get_first_child()
         while child is not None:
             nxt = child.get_next_sibling()
-            self._replay_chart_overlay.remove(child)
+            content.remove(child)
             child = nxt
         self._replay_chart_widget = None
         self._replay_chart_area: Gtk.Widget | None = None
+        # Fresh replay starts un-minimized.
+        self._set_replay_chart_minimized(False)
 
         metric_data, avail = build_trip_metric_data(samples, self.language)
         if not avail:
@@ -606,7 +659,7 @@ class MapLayoutMixin:
                 (i for i, m in enumerate(avail) if m[0] == def_key), 0
             )
             dropdown.set_selected(init_sel)
-            self._replay_chart_overlay.append(dropdown)
+            content.append(dropdown)
 
         # When the chart cursor moves, update the marker on the live map at
         # the GPS coord of the highlighted sample.
@@ -625,7 +678,7 @@ class MapLayoutMixin:
         area = _build_chart_widget(chart_state, cursor_state, _on_cursor_change, height=140)
         self._replay_chart_area = area
         self._replay_chart_widget = area
-        self._replay_chart_overlay.append(area)
+        content.append(area)
 
         if dropdown is not None:
 
@@ -750,6 +803,9 @@ class MapLayoutMixin:
             self._replay_info_overlay.set_margin_top(72 if ff == "mobile" else 12)
         if getattr(self, "_replay_chart_overlay", None) is not None:
             self._replay_chart_overlay.set_visible(False)
+        if getattr(self, "_replay_chart_restore_btn", None) is not None:
+            self._replay_chart_restore_btn.set_visible(False)
+        self._replay_chart_minimized = False
         self._map_clear_replay_marker()
         if self._backend == "webkit":
             self._js("mapClearColoredTrack()")
@@ -1178,6 +1234,7 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_map_state_overlay())
             overlay.add_overlay(self._build_replay_info_overlay())
             overlay.add_overlay(self._build_replay_chart_overlay())
+            overlay.add_overlay(self._build_replay_chart_restore_btn())
 
         self._map_content_box.append(overlay)
 
