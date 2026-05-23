@@ -124,14 +124,37 @@ class CarsPage(
         self._drag_claimed = False
         self.get_sync_client: Any = None
 
+        # Content stack: holds the detail page as root, with sub-detail pages
+        # (trip/scan/run/photo) pushed on top. The list lives in the sidebar
+        # of the NavigationSplitView, not in this stack.
         self.nav_view = Adw.NavigationView()
         self.nav_view.set_hexpand(True)
         self.nav_view.set_vexpand(True)
         self.nav_view.connect("popped", self._on_popped)
-        self.append(self.nav_view)
+
+        # NavigationSplitView: sidebar (list) + content (nav_view). When
+        # ``collapsed`` is true the split view degrades to mobile-style
+        # push/pop navigation between sidebar and content. The parent window
+        # flips collapsed via :meth:`set_collapsed` based on form factor.
+        self._split_view = Adw.NavigationSplitView()
+        self._split_view.set_hexpand(True)
+        self._split_view.set_vexpand(True)
+        self._split_view.set_collapsed(True)
+        self._split_view.set_show_content(False)
+        self._split_view.set_min_sidebar_width(280)
+        self._split_view.set_content(
+            Adw.NavigationPage(
+                child=self.nav_view,
+                title=_translate(self.language, "nav.cars"),
+            )
+        )
+        self._split_view.connect("notify::show-content", self._on_show_content_changed)
+        self.append(self._split_view)
 
         self._build_list_page()
         self._build_detail_page()
+        # Detail page is the permanent root of the content stack.
+        self.nav_view.add(self._detail_page)
         self.refresh_profiles()
 
         # Horizontaler Drag in CAPTURE-Phase: greift Wisch-Gesten ab, bevor
@@ -527,28 +550,18 @@ class CarsPage(
         self._update_photo_upload_btn_visibility()
         if self._selected_car_id is not None:
             threading.Thread(target=self._bg_compute_scan_stats, daemon=True).start()
-        if not self._detail_pushed:
-            self.nav_view.push(self._detail_page)
-            self._detail_pushed = True
+        self._detail_pushed = True
+        # In collapsed (mobile) layout this slides the detail in over the list.
+        # In uncollapsed (desktop) layout both panes are already visible; this
+        # only updates the internal show-content flag for later use.
+        self._split_view.set_show_content(True)
 
     def _on_popped(self, _view: Adw.NavigationView, page: Adw.NavigationPage) -> None:
+        # The detail page is the permanent root of the content stack and is
+        # never popped — leaving the detail view is handled by
+        # ``_on_show_content_changed`` via the NavigationSplitView.
         if page is self._detail_page:
-            self._detail_pushed = False
-            self._trip_select_mode = False
-            self._trip_selected_ids = set()
-            self._scan_select_mode = False
-            self._scan_selected_ids = set()
-            self._selected_scan_id = None
-            self._scan_pid_stats = {}
-            self._run_select_mode = False
-            self._run_selected_ids = set()
-            self._photo_select_mode = False
-            self._photo_selected_ids = set()
-            self._photo_detail_page = None
-            self._set_trash(None)
-            self._rename_btn.set_visible(False)
-            self._vin_refresh_btn.set_visible(False)
-            self._update_photo_upload_btn_visibility()
+            self._reset_detail_state()
         if page is self._trip_detail_page:
             self._trip_detail_pushed = False
             self._trip_detail_page = None
@@ -578,6 +591,61 @@ class CarsPage(
             if self._detail_pushed and self._selected_car_id is not None:
                 self._set_trash(self._confirm_delete_vehicle)
             self._update_photo_upload_btn_visibility()
+
+    def _reset_detail_state(self) -> None:
+        """Drop transient detail-view state when leaving / re-entering detail."""
+        self._detail_pushed = False
+        self._trip_select_mode = False
+        self._trip_selected_ids = set()
+        self._scan_select_mode = False
+        self._scan_selected_ids = set()
+        self._selected_scan_id = None
+        self._scan_pid_stats = {}
+        self._run_select_mode = False
+        self._run_selected_ids = set()
+        self._photo_select_mode = False
+        self._photo_selected_ids = set()
+        self._photo_detail_page = None
+        self._set_trash(None)
+        self._rename_btn.set_visible(False)
+        self._vin_refresh_btn.set_visible(False)
+        self._update_photo_upload_btn_visibility()
+
+    def _on_detail_back(self) -> None:
+        """Detail back-button: collapse-aware navigation back to the list."""
+        self._split_view.set_show_content(False)
+        # In uncollapsed mode show-content stays True visually; explicitly
+        # reset state so a subsequent _open_detail starts fresh.
+        if not self._split_view.get_collapsed():
+            self._reset_detail_state()
+
+    def _on_show_content_changed(self, *_args: Any) -> None:
+        """User navigated back to the sidebar (collapsed layout only)."""
+        if not self._split_view.get_collapsed():
+            return
+        if self._split_view.get_show_content():
+            return
+        # Pop any sub-detail pages back to the detail root so re-entering
+        # detail starts on the vehicle overview, matching pre-split behavior.
+        try:
+            self.nav_view.pop_to_page(self._detail_page)
+        except Exception:
+            while self.nav_view.pop():
+                pass
+        self._reset_detail_state()
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Toggle the NavigationSplitView between mobile and desktop modes."""
+        if self._split_view.get_collapsed() == collapsed:
+            return
+        self._split_view.set_collapsed(collapsed)
+        # Desktop: both panes visible — hide the detail back button (the list
+        # is right there). Mobile: keep it for the slide-back gesture.
+        if hasattr(self, "_detail_back_btn"):
+            self._detail_back_btn.set_visible(collapsed)
+        if not collapsed:
+            # Desktop view always shows detail pane alongside sidebar.
+            self._split_view.set_show_content(True)
 
     def _is_sync_active(self) -> bool:
         return callable(self.get_sync_client) and self.get_sync_client() is not None

@@ -47,7 +47,7 @@ class CarsLayoutMixin:
             title=_translate(self.language, "nav.cars"),
         )
         self._list_page.set_tag("list")
-        self.nav_view.add(self._list_page)
+        self._split_view.set_sidebar(self._list_page)
         self._refresh_list_texts()
 
     def _refresh_list_texts(self) -> None:
@@ -67,7 +67,7 @@ class CarsLayoutMixin:
         self._detail_back_btn = Gtk.Button(icon_name="go-previous-symbolic")
         self._detail_back_btn.add_css_class("flat")
         self._detail_back_btn.set_tooltip_text(_translate(self.language, "cars.back"))
-        self._detail_back_btn.connect("clicked", lambda _b: self.nav_view.pop())
+        self._detail_back_btn.connect("clicked", lambda _b: self._on_detail_back())
         self._detail_title = Gtk.Label(xalign=0.0)
         self._detail_title.add_css_class("title-3")
         self._detail_title.set_hexpand(True)
@@ -213,7 +213,10 @@ class CarsLayoutMixin:
 
         self._categories_label.set_text(_translate(self.language, "cars.categories"))
 
-        self._detail_page = Adw.NavigationPage(child=outer, title="")
+        self._detail_page = Adw.NavigationPage(
+            child=outer,
+            title=_translate(self.language, "nav.cars"),
+        )
         self._detail_page.set_tag("detail")
 
         first_row = self.category_list.get_row_at_index(0)
@@ -268,8 +271,15 @@ class CarsLayoutMixin:
     # ---------------------------------------------------- öffentliche API
 
     def is_detail_open(self) -> bool:
-        """True, solange die Detail-Seite im NavigationView gepusht ist."""
-        return self._detail_pushed
+        """True wenn der Detail-Bereich die Liste verdeckt.
+
+        Im Split-View (Desktop) sind Liste und Detail immer beide sichtbar;
+        die Liste wird nicht „verdeckt", daher False. Im collapsed-Modus
+        (Mobile) ist Detail offen, sobald show-content gesetzt ist.
+        """
+        if not self._split_view.get_collapsed():
+            return False
+        return self._split_view.get_show_content()
 
     def set_narrow(self, narrow: bool) -> None:
         """Auf Smartphone-Breiten: Labels ausblenden, nur Icons zeigen."""
