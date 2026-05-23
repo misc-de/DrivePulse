@@ -105,6 +105,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.vindecoder_api_key: str = self.settings.get("vindecoder_api_key") or ""
         self.vindecoder_secret_key: str = self.settings.get("vindecoder_secret_key") or ""
         self.autodev_api_key: str = self.settings.get("autodev_api_key") or ""
+        self.last_cars_source: str | None = self.settings.get("last_cars_source") or None
+        self.last_cars_category: str | None = self.settings.get("last_cars_category") or None
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -239,6 +241,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             sidebar_side=self.sidebar_side,
             vindecoder_api_key=self.vindecoder_api_key or None,
             vindecoder_secret_key=self.vindecoder_secret_key or None,
+            initial_source=self.last_cars_source,
+            initial_category=self.last_cars_category,
+            on_state_changed=self._on_cars_state_changed,
         )
         self.cars_page._autodev_api_key = self.autodev_api_key or None
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
@@ -792,6 +797,14 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         at_top = effective == "top"
         self.switcher_top.set_reveal(at_top)
         self.switcher_bar.set_reveal(not at_top)
+
+    def _on_cars_state_changed(self, source: str | None, category: str | None) -> None:
+        """Persist the last viewed source + category from the Cars page."""
+        if source == self.last_cars_source and category == self.last_cars_category:
+            return
+        self.last_cars_source = source
+        self.last_cars_category = category
+        self._save_settings()
 
     def _install_form_factor_breakpoint(self) -> None:
         """Drive ``self.form_factor`` from an Adw.Breakpoint on window width.
