@@ -35,5 +35,6 @@
     <file alias="dp-chevron-down-symbolic.svg">icons/hicolor/symbolic/actions/dp-chevron-down-symbolic.svg</file>
     <file alias="dp-chevron-up-symbolic.svg">icons/hicolor/symbolic/actions/dp-chevron-up-symbolic.svg</file>
     <file alias="library-symbolic.svg">icons/hicolor/symbolic/actions/library-symbolic.svg</file>
+    <file alias="integral3-symbolic.svg">icons/hicolor/symbolic/actions/integral3-symbolic.svg</file>
   </gresource>
 </gresources>

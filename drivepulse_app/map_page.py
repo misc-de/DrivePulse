@@ -113,6 +113,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
 
         self._gps_lat: float | None = None
         self._gps_lon: float | None = None
+        self._coord_overlay: Gtk.Box | None = None
+        self._coord_lbl: Gtk.Label | None = None
         self._gps_heading: float = 0.0
         self._gps_speed_mps: float = 0.0
         self._follow_gps: bool = True
@@ -355,6 +357,15 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             self._update_shumate_gps(display_lat, display_lon)
             if self._follow_gps:
                 self._goto(display_lat, display_lon)
+
+        if self._coord_lbl is not None:
+            ns = "N" if lat >= 0 else "S"
+            ew = "E" if lon >= 0 else "W"
+            self._coord_lbl.set_label(
+                f"{abs(lat):.5f}° {ns}  {abs(lon):.5f}° {ew}"
+            )
+            if self._coord_overlay is not None:
+                self._coord_overlay.set_visible(True)
 
         if self._tour_active or self._tour_paused:
             self._update_maneuver_overlay()
