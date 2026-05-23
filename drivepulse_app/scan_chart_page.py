@@ -185,7 +185,6 @@ class ScanChartContent(Gtk.Box):
 
     def __init__(
         self,
-        main_label: str,
         main_pid: str,
         all_stats: dict,
         profiles: list,
@@ -196,7 +195,6 @@ class ScanChartContent(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_vexpand(True)
 
-        self._main_label = main_label
         self._main_pid = main_pid
         self._all_stats = all_stats
         self._profiles = profiles
@@ -229,10 +227,6 @@ class ScanChartContent(Gtk.Box):
 
         info_text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         info_text.set_hexpand(True)
-
-        name_lbl = Gtk.Label(label=main_label, xalign=0.0)
-        name_lbl.add_css_class("heading")
-        info_text.append(name_lbl)
 
         mean_str = f"⌀ {_fmt(mean)} {unit_disp}".strip() if unit_disp else f"⌀ {_fmt(mean)}"
         sub_text = f"{mean_str}   ·   {n} {'Messung' if n == 1 else 'Messungen'}"
