@@ -804,15 +804,26 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     # Softens libadwaita's stock light palette (lots of #ffffff) toward a warm
     # off-grey so the UI stops glaring without tipping into dark territory.
     _LIGHT_PALETTE_OVERRIDES = (
-        b"@define-color window_bg_color #b8b7b3;"
-        b"@define-color view_bg_color #c4c3bf;"
-        b"@define-color card_bg_color #c4c3bf;"
-        b"@define-color popover_bg_color #c8c7c3;"
-        b"@define-color dialog_bg_color #b8b7b3;"
-        b"@define-color headerbar_bg_color #aaa9a5;"
-        b"@define-color sidebar_bg_color #adaca9;"
-        b"@define-color secondary_sidebar_bg_color #b2b1ad;"
-        b"@define-color thumbnail_bg_color #b8b7b3;"
+        b"@define-color window_bg_color #9c9b97;"
+        b"@define-color view_bg_color #a7a6a2;"
+        b"@define-color card_bg_color #a7a6a2;"
+        b"@define-color popover_bg_color #aaa9a5;"
+        b"@define-color dialog_bg_color #9c9b97;"
+        b"@define-color headerbar_bg_color #908f8c;"
+        b"@define-color sidebar_bg_color #929190;"
+        b"@define-color secondary_sidebar_bg_color #979693;"
+        b"@define-color thumbnail_bg_color #9c9b97;"
+        b"@define-color overview_bg_color #9c9b97;"
+        b"@define-color sidebar_backdrop_color #8e8d8a;"
+        b"@define-color secondary_sidebar_backdrop_color #939290;"
+        b"@define-color headerbar_backdrop_color #939290;"
+        b"@define-color dialog_backdrop_color #9c9b97;"
+        b"entry, textview, textview text, .view text, treeview {"
+        b"  background-color: @view_bg_color;"
+        b"}"
+        b"row, list, listview, columnview, .boxed-list, .navigation-sidebar {"
+        b"  background-color: @card_bg_color;"
+        b"}"
     )
 
     def _apply_light_palette(self) -> None:
