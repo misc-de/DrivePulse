@@ -510,6 +510,54 @@ class MapLayoutMixin:
         if dur:
             _row(3, "map.replay.duration", dur)
 
+    def _populate_trip_route_info(
+        self,
+        label: str | None,
+        distance_km: float | None,
+        duration_s: float | None,
+    ) -> None:
+        """Populate the replay info card with a recorded trip's metadata.
+
+        Used by `load_trip_as_route` so the trip's distance/duration sits
+        in the top-left card under the info icon, instead of getting buried
+        in the search-bar status label.
+        """
+        if getattr(self, "_replay_info_overlay", None) is None:
+            return
+        grid = self._replay_meta_grid
+        child = grid.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            grid.remove(child)
+            child = nxt
+
+        self._replay_title_lbl.set_label(
+            label or _translate(self.language, "map.history.kind_trip")
+        )
+
+        def _row(idx: int, key: str, value: str) -> None:
+            k = Gtk.Label(label=_translate(self.language, key), xalign=0.0)
+            k.add_css_class("dim-label")
+            k.add_css_class("caption")
+            v = Gtk.Label(label=value, xalign=0.0)
+            v.add_css_class("caption")
+            grid.attach(k, 0, idx, 1, 1)
+            grid.attach(v, 1, idx, 1, 1)
+
+        idx = 0
+        if distance_km is not None:
+            _row(idx, "map.replay.distance", f"{float(distance_km):.1f} km")
+            idx += 1
+        if duration_s:
+            dur = self._format_history_duration(float(duration_s))
+            if dur:
+                _row(idx, "map.replay.duration", dur)
+
+        # Anchor the card below the tour-start + info-icon column
+        # (≈ 105 px: 12 top margin + start button + spacing + info button).
+        self._replay_info_overlay.set_margin_top(105)
+        self._replay_info_overlay.set_visible(True)
+
     def _populate_replay_chart(self, samples: list) -> None:
         """Build a metric chart + dropdown for the replayed trip.
 
@@ -695,6 +743,11 @@ class MapLayoutMixin:
         """Hide the replay info + chart overlays and clear the polyline + marker."""
         if getattr(self, "_replay_info_overlay", None) is not None:
             self._replay_info_overlay.set_visible(False)
+            # Reset top margin so a follow-up history replay sits at its
+            # native top-left position, not the under-info-icon offset used
+            # by the Fahrtenbuch trip-route view.
+            ff = getattr(self, "_form_factor", "desktop")
+            self._replay_info_overlay.set_margin_top(72 if ff == "mobile" else 12)
         if getattr(self, "_replay_chart_overlay", None) is not None:
             self._replay_chart_overlay.set_visible(False)
         self._map_clear_replay_marker()

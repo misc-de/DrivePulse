@@ -488,6 +488,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._set_tour_controls_visible(False)
         if self._tour_save_btn is not None:
             self._tour_save_btn.set_visible(False)
+        if getattr(self, "_replay_info_overlay", None) is not None:
+            self._replay_info_overlay.set_visible(False)
         if self._backend == "webkit":
             self._js("mapClearRoute()")
         else:
@@ -817,17 +819,8 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         self._entry_rows[-1][1].set_text(last_text)
         self._update_placeholders()
 
-        parts: list[str] = []
-        if duration_s:
-            parts.append(
-                f"{_translate(self.language, 'map.duration_prefix')}{format_duration(float(duration_s))}"
-            )
-        if distance_km is not None:
-            parts.append(
-                f"{_translate(self.language, 'map.distance_prefix')}"
-                f"{format_distance(float(distance_km) * 1000.0, self.units)}"
-            )
-        self._status_lbl.set_text(" / ".join(parts))
+        self._status_lbl.set_text("")
+        self._populate_trip_route_info(label, distance_km, duration_s)
 
         self._set_tour_controls_visible(True)
         if self._tour_save_btn is not None:
