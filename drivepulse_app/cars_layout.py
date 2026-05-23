@@ -133,6 +133,17 @@ class CarsLayoutMixin:
         self._sidebar.set_margin_start(8)
         self._sidebar.set_margin_end(4)
 
+        # Scan timestamp of the currently loaded vehicle data. Hidden for
+        # the live view and when no scan date is available.
+        self._scan_date_label = Gtk.Label(xalign=0.0)
+        self._scan_date_label.add_css_class("caption")
+        self._scan_date_label.add_css_class("dim-label")
+        self._scan_date_label.set_wrap(True)
+        self._scan_date_label.set_margin_start(8)
+        self._scan_date_label.set_margin_bottom(6)
+        self._scan_date_label.set_visible(False)
+        self._sidebar.append(self._scan_date_label)
+
         self.category_list = Gtk.ListBox()
         self.category_list.set_selection_mode(Gtk.SelectionMode.BROWSE)
         self.category_list.add_css_class("navigation-sidebar")
