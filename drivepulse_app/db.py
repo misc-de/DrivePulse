@@ -722,6 +722,34 @@ class DriveDB:
                 "SELECT * FROM saved_tours ORDER BY created_at DESC"
             ).fetchall()
 
+    def list_tour_history(self, limit: int, offset: int = 0) -> list[sqlite3.Row]:
+        """Recorded trips + explicitly saved tours, merged chronologically.
+
+        Each row carries a ``kind`` column ("trip" or "tour") so callers can
+        render them differently. Trips also expose distance/duration plus the
+        owning car's identity; saved tours only have a name.
+        """
+        with self._lock:
+            return self._conn.execute(
+                """
+                SELECT 'trip' AS kind, t.id AS id, t.started_at AS ts,
+                       t.distance_km AS distance_km, t.duration_s AS duration_s,
+                       t.label AS trip_label,
+                       c.brand AS car_brand, c.label AS car_label, c.vin AS car_vin
+                FROM trips t
+                JOIN cars c ON c.id = t.car_id
+                UNION ALL
+                SELECT 'tour' AS kind, st.id AS id, st.created_at AS ts,
+                       NULL AS distance_km, NULL AS duration_s,
+                       st.name AS trip_label,
+                       NULL AS car_brand, NULL AS car_label, NULL AS car_vin
+                FROM saved_tours st
+                ORDER BY ts DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+
     def delete_saved_tour(self, tour_id: int) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM saved_tours WHERE id=?", (tour_id,))
