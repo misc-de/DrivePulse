@@ -84,11 +84,10 @@ class MapShumateMixin:
         self._marker_layer = Shumate.MarkerLayer.new(viewport)
         inner.add_layer(self._marker_layer)
 
-        # Holds the trip-replay scrubber marker — at most one marker, updated
-        # in place as the chart cursor moves.
-        self._replay_marker_layer = Shumate.MarkerLayer.new(viewport)
-        inner.add_layer(self._replay_marker_layer)
-        self._replay_marker: Any = None
+        # Trip-replay scrubber position (lat, lon) or None. Drawn on the same
+        # Cairo overlay as the replay polyline so it always sits on top of the
+        # coloured track — no separate Shumate MarkerLayer needed.
+        self._replay_marker_pos: tuple[float, float] | None = None
 
         self._traffic_layer = Shumate.MarkerLayer.new(viewport)
         self._traffic_layer.set_visible(False)
@@ -280,51 +279,68 @@ class MapShumateMixin:
     ) -> None:
         from .cars_trip_visuals import speed_to_rgb
 
-        points = getattr(self, "_replay_track_points", None)
-        if not points or len(points) < 2:
-            return
         viewport = self._shumate_map.get_viewport()
+        points = getattr(self, "_replay_track_points", None) or []
 
-        speeds = [s for _, _, s in points if s is not None]
-        vmax = max(speeds) if speeds else 0.0
+        if len(points) >= 2:
+            speeds = [s for _, _, s in points if s is not None]
+            vmax = max(speeds) if speeds else 0.0
 
-        # Project once per sample so we don't pay for it twice (case + line).
-        proj: list[tuple[float, float] | None] = []
-        for lat, lon, _spd in points:
+            proj: list[tuple[float, float] | None] = []
+            for lat, lon, _spd in points:
+                try:
+                    x, y = viewport.location_to_widget_coords(area, lat, lon)
+                    proj.append((x, y))
+                except Exception:
+                    proj.append(None)
+
+            cr.set_line_cap(1)   # ROUND
+            cr.set_line_join(1)  # ROUND
+
+            # Black case underneath for contrast against light/dark tiles.
+            cr.set_source_rgba(0.0, 0.0, 0.0, 0.35)
+            cr.set_line_width(7.0)
+            prev = proj[0]
+            for i in range(1, len(proj)):
+                cur = proj[i]
+                if prev is not None and cur is not None:
+                    cr.move_to(*prev)
+                    cr.line_to(*cur)
+                prev = cur
+            cr.stroke()
+
+            # Coloured segments — one stroke per segment, all in a single pass.
+            cr.set_line_width(4.5)
+            prev = proj[0]
+            for i in range(1, len(proj)):
+                cur = proj[i]
+                if prev is not None and cur is not None:
+                    _lat, _lon, spd = points[i]
+                    r, g, b = speed_to_rgb(spd, vmax)
+                    cr.set_source_rgba(r, g, b, 0.95)
+                    cr.move_to(*prev)
+                    cr.line_to(*cur)
+                    cr.stroke()
+                prev = cur
+
+        # Scrubber marker — drawn last so it always sits on top of the track.
+        marker_pos = getattr(self, "_replay_marker_pos", None)
+        if marker_pos is not None:
             try:
-                x, y = viewport.location_to_widget_coords(area, lat, lon)
-                proj.append((x, y))
+                mx, my = viewport.location_to_widget_coords(
+                    area, marker_pos[0], marker_pos[1]
+                )
             except Exception:
-                proj.append(None)
-
-        cr.set_line_cap(1)   # ROUND
-        cr.set_line_join(1)  # ROUND
-
-        # Black case underneath for contrast against light/dark tiles.
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.35)
-        cr.set_line_width(7.0)
-        prev = proj[0]
-        for i in range(1, len(proj)):
-            cur = proj[i]
-            if prev is not None and cur is not None:
-                cr.move_to(*prev)
-                cr.line_to(*cur)
-            prev = cur
-        cr.stroke()
-
-        # Coloured segments — one stroke per segment, all in a single pass.
-        cr.set_line_width(4.5)
-        prev = proj[0]
-        for i in range(1, len(proj)):
-            cur = proj[i]
-            if prev is not None and cur is not None:
-                _lat, _lon, spd = points[i]
-                r, g, b = speed_to_rgb(spd, vmax)
-                cr.set_source_rgba(r, g, b, 0.95)
-                cr.move_to(*prev)
-                cr.line_to(*cur)
-                cr.stroke()
-            prev = cur
+                return
+            # White halo for contrast against any colour.
+            cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
+            cr.arc(mx, my, 8.5, 0, 2 * math.pi)
+            cr.set_line_width(2.5)
+            cr.stroke()
+            # Blue fill — matches the webkit marker.
+            cr.set_source_rgba(0.12, 0.53, 0.90, 1.0)
+            cr.arc(mx, my, 7.0, 0, 2 * math.pi)
+            cr.fill()
 
     def _shumate_show_colored_track(
         self, latlon_speed: list[tuple[float, float, float | None]]
@@ -367,29 +383,16 @@ class MapShumateMixin:
             area.queue_draw()
 
     def _shumate_set_replay_marker(self, lat: float, lon: float) -> None:
-        layer = getattr(self, "_replay_marker_layer", None)
-        if layer is None:
-            return
-        marker = getattr(self, "_replay_marker", None)
-        if marker is None:
-            da = Gtk.DrawingArea()
-            da.set_size_request(14, 14)
-            da.set_draw_func(
-                self._draw_dot,
-                ((0.12, 0.53, 0.90, 1.0), (1.0, 1.0, 1.0, 1.0)),
-            )
-            marker = Shumate.Marker.new()
-            marker.set_child(da)
-            self._replay_marker = marker
-            layer.add_marker(marker)
-        marker.set_location(lat, lon)
+        self._replay_marker_pos = (lat, lon)
+        area = getattr(self, "_replay_track_area", None)
+        if area is not None:
+            area.queue_draw()
 
     def _shumate_clear_replay_marker(self) -> None:
-        layer = getattr(self, "_replay_marker_layer", None)
-        if layer is None:
-            return
-        layer.remove_all()
-        self._replay_marker = None
+        self._replay_marker_pos = None
+        area = getattr(self, "_replay_track_area", None)
+        if area is not None:
+            area.queue_draw()
 
     def _make_wp_marker(self, lat: float, lon: float, role: str) -> Any:
         if role == "start":
