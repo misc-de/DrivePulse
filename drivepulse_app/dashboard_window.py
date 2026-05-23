@@ -804,15 +804,15 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     # Softens libadwaita's stock light palette (lots of #ffffff) toward a warm
     # off-grey so the UI stops glaring without tipping into dark territory.
     _LIGHT_PALETTE_OVERRIDES = (
-        b"@define-color window_bg_color #d8d7d3;"
-        b"@define-color view_bg_color #e4e3df;"
-        b"@define-color card_bg_color #e4e3df;"
-        b"@define-color popover_bg_color #e8e7e3;"
-        b"@define-color dialog_bg_color #d8d7d3;"
-        b"@define-color headerbar_bg_color #cccbc7;"
-        b"@define-color sidebar_bg_color #cfcecb;"
-        b"@define-color secondary_sidebar_bg_color #d4d3d0;"
-        b"@define-color thumbnail_bg_color #d8d7d3;"
+        b"@define-color window_bg_color #b8b7b3;"
+        b"@define-color view_bg_color #c4c3bf;"
+        b"@define-color card_bg_color #c4c3bf;"
+        b"@define-color popover_bg_color #c8c7c3;"
+        b"@define-color dialog_bg_color #b8b7b3;"
+        b"@define-color headerbar_bg_color #aaa9a5;"
+        b"@define-color sidebar_bg_color #adaca9;"
+        b"@define-color secondary_sidebar_bg_color #b2b1ad;"
+        b"@define-color thumbnail_bg_color #b8b7b3;"
     )
 
     def _apply_light_palette(self) -> None:
