@@ -7,7 +7,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, Gtk, Pango  # noqa: E402
 
 from .common import _translate
 from .cars_metadata import CATEGORIES
@@ -79,6 +79,7 @@ class CarsLayoutMixin:
         self._detail_title = Gtk.Label(xalign=0.0)
         self._detail_title.add_css_class("title-3")
         self._detail_title.set_hexpand(True)
+        self._detail_title.set_ellipsize(Pango.EllipsizeMode.END)
 
         self._rename_btn = Gtk.Button(icon_name="document-edit-symbolic")
         self._rename_btn.add_css_class("flat")
@@ -313,6 +314,7 @@ class CarsLayoutMixin:
         title_lbl = Gtk.Label(label=title, xalign=0.0)
         title_lbl.add_css_class("title-3")
         title_lbl.set_hexpand(True)
+        title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         head.append(back_btn)
         head.append(title_lbl)
         if on_rename is not None:
