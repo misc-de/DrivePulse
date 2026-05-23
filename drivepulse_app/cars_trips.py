@@ -127,10 +127,11 @@ class CarsTripsMixin:
         def _on_rename(title_lbl: Gtk.Label) -> None:
             self._open_trip_rename_dialog(trip_id, title_lbl, page_ref)
 
-        # Mock mode hides edit/share affordances entirely so demo data never
-        # leaves the device.
+        # Mock mode hides edit/share/delete affordances entirely so demo data
+        # never leaves the device and can't be removed.
         rename_cb = None if self.mock_mode else _on_rename
         share_cb = (lambda: self._share_trip(trip_id)) if self._is_sync_active() else None
+        delete_cb = None if self.mock_mode else (lambda: self._confirm_delete_trip(trip_id))
 
         # Desktop (split view uncollapsed): show the trip detail inline inside
         # the same value-scroll area where the list lives, instead of pushing
@@ -141,7 +142,7 @@ class CarsTripsMixin:
                 title,
                 on_rename=rename_cb,
                 on_share=share_cb,
-                on_delete=lambda: self._confirm_delete_trip(trip_id),
+                on_delete=delete_cb,
                 on_back=lambda: self._render_detail(),
             )
             self._value_scroll.set_child(inline)
@@ -153,7 +154,7 @@ class CarsTripsMixin:
                 title,
                 on_rename=rename_cb,
                 on_share=share_cb,
-                on_delete=lambda: self._confirm_delete_trip(trip_id),
+                on_delete=delete_cb,
             ),
             title=title,
         )
