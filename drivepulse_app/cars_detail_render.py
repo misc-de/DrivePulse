@@ -29,7 +29,7 @@ from .cars_metadata import (
 )
 
 _PID_TO_LIVE_KEY: dict[str, str] = {pid: key for key, pid in LIVE_KEY_TO_PID.items()}
-from .cars_scan_widgets import _format_scan_date, _dtc_parts
+from .cars_scan_widgets import _format_scan_date, _format_scan_date_stack, _dtc_parts
 from .scan_chart_page import ScanChartContent
 
 
@@ -94,6 +94,9 @@ class CarsDetailRenderMixin:
             out[_SPECIAL_PROTO] = str(data["protocol"])
         if data.get("scanned_at"):
             out[_SPECIAL_SCAN_DATE] = _format_scan_date(data["scanned_at"])
+            stack = _format_scan_date_stack(data["scanned_at"])
+            if stack is not None:
+                out["__scan_date_stack__"] = stack
         dtcs = data.get("dtcs") or []
         none_text = _translate(self.language, "cars.dtc.none")
         out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(_format_dtc(d) for d in dtcs)
@@ -142,14 +145,15 @@ class CarsDetailRenderMixin:
         data, source_label = self._current_data()
         self.content_subtitle.set_text("" if is_live else source_label)
 
-        # Sidebar header row: show the loaded scan's date+time above the
-        # categories. Hidden for the live view (data streams in real time).
+        # Sidebar header row: three-line stack of the loaded scan's
+        # timestamp (year dimmed / MM.DD / HH:MM, centred). Hidden for the
+        # live view since data streams in real time.
         scan_row = getattr(self, "_scan_date_row", None)
         scan_lbl = getattr(self, "_scan_date_label", None)
         if scan_row is not None and scan_lbl is not None:
-            scan_date = data.get(_SPECIAL_SCAN_DATE)
-            if not is_live and scan_date and scan_date != "—":
-                scan_lbl.set_text(scan_date)
+            stack = data.get("__scan_date_stack__")
+            if not is_live and stack:
+                scan_lbl.set_markup(stack)
                 scan_row.set_visible(True)
             else:
                 scan_row.set_visible(False)
