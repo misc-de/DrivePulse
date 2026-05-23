@@ -19,11 +19,6 @@ class CarsLayoutMixin:
         outer.set_margin_start(16)
         outer.set_margin_end(16)
 
-        self._list_intro = Gtk.Label(xalign=0.0)
-        self._list_intro.add_css_class("dim-label")
-        self._list_intro.set_wrap(True)
-        outer.append(self._list_intro)
-
         self._list_box = Gtk.ListBox()
         self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self._list_box.add_css_class("boxed-list")
@@ -51,7 +46,6 @@ class CarsLayoutMixin:
         self._refresh_list_texts()
 
     def _refresh_list_texts(self) -> None:
-        self._list_intro.set_text(_translate(self.language, "cars.list.intro"))
         self._empty_label.set_text(_translate(self.language, "cars.empty"))
 
     # ---------------------------------------------------- Detail-Aufbau
