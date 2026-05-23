@@ -379,17 +379,25 @@ def _build_chart_widget(
     motion_ctl.connect("leave", lambda _c: _clear_cursor())
     area.add_controller(motion_ctl)
 
-    # Touch: tap
+    # Touch: tap to mark a data point. Claim the touch sequence in CAPTURE
+    # phase so the parent page-swipe gesture never sees it — without this the
+    # swipe threshold could trip before the drag threshold and flip the tab.
     tap_ctl = Gtk.GestureClick()
-    tap_ctl.connect("pressed", lambda _g, _n, x, _y: _set_cursor(x, area.get_width()))
+    tap_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+    def _on_chart_tap_pressed(g: Any, _n: int, x: float, _y: float) -> None:
+        g.set_state(Gtk.EventSequenceState.CLAIMED)
+        _set_cursor(x, area.get_width())
+
+    tap_ctl.connect("pressed", _on_chart_tap_pressed)
     area.add_controller(tap_ctl)
 
-    # Touch: drag / swipe
+    # Drag groups with the tap so claiming one claims both — keeps stylus /
+    # mouse scrub working without re-claiming and lets touch tap-then-drag
+    # transition smoothly into cursor scrubbing.
     drag_ctl = Gtk.GestureDrag()
 
     def _on_chart_drag_begin(g: Any, x: float, _y: float) -> None:
-        # Claim the sequence so horizontal cursor-scrubbing on the chart does
-        # not also drive the parent page-swipe / back-swipe gestures.
         g.set_state(Gtk.EventSequenceState.CLAIMED)
         _set_cursor(x, area.get_width())
 
@@ -398,10 +406,10 @@ def _build_chart_widget(
         if ok:
             _set_cursor(sx + off_x, area.get_width())
 
-    # CAPTURE phase: claim the sequence before parent swipe/back gestures.
     drag_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
     drag_ctl.connect("drag-begin", _on_chart_drag_begin)
     drag_ctl.connect("drag-update", _on_chart_drag_update)
+    drag_ctl.group(tap_ctl)
     area.add_controller(drag_ctl)
 
     return area
