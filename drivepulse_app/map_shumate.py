@@ -51,12 +51,26 @@ class MapShumateMixin:
                     log.warning("Could not create tile source for %s - using OSM fallback", key)
 
         self._shumate_map.set_map_source(self._sources["map"])
-        # Align the scale ruler's vertical baseline with the bottom-most FAB
-        # icon on the right (margin_bottom=36) and lift it 10 px higher so it
-        # sits clearly above the FAB row.
+        # SimpleMap renders its own square zoom buttons in the top-right
+        # corner — hide them so only our circular OSD zoom controls remain.
+        try:
+            self._shumate_map.set_show_zoom_buttons(False)
+        except (AttributeError, TypeError):
+            try:
+                self._shumate_map.set_property("show-zoom-buttons", False)
+            except Exception:
+                pass
+        # Park the scale ruler immediately to the left of the FAB's bottom
+        # icon (TTS / speaker) and at the same vertical height.  FAB lives at
+        # halign=END with margin_end=12 and ~36 px circular buttons; sit the
+        # scale on the same baseline (margin_bottom=36) with enough end-margin
+        # to clear the FAB column.
         scale = self._shumate_map.get_scale()
         if scale is not None:
-            scale.set_margin_bottom(46)
+            scale.set_halign(Gtk.Align.END)
+            scale.set_valign(Gtk.Align.END)
+            scale.set_margin_end(60)
+            scale.set_margin_bottom(36)
         # Initial scale unit follows the user's settings choice.
         self._shumate_apply_scale_unit(getattr(self, "units", "metric"))
 
