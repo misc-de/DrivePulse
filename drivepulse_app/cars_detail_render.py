@@ -256,7 +256,7 @@ class CarsDetailRenderMixin:
                         ) -> "callable":
                             def _open() -> None:
                                 content = ScanChartContent(
-                                    lbl, pk, all_s,
+                                    pk, all_s,
                                     getattr(self, "_profiles", []),
                                     getattr(self, "db", None),
                                     plabels, lang,
