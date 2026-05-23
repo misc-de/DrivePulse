@@ -7,7 +7,7 @@ CSS = """
 window.dp-theme-sport-light .dp-gauge-bg,
 window.dp-theme-sport-light .dp-gauge-bg > viewport,
 window.dp-theme-sport-light .dp-gauge-bg > * {
-  background-color: #f0f1f3;
+  background-color: #c6c8cc;
 }"""
 
 from _dp_builtin_sport import _draw_impl

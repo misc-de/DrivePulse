@@ -7,7 +7,7 @@ CSS = """
 window.dp-theme-analog-light .dp-gauge-bg,
 window.dp-theme-analog-light .dp-gauge-bg > viewport,
 window.dp-theme-analog-light .dp-gauge-bg > * {
-  background-color: #ebedf2;
+  background-color: #c5c8d0;
 }"""
 
 from _dp_builtin_analog import _draw_impl

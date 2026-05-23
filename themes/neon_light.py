@@ -7,10 +7,10 @@ CSS = """
 window.dp-theme-neon-light .dp-gauge-bg,
 window.dp-theme-neon-light .dp-gauge-bg > viewport,
 window.dp-theme-neon-light .dp-gauge-bg > * {
-  background-color: #ebedf2;
+  background-color: #c5c8d0;
 }
 .dp-accel-theme-neon-light .card {
-  background-color: rgba(235, 237, 242, 0.9);
+  background-color: rgba(197, 200, 208, 0.9);
   border-radius: 4px;
 }
 .dp-accel-theme-neon-light .heading    { color: #1466a8; }
