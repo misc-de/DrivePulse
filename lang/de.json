@@ -184,6 +184,8 @@
   "map.history.kind_trip": "Fahrt",
   "map.history.kind_tour": "Tour",
   "map.replay.close": "Anzeige schließen",
+  "map.replay.chart_minimize": "Diagramm minimieren",
+  "map.replay.chart_restore": "Diagramm wieder anzeigen",
   "map.replay.distance": "Strecke",
   "map.replay.duration": "Dauer",
   "map.replay.started": "Start",
