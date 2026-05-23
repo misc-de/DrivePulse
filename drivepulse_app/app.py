@@ -77,48 +77,72 @@ def _build_missing_deps_window(
     missing: list[tuple[str, str, str]],
 ) -> Adw.ApplicationWindow:
     win = Adw.ApplicationWindow(application=app)
-    win.set_default_size(560, 440)
+    win.set_default_size(480, 360)
     win.set_title("DrivePulse")
 
     toolbar_view = Adw.ToolbarView()
     toolbar_view.add_top_bar(Adw.HeaderBar())
 
-    status = Adw.StatusPage()
-    status.set_icon_name("dialog-warning-symbolic")
-    status.set_title("Fehlende Abhängigkeiten")
-    status.set_description(
-        "Einige Pakete fehlen. Die App könnte fehlerhaft laufen.\n"
-        "Installiere die fehlenden Pakete und starte die App erneut."
+    # Compact header: warning icon on the left, title + short description on
+    # the right. Replaces Adw.StatusPage which centres a huge icon block.
+    header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+    header.set_margin_top(16)
+    header.set_margin_start(16)
+    header.set_margin_end(16)
+    header.set_margin_bottom(8)
+
+    icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+    icon.set_pixel_size(36)
+    icon.set_valign(Gtk.Align.START)
+    header.append(icon)
+
+    text_block = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    text_block.set_hexpand(True)
+    text_block.set_valign(Gtk.Align.CENTER)
+    title_lbl = Gtk.Label(label="Fehlende Abhängigkeiten", xalign=0)
+    title_lbl.add_css_class("title-3")
+    desc_lbl = Gtk.Label(
+        label="Einige Pakete fehlen. Installiere sie und starte die App erneut.",
+        xalign=0,
+        wrap=True,
     )
+    desc_lbl.add_css_class("dim-label")
+    desc_lbl.add_css_class("caption")
+    text_block.append(title_lbl)
+    text_block.append(desc_lbl)
+    header.append(text_block)
 
     list_box = Gtk.ListBox()
     list_box.set_selection_mode(Gtk.SelectionMode.NONE)
     list_box.add_css_class("boxed-list")
-    list_box.set_margin_top(24)
-    list_box.set_margin_bottom(24)
+    list_box.set_margin_start(16)
+    list_box.set_margin_end(16)
+    list_box.set_margin_top(8)
+    list_box.set_margin_bottom(16)
 
-    for name, cmd, desc in missing:
+    for _name, cmd, desc in missing:
         row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         row_box.set_margin_start(12)
         row_box.set_margin_end(12)
-        row_box.set_margin_top(10)
-        row_box.set_margin_bottom(10)
+        row_box.set_margin_top(8)
+        row_box.set_margin_bottom(8)
 
-        name_label = Gtk.Label(label=f"<b>{name}</b>", use_markup=True, xalign=0)
         desc_label = Gtk.Label(label=desc, xalign=0, wrap=True)
         desc_label.add_css_class("dim-label")
         cmd_label = Gtk.Label(label=cmd, selectable=True, xalign=0, wrap=True)
         cmd_label.add_css_class("monospace")
+        cmd_label.add_css_class("caption")
 
-        row_box.append(name_label)
         row_box.append(desc_label)
         row_box.append(cmd_label)
         list_box.append(row_box)
 
-    status.set_child(list_box)
+    content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    content_box.append(header)
+    content_box.append(list_box)
 
     scroll = Gtk.ScrolledWindow(vexpand=True)
-    scroll.set_child(status)
+    scroll.set_child(content_box)
     toolbar_view.set_content(scroll)
 
     # Button bar
