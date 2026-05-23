@@ -344,7 +344,7 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             self.left_col.remove(self._bottom_box)
             self.append(self._bottom_box)
 
-    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:  # type: ignore[override]
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
         # Apply layout BEFORE the parent allocates children so they are
         # positioned with the correct orientation in the same frame.
         self._apply_layout(width, height)

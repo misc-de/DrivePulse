@@ -1,6 +1,7 @@
 """Detail data and value rendering for the Cars page."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import gi
@@ -348,7 +349,7 @@ class CarsDetailRenderMixin:
         value_text: str,
         stats: "dict | None",
         is_unknown: bool,
-        on_click: "callable | None" = None,
+        on_click: Callable[[], None] | None = None,
     ) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row.set_activatable(on_click is not None)

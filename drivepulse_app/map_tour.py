@@ -82,10 +82,10 @@ class MapTourMixin:
         self._tour_completed = False
         self._tour_step_idx = 0
         self._tts_prerender_step_idx = -1
-        self._step_min_dist = None
+        self._step_min_dist: float | None = None
         self._gps_route_idx = 0
-        self._snapped_lat = None
-        self._snapped_lon = None
+        self._snapped_lat: float | None = None
+        self._snapped_lon: float | None = None
         self._snapped_cum_m = 0.0
         self._off_route_since = 0.0
         self._last_reroute_time = 0.0

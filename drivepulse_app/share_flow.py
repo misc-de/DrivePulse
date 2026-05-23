@@ -48,8 +48,6 @@ class ShareFlow:
         return self._get_client_fn()
 
     def _get_car_row(self, car_id: int) -> Any:
-        if self._db is None:
-            return None
         return self._db.get_car(car_id)
 
     # ------------------------------------------------------------------

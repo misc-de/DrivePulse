@@ -21,12 +21,12 @@ WEBKIT_OK = False
 WebKit: Any = None
 try:
     gi.require_version("WebKit", "6.0")
-    from gi.repository import WebKit as WebKit  # type: ignore[attr-defined,no-redef]
+    from gi.repository import WebKit as WebKit  # noqa: PLC0414
     WEBKIT_OK = True
 except (ValueError, ImportError):
     try:
         gi.require_version("WebKit2", "4.1")
-        from gi.repository import WebKit2 as WebKit  # type: ignore[attr-defined,no-redef]
+        from gi.repository import WebKit2 as WebKit  # type: ignore[no-redef]
         WEBKIT_OK = True
     except (ValueError, ImportError):
         pass

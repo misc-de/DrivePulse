@@ -1,6 +1,8 @@
 """Layout construction for the Cars page."""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -180,8 +182,8 @@ class CarsLayoutMixin:
                 sep_lbl.set_margin_top(14)
                 sep_lbl.set_margin_bottom(4)
                 sep_lbl.set_margin_start(8)
-                sep_row.section_label_key = "cars.section.obd_data"  # type: ignore[attr-defined]
-                sep_row.section_label_widget = sep_lbl  # type: ignore[attr-defined]
+                sep_row.section_label_key = "cars.section.obd_data"
+                sep_row.section_label_widget = sep_lbl
                 sep_row.set_child(sep_lbl)
                 self.category_list.append(sep_row)
                 self._cat_section_rows.append(sep_row)
@@ -199,8 +201,8 @@ class CarsLayoutMixin:
                 self.category_list.append(spacer_row)
                 self._cat_mobile_spacer_rows.append(spacer_row)
             row = Gtk.ListBoxRow()
-            row.cat_key = cat_key  # type: ignore[attr-defined]
-            row.cat_label_key = cat_name_key  # type: ignore[attr-defined]
+            row.cat_key = cat_key
+            row.cat_label_key = cat_name_key
 
             hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             hbox.set_margin_top(8)
@@ -216,9 +218,9 @@ class CarsLayoutMixin:
             lbl.set_hexpand(True)
             hbox.append(lbl)
 
-            row.cat_label_widget = lbl  # type: ignore[attr-defined]
-            row.cat_icon_widget = icon  # type: ignore[attr-defined]
-            row.cat_hbox = hbox  # type: ignore[attr-defined]
+            row.cat_label_widget = lbl
+            row.cat_icon_widget = icon
+            row.cat_hbox = hbox
             row.set_tooltip_text(_translate(self.language, cat_name_key))
 
             row.set_child(hbox)

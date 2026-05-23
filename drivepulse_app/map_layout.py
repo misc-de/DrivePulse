@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import time as _time
+from typing import Any
 
 from gi.repository import Adw, Gdk, GLib, GObject, Gtk
 
@@ -373,7 +374,7 @@ class MapLayoutMixin:
         action_row.add_suffix(chev)
         action_row.set_activatable(True)
         # Snapshot the metadata so the click handler doesn't need to re-query.
-        action_row._dp_history_meta = {  # type: ignore[attr-defined]
+        action_row._dp_history_meta = {
             "kind": data["kind"],
             "id": int(data["id"]),
             "ts": data["ts"],
@@ -531,7 +532,7 @@ class MapLayoutMixin:
             self._replay_chart_overlay.remove(child)
             child = nxt
         self._replay_chart_widget = None
-        self._replay_chart_area = None
+        self._replay_chart_area: Gtk.Widget | None = None
 
         metric_data, avail = build_trip_metric_data(samples, self.language)
         if not avail:
