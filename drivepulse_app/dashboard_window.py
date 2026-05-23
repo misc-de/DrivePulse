@@ -461,6 +461,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
         self._nav_rotation_css = Gtk.CssProvider()
         self._theme_css_provider = Gtk.CssProvider()
+        self._light_palette_css = Gtk.CssProvider()
         self.connect("realize", self._on_realize_install_css)
 
         self._obd_active = False
@@ -783,6 +784,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             display, self._nav_rotation_css,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
+        Gtk.StyleContext.add_provider_for_display(
+            display, self._light_palette_css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
         _global_css = Gtk.CssProvider()
         _global_css.load_from_data(
             b".dp-table-row { border-radius: 0; }"
@@ -796,6 +801,27 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._apply_window_theme(self.gauge_theme)
         Adw.StyleManager.get_default().connect("notify::dark", self._on_system_dark_changed)
 
+    # Softens libadwaita's stock light palette (lots of #ffffff) toward a warm
+    # off-grey so the UI stops glaring without tipping into dark territory.
+    _LIGHT_PALETTE_OVERRIDES = (
+        b"@define-color window_bg_color #d8d7d3;"
+        b"@define-color view_bg_color #e4e3df;"
+        b"@define-color card_bg_color #e4e3df;"
+        b"@define-color popover_bg_color #e8e7e3;"
+        b"@define-color dialog_bg_color #d8d7d3;"
+        b"@define-color headerbar_bg_color #cccbc7;"
+        b"@define-color sidebar_bg_color #cfcecb;"
+        b"@define-color secondary_sidebar_bg_color #d4d3d0;"
+        b"@define-color thumbnail_bg_color #d8d7d3;"
+    )
+
+    def _apply_light_palette(self) -> None:
+        from gi.repository import Adw
+        is_dark = Adw.StyleManager.get_default().get_dark()
+        self._light_palette_css.load_from_data(
+            b"" if is_dark else self._LIGHT_PALETTE_OVERRIDES
+        )
+
     def _apply_theme_mode(self, mode: str) -> None:
         from gi.repository import Adw
         manager = Adw.StyleManager.get_default()
@@ -805,12 +831,14 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
         else:
             manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
+        self._apply_light_palette()
         if hasattr(self, "stopwatch_page"):
             effective = "dark" if manager.get_dark() else "light"
             self.stopwatch_page.set_theme_mode(effective)
 
     def _on_system_dark_changed(self, _manager: Any, _param: Any) -> None:
         if getattr(self, "theme_mode", "auto") == "auto":
+            self._apply_light_palette()
             self._apply_window_theme(self.gauge_theme)
             if hasattr(self, "stopwatch_page"):
                 from gi.repository import Adw

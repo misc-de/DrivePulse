@@ -90,7 +90,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         (_SPECIAL_PENDING,    "cars.pid.PENDING_DTC"),
         ("0141", "cars.pid.0141"),
     )),
-    ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
+    ("scans", "cars.category.scans", "library-symbolic", ()),
     ("trips", "cars.category.trips", "globe-symbolic", ()),
     ("photos", "cars.category.photos", "camera-photo-symbolic", ()),
     ("stopwatch_runs", "cars.category.stopwatch_runs", "stopwatch-symbolic", ()),
