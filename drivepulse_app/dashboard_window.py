@@ -410,8 +410,20 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         toolbar_view.add_top_bar(header)
         toolbar_view.add_top_bar(switcher_top)
         toolbar_view.add_bottom_bar(switcher_bar)
+
+        # Desktop alternative to the top/bottom switcher bars: a vertical
+        # navigation sidebar on the left. Built once; visibility toggled
+        # together with switcher_top/_bar from _apply_nav_position.
+        self.left_nav = self._build_left_nav()
+        self.left_nav_separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        stack_overlay.set_hexpand(True)
+        content_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        content_row.append(self.left_nav)
+        content_row.append(self.left_nav_separator)
+        content_row.append(stack_overlay)
+
         self._apply_nav_position(self.nav_position)
-        toolbar_view.set_content(stack_overlay)
+        toolbar_view.set_content(content_row)
 
         self._nav_visible = True
         self._dashcam_is_recording = False
@@ -554,6 +566,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.header.set_visible(visible)
         self.switcher_bar.set_visible(visible)
         self.switcher_top.set_visible(visible)
+        if hasattr(self, "left_nav"):
+            left_visible = visible and getattr(self, "_left_nav_intended_visible", False)
+            self.left_nav.set_visible(left_visible)
+            self.left_nav_separator.set_visible(left_visible)
 
     def _apply_page_rotation(self, angle: int) -> None:
         self._current_rotation = angle
@@ -678,6 +694,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             self.dashcam_page.on_hidden()
         self._last_visible_page = page
 
+        # Keep the left desktop nav in sync with the active tab.
+        self._sync_left_nav_selection()
+
         # Hide nav on dashcam tab while recording; restore when leaving.
         self._refresh_dashcam_nav()
 
@@ -793,10 +812,76 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     def _apply_nav_position(self, position: str) -> None:
         effective = position
         if effective == "auto":
-            effective = "top" if self.form_factor == "desktop" else "bottom"
-        at_top = effective == "top"
-        self.switcher_top.set_reveal(at_top)
-        self.switcher_bar.set_reveal(not at_top)
+            effective = "left" if self.form_factor == "desktop" else "bottom"
+        is_left = effective == "left"
+        is_top = effective == "top"
+        is_bottom = effective == "bottom"
+        self._left_nav_intended_visible = is_left
+        self.left_nav.set_visible(is_left)
+        self.left_nav_separator.set_visible(is_left)
+        self.switcher_top.set_reveal(is_top)
+        self.switcher_bar.set_reveal(is_bottom)
+
+    def _build_left_nav(self) -> Gtk.Widget:
+        """Vertical desktop navigation sidebar mirroring the view_stack."""
+        listbox = Gtk.ListBox()
+        listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        listbox.add_css_class("navigation-sidebar")
+        listbox.set_vexpand(True)
+        self._left_nav_listbox = listbox
+        self._left_nav_rows: dict[str, Gtk.ListBoxRow] = {}
+        self._left_nav_syncing = False
+
+        pages = self.view_stack.get_pages()
+        for i in range(pages.get_n_items()):
+            page = pages.get_item(i)
+            name = page.get_name()
+            row = Gtk.ListBoxRow()
+            row.page_name = name  # type: ignore[attr-defined]
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            hbox.set_margin_top(10)
+            hbox.set_margin_bottom(10)
+            hbox.set_margin_start(14)
+            hbox.set_margin_end(14)
+            img = Gtk.Image.new_from_icon_name(page.get_icon_name() or "")
+            img.set_pixel_size(20)
+            lbl = Gtk.Label(label=page.get_title() or name, xalign=0.0)
+            lbl.set_hexpand(True)
+            hbox.append(img)
+            hbox.append(lbl)
+            row.set_child(hbox)
+            listbox.append(row)
+            self._left_nav_rows[name] = row
+
+        listbox.connect("row-selected", self._on_left_nav_row_selected)
+        self._sync_left_nav_selection()
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.set_size_request(200, -1)
+        box.append(listbox)
+        return box
+
+    def _on_left_nav_row_selected(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
+        if row is None or self._left_nav_syncing:
+            return
+        page_name = getattr(row, "page_name", None)
+        if page_name and self.view_stack.get_visible_child_name() != page_name:
+            self.view_stack.set_visible_child_name(page_name)
+
+    def _sync_left_nav_selection(self) -> None:
+        rows = getattr(self, "_left_nav_rows", None)
+        listbox = getattr(self, "_left_nav_listbox", None)
+        if not rows or listbox is None:
+            return
+        page = self.view_stack.get_visible_child_name()
+        row = rows.get(page) if page else None
+        if row is None or listbox.get_selected_row() is row:
+            return
+        self._left_nav_syncing = True
+        try:
+            listbox.select_row(row)
+        finally:
+            self._left_nav_syncing = False
 
     def _on_cars_state_changed(self, source: str | None, category: str | None) -> None:
         """Persist the last viewed source + category from the Cars page."""
