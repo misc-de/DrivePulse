@@ -357,11 +357,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         self.title_label = Gtk.Label(label=_translate(self.language, "window.title"))
-        # Mobile alternative: a live clock that sits centred in the header.
-        # _apply_form_factor_state swaps the title widget and starts/stops
-        # the ticker.
+        # Mobile alternative: a centred three-line clock — year / MM.DD /
+        # HH:MM — sits in the title slot so the user gets a quick reference
+        # while phosh hides the system clock.
         self._clock_label = Gtk.Label()
-        self._clock_label.add_css_class("heading")
+        self._clock_label.set_justify(Gtk.Justification.CENTER)
+        self._clock_label.add_css_class("caption-heading")
         self._clock_timer_id: int | None = None
         header.set_title_widget(self.title_label)
 
@@ -986,7 +987,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
     def _update_clock_label(self) -> None:
         from datetime import datetime
-        self._clock_label.set_text(datetime.now().strftime("%H:%M"))
+        # Three-line stack: year / MM.DD / HH:MM. Gtk.Label honours \n when
+        # use_markup is off and the label is allowed to grow vertically.
+        self._clock_label.set_text(datetime.now().strftime("%Y\n%m.%d\n%H:%M"))
 
     def _clock_tick(self) -> bool:
         self._update_clock_label()
