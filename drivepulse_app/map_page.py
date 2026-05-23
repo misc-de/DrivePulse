@@ -575,15 +575,13 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
 
     def set_mock_mode(self, mock_mode: bool) -> None:
         self.mock_mode = bool(mock_mode)
-        if self.mock_mode:
-            self._ensure_map_state_poll()
         self._refresh_map_state_status()
 
     def _ensure_map_state_poll(self) -> None:
-        if self._map_state_poll_id is not None:
-            return
-        # 1 s tick — independent of the JS bridge, so it works for Shumate too.
-        self._map_state_poll_id = GLib.timeout_add(1000, self._poll_map_state)
+        # Map-state polling is intentionally disabled: the bottom-left
+        # backend/zoom/pitch/bearing readout is hidden in mock mode now,
+        # so there's nothing to feed.
+        return
 
     def _poll_map_state(self) -> bool:
         if not self.mock_mode:
@@ -649,28 +647,11 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             log.debug("evaluate_javascript_finish failed", exc_info=True)
 
     def _refresh_map_state_status(self) -> None:
-        """In mock mode, render live map view state in the status row and a
-        dedicated bottom-left overlay on the map."""
-        if not self.mock_mode:
-            if self._map_state_overlay is not None:
-                self._map_state_overlay.set_visible(False)
-            return
-        # Tag with the active backend so it's obvious which path is feeding
-        # the readout (e.g. "shumate" never has pitch).
-        parts: list[str] = [self._backend or "none"]
-        if self._map_zoom is not None:
-            parts.append(f"zoom {self._map_zoom:.1f}")
-        if self._map_pitch is not None:
-            parts.append(f"pitch {self._map_pitch:.0f}°")
-        if self._map_bearing is not None:
-            parts.append(f"bearing {self._map_bearing:.0f}°")
-        text = "  ".join(parts)
-        # Status row (Duration / Distance) stays free for routing info even in
-        # mock mode now that the bottom-left overlay is working.
-        if self._map_state_lbl is not None:
-            self._map_state_lbl.set_text(text)
+        """No-op: the mock-mode bottom-left readout (backend/zoom/pitch/bearing)
+        used to overlay debug numbers on the map. It's intentionally hidden
+        now so the demo view stays clean."""
         if self._map_state_overlay is not None:
-            self._map_state_overlay.set_visible(True)
+            self._map_state_overlay.set_visible(False)
 
     def _on_js_map_state(self, zoom: float, pitch: float, bearing: float) -> None:
         self._map_zoom = zoom
