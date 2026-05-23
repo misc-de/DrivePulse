@@ -546,29 +546,21 @@ class MapLayoutMixin:
         }
         cursor_state: dict[str, Any] = {"idx": -1}
 
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        header.set_margin_start(4)
-        header.set_margin_end(4)
-        title_lbl = Gtk.Label(xalign=0.0)
-        title_lbl.add_css_class("caption-heading")
-        title_lbl.set_hexpand(True)
-        title_lbl.set_label(def_entry[1])
-        header.append(title_lbl)
-
-        dropdown = None
+        dropdown: Gtk.DropDown | None = None
         if len(avail) > 1:
             str_model = Gtk.StringList()
             for label in (m[1] for m in avail):
                 str_model.append(label)
             dropdown = Gtk.DropDown.new(str_model, None)
+            dropdown.set_halign(Gtk.Align.START)
             dropdown.set_valign(Gtk.Align.CENTER)
+            dropdown.set_margin_start(4)
+            dropdown.set_margin_bottom(5)
             init_sel = next(
                 (i for i, m in enumerate(avail) if m[0] == def_key), 0
             )
             dropdown.set_selected(init_sel)
-            header.append(dropdown)
-
-        self._replay_chart_overlay.append(header)
+            self._replay_chart_overlay.append(dropdown)
 
         # When the chart cursor moves, update the marker on the live map at
         # the GPS coord of the highlighted sample.
@@ -594,13 +586,12 @@ class MapLayoutMixin:
             def _on_metric_selected(dd: Gtk.DropDown, _pspec: Any) -> None:
                 sel = dd.get_selected()
                 if 0 <= sel < len(avail):
-                    key, lbl, unit, color, fmt = avail[sel]
+                    key, _lbl, unit, color, fmt = avail[sel]
                     chart_state["pts"] = metric_data[key]
                     chart_state["unit"] = unit
                     chart_state["color"] = color
                     chart_state["fmt"] = fmt
                     chart_state["key"] = key
-                    title_lbl.set_label(lbl)
                     cursor_state["idx"] = -1
                     self._map_clear_replay_marker()
                     if self._replay_chart_area is not None:
