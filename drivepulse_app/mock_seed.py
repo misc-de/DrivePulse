@@ -13,6 +13,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .db import DriveDB
+from .diagnostics import get_logger
+from .map_services import osrm_route
+
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +43,7 @@ _MOCK_CARS: tuple[dict[str, Any], ...] = (
         "wltp_lp100": 8.4,
         "t0_100": 9.7,
         "vmax_kmh": 211,
+        "direct_injection": False,
         "color": (0.13, 0.36, 0.58),  # bavarian blue
         "vin_data": {
             "vin": "WBAVB31060NL12345",
@@ -67,6 +73,7 @@ _MOCK_CARS: tuple[dict[str, Any], ...] = (
         "wltp_lp100": 8.0,
         "t0_100": 6.9,
         "vmax_kmh": 235,
+        "direct_injection": True,
         "color": (0.78, 0.16, 0.16),  # GTI red
         "vin_data": {
             "vin": "WVWZZZ1KZ7W123456",
@@ -96,6 +103,7 @@ _MOCK_CARS: tuple[dict[str, Any], ...] = (
         "wltp_lp100": 5.4,
         "t0_100": 10.8,
         "vmax_kmh": 184,
+        "direct_injection": True,
         "color": (0.85, 0.85, 0.86),  # reflex silver
         "vin_data": {
             "vin": "WVWZZZ6RZE0123456",
@@ -190,8 +198,7 @@ def _bearing_deg(a: tuple[float, float], b: tuple[float, float]) -> float:
 def _interp_polyline(anchors: list[tuple[float, float]], step_km: float = 0.05) -> list[tuple[float, float]]:
     """Linear interpolation between anchor points, ~step_km spacing.
 
-    Crude (treats lat/lon as planar) but plenty close enough for synthetic
-    visuals at neighbourhood scale.
+    Used only as a fallback when the OSRM routing endpoint is unreachable.
     """
     pts: list[tuple[float, float]] = []
     for i in range(len(anchors) - 1):
@@ -205,14 +212,83 @@ def _interp_polyline(anchors: list[tuple[float, float]], step_km: float = 0.05) 
     return pts
 
 
+def _resample_polyline(
+    points: list[tuple[float, float]],
+    target_count: int,
+) -> list[tuple[float, float]]:
+    """Down-sample a dense polyline to ~target_count evenly-spaced points.
+
+    OSRM geometry comes back at ~10 m spacing which is far more than we need
+    for mock samples; ~100-200 points per trip plots smoothly without
+    bloating the DB.
+    """
+    if len(points) <= target_count or target_count <= 2:
+        return list(points)
+    # Cumulative distance along the polyline.
+    cumdist: list[float] = [0.0]
+    for i in range(1, len(points)):
+        cumdist.append(cumdist[-1] + _haversine_km(points[i - 1], points[i]))
+    total = cumdist[-1]
+    if total <= 0:
+        return [points[0], points[-1]]
+    step = total / (target_count - 1)
+    out: list[tuple[float, float]] = [points[0]]
+    j = 1
+    for i in range(1, target_count - 1):
+        target_d = i * step
+        while j < len(cumdist) - 1 and cumdist[j] < target_d:
+            j += 1
+        # Linear interpolation between the surrounding samples.
+        d0 = cumdist[j - 1]
+        d1 = cumdist[j]
+        frac = 0.0 if d1 == d0 else (target_d - d0) / (d1 - d0)
+        a = points[j - 1]
+        b = points[j]
+        out.append((a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac))
+    out.append(points[-1])
+    return out
+
+
+def _route_via_osrm(anchors: list[tuple[float, float]]) -> list[tuple[float, float]] | None:
+    """Fetch a real road polyline from the OSRM demo endpoint.
+
+    Returns lat/lon tuples or None when the endpoint is unreachable / the
+    response is malformed. Errors are logged and swallowed so a seed runs
+    cleanly offline (the caller falls back to interpolation).
+    """
+    try:
+        result = osrm_route(anchors)
+    except Exception:
+        log.exception("OSRM routing failed for mock trip")
+        return None
+    if result is None:
+        return None
+    coords, _duration, _distance, _steps = result
+    pts: list[tuple[float, float]] = []
+    for c in coords:
+        try:
+            # OSRM geometry is [lon, lat] — flip to (lat, lon).
+            pts.append((float(c[1]), float(c[0])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    return pts or None
+
+
 def _generate_trip_samples(
     car: dict[str, Any],
     route: dict[str, Any],
     rng: random.Random,
     start_ts: float,
+    points: list[tuple[float, float]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate one ~1 Hz sample list following the route polyline."""
-    points = _interp_polyline(list(route["anchors"]), step_km=0.04)
+    """Generate one ~1 Hz sample list following the route polyline.
+
+    ``points`` lets the caller pass a pre-routed (road-snapped) polyline;
+    when omitted we fall back to linear interpolation between the route's
+    anchor waypoints.
+    """
+    if points is None:
+        points = _interp_polyline(list(route["anchors"]), step_km=0.04)
     target = float(route["target_kmh"])
     # Real-world average speed is below the cruise target; ~0.65 factor.
     avg_kmh = target * 0.65
@@ -311,31 +387,107 @@ def _scan_blob_for(
     when: datetime,
     rng: random.Random,
     dtcs: list[tuple[str, str]] | None,
+    scan_idx: int,
 ) -> dict[str, Any]:
-    """Build a scan JSON snapshot in the format obd_scanner emits."""
+    """Build a scan JSON snapshot in the format obd_scanner emits.
+
+    Values cover every PID rendered by the cars detail OBD categories with
+    model-specific magnitudes (idle rpm, direct vs port injection rail
+    pressure, MAF at idle proportional to displacement, etc.), plus a
+    per-scan-index drift on counters like fuel level and warmup cycles.
+    """
     live: dict[str, dict[str, Any]] = {}
 
     def _v(pid: str, value: Any, unit: str = "") -> None:
         live[pid] = {"value": value, "unit": unit}
 
-    coolant = 91.0 + rng.gauss(0, 1.5)
-    intake = 28.0 + rng.gauss(0, 3.0)
-    voltage = 14.1 + rng.gauss(0, 0.05)
-    rpm_idle = car["idle_rpm"] + rng.gauss(0, 25)
+    # ── Ambient & engine baseline ────────────────────────────────────────
+    ambient = rng.uniform(8.0, 24.0)
+    coolant = 90.0 + rng.gauss(0, 2.0)
+    intake = ambient + 6.0 + rng.gauss(0, 1.5)
+    voltage = 14.05 + rng.gauss(0, 0.06)
+    rpm_idle = car["idle_rpm"] + rng.gauss(0, 30)
+    baro = 100.5 + rng.gauss(0, 0.6)
+    # Direct injection cars run high rail pressures even at idle.
+    rail_kpa = (rng.uniform(5500, 8500) if car.get("direct_injection")
+                else rng.uniform(330.0, 380.0))
+    # Idle MAF roughly scales with displacement at λ≈1 and ~700-800 rpm.
+    maf_idle = (car["displacement_l"] * 1.8) + rng.gauss(0, 0.25)
+    cat_temp = 540.0 + rng.gauss(0, 35.0)
+    # Throttle/pedal: idle ≈ 12–16 % for the throttle reading, pedal sensor
+    # D sits a few % higher than E by spec.
+    thr = rng.uniform(12.5, 16.0)
+    pedal_d = thr + rng.uniform(2.5, 5.0)
+    pedal_e = pedal_d * 0.5 + rng.gauss(0, 0.4)
 
-    _v("0105", round(coolant, 1), "°C")
-    _v("010B", int(101 + rng.gauss(0, 1)), "kPa")
+    # ── Vehicle category (011C only — VIN etc. are derived from vehicle_info)
+    _v("011C", "OBD II" if car["brand"] == "BMW" else "EOBD", "")
+
+    # ── Diagnostics ──────────────────────────────────────────────────────
+    # Monitor-status byte field. We just publish a plausible "all complete"
+    # value when there are no DTCs and a "MIL on" otherwise.
+    _v("0141", "MIL OFF, all monitors complete" if not dtcs else "MIL ON", "")
+
+    # ── Engine ───────────────────────────────────────────────────────────
     _v("010C", round(rpm_idle, 0), "rpm")
-    _v("010D", 0.0, "km/h")
-    _v("010F", round(intake, 1), "°C")
-    _v("0111", round(14.0 + rng.gauss(0, 1), 1), "%")
-    _v("0114", round(0.78 + rng.gauss(0, 0.03), 3), "V")
+    calc_load = 18.0 + rng.gauss(0, 2.0)
+    _v("0104", round(calc_load, 1), "%")
+    _v("0143", round(calc_load * 1.15 + rng.gauss(0, 1.0), 1), "%")
+    _v("010E", round(rng.uniform(8.0, 14.5), 1), "°")
+    _v("011F", int(rng.uniform(180, 2400)), "s")
     _v("0142", round(voltage, 2), "V")
-    _v("0146", round(intake - 4.0 + rng.gauss(0, 2.0), 1), "°C")
-    _v("0149", round(18 + rng.gauss(0, 1.5), 1), "%")
-    _v("0104", round(22 + rng.gauss(0, 2.5), 1), "%")
-    _v("012F", round(60 + rng.gauss(0, 8), 1), "%")
-    # Friendly aliases used by the chart layer (PID + space + label).
+
+    # ── Temperatures ─────────────────────────────────────────────────────
+    _v("0105", round(coolant, 1), "°C")
+    _v("010F", round(intake, 1), "°C")
+    _v("0146", round(ambient, 1), "°C")
+    _v("013C", round(cat_temp, 0), "°C")
+
+    # ── Throttle / pedal ─────────────────────────────────────────────────
+    _v("0111", round(thr, 1), "%")
+    _v("0145", round(max(0.0, thr - 12.0 + rng.gauss(0, 0.3)), 1), "%")
+    _v("0147", round(thr + rng.gauss(0, 0.4), 1), "%")
+    _v("0149", round(pedal_d, 1), "%")
+    _v("014A", round(pedal_e, 1), "%")
+    _v("014C", round(thr - 0.5 + rng.gauss(0, 0.3), 1), "%")
+
+    # ── Mixture ──────────────────────────────────────────────────────────
+    _v("0103", "OL-Fault" if dtcs and any("P0171" in d[0] for d in dtcs) else "Closed loop")
+    # STFT/LTFT shift slightly when a lean code is present.
+    stft = rng.gauss(0, 1.6)
+    ltft = rng.gauss(0, 2.5)
+    if dtcs and any("P0171" in d[0] for d in dtcs):
+        ltft += 9.0
+    _v("0106", round(stft, 1), "%")
+    _v("0107", round(ltft, 1), "%")
+    _v("0156", round(rng.gauss(0, 1.2), 1), "%")
+    _v("0134", round(1.000 + rng.gauss(0, 0.012), 3), "λ")
+    _v("0144", round(0.998 + rng.gauss(0, 0.006), 3), "λ")
+    # Downstream narrowband sensor: ~0.6-0.85 V in closed loop.
+    _v("0115", round(rng.uniform(0.60, 0.85), 3), "V")
+
+    # ── Fuel ─────────────────────────────────────────────────────────────
+    _v("0110", round(max(0.5, maf_idle), 2), "g/s")
+    # Fuel level decreases across the three scans, then re-fills before the
+    # final one to look like normal usage.
+    fuel_pcts = (72.0, 38.0, 84.0)
+    _v("012F", round(fuel_pcts[scan_idx % 3] + rng.gauss(0, 1.5), 1), "%")
+    _v("0123", round(rail_kpa, 0), "kPa")
+    _v("012E", round(rng.uniform(0.0, 18.0), 1), "%")
+    _v("0133", round(baro, 1), "kPa")
+
+    # ── Drive / counters ────────────────────────────────────────────────
+    _v("010D", 0.0, "km/h")  # scan happens at standstill
+    # Distances since DTC reset accumulate across the three scans.
+    base_km_since_reset = (1400.0, 4200.0, 8700.0)[scan_idx % 3]
+    _v("0131", round(base_km_since_reset + rng.gauss(0, 50.0), 0), "km")
+    # Distance with MIL on: 0 unless a code is present.
+    mil_km = 0.0
+    if dtcs:
+        mil_km = round(rng.uniform(30.0, 220.0), 0)
+    _v("0121", mil_km, "km")
+    _v("0130", int((4, 11, 19)[scan_idx % 3] + rng.gauss(0, 1.5)), "")
+
     return {
         "scanned_at": when.isoformat(),
         "identity": car["brand"] + " " + car["label"],
@@ -462,6 +614,16 @@ def seed_mock_data(db: DriveDB) -> int:
     # fresh DB but a re-run skips already-populated cars.
     base_now = datetime.now(timezone.utc)
 
+    # Resolve each route once via OSRM so all three cars share the same
+    # road-snapped polyline. Falls back to interpolation if the demo
+    # endpoint is unreachable; mock seeding must work offline too.
+    route_points_cache: list[list[tuple[float, float]] | None] = []
+    for route in _ROUTES:
+        snapped = _route_via_osrm(list(route["anchors"]))
+        if snapped is not None:
+            snapped = _resample_polyline(snapped, target_count=160)
+        route_points_cache.append(snapped)
+
     for car_idx, car in enumerate(_MOCK_CARS):
         if car["vin"] in existing:
             continue
@@ -487,7 +649,9 @@ def seed_mock_data(db: DriveDB) -> int:
             started_at = base_now - timedelta(days=2 + trip_idx * 3 + car_idx, hours=trip_rng.randint(7, 18))
             trip_id = db.start_trip(car_id, started_at=started_at)
             samples = _generate_trip_samples(
-                car, route, trip_rng, start_ts=started_at.timestamp()
+                car, route, trip_rng,
+                start_ts=started_at.timestamp(),
+                points=route_points_cache[trip_idx],
             )
             db.add_samples(trip_id, samples)
             try:
@@ -507,7 +671,7 @@ def seed_mock_data(db: DriveDB) -> int:
         for scan_idx in range(3):
             scan_rng = _make_rng(car_idx * 200 + scan_idx + 17)
             scanned_at = base_now - timedelta(days=21 - scan_idx * 7 - car_idx)
-            blob = _scan_blob_for(car, scanned_at, scan_rng, dtc_catalog[scan_idx])
+            blob = _scan_blob_for(car, scanned_at, scan_rng, dtc_catalog[scan_idx], scan_idx)
             db.add_scan(car_id, blob)
 
         # --- Three stopwatch runs per car ------------------------------
