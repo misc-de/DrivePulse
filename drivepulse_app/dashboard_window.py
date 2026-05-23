@@ -446,6 +446,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # apply current form_factor state to dependents that were constructed
         # before the breakpoint existed (cars_page split-view, etc.).
         self._apply_form_factor_state()
+        # First-run materialisation of nav_position: defer to idle so the
+        # breakpoint condition has been evaluated against the actual window
+        # size (phosh / mobile compositors only resolve this after present()).
+        if self.nav_position == "auto":
+            GLib.idle_add(self._materialise_auto_nav_position)
         self.connect("notify::default-width", self._on_size_changed)
         self.connect("notify::default-height", self._on_size_changed)
         self.add_tick_callback(self._layout_tick)
@@ -813,6 +818,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         effective = position
         if effective == "auto":
             effective = "left" if self.form_factor == "desktop" else "bottom"
+        # The vertical sidebar is too wide for phone-style windows; fall back
+        # to a bottom bar there, even when "left" is the persisted choice.
+        if effective == "left" and self.form_factor == "mobile":
+            effective = "bottom"
         is_left = effective == "left"
         is_top = effective == "top"
         is_bottom = effective == "bottom"
@@ -882,6 +891,20 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             listbox.select_row(row)
         finally:
             self._left_nav_syncing = False
+
+    def _materialise_auto_nav_position(self) -> bool:
+        """One-shot: convert the implicit "auto" default to a concrete choice.
+
+        Fired once on first start so the settings dialog shows a real option
+        (Links / Unten) selected instead of the hidden "auto" sentinel.
+        """
+        if self.nav_position != "auto":
+            return False
+        effective = "left" if self.form_factor == "desktop" else "bottom"
+        self.nav_position = effective
+        self._apply_nav_position(effective)
+        self._save_settings()
+        return False
 
     def _on_cars_state_changed(self, source: str | None, category: str | None) -> None:
         """Persist the last viewed source + category from the Cars page."""

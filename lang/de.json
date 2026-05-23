@@ -50,6 +50,7 @@
   "settings.nav_position": "Tab-Leisten-Position",
   "settings.nav_position.top": "Oben",
   "settings.nav_position.bottom": "Unten",
+  "settings.nav_position.left": "Links",
   "settings.mock_mode": "Mock-Modus",
   "settings.mock_mode.subtitle": "OBD- und GPS-Daten ohne Hardware simulieren",
   "settings.obd": "OBD",
