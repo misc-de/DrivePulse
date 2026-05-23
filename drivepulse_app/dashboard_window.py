@@ -28,7 +28,9 @@ from .dashcam_page import DashcamPage
 from .dashboard_telemetry import DashboardTelemetryMixin
 from .db import DriveDB
 from .dashboard_settings import DashboardSettingsMixin
-from .diagnostics import set_log_enabled
+from .diagnostics import get_logger, set_log_enabled
+
+log = get_logger(__name__)
 from .gps_reader import GpsReader
 from .mock_tour import MockTourSimulator
 from .orientation_reader import OrientationReader
@@ -136,6 +138,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # Persistente Fahrten-Datenbank (cars/trips/samples) — vor allen Pages,
         # weil CarsPage sie injiziert bekommt.
         self.db = DriveDB(DB_FILE)
+        if self.mock_mode:
+            try:
+                from .mock_seed import seed_mock_data
+                seed_mock_data(self.db)
+            except Exception:
+                log.exception("Could not seed mock vehicle data")
         self.trip_recorder = TripRecorder(self.db)
         atexit.register(self._shutdown_db)
 
@@ -249,6 +257,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             on_state_changed=self._on_cars_state_changed,
         )
         self.cars_page._autodev_api_key = self.autodev_api_key or None
+        self.cars_page.mock_mode = bool(self.mock_mode)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity

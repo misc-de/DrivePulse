@@ -25,7 +25,10 @@ from .cars_metadata import (
     _wmi_to_brand,
 )
 from .cars_profiles import _load_profiles
+from .diagnostics import get_logger
 from .vin_api import fetch_vin_data
+
+log = get_logger(__name__)
 from .cars_stopwatch_runs import CarsStopWatchRunsMixin
 from .cars_scans import CarsScansMixin
 from .cars_photos import CarsPhotosMixin
@@ -134,6 +137,8 @@ class CarsPage(
         self.on_forward_swipe: Callable[[], None] | None = None
         self._drag_claimed = False
         self.get_sync_client: Any = None
+        # Mock mode disables share/rename so demo data isn't pushed to peers.
+        self.mock_mode: bool = False
 
         # Content stack: holds the detail page as root, with sub-detail pages
         # (trip/scan/run/photo) pushed on top. The list lives in the sidebar
@@ -568,9 +573,9 @@ class CarsPage(
             self._set_trash(self._confirm_delete_vehicle)
         else:
             self._set_trash(None)
-        self._rename_btn.set_visible(is_real_car)
+        self._rename_btn.set_visible(is_real_car and not self.mock_mode)
         has_vin = bool(entry.get("vin")) if (is_real_car and entry) else False
-        self._vin_refresh_btn.set_visible(is_real_car and has_vin)
+        self._vin_refresh_btn.set_visible(is_real_car and has_vin and not self.mock_mode)
         self._update_live_add_button()
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
@@ -750,7 +755,34 @@ class CarsPage(
             self._render_detail()
 
     def _is_sync_active(self) -> bool:
+        if self.mock_mode:
+            return False
         return callable(self.get_sync_client) and self.get_sync_client() is not None
+
+    def set_mock_mode(self, mock_mode: bool) -> None:
+        """Toggle mock-data mode. Hides share/rename affordances when on."""
+        new_val = bool(mock_mode)
+        if new_val == self.mock_mode:
+            return
+        self.mock_mode = new_val
+        # Reflect immediately in the detail header buttons; the next list
+        # re-render will drop the per-row share/rename callbacks via the
+        # _is_sync_active() and mock_mode checks.
+        if hasattr(self, "_detail_share_btn"):
+            self._detail_share_btn.set_visible(self._is_sync_active() and self._detail_pushed)
+        if hasattr(self, "_rename_btn"):
+            self._rename_btn.set_visible(not self.mock_mode and self._detail_pushed)
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Reload profiles and the current detail; safe no-op if not built."""
+        try:
+            if self.db is not None:
+                self._profiles = _load_profiles(self.db)
+            if hasattr(self, "_render_detail") and self._detail_pushed:
+                self._render_detail()
+        except Exception:
+            log.exception("Could not refresh cars page")
 
     def _set_trash(self, action_fn: Any) -> None:
         btn = self._detail_trash_btn
