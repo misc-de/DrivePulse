@@ -479,15 +479,15 @@ class CarsPage(
                     break
 
     def _select_scan(self, scan_id: int) -> None:
+        # Set the scan as the active context for data lookups (Stammdaten,
+        # Diagnose, etc. follow this scan) but stay on the Scan-Verläufe
+        # category visually — switching to vehicle/Stammdaten yanked the
+        # user out of the list whenever they tapped an entry.
         self._selected_scan_id = scan_id
         if not self._detail_pushed:
             return
-        # Switch to "vehicle" category so the loaded scan data is visible
-        target = "vehicle"
-        for row in self._cat_rows:
-            if getattr(row, "cat_key", "") == target:
-                self.category_list.select_row(row)
-                break  # _on_category_selected → _render_detail handles the rest
+        # Re-render so the checkmark on the now-selected scan appears.
+        self._render_detail()
 
     def _bg_compute_scan_stats(self) -> None:
         stats: dict[str, dict] = {}
