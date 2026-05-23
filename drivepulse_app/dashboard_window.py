@@ -362,6 +362,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # while phosh hides the system clock.
         self._clock_label = Gtk.Label()
         self._clock_label.set_justify(Gtk.Justification.CENTER)
+        self._clock_label.set_xalign(0.5)
+        self._clock_label.set_halign(Gtk.Align.CENTER)
+        self._clock_label.set_use_markup(True)
         self._clock_label.add_css_class("caption-heading")
         self._clock_timer_id: int | None = None
         header.set_title_widget(self.title_label)
@@ -987,9 +990,16 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
     def _update_clock_label(self) -> None:
         from datetime import datetime
-        # Three-line stack: year / MM.DD / HH:MM. Gtk.Label honours \n when
-        # use_markup is off and the label is allowed to grow vertically.
-        self._clock_label.set_text(datetime.now().strftime("%Y\n%m.%d\n%H:%M"))
+        now = datetime.now()
+        # Three centred lines: year (dimmed) / MM.DD / HH:MM. The year drops
+        # to 55% alpha via Pango markup so the more relevant fields read
+        # stronger; the label is set to centre justification + xalign 0.5
+        # so all three lines line up horizontally.
+        self._clock_label.set_markup(
+            f'<span alpha="55%">{now.strftime("%Y")}</span>\n'
+            f'{now.strftime("%m.%d")}\n'
+            f'{now.strftime("%H:%M")}'
+        )
 
     def _clock_tick(self) -> bool:
         self._update_clock_label()
