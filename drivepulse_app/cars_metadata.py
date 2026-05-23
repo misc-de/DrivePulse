@@ -87,8 +87,8 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
     )),
     ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
     ("trips", "cars.category.trips", "globe-symbolic", ()),
-    ("stopwatch_runs", "cars.category.stopwatch_runs", "stopwatch-symbolic", ()),
     ("photos", "cars.category.photos", "camera-photo-symbolic", ()),
+    ("stopwatch_runs", "cars.category.stopwatch_runs", "stopwatch-symbolic", ()),
     ("engine", "cars.category.engine", "step_object_LinearMotor-symbolic", (
         ("010C", "cars.pid.010C"),
         ("0104", "cars.pid.0104"),
