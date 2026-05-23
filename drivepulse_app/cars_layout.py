@@ -226,14 +226,9 @@ class CarsLayoutMixin:
         self.content_title = Gtk.Label(xalign=0.0)
         self.content_title.add_css_class("title-2")
         self.content_title.set_margin_top(12)
+        self.content_title.set_margin_bottom(8)
         self.content_title.set_margin_start(16)
         content.append(self.content_title)
-
-        self.content_subtitle = Gtk.Label(xalign=0.0)
-        self.content_subtitle.add_css_class("dim-label")
-        self.content_subtitle.set_margin_start(16)
-        self.content_subtitle.set_margin_bottom(8)
-        content.append(self.content_subtitle)
 
         self.value_list = Gtk.ListBox()
         self.value_list.set_selection_mode(Gtk.SelectionMode.NONE)
