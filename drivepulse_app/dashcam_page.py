@@ -667,12 +667,12 @@ class DashcamPage(Gtk.Box):
         saved = self._recorder.save_event()
         self._update_status()
         if saved:
-            toast = Adw.Toast.new(
-                _translate(self.language, "dashcam.event.saved").format(n=len(saved))
-            )
-            root = self.get_root()
-            if isinstance(root, Adw.ApplicationWindow):
-                root.add_toast(toast)
+            msg = _translate(self.language, "dashcam.event.saved").format(n=len(saved))
+        else:
+            msg = _translate(self.language, "dashcam.event.nothing")
+        root = self.get_root()
+        if isinstance(root, Adw.ApplicationWindow):
+            root.add_toast(Adw.Toast.new(msg))
 
     # ── Recorder callbacks ────────────────────────────────────────────────────
 
@@ -685,9 +685,18 @@ class DashcamPage(Gtk.Box):
         return False
 
     def _show_error(self, _msg: str) -> bool:
+        self._recorder.is_recording = False
+        for btn in self._save_btns:
+            btn.set_visible(False)
         self._stop_tick()
         self._stop_dim_timer()
         self._update_toggle_btn()
+        if self.on_recording_changed is not None:
+            self.on_recording_changed(False)
+        toast_msg = _translate(self.language, "dashcam.error.camera")
+        root = self.get_root()
+        if isinstance(root, Adw.ApplicationWindow):
+            root.add_toast(Adw.Toast.new(toast_msg))
         return False
 
     # ── Tick timer ────────────────────────────────────────────────────────────

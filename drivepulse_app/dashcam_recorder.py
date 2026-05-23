@@ -380,6 +380,8 @@ class DashcamRecorder:
                     if msg.type == _Gst.MessageType.ERROR:
                         err, _ = msg.parse_error()
                         log.warning("gst recording error: %s", err)
+                        if self.on_error:
+                            self.on_error(str(err))
                         self._stop_event.set()
                         break
                     if msg.type == _Gst.MessageType.EOS:
