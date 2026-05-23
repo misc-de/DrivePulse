@@ -371,13 +371,14 @@ class CarsPage(
     # ---------------------------------------------------- Listen-Render
 
     def _rebuild_list(self) -> None:
+        # Live-Zeile bleibt oben fest verankert (eigene boxed-list über dem
+        # Scroll-Bereich). Bei jedem Rebuild neu aufbauen, damit Übersetzungen
+        # nach Sprachwechsel mitziehen.
         while True:
-            child = self._list_box.get_first_child()
+            child = self._live_list_box.get_first_child()
             if child is None:
                 break
-            self._list_box.remove(child)
-
-        # Live-Zeile immer oben
+            self._live_list_box.remove(child)
         self._live_row = Adw.ActionRow()
         self._live_row.set_title(_translate(self.language, "cars.live.title"))
         self._live_row.set_activatable(True)
@@ -386,8 +387,15 @@ class CarsPage(
         chevron = Gtk.Image.new_from_icon_name("go-next-symbolic")
         self._live_row.add_suffix(chevron)
         self._live_row.connect("activated", lambda _r: self._open_detail(self.LIVE_ID))
-        self._list_box.append(self._live_row)
+        self._live_list_box.append(self._live_row)
         self._update_live_row_subtitle()
+
+        # Scrollbare Auto-Liste neu befüllen
+        while True:
+            child = self._list_box.get_first_child()
+            if child is None:
+                break
+            self._list_box.remove(child)
 
         for entry in self._profiles:
             row = Adw.ActionRow()
@@ -406,13 +414,12 @@ class CarsPage(
                 sub_parts.append(entry["scan_label"])
             row.set_subtitle(GLib.markup_escape_text(" · ".join(sub_parts)) if sub_parts else "—")
             row.set_activatable(True)
-            icon = Gtk.Image.new_from_icon_name("preferences-system-symbolic")
-            row.add_prefix(icon)
             chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
             row.add_suffix(chev)
             row.connect("activated", lambda _r, p=str(entry["path"]): self._open_detail(p))
             self._list_box.append(row)
 
+        self._list_box.set_visible(bool(self._profiles))
         self._empty_label.set_visible(not self._profiles)
 
     def _update_live_row_subtitle(self) -> None:

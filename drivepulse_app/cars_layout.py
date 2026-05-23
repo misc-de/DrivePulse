@@ -13,32 +13,44 @@ from .cars_metadata import CATEGORIES
 
 class CarsLayoutMixin:
     def _build_list_page(self) -> None:
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        outer.set_margin_top(16)
-        outer.set_margin_bottom(16)
-        outer.set_margin_start(16)
-        outer.set_margin_end(16)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        page.set_margin_top(16)
+        page.set_margin_bottom(16)
+        page.set_margin_start(16)
+        page.set_margin_end(16)
+
+        # Live-Verbindung wird oben fest verankert — bleibt sichtbar wenn die
+        # Autoliste unten scrollt.
+        self._live_list_box = Gtk.ListBox()
+        self._live_list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._live_list_box.add_css_class("boxed-list")
+        self._live_list_box.set_valign(Gtk.Align.START)
+        page.append(self._live_list_box)
+
+        # Scroll-Bereich nur für die Auto-Liste
+        scroll_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
 
         self._list_box = Gtk.ListBox()
         self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self._list_box.add_css_class("boxed-list")
         self._list_box.set_valign(Gtk.Align.START)
-        outer.append(self._list_box)
+        scroll_inner.append(self._list_box)
 
         self._empty_label = Gtk.Label(xalign=0.0)
         self._empty_label.add_css_class("dim-label")
         self._empty_label.set_wrap(True)
         self._empty_label.set_visible(False)
-        outer.append(self._empty_label)
+        scroll_inner.append(self._empty_label)
 
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
         scroll.set_hexpand(True)
-        scroll.set_child(outer)
+        scroll.set_child(scroll_inner)
+        page.append(scroll)
 
         self._list_page = Adw.NavigationPage(
-            child=scroll,
+            child=page,
             title=_translate(self.language, "nav.cars"),
         )
         self._list_page.set_tag("list")
