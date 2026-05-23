@@ -74,6 +74,9 @@ class CarsPage(
         sidebar_side: str = "left",
         vindecoder_api_key: str | None = None,
         vindecoder_secret_key: str | None = None,
+        initial_source: str | None = None,
+        initial_category: str | None = None,
+        on_state_changed: Callable[[str | None, str | None], None] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.language = _normalize_language(language)
@@ -81,6 +84,14 @@ class CarsPage(
         self._sidebar_side: str = sidebar_side
         self._vindecoder_api_key: str | None = vindecoder_api_key
         self._vindecoder_secret_key: str | None = vindecoder_secret_key
+        self._initial_source: str | None = initial_source
+        self._initial_category: str | None = initial_category
+        self.on_state_changed: Callable[[str | None, str | None], None] | None = on_state_changed
+        # Suppress on_state_changed callbacks while restoring saved state or
+        # during initial UI construction, so we don't write a "user opened
+        # live/vehicle" entry just from default widget signals firing.
+        # Flipped to False once __init__ has finished applying initial state.
+        self._restoring_state: bool = True
         self._autodev_api_key: str | None = None
         self._vin_fetch_pending: set[int] = set()
         self._vin_review_queue: list[tuple[int, str, dict]] = []
@@ -156,6 +167,11 @@ class CarsPage(
         # Detail page is the permanent root of the content stack.
         self.nav_view.add(self._detail_page)
         self.refresh_profiles()
+        # Restore last viewed source + category from persisted state. Falls
+        # back silently if the saved car_id no longer exists in profiles.
+        self._apply_initial_state()
+        # End of construction — user interactions from here on persist state.
+        self._restoring_state = False
 
         # Horizontaler Drag in CAPTURE-Phase: greift Wisch-Gesten ab, bevor
         # Adw.NavigationView sie zu fassen bekommt. So funktioniert „nach rechts
@@ -555,6 +571,7 @@ class CarsPage(
         # In uncollapsed (desktop) layout both panes are already visible; this
         # only updates the internal show-content flag for later use.
         self._split_view.set_show_content(True)
+        self._persist_state()
 
     def _on_popped(self, _view: Adw.NavigationView, page: Adw.NavigationPage) -> None:
         # The detail page is the permanent root of the content stack and is
@@ -592,6 +609,38 @@ class CarsPage(
                 self._set_trash(self._confirm_delete_vehicle)
             self._update_photo_upload_btn_visibility()
 
+    def _apply_initial_state(self) -> None:
+        """Restore the source + category the user was last viewing."""
+        src = self._initial_source
+        if not src:
+            return
+        if src != self.LIVE_ID:
+            valid = any(str(e.get("path")) == src for e in self._profiles)
+            if not valid:
+                return
+        self._restoring_state = True
+        try:
+            self._open_detail(src)
+            cat = self._initial_category
+            if cat:
+                for row in self._cat_rows:
+                    if getattr(row, "cat_key", "") == cat:
+                        self.category_list.select_row(row)
+                        break
+        finally:
+            self._restoring_state = False
+
+    def _persist_state(self) -> None:
+        if self._restoring_state:
+            return
+        cb = self.on_state_changed
+        if cb is None:
+            return
+        try:
+            cb(self._selected_source, self._selected_category)
+        except Exception:
+            pass
+
     def _reset_detail_state(self) -> None:
         """Drop transient detail-view state when leaving / re-entering detail."""
         self._detail_pushed = False
@@ -610,6 +659,13 @@ class CarsPage(
         self._rename_btn.set_visible(False)
         self._vin_refresh_btn.set_visible(False)
         self._update_photo_upload_btn_visibility()
+        # User left the detail view — clear persisted state so the next
+        # startup shows the list, not the previously open detail page.
+        if not self._restoring_state and self.on_state_changed is not None:
+            try:
+                self.on_state_changed(None, None)
+            except Exception:
+                pass
 
     def _on_detail_back(self) -> None:
         """Detail back-button: collapse-aware navigation back to the list."""
@@ -644,8 +700,19 @@ class CarsPage(
         if hasattr(self, "_detail_back_btn"):
             self._detail_back_btn.set_visible(collapsed)
         if not collapsed:
-            # Desktop view always shows detail pane alongside sidebar.
-            self._split_view.set_show_content(True)
+            # Desktop view always shows the detail pane alongside the sidebar.
+            # If no vehicle has been opened yet, pre-render the live view so
+            # the right pane shows the currently connected car right away
+            # instead of an empty placeholder. Mark this as restore so the
+            # fallback doesn't overwrite persisted "user is on the list" state.
+            if not self._detail_pushed:
+                self._restoring_state = True
+                try:
+                    self._open_detail(self.LIVE_ID)
+                finally:
+                    self._restoring_state = False
+            else:
+                self._split_view.set_show_content(True)
 
     def _is_sync_active(self) -> bool:
         return callable(self.get_sync_client) and self.get_sync_client() is not None
@@ -783,3 +850,4 @@ class CarsPage(
         self._update_photo_upload_btn_visibility()
         if self._detail_pushed:
             self._render_detail()
+        self._persist_state()

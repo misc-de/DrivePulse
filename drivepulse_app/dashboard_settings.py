@@ -64,6 +64,8 @@ class DashboardSettingsMixin:
                 "vindecoder_api_key": getattr(self, "vindecoder_api_key", ""),
                 "vindecoder_secret_key": getattr(self, "vindecoder_secret_key", ""),
                 "autodev_api_key": getattr(self, "autodev_api_key", ""),
+                "last_cars_source": getattr(self, "last_cars_source", None),
+                "last_cars_category": getattr(self, "last_cars_category", None),
             })
         except Exception:
             log.exception("Could not save dashboard settings")

@@ -46,6 +46,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "vindecoder_api_key": "",
     "vindecoder_secret_key": "",
     "autodev_api_key": "",
+    # Last viewed position inside the Cars tab: source path ("__live__" or
+    # "car:N") and the category key ("vehicle", "trips", ...). Restored on
+    # startup so the user lands where they left off.
+    "last_cars_source": None,
+    "last_cars_category": None,
 }
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
@@ -127,6 +132,8 @@ def load_settings() -> dict[str, Any]:
         "vindecoder_api_key": str(data.get("vindecoder_api_key") or ""),
         "vindecoder_secret_key": str(data.get("vindecoder_secret_key") or ""),
         "autodev_api_key": str(data.get("autodev_api_key") or ""),
+        "last_cars_source": (str(data["last_cars_source"]) if data.get("last_cars_source") else None),
+        "last_cars_category": (str(data["last_cars_category"]) if data.get("last_cars_category") else None),
     }
 
 
@@ -175,6 +182,8 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "vindecoder_api_key": str(settings.get("vindecoder_api_key") or ""),
                 "vindecoder_secret_key": str(settings.get("vindecoder_secret_key") or ""),
                 "autodev_api_key": str(settings.get("autodev_api_key") or ""),
+                "last_cars_source": (str(settings["last_cars_source"]) if settings.get("last_cars_source") else None),
+                "last_cars_category": (str(settings["last_cars_category"]) if settings.get("last_cars_category") else None),
             },
             indent=2,
         ),
