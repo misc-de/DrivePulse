@@ -84,8 +84,6 @@ class CarsTripsMixin:
         else:
             icon = Gtk.Image.new_from_icon_name("mark-location-symbolic")
             row.add_prefix(icon)
-            chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
-            row.add_suffix(chev)
             row.set_activatable(True)
             row.connect("activated", lambda _r, tid=trip_id: self._open_trip_detail(tid))
             lp = Gtk.GestureLongPress()
