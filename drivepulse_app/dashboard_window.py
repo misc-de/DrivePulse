@@ -63,7 +63,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
 
     def __init__(self, app: Adw.Application) -> None:
         super().__init__(application=app, title=_translate(_detect_language(), "window.title"))
-        self.set_default_size(980, 520)
+        # Desktop default; phosh / mobile compositors maximise to screen and
+        # ignore this anyway. The 720sp breakpoint flips to mobile mode for
+        # narrow windows regardless of this size.
+        self.set_default_size(1280, 800)
         self.settings = self._load_settings()
         self.units = self.settings["units"]
         self.language = self.settings["language"]
