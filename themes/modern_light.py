@@ -7,7 +7,7 @@ CSS = """
 window.dp-theme-modern-light .dp-gauge-bg,
 window.dp-theme-modern-light .dp-gauge-bg > viewport,
 window.dp-theme-modern-light .dp-gauge-bg > * {
-  background-color: #f0f1f3;
+  background-color: #c6c8cc;
 }"""
 
 from _dp_builtin_modern import _draw_impl
