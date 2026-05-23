@@ -100,9 +100,9 @@ def _build_scan_detail_widget(
         else:
             trend_text = _translate(language, "cars.scan.trend_same")
 
+    # Scan date is already shown in the sub-page heading — drop the
+    # repeated "Datum" stat row.
     outer.append(_stat_list(
-        (_translate(language, "cars.scan.date"),
-         ts.strftime("%d.%m.%Y %H:%M:%S") if ts else "—"),
         (_translate(language, "cars.scan.protocol"),
          str(scan_meta["protocol"] or "—")),
         (_translate(language, "cars.scan.dtc_count"), str(dtc)),

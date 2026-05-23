@@ -357,6 +357,12 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         self.title_label = Gtk.Label(label=_translate(self.language, "window.title"))
+        # Mobile alternative: a live clock that sits centred in the header.
+        # _apply_form_factor_state swaps the title widget and starts/stops
+        # the ticker.
+        self._clock_label = Gtk.Label()
+        self._clock_label.add_css_class("heading")
+        self._clock_timer_id: int | None = None
         header.set_title_widget(self.title_label)
 
         self.obd_indicator = self._build_link_indicator("network-wired-symbolic", _translate(self.language, "status.obd"))
@@ -959,6 +965,32 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # Map page: nudges replay-info overlay below the top-left info button.
         if hasattr(self, "map_page") and hasattr(self.map_page, "set_form_factor"):
             self.map_page.set_form_factor(ff)
+        # Header title: a live clock on mobile (where the phosh top panel
+        # is hidden), the app title on desktop.
+        self._apply_header_title_for_form_factor(ff)
+
+    def _apply_header_title_for_form_factor(self, ff: str) -> None:
+        header = getattr(self, "header", None)
+        if header is None:
+            return
+        if ff == "mobile":
+            header.set_title_widget(self._clock_label)
+            self._update_clock_label()
+            if self._clock_timer_id is None:
+                self._clock_timer_id = GLib.timeout_add_seconds(30, self._clock_tick)
+        else:
+            header.set_title_widget(self.title_label)
+            if self._clock_timer_id is not None:
+                GLib.source_remove(self._clock_timer_id)
+                self._clock_timer_id = None
+
+    def _update_clock_label(self) -> None:
+        from datetime import datetime
+        self._clock_label.set_text(datetime.now().strftime("%H:%M"))
+
+    def _clock_tick(self) -> bool:
+        self._update_clock_label()
+        return True  # keep the timer firing
 
     def _apply_window_theme(self, theme: str) -> None:
         from gi.repository import Adw
