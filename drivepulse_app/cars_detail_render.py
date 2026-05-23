@@ -99,6 +99,9 @@ class CarsDetailRenderMixin:
         out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(_format_dtc(d) for d in dtcs)
         pending = data.get("pending_dtcs") or []
         out[_SPECIAL_PENDING] = none_text if not pending else "  ".join(_format_dtc(d) for d in pending)
+        # Convenience flag for the sidebar highlight: yellow-tint the
+        # diagnostics row when the loaded scan actually has DTCs.
+        out["__has_dtc__"] = bool(dtcs) or bool(pending)
         for field_key, special_key in VIN_DATA_SPECIAL_KEYS.items():
             val = (data.get("vin_data") or {}).get(field_key)
             if val:
@@ -138,6 +141,34 @@ class CarsDetailRenderMixin:
         is_live = self._selected_source == self.LIVE_ID
         data, source_label = self._current_data()
         self.content_subtitle.set_text("" if is_live else source_label)
+
+        # Sidebar header: show the loaded scan's date+time above the
+        # categories. Hidden for the live view (data streams in real time).
+        scan_lbl = getattr(self, "_scan_date_label", None)
+        if scan_lbl is not None:
+            scan_date = data.get(_SPECIAL_SCAN_DATE)
+            if not is_live and scan_date and scan_date != "—":
+                scan_lbl.set_text(scan_date)
+                scan_lbl.set_visible(True)
+            else:
+                scan_lbl.set_visible(False)
+
+        # Yellow-tint the "Diagnose" category row only when the loaded scan
+        # actually carries DTCs. The flag is set in _flatten_profile.
+        has_dtc = bool(data.get("__has_dtc__"))
+        for _row in getattr(self, "_cat_rows", []):
+            if getattr(_row, "cat_key", None) != "diagnostics":
+                continue
+            _lbl = getattr(_row, "cat_label_widget", None)
+            _icon = getattr(_row, "cat_icon_widget", None)
+            for _w in (_lbl, _icon):
+                if _w is None:
+                    continue
+                if has_dtc:
+                    _w.add_css_class("warning")
+                else:
+                    _w.remove_css_class("warning")
+            break
 
         if cat_key == "trips":
             self._render_trips_into_value_list()
