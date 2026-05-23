@@ -563,13 +563,10 @@ class SettingsDialog(Adw.NavigationPage):
         self._bt_nearby_scan_btn = _nearby_scan_btn
         bt_group.add(self._bt_nearby_expander.widget)
 
-        app_page.add(bt_group)
+        # Bluetooth OBD dongle options hidden for testing — may be removed.
+        bt_group.set_visible(False)
 
         self._paired_addrs: set[str] = set()
-
-        # Trigger initial paired scan and nearby discovery in background
-        self._bt_scan_async()
-        self._on_bt_nearby_scan_clicked(self._bt_nearby_scan_btn)
 
         # ── Display page ──────────────────────────────────────────────────────
         display_page = Adw.PreferencesPage(
@@ -792,7 +789,7 @@ class SettingsDialog(Adw.NavigationPage):
         # ── Top navigation (ViewSwitcher inside the header) ───────────────────
         view_switcher = Adw.ViewSwitcher()
         view_switcher.set_stack(view_stack)
-        view_switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
+        view_switcher.set_policy(Adw.ViewSwitcherPolicy.NARROW)
 
         # ── Header: NavigationView injects the back-arrow automatically ──────
         dlg_header = Adw.HeaderBar()
