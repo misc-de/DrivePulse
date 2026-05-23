@@ -584,23 +584,27 @@ class MapLayoutMixin:
             label or _translate(self.language, "map.history.kind_trip")
         )
 
-        def _row(idx: int, key: str, value: str) -> None:
+        # Stack each metric as its own full-width row (label on top, value
+        # underneath) so duration and distance read vertically rather than
+        # competing for space side-by-side.
+        def _block(idx: int, key: str, value: str) -> None:
             k = Gtk.Label(label=_translate(self.language, key), xalign=0.0)
             k.add_css_class("dim-label")
             k.add_css_class("caption")
             v = Gtk.Label(label=value, xalign=0.0)
             v.add_css_class("caption")
-            grid.attach(k, 0, idx, 1, 1)
-            grid.attach(v, 1, idx, 1, 1)
+            v.add_css_class("heading")
+            grid.attach(k, 0, idx, 2, 1)
+            grid.attach(v, 0, idx + 1, 2, 1)
 
         idx = 0
         if distance_km is not None:
-            _row(idx, "map.replay.distance", f"{float(distance_km):.1f} km")
-            idx += 1
+            _block(idx, "map.replay.distance", f"{float(distance_km):.1f} km")
+            idx += 2
         if duration_s:
             dur = self._format_history_duration(float(duration_s))
             if dur:
-                _row(idx, "map.replay.duration", dur)
+                _block(idx, "map.replay.duration", dur)
 
         # Anchor the card below the tour-start + info-icon column
         # (≈ 105 px: 12 top margin + start button + spacing + info button).
