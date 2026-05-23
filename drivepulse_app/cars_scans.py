@@ -80,11 +80,8 @@ class CarsScansMixin:
             row.add_prefix(chk)
             row.set_activatable(False)
         else:
-            if self._selected_scan_id == sid:
-                check_icon = Gtk.Image.new_from_icon_name("object-select-symbolic")
-                check_icon.add_css_class("accent")
-                check_icon.set_valign(Gtk.Align.CENTER)
-                row.add_prefix(check_icon)
+            icon = Gtk.Image.new_from_icon_name("library-symbolic")
+            row.add_prefix(icon)
             # DTC badge is only useful when the scan actually has a fault —
             # showing "0" on every clean scan was noisy.
             if dtc:
