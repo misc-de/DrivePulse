@@ -130,7 +130,7 @@ class CarsLayoutMixin:
         self._detail_body = body
 
         self._sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self._sidebar.set_margin_top(12)
+        self._sidebar.set_margin_top(2)
         self._sidebar.set_margin_bottom(12)
         self._sidebar.set_margin_start(8)
         self._sidebar.set_margin_end(4)
