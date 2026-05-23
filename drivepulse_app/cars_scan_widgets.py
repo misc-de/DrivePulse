@@ -44,12 +44,13 @@ def _format_scan_date(raw: Any) -> str:
         return str(raw)
 
 
-def _format_scan_date_stack(raw: Any) -> str | None:
+def _format_scan_date_stack(raw: Any, language: str = "en") -> str | None:
     """Pango markup for the three-line scan date stamp used in the sidebar.
 
-    Layout: year (lightest) / MM.DD (subtle) / HH:MM (subtle), centred.
-    Returns ``None`` when the timestamp can't be parsed so the caller can
-    hide the label.
+    Layout: year (lightest) / day-month (subtle) / HH:MM (subtle), centred.
+    The middle line follows the language's day/month convention — German
+    and other European locales get DD.MM, English (en) gets MM.DD.
+    Returns ``None`` when the timestamp can't be parsed.
     """
     if not raw:
         return None
@@ -57,9 +58,11 @@ def _format_scan_date_stack(raw: Any) -> str | None:
         dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
     except Exception:
         return None
+    # en → MM.DD (US default); any other language → DD.MM (European).
+    md_fmt = "%m.%d" if (language or "").lower().startswith("en") else "%d.%m"
     return (
         f'<span alpha="40%">{dt.strftime("%Y")}</span>\n'
-        f'<span alpha="75%">{dt.strftime("%m.%d")}</span>\n'
+        f'<span alpha="75%">{dt.strftime(md_fmt)}</span>\n'
         f'<span alpha="75%">{dt.strftime("%H:%M")}</span>'
     )
 
