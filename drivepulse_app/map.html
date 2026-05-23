@@ -547,6 +547,39 @@ function mapGoTo(lat, lon, zoom) {
   map.flyTo({ center: [lon, lat], zoom: zoom, pitch: 0, duration: 900 });
 }
 
+// Trip-replay coloured track: a FeatureCollection of one LineString per
+// segment, each carrying a `color` property. line-color is data-driven so
+// the polyline gets a speed-based gradient (blue → green → red).
+function mapSetColoredTrack(features) {
+  if (!map) return;
+  // Hide the single-colour route layer in case it was left over.
+  if (map.getSource('route')) map.getSource('route').setData(lineGJ([]));
+  if (map.getSource('waypoints')) map.getSource('waypoints').setData(fcGJ([]));
+  const data = { type: 'FeatureCollection', features: features };
+  if (!map.getSource('colored-track')) {
+    map.addSource('colored-track', { type: 'geojson', data: data });
+    map.addLayer({
+      id: 'colored-track-case', type: 'line', source: 'colored-track',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#000000', 'line-width': 8, 'line-opacity': 0.30 },
+    });
+    map.addLayer({
+      id: 'colored-track-line', type: 'line', source: 'colored-track',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 5, 'line-opacity': 0.95 },
+    });
+  } else {
+    map.getSource('colored-track').setData(data);
+  }
+}
+
+function mapClearColoredTrack() {
+  if (!map) return;
+  if (map.getLayer('colored-track-line')) map.removeLayer('colored-track-line');
+  if (map.getLayer('colored-track-case')) map.removeLayer('colored-track-case');
+  if (map.getSource('colored-track')) map.removeSource('colored-track');
+}
+
 // Trip-replay scrubber marker: a single highlighted point on the polyline
 // that follows the chart cursor. Added on first call, removed via mapClearReplayMarker.
 function mapSetReplayMarker(lat, lon) {

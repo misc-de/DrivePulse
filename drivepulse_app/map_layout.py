@@ -626,13 +626,14 @@ class MapLayoutMixin:
         # hadn't acquired one yet) — otherwise the polyline shoots across the
         # globe to (0,0) and Shumate ends up centred on the Atlantic with
         # nothing in cache.
-        latlon = [
-            (s["lat"], s["lon"]) for s in samples
+        latlon_speed: list[tuple[float, float, float | None]] = [
+            (s["lat"], s["lon"], s["speed_kmh"]) for s in samples
             if s["lat"] is not None and s["lon"] is not None
             and not (s["lat"] == 0.0 and s["lon"] == 0.0)
         ]
-        if not latlon:
+        if not latlon_speed:
             return
+        latlon = [(lat, lon) for lat, lon, _ in latlon_speed]
 
         # Get the trip row for the actual ended_at (history meta only has ts=started_at)
         try:
@@ -643,28 +644,48 @@ class MapLayoutMixin:
         except Exception:
             ended_at = None
 
-        coords_lonlat = [[lon, lat] for lat, lon in latlon]
-        self._map_show_track(coords_lonlat, latlon)
+        self._map_show_track(latlon_speed)
         self._populate_replay_info(meta, ended_at)
         self._populate_replay_chart(samples)
         self._replay_info_overlay.set_visible(True)
         if self._replay_chart_widget is not None:
             self._replay_chart_overlay.set_visible(True)
 
-    def _map_show_track(self, coords_lonlat: list[list[float]], latlon: list[tuple[float, float]]) -> None:
-        """Draw a polyline on the live map for the given recorded GPS samples."""
+    def _map_show_track(self, latlon_speed: list[tuple[float, float, float | None]]) -> None:
+        """Draw a speed-coloured polyline on the live map for replayed samples."""
         import json as _json
+        from .cars_trip_visuals import speed_to_rgb
+
+        latlon = [(lat, lon) for lat, lon, _ in latlon_speed]
+        if not latlon:
+            return
 
         if self._backend == "webkit":
-            self._js(f"mapSetRoute({_json.dumps(coords_lonlat)})")
-            # No waypoints for a replay — clear any leftover from previous planning.
-            self._js("mapSetWaypoints([])")
+            speeds = [s for _, _, s in latlon_speed if s is not None]
+            vmax = max(speeds) if speeds else 0.0
+            features = []
+            for i in range(1, len(latlon_speed)):
+                lat1, lon1, _spd_prev = latlon_speed[i - 1]
+                lat2, lon2, spd = latlon_speed[i]
+                r, g, b = speed_to_rgb(spd, vmax)
+                color = "#{:02x}{:02x}{:02x}".format(
+                    int(r * 255), int(g * 255), int(b * 255)
+                )
+                features.append({
+                    "type": "Feature",
+                    "properties": {"color": color},
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[lon1, lat1], [lon2, lat2]],
+                    },
+                })
+            self._js(f"mapSetColoredTrack({_json.dumps(features)})")
             lats = [p[0] for p in latlon]
             lons = [p[1] for p in latlon]
             self._js(f"mapFitBounds({min(lats)},{min(lons)},{max(lats)},{max(lons)})")
             self._set_follow(False)
         elif getattr(self, "_shumate_map", None) is not None:
-            self._shumate_show_route([], coords_lonlat)
+            self._shumate_show_colored_track(latlon_speed)
             self._set_follow(False)
 
     def _clear_replay_overlays(self) -> None:
@@ -675,8 +696,10 @@ class MapLayoutMixin:
             self._replay_chart_overlay.set_visible(False)
         self._map_clear_replay_marker()
         if self._backend == "webkit":
+            self._js("mapClearColoredTrack()")
             self._js("mapClearRoute()")
         elif getattr(self, "_shumate_map", None) is not None:
+            self._shumate_clear_colored_track()
             self._shumate_clear_route_layers()
 
     def _on_tour_save_clicked(self, _btn: object) -> None:
