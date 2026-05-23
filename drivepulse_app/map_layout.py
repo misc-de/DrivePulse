@@ -85,6 +85,18 @@ _MANEUVER_CSS = b"""
   background-color: rgba(30, 136, 229, 0.55);
 }
 .dp-lane-valid image { color: #ffffff; }
+/* GPS coordinate chip - transparent icon, box background shows through */
+.dp-coord-chip {
+  background-color: rgba(20, 24, 32, 0.72);
+  border-radius: 8px;
+  padding: 3px 8px;
+}
+.dp-coord-chip label {
+  color: #ffffff;
+  font-family: monospace;
+  font-size: 12px;
+}
+.dp-coord-chip image { color: rgba(255, 255, 255, 0.80); }
 /* Speed-limit sign - classic European round white/red circle */
 .dp-speed-sign {
   background-color: #ffffff;
@@ -1274,6 +1286,7 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_replay_info_overlay())
             overlay.add_overlay(self._build_replay_chart_overlay())
             overlay.add_overlay(self._build_replay_chart_restore_btn())
+            overlay.add_overlay(self._build_coord_overlay())
 
         self._map_content_box.append(overlay)
 
@@ -1367,6 +1380,31 @@ class MapLayoutMixin:
         wrap.append(self._map_state_lbl)
 
         self._map_state_overlay = wrap
+        return wrap
+
+    def _build_coord_overlay(self) -> Gtk.Widget:
+        wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        wrap.set_halign(Gtk.Align.START)
+        wrap.set_valign(Gtk.Align.END)
+        wrap.set_margin_start(8)
+        wrap.set_margin_bottom(8)
+        wrap.set_can_target(False)
+        wrap.set_visible(False)
+
+        chip = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        chip.add_css_class("dp-coord-chip")
+
+        icon = Gtk.Image.new_from_icon_name("integral3-symbolic")
+        icon.set_pixel_size(14)
+        chip.append(icon)
+
+        lbl = Gtk.Label(label="")
+        lbl.set_xalign(0.0)
+        chip.append(lbl)
+
+        wrap.append(chip)
+        self._coord_overlay = wrap
+        self._coord_lbl = lbl
         return wrap
 
     def _install_map_tap_controller(self, widget: Gtk.Widget) -> None:
