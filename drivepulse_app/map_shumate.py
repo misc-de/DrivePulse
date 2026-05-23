@@ -51,7 +51,12 @@ class MapShumateMixin:
                     log.warning("Could not create tile source for %s - using OSM fallback", key)
 
         self._shumate_map.set_map_source(self._sources["map"])
-        self._shumate_map.get_scale().set_margin_bottom(24)
+        # Align the scale ruler's vertical baseline with the bottom-right
+        # license / attribution widget so both share the same line.
+        scale = self._shumate_map.get_scale()
+        license_widget = self._shumate_map.get_license()
+        if scale is not None and license_widget is not None:
+            scale.set_margin_bottom(license_widget.get_margin_bottom())
         # Initial scale unit follows the user's settings choice.
         self._shumate_apply_scale_unit(getattr(self, "units", "metric"))
 
