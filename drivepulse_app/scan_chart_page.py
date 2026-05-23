@@ -78,6 +78,16 @@ def _compute_stats_for_car(db, car_id: int) -> dict:
 # Chart drawing
 # ---------------------------------------------------------------------------
 
+def _lookup_card_bg(widget) -> tuple[float, float, float] | None:
+    try:
+        ok, rgba = widget.get_style_context().lookup_color("card_bg_color")
+    except Exception:
+        return None
+    if not ok:
+        return None
+    return (rgba.red, rgba.green, rgba.blue)
+
+
 def _draw_chart(
     cr,
     w: int,
@@ -85,6 +95,7 @@ def _draw_chart(
     main_vals: list[float],
     main_mean: float,
     overlay_vals: list[float] | None,
+    bg_rgb: tuple[float, float, float] | None = None,
 ) -> None:
     pl, pt = _PAD_L, _PAD_T
     plot_w = w - pl - _PAD_R
@@ -99,11 +110,11 @@ def _draw_chart(
     mean_rgba = (*fg, 0.40)
     lbl_rgba  = (*fg, 0.95)
 
-    # Light theme: paint the entire chart canvas white (not just the plot
-    # rect) so the area around the axes/labels matches the boxed compare list
-    # below — no isolated grey strip framing the coordinate system.
-    if not dark:
-        cr.set_source_rgb(1.0, 1.0, 1.0)
+    # Light theme: paint the full chart canvas with the same card surface tone
+    # used by the boxed compare list below, so the chart visually sits on the
+    # same elevated card as the rest of the content.
+    if not dark and bg_rgb is not None:
+        cr.set_source_rgb(*bg_rgb)
         cr.rectangle(0, 0, w, h)
         cr.fill()
 
@@ -407,4 +418,5 @@ class ScanChartContent(Gtk.Box):
             ov = [v for _, v in (self._overlay_stats[self._overlay_pid].get("values") or [])]
             overlay_vals = ov if ov else None
 
-        _draw_chart(cr, w, h, main_vals, main_mean, overlay_vals)
+        bg_rgb = _lookup_card_bg(self._da)
+        _draw_chart(cr, w, h, main_vals, main_mean, overlay_vals, bg_rgb=bg_rgb)
