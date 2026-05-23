@@ -752,6 +752,16 @@ class MapLayoutMixin:
             self._js(f"mapSetReplayMarker({lat},{lon})")
         elif getattr(self, "_shumate_map", None) is not None:
             self._shumate_set_replay_marker(lat, lon)
+        # Mirror the cursor coordinate in the bottom-left chip so trip replay
+        # gets the same readout as the live GPS path.
+        if self._coord_lbl is not None:
+            ns = "N" if lat >= 0 else "S"
+            ew = "E" if lon >= 0 else "W"
+            self._coord_lbl.set_label(
+                f"{abs(lat):.5f}° {ns}  {abs(lon):.5f}° {ew}"
+            )
+            if self._coord_overlay is not None:
+                self._coord_overlay.set_visible(True)
 
     def _map_clear_replay_marker(self) -> None:
         if self._backend == "webkit":
