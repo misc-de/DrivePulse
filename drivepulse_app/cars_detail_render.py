@@ -148,8 +148,7 @@ class CarsDetailRenderMixin:
         self.content_title.set_text(_translate(self.language, cat_name_key))
 
         is_live = self._selected_source == self.LIVE_ID
-        data, source_label = self._current_data()
-        self.content_subtitle.set_text("" if is_live else source_label)
+        data, _source_label = self._current_data()
 
         # Sidebar header row: loaded scan's timestamp. On mobile render as
         # a centred three-line stack (year dimmed / MM.DD / HH:MM); on
