@@ -51,6 +51,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     # auf Icon-only umschaltet (Phosh/Mobian-typische Portrait-Breiten 360–540 px).
     CARS_NARROW_BREAKPOINT = 500
 
+    # Below this width (in scalable pixels) the window switches to "mobile"
+    # form factor: bottom switcher, rotation follows the IIO sensor, and
+    # touch gestures (swipe-page, tap-to-hide-nav) are active.
+    MOBILE_FORM_FACTOR_MAX_WIDTH = 720
+
     # Seconds to keep GPS shown as "available" after the last valid fix.
     # Must be well above the GPS update interval (~1 s for GeoClue) so that OBD
     # polls (every 0.5 s) between GPS updates don't falsely detect GPS as gone.
@@ -104,10 +109,21 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._last_gps_speed_kmh: float | None = None
         self._gps_was_connected: bool = False
 
+        # Form factor (mobile vs desktop) is driven by an Adw.Breakpoint added
+        # at the end of __init__. Default to "desktop" since set_default_size is
+        # wider than MOBILE_FORM_FACTOR_MAX_WIDTH; the breakpoint will flip it
+        # to "mobile" on phosh/small windows during the first size allocation.
+        self.form_factor: str = "desktop"
+
         # Rotation state: pages can bind to either "follow_sensor"
         # (compensates for the compositor transform) or "follow_system"
         # (lets the compositor handle rotation). See drivepulse_app/rotation.py.
-        self.rotation = RotationProvider(mode=self.rotation_mode)
+        # On desktop we lock to follow_system so no IIO-sensor wobble reaches
+        # the UI even if a sensor happens to be present.
+        _initial_rotation_mode = (
+            self.rotation_mode if self.form_factor == "mobile" else "follow_system"
+        )
+        self.rotation = RotationProvider(mode=_initial_rotation_mode)
 
         # Persistente Fahrten-Datenbank (cars/trips/samples) — vor allen Pages,
         # weil CarsPage sie injiziert bekommt.
@@ -405,6 +421,11 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.nav_view = Adw.NavigationView()
         self.nav_view.add(main_page)
         self.set_content(self.nav_view)
+        self._install_form_factor_breakpoint()
+        # Initial sync: breakpoint apply/unapply only fires on transitions, so
+        # apply current form_factor state to dependents that were constructed
+        # before the breakpoint existed (cars_page split-view, etc.).
+        self._apply_form_factor_state()
         self.connect("notify::default-width", self._on_size_changed)
         self.connect("notify::default-height", self._on_size_changed)
         self.add_tick_callback(self._layout_tick)
@@ -600,6 +621,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._tap_press_y = y
 
     def _on_content_tap(self, _gesture: Gtk.GestureClick, _n: int, x: float, y: float) -> None:
+        # Tap-to-hide-nav is a mobile pattern; on desktop the header/switcher
+        # stay permanently visible, so a stray mouse click must not toggle them.
+        if getattr(self, "form_factor", "mobile") == "desktop":
+            return
         now = time.monotonic()
         # Reject if a swipe just fired — its release event still reaches the click gesture
         if now - self._last_swipe_time < 0.35:
@@ -758,9 +783,59 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
                 self.stopwatch_page.set_theme_mode(effective)
 
     def _apply_nav_position(self, position: str) -> None:
-        at_top = position == "top"
+        effective = position
+        if effective == "auto":
+            effective = "top" if self.form_factor == "desktop" else "bottom"
+        at_top = effective == "top"
         self.switcher_top.set_reveal(at_top)
         self.switcher_bar.set_reveal(not at_top)
+
+    def _install_form_factor_breakpoint(self) -> None:
+        """Drive ``self.form_factor`` from an Adw.Breakpoint on window width.
+
+        Default state is ``"desktop"`` (set in ``__init__``). The breakpoint
+        flips to ``"mobile"`` when the window is at or below
+        ``MOBILE_FORM_FACTOR_MAX_WIDTH`` scalable pixels, which is the common
+        phosh / portrait-phone range.
+        """
+        try:
+            condition = Adw.BreakpointCondition.parse(
+                f"max-width: {self.MOBILE_FORM_FACTOR_MAX_WIDTH}sp"
+            )
+            bp = Adw.Breakpoint.new(condition)
+        except Exception:
+            # libadwaita too old or BreakpointCondition unavailable — stay on
+            # the default form factor. The rest of the UI still works.
+            return
+        bp.connect("apply", lambda *_a: self._set_form_factor("mobile"))
+        bp.connect("unapply", lambda *_a: self._set_form_factor("desktop"))
+        self.add_breakpoint(bp)
+
+    def _set_form_factor(self, ff: str) -> None:
+        if ff not in ("mobile", "desktop") or ff == self.form_factor:
+            return
+        self.form_factor = ff
+        self._apply_form_factor_state()
+
+    def _apply_form_factor_state(self) -> None:
+        """Apply form_factor to dependent UI without the equality guard.
+
+        Called by _set_form_factor on transitions and once at end of __init__
+        so the initial state propagates even when the breakpoint condition
+        doesn't fire (e.g. desktop windows that never cross the threshold).
+        """
+        ff = self.form_factor
+        # Rotation: desktop locks to 0; mobile restores the user's choice.
+        if ff == "desktop":
+            self.rotation.set_mode("follow_system")
+        else:
+            self.rotation.set_mode(self.rotation_mode)
+        # Nav position: re-evaluate, so "auto" follows the new form factor.
+        self._apply_nav_position(self.nav_position)
+        # Cars page: split view collapses to push/pop on mobile, expands to
+        # list+detail side-by-side on desktop.
+        if hasattr(self, "cars_page") and hasattr(self.cars_page, "set_collapsed"):
+            self.cars_page.set_collapsed(ff == "mobile")
 
     def _apply_window_theme(self, theme: str) -> None:
         from gi.repository import Adw
@@ -795,6 +870,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         return super().close()
 
     def _on_swipe(self, _gesture: Gtk.GestureSwipe, velocity_x: float, velocity_y: float) -> None:
+        # Swipes (page change, theme cycle) are touch-only; on desktop the
+        # equivalent mouse drag would cycle themes by accident.
+        if getattr(self, "form_factor", "mobile") == "desktop":
+            return
         ax, ay = abs(velocity_x), abs(velocity_y)
 
         # Vertical swipe on the gauge/dashboard page → cycle through themes
