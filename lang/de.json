@@ -130,6 +130,8 @@
   "dashcam.btn.stop": "Aufnahme stoppen",
   "dashcam.btn.save": "Event sichern",
   "dashcam.event.saved": "Event gesichert: {n} Clip(s)",
+  "dashcam.event.nothing": "Noch keine Aufnahme zum Sichern vorhanden.",
+  "dashcam.error.camera": "Kamera nicht verfügbar – Aufnahme nicht gestartet.",
   "dashcam.settings.title": "Aufnahme-Einstellungen",
   "dashcam.settings.camera": "Kamera",
   "dashcam.settings.resolution": "Auflösung",
