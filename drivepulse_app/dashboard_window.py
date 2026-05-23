@@ -262,6 +262,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
         self.cars_page.get_sync_client = self._get_active_sync_client
+        self.cars_page.on_load_stopwatch_run = self._load_persisted_run_into_stopwatch
         self._cars_rotator = RotatedContainer()
         self._cars_rotator.set_child(self.cars_page)
         self._cars_rotator.set_hexpand(True)
@@ -781,6 +782,17 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
             self.view_stack.set_visible_child_name(self.PAGE_MAP)
             self._last_swipe_time = time.monotonic()
+
+    def _load_persisted_run_into_stopwatch(self, data: dict) -> None:
+        """Hand off a saved stopwatch run, switch to the StopWatch tab, replay."""
+        sw = getattr(self, "stopwatch_page", None)
+        if sw is None or not hasattr(sw, "load_persisted_run"):
+            return
+        if not sw.load_persisted_run(data):
+            return
+        self.view_stack.set_visible_child_name(self.PAGE_STOPWATCH)
+        if hasattr(sw, "replay_measurement"):
+            GLib.idle_add(lambda: (sw.replay_measurement(), False)[1])
 
     def _on_realize_install_css(self, *_args: Any) -> None:
         from gi.repository import Adw

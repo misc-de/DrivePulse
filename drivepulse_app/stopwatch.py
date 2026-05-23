@@ -678,6 +678,119 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
                 return True
         return False
 
+    def load_persisted_run(self, data: dict[str, Any]) -> bool:
+        """Restore a saved run into the page so it can be replayed.
+
+        Accepts the dict shape returned by ``DriveDB.get_stopwatch_run``
+        (``{"results": {...}, "samples": [...]}``). Sample lists may be either
+        the canonical ``[elapsed, active_g, lateral_g]`` triplets persisted by
+        the stopwatch itself, or richer dicts (the mock seeder uses
+        ``{"ts", "speed_obd_kmh", "speed_gps_kmh", "accel_g", "rpm"}``).
+
+        Returns True on success.
+        """
+        results_blob = (data or {}).get("results") or {}
+        samples_blob = (data or {}).get("samples") or []
+
+        # Stop any ongoing measurement / replay before we overwrite state.
+        self._stop_replay()
+        self.armed = False
+        self.running = False
+        self.start_monotonic = None
+
+        # ── Targets ────────────────────────────────────────────────────────
+        new_results: dict[int, dict[str, float | None]] = {
+            target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
+        }
+        for key, val in (results_blob.get("targets") or {}).items():
+            try:
+                tgt = int(str(key))
+            except (TypeError, ValueError):
+                continue
+            if tgt not in new_results or not isinstance(val, dict):
+                continue
+            new_results[tgt] = {
+                "obd": val.get("obd") if isinstance(val.get("obd"), (int, float)) else None,
+                "gps": val.get("gps") if isinstance(val.get("gps"), (int, float)) else None,
+            }
+        self.results = new_results
+        self._saved_results = {k: dict(v) for k, v in new_results.items()}
+
+        # ── Ranges (accept both "(100, 200)" tuple-repr and "100-200" forms)
+        new_ranges: dict[tuple[int, int], dict[str, float | None]] = {
+            r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH
+        }
+
+        def _parse_range_key(raw: str) -> tuple[int, int] | None:
+            s = str(raw).strip().lstrip("(").rstrip(")")
+            sep = "," if "," in s else ("-" if "-" in s else None)
+            if sep is None:
+                return None
+            try:
+                lo_s, hi_s = s.split(sep, 1)
+                return int(lo_s.strip()), int(hi_s.strip())
+            except (TypeError, ValueError):
+                return None
+
+        for key, val in (results_blob.get("ranges") or {}).items():
+            parsed = _parse_range_key(key)
+            if parsed is None or parsed not in new_ranges or not isinstance(val, dict):
+                continue
+            new_ranges[parsed] = {
+                "obd": val.get("obd") if isinstance(val.get("obd"), (int, float)) else None,
+                "gps": val.get("gps") if isinstance(val.get("gps"), (int, float)) else None,
+            }
+        self.range_results = new_ranges
+        self._saved_range_results = {k: dict(v) for k, v in new_ranges.items()}
+
+        # ── Vmax + max-g ─────────────────────────────────────────────────
+        self._saved_vmax_obd = results_blob.get("max_obd_kmh")
+        self._saved_vmax_obd_t = results_blob.get("max_obd_t")
+        self._saved_vmax_gps = results_blob.get("max_gps_kmh")
+        self._saved_vmax_gps_t = results_blob.get("max_gps_t")
+        self.max_obd_speed = self._saved_vmax_obd
+        self._max_obd_speed_t = self._saved_vmax_obd_t
+        self.max_gps_speed = self._saved_vmax_gps
+        self._max_gps_speed_t = self._saved_vmax_gps_t
+        self.max_g = results_blob.get("max_g")
+
+        # ── Samples ──────────────────────────────────────────────────────
+        triplets: list[tuple[float, float | None, float]] = []
+        for s in samples_blob:
+            if isinstance(s, dict):
+                ts = s.get("ts") or s.get("elapsed")
+                active_g = s.get("accel_g") or s.get("active_g")
+                lat_g = s.get("lateral_g", 0.0) or 0.0
+                if ts is None:
+                    continue
+                try:
+                    triplets.append((float(ts), None if active_g is None else float(active_g), float(lat_g)))
+                except (TypeError, ValueError):
+                    continue
+            elif isinstance(s, (list, tuple)) and len(s) >= 3:
+                try:
+                    triplets.append((float(s[0]), None if s[1] is None else float(s[1]), float(s[2])))
+                except (TypeError, ValueError):
+                    continue
+        self._run_samples = triplets
+
+        # Persisted runs are immutable from the StopWatch perspective.
+        self._run_persisted = True
+        if hasattr(self, "save_button"):
+            self.save_button.set_visible(False)
+
+        # Repaint labels and reveal the replay button.
+        self._reset_labels()
+        self._set_source_visibility(True, True)
+        self._update_vmax_row(
+            obd_v=self._saved_vmax_obd, obd_t=self._saved_vmax_obd_t,
+            gps_v=self._saved_vmax_gps, gps_t=self._saved_vmax_gps_t,
+        )
+        self._update_maxes_label()
+        self._show_replay()
+        self.status_label.set_text(_translate(self.language, "stopwatch.loaded"))
+        return True
+
     def _build_run_payload(self) -> tuple[dict, list]:
         combined = {
             "targets": {str(k): dict(v) for k, v in self.results.items()},
