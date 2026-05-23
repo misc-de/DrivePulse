@@ -119,6 +119,24 @@ class CarsTripsMixin:
         except Exception:
             log.exception("Could not mark trip seen id=%s", trip_id)
 
+        # Tap on a trip row → switch straight to the map and load the
+        # recorded GPS polyline as the active route. Falls back to the
+        # detail page when there are no usable GPS points or the host
+        # hasn't wired up the callback.
+        on_open_as_route = getattr(self, "on_open_trip_as_route", None)
+        if on_open_as_route is not None:
+            coords_lonlat = [
+                [float(s["lon"]), float(s["lat"])]
+                for s in samples
+                if s["lat"] is not None and s["lon"] is not None
+            ]
+            if len(coords_lonlat) >= 2:
+                distance_km = trip["distance_km"] if "distance_km" in trip.keys() else None
+                duration_s = trip["duration_s"] if "duration_s" in trip.keys() else None
+                label = self._trip_detail_title(trip)
+                on_open_as_route(coords_lonlat, distance_km, duration_s, label)
+                return
+
         page_content = _build_trip_detail_widget(self.language, trip, samples)
         title = self._trip_detail_title(trip)
 

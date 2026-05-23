@@ -136,6 +136,9 @@ class CarsPage(
         self.on_back_swipe: Callable[[], None] | None = None
         self.on_forward_swipe: Callable[[], None] | None = None
         self.on_load_stopwatch_run: Callable[[dict], None] | None = None
+        self.on_open_trip_as_route: Callable[
+            [list[list[float]], float | None, float | None, str | None], None
+        ] | None = None
         self._drag_claimed = False
         self.get_sync_client: Any = None
         # Mock mode disables share/rename so demo data isn't pushed to peers.

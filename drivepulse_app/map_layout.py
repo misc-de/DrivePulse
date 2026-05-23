@@ -51,31 +51,25 @@ _MANEUVER_CSS = b"""
 }
 .dp-map-state label { color: #ffffff; }
 .dp-steps-panel {
-  background-color: rgba(160, 160, 160, 0.72);
+  background-color: rgba(20, 24, 32, 0.82);
   border-radius: 14px;
   padding: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.20);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.40);
 }
-.dp-steps-panel, .dp-steps-panel label { color: #1a1a1a; }
+.dp-steps-panel, .dp-steps-panel label { color: #f5f7fa; }
 .dp-steps-panel list,
 .dp-steps-panel list > row { background: transparent; }
 .dp-steps-row { padding: 8px 10px; border-radius: 10px; }
-.dp-steps-row image { color: #1E5FA8; }
-.dp-steps-row-active { background-color: rgba(0, 80, 160, 0.15); }
-.dp-steps-row-done { opacity: 0.50; }
-.dp-steps-distance { font-weight: 700; }
-.dp-steps-instr { opacity: 0.90; }
+.dp-steps-row image { color: #B6DEFF; }
+.dp-steps-row-active { background-color: rgba(143, 207, 255, 0.30); }
+.dp-steps-row-active label { color: #ffffff; }
+.dp-steps-row-done { opacity: 0.65; }
+.dp-steps-distance { font-weight: 700; color: #ffffff; }
+.dp-steps-instr { opacity: 1.0; }
 .dark .dp-steps-panel {
   background-color: rgba(8, 10, 14, 0.96);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
 }
-.dark .dp-steps-panel, .dark .dp-steps-panel label { color: #f5f7fa; }
-.dark .dp-steps-row image { color: #B6DEFF; }
-.dark .dp-steps-row-active { background-color: rgba(143, 207, 255, 0.30); }
-.dark .dp-steps-row-active label { color: #ffffff; }
-.dark .dp-steps-row-done { opacity: 0.65; }
-.dark .dp-steps-instr { opacity: 1.0; }
-.dark .dp-steps-distance { color: #ffffff; }
 .dp-tour-topnav { padding: 2px 4px; }
 .dp-tour-topnav button label { font-size: 11px; }
 /* Lane guidance row inside the maneuver banner */
