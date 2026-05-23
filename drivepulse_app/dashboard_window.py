@@ -956,6 +956,9 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         # list+detail side-by-side on desktop.
         if hasattr(self, "cars_page") and hasattr(self.cars_page, "set_collapsed"):
             self.cars_page.set_collapsed(ff == "mobile")
+        # Map page: nudges replay-info overlay below the top-left info button.
+        if hasattr(self, "map_page") and hasattr(self.map_page, "set_form_factor"):
+            self.map_page.set_form_factor(ff)
 
     def _apply_window_theme(self, theme: str) -> None:
         from gi.repository import Adw
