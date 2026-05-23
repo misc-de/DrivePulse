@@ -14,7 +14,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
 from .common import _translate
 from .cars_metadata import _CHART_METRICS
@@ -411,6 +411,36 @@ def _build_chart_widget(
     drag_ctl.connect("drag-update", _on_chart_drag_update)
     drag_ctl.group(tap_ctl)
     area.add_controller(drag_ctl)
+
+    # Touch-swipe scrub: GestureDrag waits for an 8 px threshold before
+    # firing drag-begin, so a fast swipe that ends before the threshold
+    # leaves the cursor pinned at the press location. A legacy controller
+    # in CAPTURE phase reads every TOUCH_UPDATE directly and moves the
+    # cursor in lockstep, so even quick wipes mark the chart correctly.
+    legacy = Gtk.EventControllerLegacy()
+    legacy.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+    _touching = [False]
+
+    def _on_legacy(_c: Any, event: Any) -> bool:
+        if event is None:
+            return False
+        et = event.get_event_type()
+        if et == Gdk.EventType.TOUCH_BEGIN:
+            ok, x, _y = event.get_position()
+            if ok:
+                _touching[0] = True
+                _set_cursor(x, area.get_width())
+        elif et == Gdk.EventType.TOUCH_UPDATE:
+            if _touching[0]:
+                ok, x, _y = event.get_position()
+                if ok:
+                    _set_cursor(x, area.get_width())
+        elif et in (Gdk.EventType.TOUCH_END, Gdk.EventType.TOUCH_CANCEL):
+            _touching[0] = False
+        return False
+
+    legacy.connect("event", _on_legacy)
+    area.add_controller(legacy)
 
     return area
 
