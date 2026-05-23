@@ -219,7 +219,11 @@ class CarsPage(
     def set_language(self, language: str) -> None:
         self.language = _normalize_language(language)
         self._list_page.set_title(_translate(self.language, "nav.cars"))
-        self._categories_label.set_text(_translate(self.language, "cars.categories"))
+        for sep in getattr(self, "_cat_section_rows", []):
+            key = getattr(sep, "section_label_key", None)
+            lbl = getattr(sep, "section_label_widget", None)
+            if key and lbl:
+                lbl.set_label(_translate(self.language, key))
         self._detail_back_btn.set_tooltip_text(_translate(self.language, "cars.back"))
         if self._add_live_vehicle_btn is not None:
             self._add_live_vehicle_btn.set_tooltip_text(_translate(self.language, "cars.live.add.tooltip"))
@@ -823,6 +827,9 @@ class CarsPage(
 
     def _on_category_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
+            return
+        # Section divider rows (e.g. "OBD Daten") have no cat_key — ignore.
+        if not hasattr(row, "cat_key"):
             return
         new_cat = getattr(row, "cat_key", CATEGORIES[0][0])
         if self._trip_select_mode and new_cat != "trips":
