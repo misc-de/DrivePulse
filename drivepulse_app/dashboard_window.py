@@ -801,29 +801,23 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._apply_window_theme(self.gauge_theme)
         Adw.StyleManager.get_default().connect("notify::dark", self._on_system_dark_changed)
 
-    # Softens libadwaita's stock light palette (lots of #ffffff) toward a warm
-    # off-grey so the UI stops glaring without tipping into dark territory.
+    # Softens libadwaita's stock light palette toward a warm mid-grey while
+    # keeping its layering intact: view/card/popover sit *above* the window in
+    # luminance (paper-on-frame), headerbar/sidebar sit *below*. Same set of
+    # tokens the established adw-colors themes (Plano2/Nord/Solarized) touch.
     _LIGHT_PALETTE_OVERRIDES = (
-        b"@define-color window_bg_color #9c9b97;"
-        b"@define-color view_bg_color #a7a6a2;"
-        b"@define-color card_bg_color #a7a6a2;"
-        b"@define-color popover_bg_color #aaa9a5;"
-        b"@define-color dialog_bg_color #9c9b97;"
-        b"@define-color headerbar_bg_color #908f8c;"
-        b"@define-color sidebar_bg_color #929190;"
-        b"@define-color secondary_sidebar_bg_color #979693;"
-        b"@define-color thumbnail_bg_color #9c9b97;"
-        b"@define-color overview_bg_color #9c9b97;"
-        b"@define-color sidebar_backdrop_color #8e8d8a;"
-        b"@define-color secondary_sidebar_backdrop_color #939290;"
-        b"@define-color headerbar_backdrop_color #939290;"
-        b"@define-color dialog_backdrop_color #9c9b97;"
-        b"entry, textview, textview text, .view text, treeview {"
-        b"  background-color: @view_bg_color;"
-        b"}"
-        b"row, list, listview, columnview, .boxed-list, .navigation-sidebar {"
-        b"  background-color: @card_bg_color;"
-        b"}"
+        b"@define-color window_bg_color #c8c6c2;"
+        b"@define-color view_bg_color #d6d4d0;"
+        b"@define-color headerbar_bg_color #b8b6b2;"
+        b"@define-color headerbar_backdrop_color @window_bg_color;"
+        b"@define-color sidebar_bg_color #b8b6b2;"
+        b"@define-color sidebar_backdrop_color @window_bg_color;"
+        b"@define-color secondary_sidebar_bg_color #c0beba;"
+        b"@define-color secondary_sidebar_backdrop_color @window_bg_color;"
+        b"@define-color card_bg_color @view_bg_color;"
+        b"@define-color popover_bg_color @view_bg_color;"
+        b"@define-color dialog_bg_color @view_bg_color;"
+        b"@define-color thumbnail_bg_color @window_bg_color;"
     )
 
     def _apply_light_palette(self) -> None:
