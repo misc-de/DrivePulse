@@ -553,6 +553,16 @@ class DashboardSettingsMixin:
             self.gps_reader.set_mock_mode(mock_mode)
         if hasattr(self, "map_page"):
             self.map_page.set_mock_mode(mock_mode)
+        if hasattr(self, "cars_page"):
+            self.cars_page.set_mock_mode(mock_mode)
+        if mock_mode:
+            try:
+                from .mock_seed import seed_mock_data
+                added = seed_mock_data(self.db)
+                if added and hasattr(self, "cars_page"):
+                    self.cars_page.refresh()
+            except Exception:
+                log.exception("Could not seed mock vehicle data")
 
     def _set_sidebar_side(self, side: str) -> None:
         if side == self.sidebar_side:
