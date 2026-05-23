@@ -84,11 +84,14 @@ class CarsScansMixin:
                 check_icon.add_css_class("accent")
                 check_icon.set_valign(Gtk.Align.CENTER)
                 row.add_prefix(check_icon)
-            badge = Gtk.Label(label=str(dtc))
-            badge.add_css_class("pill" if dtc == 0 else "error")
-            badge.add_css_class("caption")
-            badge.set_halign(Gtk.Align.END)
-            row.add_suffix(badge)
+            # DTC badge is only useful when the scan actually has a fault —
+            # showing "0" on every clean scan was noisy.
+            if dtc:
+                badge = Gtk.Label(label=str(dtc))
+                badge.add_css_class("error")
+                badge.add_css_class("caption")
+                badge.set_halign(Gtk.Align.END)
+                row.add_suffix(badge)
             row.set_activatable(True)
             row.connect("activated", lambda _r, s=sid: self._select_scan(s))
             lp = Gtk.GestureLongPress()
