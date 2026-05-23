@@ -413,6 +413,9 @@ class MapLayoutMixin:
         box.set_halign(Gtk.Align.START)
         box.set_valign(Gtk.Align.START)
         box.set_margin_start(12)
+        # Default to the desktop margin; set_form_factor() pushes the card
+        # further down on mobile where the top-left info button would
+        # otherwise overlap the card.
         box.set_margin_top(12)
         box.set_visible(False)
 

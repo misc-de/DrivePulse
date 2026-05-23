@@ -757,6 +757,16 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
 
         return False
 
+    # ── Form factor (mobile vs desktop chrome) ────────────────────────────────
+
+    def set_form_factor(self, form_factor: str) -> None:
+        """Adjust map overlays for mobile vs desktop chrome."""
+        self._form_factor = form_factor
+        # Push the replay info card further down on mobile so it doesn't
+        # collide with the info / steps toggle button at the top-left.
+        if getattr(self, "_replay_info_overlay", None) is not None:
+            self._replay_info_overlay.set_margin_top(72 if form_factor == "mobile" else 12)
+
     # ── Language ──────────────────────────────────────────────────────────────
 
     def set_language(self, language: str) -> None:

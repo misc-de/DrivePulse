@@ -249,21 +249,39 @@ class MapShumateMixin:
             return
         self._poi_layer.set_visible(visible)
 
+    # 3-tier speed palette for Shumate replay polylines. A finer ramp would
+    # need one PathLayer per colour bin, and every PathLayer redraws on each
+    # pan/zoom — keeping the count tiny is what makes the map usable.
+    _REPLAY_TIER_COLORS: tuple[tuple[float, float, float], ...] = (
+        (0.30, 0.55, 0.85),  # slow  — blue
+        (0.30, 0.75, 0.40),  # mid   — green
+        (0.85, 0.30, 0.30),  # fast  — red
+    )
+    _REPLAY_MAX_POINTS = 200
+
     def _shumate_show_colored_track(
         self, latlon_speed: list[tuple[float, float, float | None]]
     ) -> None:
         """Render a speed-coloured polyline for trip replay.
 
-        Builds one ``Shumate.PathLayer`` per quantised colour bin so the line
-        appears to gradient along the route. Layers are tracked in
-        ``self._replay_path_layers`` and cleared with
-        :meth:`_shumate_clear_colored_track`.
+        Uses a coarse 3-tier palette and aggressive downsampling so the total
+        number of ``Shumate.PathLayer`` instances stays in the low tens — many
+        layers murder pan/zoom performance.
         """
-        from .cars_trip_visuals import speed_to_rgb
-
         self._shumate_clear_colored_track()
         if not latlon_speed:
             return
+
+        # Downsample evenly to at most _REPLAY_MAX_POINTS to bound layer count
+        # and per-frame draw cost. Always keep the last sample so the track
+        # reaches the actual endpoint.
+        n = len(latlon_speed)
+        if n > self._REPLAY_MAX_POINTS:
+            step = max(1, n // self._REPLAY_MAX_POINTS)
+            sampled = list(latlon_speed[::step])
+            if sampled[-1] is not latlon_speed[-1]:
+                sampled.append(latlon_speed[-1])
+            latlon_speed = sampled
 
         viewport = self._shumate_map.get_viewport()
         inner = self._inner_map
@@ -272,25 +290,33 @@ class MapShumateMixin:
         speeds = [s for _, _, s in latlon_speed if s is not None]
         vmax = max(speeds) if speeds else 0.0
 
+        def tier_for(spd: float | None) -> int:
+            if spd is None or vmax <= 0:
+                return 0
+            t = spd / max(1.0, vmax)
+            if t < 0.34:
+                return 0
+            if t < 0.67:
+                return 1
+            return 2
+
         current_layer = None
-        current_qcolor: tuple[float, float, float] | None = None
+        current_tier: int | None = None
 
         for i, (lat, lon, spd) in enumerate(latlon_speed):
-            r, g, b = speed_to_rgb(spd, vmax)
-            # Quantise to ~8 steps per channel so consecutive samples at
-            # similar speeds share a single PathLayer.
-            qcolor = (round(r * 8) / 8, round(g * 8) / 8, round(b * 8) / 8)
-            if qcolor != current_qcolor:
-                current_qcolor = qcolor
+            tier = tier_for(spd)
+            if tier != current_tier:
+                current_tier = tier
                 current_layer = Shumate.PathLayer.new(viewport)
+                color = self._REPLAY_TIER_COLORS[tier]
                 rgba = Gdk.RGBA()
-                rgba.red, rgba.green, rgba.blue, rgba.alpha = (*qcolor, 0.92)
+                rgba.red, rgba.green, rgba.blue, rgba.alpha = (*color, 0.92)
                 current_layer.set_stroke_color(rgba)
                 current_layer.set_stroke_width(5.0)
                 inner.add_layer(current_layer)
                 self._replay_path_layers.append(current_layer)
                 # Bridge from the previous sample so segments don't have gaps
-                # where the colour bin changes.
+                # where the colour tier changes.
                 if i > 0:
                     prev_lat, prev_lon, _ = latlon_speed[i - 1]
                     current_layer.add_node(
