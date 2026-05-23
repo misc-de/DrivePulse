@@ -724,6 +724,13 @@ class CarsPage(
                     self._restoring_state = False
             else:
                 self._split_view.set_show_content(True)
+                # Re-render so form-factor-aware widgets (scan-date stack,
+                # etc.) swap their layout to the desktop variant.
+                self._render_detail()
+        elif self._detail_pushed:
+            # Collapsed → mobile layout. Re-render so the scan-date label
+            # switches to the three-line stack.
+            self._render_detail()
 
     def _is_sync_active(self) -> bool:
         return callable(self.get_sync_client) and self.get_sync_client() is not None
