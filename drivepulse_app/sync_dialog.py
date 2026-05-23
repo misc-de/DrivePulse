@@ -892,4 +892,3 @@ class ServerShareClient:
     def share_import(self, payload: dict) -> dict | None:
         self._server.set_pending_share(payload)
         return {"ok": True, "queued": True}
-        self._cancel_scanner()

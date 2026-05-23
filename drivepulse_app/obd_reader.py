@@ -15,7 +15,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, GObject  # noqa: E402
 
 try:
-    import obd  # type: ignore
+    import obd
 except Exception:
     obd = None
 
@@ -61,7 +61,7 @@ class ObdReader(GObject.Object):
         self.force_mock = force_mock
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
-        self.connection = None
+        self.connection: Any = None
         self.connected_port: str | None = None
         self.failed_read_count = 0
         self.next_mock_reconnect_attempt = 0.0

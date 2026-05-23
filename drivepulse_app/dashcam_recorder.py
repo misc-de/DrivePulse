@@ -20,13 +20,13 @@ _GST_OK = False
 try:
     import gi as _gi
     _gi.require_version("Gst", "1.0")
-    from gi.repository import Gst as _Gst   # type: ignore[attr-defined]
-    from gi.repository import GLib as _GLib  # type: ignore[attr-defined]
+    from gi.repository import Gst as _Gst
+    from gi.repository import GLib as _GLib
     _Gst.init(None)
     _GST_OK = True
 except Exception:
-    _Gst = None   # type: ignore[assignment]
-    _GLib = None  # type: ignore[assignment]
+    _Gst = None
+    _GLib = None
 
 _VIDEOS_DIR = Path.home() / "Videos" / "Dashcam"
 
@@ -398,7 +398,7 @@ class DashcamRecorder:
                 pipeline.set_state(_Gst.State.NULL)
                 self._gst_pipeline = None
 
-                last = self._gst_last_seg
+                last: Path | None = self._gst_last_seg
                 self._gst_last_seg = None
                 if last is not None and self.on_segment_done:
                     self.on_segment_done(last)

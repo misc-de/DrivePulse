@@ -17,10 +17,10 @@ log = get_logger(__name__)
 SHUMATE_OK = False
 try:
     gi.require_version("Shumate", "1.0")
-    from gi.repository import Shumate  # type: ignore[attr-defined]
+    from gi.repository import Shumate
     SHUMATE_OK = True
 except (ValueError, ImportError):
-    Shumate = None  # type: ignore[assignment]
+    Shumate = None
 
 
 class MapShumateMixin:

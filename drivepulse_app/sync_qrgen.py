@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import subprocess
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gi.repository import GdkPixbuf
 
 
 def make_svg(text: str, module_size: int = 8, margin: int = 4) -> str:
@@ -13,7 +17,7 @@ def make_svg(text: str, module_size: int = 8, margin: int = 4) -> str:
     return result.stdout.decode("utf-8")
 
 
-def make_pixbuf(text: str) -> "GdkPixbuf.Pixbuf":  # type: ignore[name-defined]
+def make_pixbuf(text: str) -> GdkPixbuf.Pixbuf:
     import gi
     gi.require_version("GdkPixbuf", "2.0")
     from gi.repository import GdkPixbuf

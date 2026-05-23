@@ -117,16 +117,16 @@ class DashboardTelemetryMixin:
             return True
         return (now - getattr(self, "_gps_last_seen", 0.0)) < self.GPS_UNAVAIL_HOLDOVER
 
-    def _update_from_payload(self, payload: dict[str, Any]) -> bool:
+    def _update_from_payload(self, payload: dict[str, Any]) -> None:
         source = payload.get("source", "")
 
         if source == "obd_scan":
             self._handle_scan_update(payload)
-            return False
+            return
 
         if source == "obd_scan_identity":
             self._handle_scan_identity(payload)
-            return False
+            return
 
         if source == "gps":
             gps_speed_kmh = self._plain_number(payload, "gps_speed")
@@ -177,7 +177,7 @@ class DashboardTelemetryMixin:
                 if src_gps:
                     self.dashboard_canvas.update_speed(display, f"{display:.0f}" if display is not None else None)
                     self.dashboard_canvas.update_speed_source(src_gps)
-            return False
+            return
 
         self.last_payload = payload
         active = source in ("obd", "mock")
@@ -283,7 +283,6 @@ class DashboardTelemetryMixin:
         # Telemetrie persistieren — nur bei echter OBD-Verbindung (mock zählt nicht).
         if source == "obd" and self._has_obd_data(payload):
             self._record_obd_sample(payload)
-        return False
 
     def _record_obd_sample(self, payload: dict[str, Any]) -> None:
         ts = time.time()
@@ -308,11 +307,11 @@ class DashboardTelemetryMixin:
         # Neuer Trip gestartet → Live-Tracking zurücksetzen
         if current_trip_id is not None and current_trip_id != self._live_trip_id:
             self._live_trip_id = current_trip_id
-            self._live_rpm_min = None
-            self._live_rpm_max = None
-            self._live_coolant_min = None
-            self._live_coolant_max = None
-            self._live_speed_max = None
+            self._live_rpm_min: float | None = None
+            self._live_rpm_max: float | None = None
+            self._live_coolant_min: float | None = None
+            self._live_coolant_max: float | None = None
+            self._live_speed_max: float | None = None
             for _g in (self.rpm_gauge, self.speed_gauge, self.temp_gauge):
                 _g.reset_minmax()
 

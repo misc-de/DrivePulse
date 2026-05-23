@@ -35,7 +35,7 @@ def _install_theme_import_aliases() -> None:
             if spec and spec.loader:
                 mod = _il.util.module_from_spec(spec)
                 sys.modules["theme_defaults"] = mod
-                spec.loader.exec_module(mod)  # type: ignore[union-attr]
+                spec.loader.exec_module(mod)
 
 
 def _gauge_apply_rotation(cr: Any, width: int, height: int, angle: int) -> tuple[int, int]:
@@ -82,7 +82,7 @@ def load_builtin_themes() -> None:
                 continue
             mod = importlib.util.module_from_spec(spec)
             sys.modules[mod_name] = mod
-            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            spec.loader.exec_module(mod)
             theme_type = getattr(mod, "THEME_TYPE", "gauge")
             if theme_type == "dashboard":
                 _builtin_dashboard_mods[stem] = mod
@@ -184,7 +184,7 @@ def load_user_themes(themes_dir: Path, language: str = "en") -> None:
             if spec is None or spec.loader is None:
                 continue
             mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            spec.loader.exec_module(mod)
             raw_label = getattr(mod, "LABEL", stem)
             # LABEL may be a localised dict {"en": "...", "de": "..."} or a plain string.
             if isinstance(raw_label, dict):

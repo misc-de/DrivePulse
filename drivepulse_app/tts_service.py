@@ -28,7 +28,7 @@ try:
     from gi.repository import GLib as _GLib
     _GLIB_OK = True
 except ImportError:
-    _GLib = None  # type: ignore[assignment]
+    _GLib = None
     _GLIB_OK = False
 
 from .diagnostics import get_logger
@@ -376,6 +376,7 @@ def _prerender_sync(text: str, language: str, gender: VoiceGender, quality: str,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
+            assert echo.stdout is not None and piper_proc.stdout is not None  # noqa: S101 — stdout=PIPE guarantees non-None
             echo.stdout.close()
             data = piper_proc.stdout.read()
             piper_proc.wait()
@@ -597,6 +598,7 @@ def _launch_piper(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
+        assert echo.stdout is not None and piper_proc.stdout is not None  # noqa: S101 — stdout=PIPE guarantees non-None
         echo.stdout.close()  # let echo exit when piper closes the pipe
         aplay = subprocess.Popen(
             ["aplay", "-r", str(_piper_sample_rate(model)), "-f", "S16_LE", "-c", "1", "-q"],

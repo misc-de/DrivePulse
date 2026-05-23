@@ -4,7 +4,7 @@ from __future__ import annotations
 import atexit
 import math
 import time
-from typing import Any
+from typing import Any, cast
 
 import gi
 
@@ -33,7 +33,7 @@ from .gps_reader import GpsReader
 from .mock_tour import MockTourSimulator
 from .orientation_reader import OrientationReader
 from .obd_reader import ObdReader
-from .rotation import RotationProvider
+from .rotation import RotationProvider, Source as RotationSource
 from .rotated_container import RotatedContainer
 from .trip_recorder import TripRecorder
 
@@ -94,7 +94,10 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.nav_position: str = self.settings.get("nav_position", "bottom")
         self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
         self.dashcam_speed_osd: bool = bool(self.settings.get("dashcam_speed_osd", False))
-        self.rotation_mode: str = self.settings.get("rotation_mode", "follow_sensor")
+        # Validated at load time in app_settings.py against {"follow_sensor", "follow_system"}.
+        self.rotation_mode: RotationSource = cast(
+            RotationSource, self.settings.get("rotation_mode", "follow_sensor")
+        )
         self.tts_enabled: bool = bool(self.settings.get("tts_enabled", True))
         self.tts_backend: str = self.settings.get("tts_backend", "espeak")
         self.tts_language: str = self.settings.get("tts_language", "auto")
@@ -846,7 +849,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             page = pages.get_item(i)
             name = page.get_name()
             row = Gtk.ListBoxRow()
-            row.page_name = name  # type: ignore[attr-defined]
+            row.page_name = name
             row.set_tooltip_text(page.get_title() or name)
             img = Gtk.Image.new_from_icon_name(page.get_icon_name() or "")
             img.set_pixel_size(22)
@@ -1062,7 +1065,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
     def _open_conflict_page(self, *_args: Any) -> None:
         if self.nav_view.find_page("share-conflicts") is not None:
             return
-        t = lambda key: _translate(self.language, key)
+        def t(key: str, **values: object) -> str:
+            return _translate(self.language, key, **values)
 
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()

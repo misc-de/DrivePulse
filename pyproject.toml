@@ -28,3 +28,74 @@ include = ["drivepulse_app*", "themes*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["__pycache__", "themes", "icons"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "I",   # isort
+    "PL",  # pylint
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",    # line too long — handled by formatter, many existing long lines
+    "PLR0913", # too many arguments — GTK callbacks
+    "PLR0912", # too many branches — telemetry dispatchers
+    "PLR0915", # too many statements — render loops
+    "PLR2004", # magic value comparisons — UI pixel constants
+    "PLR0911", # too many return statements
+    "SIM108",  # ternary preference — not always clearer
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "B011"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["drivepulse_app", "drivepulse.py", "theme_defaults.py"]
+exclude = ["__pycache__", "themes/"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+
+# PyGObject ships no type stubs — make gi.repository import as Any so the
+# attribute-access noise from Gtk/Adw/Gdk calls disappears and real findings stay visible.
+[[tool.mypy.overrides]]
+module = ["gi", "gi.repository", "gi.repository.*"]
+follow_imports = "skip"
+
+# Mixin classes (DashboardLayoutMixin, CarsLayoutMixin, …) reference attributes
+# (self.view_stack, self.dashboard_page, …) that are set by the concrete window
+# class composing them. Mypy can't see across the composition without Protocols,
+# so attr-defined errors on these modules are structural false positives.
+[[tool.mypy.overrides]]
+module = [
+    "drivepulse_app.cars_actions",
+    "drivepulse_app.cars_detail_render",
+    "drivepulse_app.cars_layout",
+    "drivepulse_app.cars_photos",
+    "drivepulse_app.cars_scans",
+    "drivepulse_app.cars_stopwatch_runs",
+    "drivepulse_app.cars_trips",
+    "drivepulse_app.dashboard_layout",
+    "drivepulse_app.dashboard_settings",
+    "drivepulse_app.dashboard_telemetry",
+    "drivepulse_app.map_layout",
+    "drivepulse_app.map_tour",
+    "drivepulse_app.map_traffic",
+    "drivepulse_app.stopwatch_processing",
+    "drivepulse_app.stopwatch_replay",
+]
+disable_error_code = ["attr-defined"]

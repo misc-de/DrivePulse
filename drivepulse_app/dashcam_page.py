@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -27,11 +28,11 @@ _DIM_DEFAULT_S = 30
 _GST_OK = False
 try:
     gi.require_version("Gst", "1.0")
-    from gi.repository import Gst  # type: ignore[attr-defined]
+    from gi.repository import Gst
     Gst.init(None)
     _GST_OK = True
 except Exception:
-    Gst = None  # type: ignore[assignment]
+    Gst = None
 
 
 class _CameraPreview:
@@ -54,8 +55,8 @@ class _CameraPreview:
         self._picture        = picture
         self._on_first_frame = on_first_frame
         self._on_all_failed  = on_all_failed
-        self._pipeline       = None
-        self._sink           = None        # only set for appsink mode
+        self._pipeline: Any = None
+        self._sink: Any     = None         # only set for appsink mode
         self._timer: int | None = None
         self._camera       = "/dev/video0"
         self._got_frame    = False

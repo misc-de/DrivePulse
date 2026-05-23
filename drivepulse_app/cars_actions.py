@@ -119,7 +119,7 @@ class CarsActionsMixin:
         if car_id is None:
             return
         self.refresh_profiles()
-        self._selected_car_id = car_id
+        self._selected_car_id: int | None = car_id
         self._update_live_add_button()
 
     def _open_rename_dialog(self) -> None:
