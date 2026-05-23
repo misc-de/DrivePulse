@@ -169,7 +169,14 @@ class MapLayoutMixin:
         save_btn.set_visible(False)
         self._tour_save_btn = save_btn
 
-        for btn in (load_btn, plan_btn, save_btn):
+        history_btn = Gtk.Button()
+        history_btn.set_child(_child("document-open-recent-symbolic", "map.topnav.history"))
+        history_btn.add_css_class("flat")
+        history_btn.set_hexpand(True)
+        history_btn.connect("clicked", self._on_tour_history_clicked)
+        self._tour_history_btn = history_btn
+
+        for btn in (load_btn, plan_btn, save_btn, history_btn):
             bar.append(btn)
 
         self._map_content_box.append(bar)
@@ -208,6 +215,156 @@ class MapLayoutMixin:
         page.set_child(toolbar_view)
         nav_view.push(page)
         self._rebuild_tour_list()
+
+    # Pull this many history rows per fetch. Small enough to keep the first
+    # render snappy, large enough that you don't trigger pagination on every
+    # tiny scroll.
+    _TOUR_HISTORY_PAGE_SIZE = 30
+
+    def _on_tour_history_clicked(self, _btn: object) -> None:
+        nav_view = getattr(self, "_nav_view", None)
+        if nav_view is None:
+            return
+
+        self._tour_history_offset = 0
+        self._tour_history_loading = False
+        self._tour_history_exhausted = False
+        self._tour_history_empty_row: Gtk.ListBoxRow | None = None
+
+        listbox = Gtk.ListBox()
+        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        listbox.add_css_class("boxed-list")
+        listbox.set_valign(Gtk.Align.START)
+        self._tour_history_listbox = listbox
+
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        inner.set_margin_top(12)
+        inner.set_margin_bottom(12)
+        inner.set_margin_start(12)
+        inner.set_margin_end(12)
+        inner.append(listbox)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+        scrolled.set_child(inner)
+        scrolled.connect("edge-reached", self._on_tour_history_edge_reached)
+
+        toolbar_view = Adw.ToolbarView()
+        toolbar_view.add_top_bar(Adw.HeaderBar())
+        toolbar_view.set_content(scrolled)
+
+        page = Adw.NavigationPage(title=_translate(self.language, "map.topnav.history"))
+        page.set_child(toolbar_view)
+        nav_view.push(page)
+
+        self._load_more_tour_history()
+
+    def _on_tour_history_edge_reached(
+        self, _sw: Gtk.ScrolledWindow, pos: Gtk.PositionType
+    ) -> None:
+        if pos == Gtk.PositionType.BOTTOM:
+            self._load_more_tour_history()
+
+    def _load_more_tour_history(self) -> None:
+        if getattr(self, "_tour_history_loading", False):
+            return
+        if getattr(self, "_tour_history_exhausted", False):
+            return
+        db = getattr(self, "_map_db", None)
+        if db is None:
+            return
+
+        self._tour_history_loading = True
+        try:
+            page_size = self._TOUR_HISTORY_PAGE_SIZE
+            rows = db.list_tour_history(page_size, self._tour_history_offset)
+            for row in rows:
+                self._append_tour_history_row(row)
+            if len(rows) < page_size:
+                self._tour_history_exhausted = True
+            self._tour_history_offset += len(rows)
+            if self._tour_history_offset == 0:
+                self._show_tour_history_empty()
+        finally:
+            self._tour_history_loading = False
+
+    def _show_tour_history_empty(self) -> None:
+        listbox = getattr(self, "_tour_history_listbox", None)
+        if listbox is None or self._tour_history_empty_row is not None:
+            return
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+        row.set_selectable(False)
+        lbl = Gtk.Label(label=_translate(self.language, "map.history.empty"))
+        lbl.add_css_class("dim-label")
+        lbl.set_margin_top(18)
+        lbl.set_margin_bottom(18)
+        lbl.set_wrap(True)
+        row.set_child(lbl)
+        listbox.append(row)
+        self._tour_history_empty_row = row
+
+    @staticmethod
+    def _format_history_ts(ts: str) -> str:
+        if not ts:
+            return ""
+        # ISO timestamps stored as "2026-05-23T07:32:11+00:00" — keep the
+        # date+time portion, drop the seconds/timezone for the row label.
+        return ts[:16].replace("T", " ")
+
+    @staticmethod
+    def _format_history_duration(seconds: float | None) -> str:
+        if not seconds or seconds <= 0:
+            return ""
+        s = int(seconds)
+        h, rem = divmod(s, 3600)
+        m, _ = divmod(rem, 60)
+        if h > 0:
+            return f"{h}h {m:02d}min"
+        return f"{m}min"
+
+    def _format_history_title(self, row: Any) -> str:
+        kind = row["kind"]
+        if kind == "tour":
+            return row["trip_label"] or _translate(self.language, "map.history.kind_tour")
+        # trip
+        car_label = row["car_label"] or row["car_brand"] or ""
+        if not car_label and row["car_vin"]:
+            car_label = f"VIN …{row['car_vin'][-5:]}"
+        trip_label = row["trip_label"] or ""
+        if car_label and trip_label:
+            return f"{car_label} · {trip_label}"
+        return car_label or trip_label or _translate(self.language, "map.history.kind_trip")
+
+    def _format_history_subtitle(self, row: Any) -> str:
+        ts = self._format_history_ts(row["ts"] or "")
+        kind = row["kind"]
+        if kind == "tour":
+            return ts
+        parts = [ts] if ts else []
+        dist = row["distance_km"]
+        if dist:
+            parts.append(f"{dist:.1f} km")
+        dur = self._format_history_duration(row["duration_s"])
+        if dur:
+            parts.append(dur)
+        return "  ·  ".join(parts)
+
+    def _append_tour_history_row(self, data: Any) -> None:
+        listbox = getattr(self, "_tour_history_listbox", None)
+        if listbox is None:
+            return
+        action_row = Adw.ActionRow()
+        action_row.set_title(GLib.markup_escape_text(self._format_history_title(data)))
+        action_row.set_subtitle(GLib.markup_escape_text(self._format_history_subtitle(data)))
+        icon_name = (
+            "dp-tour-plan-symbolic" if data["kind"] == "tour" else "driving-symbolic"
+        )
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        action_row.add_prefix(icon)
+        listbox.append(action_row)
 
     def _on_tour_save_clicked(self, _btn: object) -> None:
         import json as _json
