@@ -825,6 +825,7 @@ class SettingsDialog(Adw.NavigationPage):
     def _on_hiding(self, _page: "SettingsDialog") -> None:
         self._closing = True
         tts_service.set_download_callback(None)
+        self._cancel_no_update_reset()
 
     # ── Dashcam callbacks ─────────────────────────────────────────────────────
 
@@ -1143,9 +1144,22 @@ class SettingsDialog(Adw.NavigationPage):
     # ── Update check ──────────────────────────────────────────────────────────
 
     def _on_check_update(self, _btn: Gtk.Button) -> None:
+        self._cancel_no_update_reset()
         self._update_btn.set_label(_translate(self.language, "settings.app.checking"))
         self._update_btn.set_sensitive(False)
         threading.Thread(target=self._do_check, daemon=True).start()
+
+    def _cancel_no_update_reset(self) -> None:
+        src = getattr(self, "_no_update_reset_src", 0)
+        if src:
+            GLib.source_remove(src)
+            self._no_update_reset_src = 0
+
+    def _reset_check_btn_to_idle(self) -> bool:
+        self._no_update_reset_src = 0
+        self._update_btn.set_label(_translate(self.language, "settings.app.check_btn"))
+        self._update_btn.set_sensitive(True)
+        return False
 
     def _do_check(self) -> None:
         info = updater.check_for_update()
@@ -1177,6 +1191,10 @@ class SettingsDialog(Adw.NavigationPage):
         else:
             self._update_btn.set_label(_translate(self.language, "settings.app.no_update"))
             self._update_btn.set_sensitive(False)
+            self._cancel_no_update_reset()
+            self._no_update_reset_src = GLib.timeout_add_seconds(
+                10, self._reset_check_btn_to_idle
+            )
         return False
 
     def _on_apply_update(self, _btn: Gtk.Button) -> None:
