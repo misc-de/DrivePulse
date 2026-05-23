@@ -74,7 +74,13 @@ class CarsDetailRenderMixin:
                 raw_ts = entry.get("latest_scan_at")
                 ts = self._parse_ts(raw_ts) if raw_ts else None
                 label = ts.strftime("%d.%m.%Y  %H:%M") if ts else (entry.get("scan_label") or "—")
-                return self._flatten_profile(entry["data"]), label
+                # Ensure the flatten step has a scanned_at to format — the
+                # blob from get_scan_data sometimes lacks it, but the entry
+                # always knows when the most recent scan happened.
+                data_blob = entry["data"]
+                if raw_ts and not (data_blob or {}).get("scanned_at"):
+                    data_blob = {**(data_blob or {}), "scanned_at": raw_ts}
+                return self._flatten_profile(data_blob), label
         return {}, "—"
 
     def _flatten_profile(self, data: dict[str, Any]) -> dict[str, Any]:
