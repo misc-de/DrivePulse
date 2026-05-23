@@ -16,10 +16,78 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
+from .common import _translate
+from .cars_metadata import _CHART_METRICS
 from .diagnostics import get_logger
 
 
 log = get_logger(__name__)
+
+
+def build_trip_metric_data(
+    samples: list, language: str
+) -> tuple[dict[str, list], list[tuple[str, str, str, tuple[float, float, float], str]]]:
+    """Build per-metric point lists for the trip chart.
+
+    Returns ``(metric_data, avail)`` where ``metric_data[key]`` is a list of
+    ``(ts, value|None, lat, lon)`` tuples (one per GPS sample) and ``avail``
+    is the list of ``(key, label, unit, color, fmt)`` tuples for metrics
+    that have enough valid samples to be worth plotting.
+    """
+    base = [s for s in samples if s["lat"] is not None and s["lon"] is not None]
+
+    def _finite(v: Any) -> bool:
+        try:
+            return math.isfinite(float(v))
+        except (TypeError, ValueError):
+            return False
+
+    min_valid = max(2, int(len(base) * 0.30))
+    metric_data: dict[str, list] = {}
+    for mk, _ml, _mu, _mc, _mf in _CHART_METRICS:
+        pts = [
+            (s["ts"], s[mk] if _finite(s[mk]) else None, s["lat"], s["lon"])
+            for s in base
+        ]
+        if sum(1 for p in pts if p[1] is not None) >= min_valid:
+            metric_data[mk] = pts
+
+    if len(base) >= 2:
+        cum_km = 0.0
+        elapsed_pts: list = []
+        prev_s = None
+        for s in base:
+            if prev_s is not None:
+                dlat = math.radians(s["lat"] - prev_s["lat"])
+                dlon = math.radians(s["lon"] - prev_s["lon"])
+                a = (
+                    math.sin(dlat / 2) ** 2
+                    + math.cos(math.radians(prev_s["lat"]))
+                    * math.cos(math.radians(s["lat"]))
+                    * math.sin(dlon / 2) ** 2
+                )
+                cum_km += 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            elapsed_pts.append((s["ts"], cum_km, s["lat"], s["lon"]))
+            prev_s = s
+        if cum_km > 0.01:
+            metric_data["elapsed_km"] = elapsed_pts
+
+    avail: list = [
+        (k, _translate(language, l), u, c, f)
+        for k, l, u, c, f in _CHART_METRICS
+        if k in metric_data
+    ]
+    if "elapsed_km" in metric_data:
+        avail.append(
+            (
+                "elapsed_km",
+                _translate(language, "cars.metric.elapsed_km"),
+                "km",
+                (0.20, 0.75, 0.60),
+                "{:.2f}",
+            )
+        )
+    return metric_data, avail
 
 
 def _is_dark() -> bool:
