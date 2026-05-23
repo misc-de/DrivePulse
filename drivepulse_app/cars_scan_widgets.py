@@ -112,6 +112,9 @@ def _build_scan_detail_widget(
     pending = _safe_int(scan_meta["pending_dtc_count"])
     pids = _safe_int(scan_meta["pids_count"])
 
+    # Trend annotation only when DTC count actually moved; "unchanged" is
+    # noise and a brand-new scan with no predecessor stays unlabeled too.
+    trend_text: str | None = None
     if prev_meta is None:
         trend_text = _translate(language, "cars.scan.trend_first")
     else:
@@ -120,19 +123,19 @@ def _build_scan_detail_widget(
             trend_text = _translate(language, "cars.scan.trend_up", delta=delta)
         elif delta < 0:
             trend_text = _translate(language, "cars.scan.trend_down", delta=abs(delta))
-        else:
-            trend_text = _translate(language, "cars.scan.trend_same")
 
     # Scan date is already shown in the sub-page heading — drop the
     # repeated "Datum" stat row.
-    outer.append(_stat_list(
+    stat_rows: list[tuple[str, str]] = [
         (_translate(language, "cars.scan.protocol"),
          str(scan_meta["protocol"] or "—")),
         (_translate(language, "cars.scan.dtc_count"), str(dtc)),
         (_translate(language, "cars.scan.pending_count"), str(pending)),
         (_translate(language, "cars.scan.pids_count"), str(pids)),
-        ("DTC Trend", trend_text),
-    ))
+    ]
+    if trend_text:
+        stat_rows.append(("DTC Trend", trend_text))
+    outer.append(_stat_list(*stat_rows))
 
     dtcs = data.get("dtcs") or []
     dtc_title = Gtk.Label(label=_translate(language, "cars.scan.dtcs"), xalign=0.0)
