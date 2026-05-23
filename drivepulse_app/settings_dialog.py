@@ -268,13 +268,13 @@ class SettingsDialog(Adw.NavigationPage):
         self.traffic_nrw_row.add_suffix(self.traffic_nrw_switch)
         self.traffic_nrw_row.set_activatable_widget(self.traffic_nrw_switch)
 
-        _NAV_POSITIONS = ["bottom", "top"]
+        self._NAV_POSITIONS = ["bottom", "top", "left"]
         nav_pos_model = Gtk.StringList()
-        nav_pos_model.append(_translate(self.language, "settings.nav_position.bottom"))
-        nav_pos_model.append(_translate(self.language, "settings.nav_position.top"))
+        for key in self._NAV_POSITIONS:
+            nav_pos_model.append(_translate(self.language, f"settings.nav_position.{key}"))
         self.nav_position_row = Adw.ComboRow(title=_translate(self.language, "settings.nav_position"))
         self.nav_position_row.set_model(nav_pos_model)
-        sel_nav = _NAV_POSITIONS.index(current_nav_position) if current_nav_position in _NAV_POSITIONS else 0
+        sel_nav = self._NAV_POSITIONS.index(current_nav_position) if current_nav_position in self._NAV_POSITIONS else 0
         self.nav_position_row.set_selected(sel_nav)
         self.nav_position_row.connect("notify::selected", self._on_nav_position_selected)
 
@@ -1059,7 +1059,8 @@ class SettingsDialog(Adw.NavigationPage):
 
     def _on_nav_position_selected(self, *_args: Any) -> None:
         if self.on_nav_position_changed is not None:
-            pos = "top" if self.nav_position_row.get_selected() == 1 else "bottom"
+            idx = self.nav_position_row.get_selected()
+            pos = self._NAV_POSITIONS[idx] if 0 <= idx < len(self._NAV_POSITIONS) else self._NAV_POSITIONS[0]
             self.on_nav_position_changed(pos)
 
     def _on_rotation_mode_selected(self, *_args: Any) -> None:
