@@ -38,6 +38,11 @@ class DashboardLayoutMixin:
     # side + speed + side  =  side*(2 + _SPEED_SCALE) in the primary axis.
     _SPEED_SCALE = 1.45
 
+    # On desktop the gauges otherwise scale to fill the entire window,
+    # producing an over-blown dashboard. Cap the side gauge to a tasteful
+    # size; the speed gauge follows via _SPEED_SCALE.
+    _DESKTOP_SIDE_CAP = 280
+
     def _set_landscape_layout(self, width: int, height: int) -> None:
         self.gauge_box.set_orientation(Gtk.Orientation.HORIZONTAL)
         self.gauge_box.set_spacing(16)
@@ -79,6 +84,9 @@ class DashboardLayoutMixin:
         self._apply_gauge_sizes(side, speed)
 
     def _apply_gauge_sizes(self, side: int, speed: int) -> None:
+        if getattr(self, "form_factor", "mobile") == "desktop" and side > self._DESKTOP_SIDE_CAP:
+            side = self._DESKTOP_SIDE_CAP
+            speed = max(1, int(side * self._SPEED_SCALE))
         for gauge, sz in (
             (self.rpm_gauge,   side),
             (self.speed_gauge, speed),
