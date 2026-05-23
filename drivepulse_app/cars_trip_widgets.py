@@ -172,29 +172,21 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
 
     # --- Datenverlauf ---
     if _avail and chart_state:
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        header_box.set_hexpand(True)
-
-        chart_title_lbl = Gtk.Label(xalign=0.0)
-        chart_title_lbl.add_css_class("heading")
-        chart_title_lbl.set_hexpand(True)
-        _init_lbl = next((m[1] for m in _avail if m[0] == chart_state["key"]), _avail[0][1])
-        chart_title_lbl.set_label(_init_lbl)
-        header_box.append(chart_title_lbl)
-
         if len(_avail) > 1:
             _str_model = Gtk.StringList()
             for _label in (m[1] for m in _avail):
                 _str_model.append(_label)
             _dropdown = Gtk.DropDown.new(_str_model, None)
+            _dropdown.set_halign(Gtk.Align.START)
             _dropdown.set_valign(Gtk.Align.CENTER)
+            _dropdown.set_margin_bottom(5)
             _init_sel = next((i for i, m in enumerate(_avail) if m[0] == chart_state["key"]), 0)
             _dropdown.set_selected(_init_sel)
 
             def _on_metric_selected(dd: Gtk.DropDown, _pspec: Any, avail: list = _avail) -> None:
                 sel = dd.get_selected()
                 if 0 <= sel < len(avail):
-                    key, lbl, unit, color, fmt = avail[sel]
+                    key, _lbl, unit, color, fmt = avail[sel]
                     chart_state["pts"] = metric_data[key]
                     chart_state["unit"] = unit
                     chart_state["color"] = color
@@ -204,7 +196,6 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
                         chart_state["cursor_extra_fn"] = _elapsed_time_label
                     else:
                         chart_state.pop("cursor_extra_fn", None)
-                    chart_title_lbl.set_label(lbl)
                     cursor_state["idx"] = -1
                     if chart_area_ref[0]:
                         chart_area_ref[0].queue_draw()
@@ -212,9 +203,8 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
                         map_widget_ref[0].queue_draw()
 
             _dropdown.connect("notify::selected", _on_metric_selected)
-            header_box.append(_dropdown)
+            outer.append(_dropdown)
 
-        outer.append(header_box)
         sp_area = _build_chart_widget(chart_state, cursor_state, _on_cursor_change)
         chart_area_ref[0] = sp_area
         outer.append(sp_area)

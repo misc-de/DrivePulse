@@ -1110,6 +1110,10 @@ class MapLayoutMixin:
 
         if self._backend != "none":
             self._install_map_tap_controller(content)
+            # Shumate-only: a single Cairo overlay paints the replay polyline.
+            # Added first so the UI controls below sit on top of it.
+            if self._backend == "shumate":
+                self._build_shumate_replay_overlay(overlay)
             overlay.add_overlay(self._build_fab())
             overlay.add_overlay(self._build_zoom_controls())
             overlay.add_overlay(self._build_tour_controls())

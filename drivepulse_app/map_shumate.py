@@ -249,84 +249,103 @@ class MapShumateMixin:
             return
         self._poi_layer.set_visible(visible)
 
-    # 3-tier speed palette for Shumate replay polylines. A finer ramp would
-    # need one PathLayer per colour bin, and every PathLayer redraws on each
-    # pan/zoom — keeping the count tiny is what makes the map usable.
-    _REPLAY_TIER_COLORS: tuple[tuple[float, float, float], ...] = (
-        (0.30, 0.55, 0.85),  # slow  — blue
-        (0.30, 0.75, 0.40),  # mid   — green
-        (0.85, 0.30, 0.30),  # fast  — red
-    )
-    _REPLAY_MAX_POINTS = 200
+    def _build_shumate_replay_overlay(self, overlay: Gtk.Overlay) -> None:
+        """Attach a single Cairo DrawingArea on top of the Shumate map for the
+        replay polyline.
+
+        One overlay widget paints all segments in a single draw_func — matches
+        the Fahrtenbuch's performance (one Cairo pass, full colour granularity)
+        and avoids the per-bin ``Shumate.PathLayer`` explosion that made
+        pan/zoom unusable.
+        """
+        area = Gtk.DrawingArea()
+        area.set_hexpand(True)
+        area.set_vexpand(True)
+        area.set_can_target(False)  # don't intercept clicks on the map below
+        area.set_visible(False)
+        area.set_draw_func(self._draw_shumate_replay_overlay)
+        self._replay_track_area = area
+        self._replay_track_points: list[tuple[float, float, float | None]] = []
+
+        viewport = self._shumate_map.get_viewport()
+        for prop in ("latitude", "longitude", "zoom-level"):
+            viewport.connect(f"notify::{prop}", lambda *_a: area.queue_draw())
+
+        # Insert beneath the other overlay controls (FAB, zoom, etc.) so
+        # buttons keep their hit area on top of the painted track.
+        overlay.add_overlay(area)
+
+    def _draw_shumate_replay_overlay(
+        self, area: Gtk.DrawingArea, cr: Any, _w: int, _h: int
+    ) -> None:
+        from .cars_trip_visuals import speed_to_rgb
+
+        points = getattr(self, "_replay_track_points", None)
+        if not points or len(points) < 2:
+            return
+        viewport = self._shumate_map.get_viewport()
+
+        speeds = [s for _, _, s in points if s is not None]
+        vmax = max(speeds) if speeds else 0.0
+
+        # Project once per sample so we don't pay for it twice (case + line).
+        proj: list[tuple[float, float] | None] = []
+        for lat, lon, _spd in points:
+            try:
+                x, y = viewport.location_to_widget_coords(area, lat, lon)
+                proj.append((x, y))
+            except Exception:
+                proj.append(None)
+
+        cr.set_line_cap(1)   # ROUND
+        cr.set_line_join(1)  # ROUND
+
+        # Black case underneath for contrast against light/dark tiles.
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.35)
+        cr.set_line_width(7.0)
+        prev = proj[0]
+        for i in range(1, len(proj)):
+            cur = proj[i]
+            if prev is not None and cur is not None:
+                cr.move_to(*prev)
+                cr.line_to(*cur)
+            prev = cur
+        cr.stroke()
+
+        # Coloured segments — one stroke per segment, all in a single pass.
+        cr.set_line_width(4.5)
+        prev = proj[0]
+        for i in range(1, len(proj)):
+            cur = proj[i]
+            if prev is not None and cur is not None:
+                _lat, _lon, spd = points[i]
+                r, g, b = speed_to_rgb(spd, vmax)
+                cr.set_source_rgba(r, g, b, 0.95)
+                cr.move_to(*prev)
+                cr.line_to(*cur)
+                cr.stroke()
+            prev = cur
 
     def _shumate_show_colored_track(
         self, latlon_speed: list[tuple[float, float, float | None]]
     ) -> None:
-        """Render a speed-coloured polyline for trip replay.
+        """Render a speed-coloured polyline for trip replay via Cairo overlay.
 
-        Uses a coarse 3-tier palette and aggressive downsampling so the total
-        number of ``Shumate.PathLayer`` instances stays in the low tens — many
-        layers murder pan/zoom performance.
+        Stores the points + adjusts the viewport bbox; the actual drawing
+        happens in :meth:`_draw_shumate_replay_overlay`, which a single
+        Gtk.DrawingArea repaints on every viewport change.
         """
-        self._shumate_clear_colored_track()
         if not latlon_speed:
+            self._shumate_clear_colored_track()
             return
 
-        # Downsample evenly to at most _REPLAY_MAX_POINTS to bound layer count
-        # and per-frame draw cost. Always keep the last sample so the track
-        # reaches the actual endpoint.
-        n = len(latlon_speed)
-        if n > self._REPLAY_MAX_POINTS:
-            step = max(1, n // self._REPLAY_MAX_POINTS)
-            sampled = list(latlon_speed[::step])
-            if sampled[-1] is not latlon_speed[-1]:
-                sampled.append(latlon_speed[-1])
-            latlon_speed = sampled
+        self._replay_track_points = list(latlon_speed)
+        area = getattr(self, "_replay_track_area", None)
+        if area is not None:
+            area.set_visible(True)
+            area.queue_draw()
 
         viewport = self._shumate_map.get_viewport()
-        inner = self._inner_map
-        self._replay_path_layers: list[Any] = []
-
-        speeds = [s for _, _, s in latlon_speed if s is not None]
-        vmax = max(speeds) if speeds else 0.0
-
-        def tier_for(spd: float | None) -> int:
-            if spd is None or vmax <= 0:
-                return 0
-            t = spd / max(1.0, vmax)
-            if t < 0.34:
-                return 0
-            if t < 0.67:
-                return 1
-            return 2
-
-        current_layer = None
-        current_tier: int | None = None
-
-        for i, (lat, lon, spd) in enumerate(latlon_speed):
-            tier = tier_for(spd)
-            if tier != current_tier:
-                current_tier = tier
-                current_layer = Shumate.PathLayer.new(viewport)
-                color = self._REPLAY_TIER_COLORS[tier]
-                rgba = Gdk.RGBA()
-                rgba.red, rgba.green, rgba.blue, rgba.alpha = (*color, 0.92)
-                current_layer.set_stroke_color(rgba)
-                current_layer.set_stroke_width(5.0)
-                inner.add_layer(current_layer)
-                self._replay_path_layers.append(current_layer)
-                # Bridge from the previous sample so segments don't have gaps
-                # where the colour tier changes.
-                if i > 0:
-                    prev_lat, prev_lon, _ = latlon_speed[i - 1]
-                    current_layer.add_node(
-                        Shumate.Coordinate.new_full(prev_lat, prev_lon)
-                    )
-            if current_layer is not None:
-                current_layer.add_node(Shumate.Coordinate.new_full(lat, lon))
-
-        # Fit the viewport to the track bounds — same logic as the
-        # single-colour routing flow.
         lats = [p[0] for p in latlon_speed]
         lons = [p[1] for p in latlon_speed]
         clat = (min(lats) + max(lats)) / 2.0
@@ -341,15 +360,11 @@ class MapShumateMixin:
         self._setting_pos = False
 
     def _shumate_clear_colored_track(self) -> None:
-        layers = getattr(self, "_replay_path_layers", [])
-        inner = getattr(self, "_inner_map", None)
-        if inner is not None:
-            for layer in layers:
-                try:
-                    inner.remove_layer(layer)
-                except Exception:
-                    pass
-        self._replay_path_layers = []
+        self._replay_track_points = []
+        area = getattr(self, "_replay_track_area", None)
+        if area is not None:
+            area.set_visible(False)
+            area.queue_draw()
 
     def _shumate_set_replay_marker(self, lat: float, lon: float) -> None:
         layer = getattr(self, "_replay_marker_layer", None)
