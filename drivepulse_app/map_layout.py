@@ -462,22 +462,28 @@ class MapLayoutMixin:
         box.set_size_request(340, -1)
         box.set_visible(False)
 
-        # Header row with a minimize button on the right.  Kept across
-        # _populate_replay_chart re-renders so the button doesn't get torn
-        # down when the chart contents change.
+        # Header row: metric-selector dropdown on the left, minimize button
+        # on the right.  Kept across _populate_replay_chart re-renders so the
+        # button doesn't get torn down when the chart contents change.
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        head.set_valign(Gtk.Align.CENTER)
+        dropdown_slot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        dropdown_slot.set_valign(Gtk.Align.CENTER)
+        head.append(dropdown_slot)
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
         head.append(spacer)
         min_btn = Gtk.Button(icon_name="window-minimize-symbolic")
         min_btn.add_css_class("flat")
         min_btn.add_css_class("circular")
+        min_btn.set_valign(Gtk.Align.CENTER)
         min_btn.set_tooltip_text(_translate(self.language, "map.replay.chart_minimize"))
         min_btn.connect("clicked", lambda _b: self._set_replay_chart_minimized(True))
         head.append(min_btn)
         box.append(head)
         self._replay_chart_header = head
         self._replay_chart_min_btn = min_btn
+        self._replay_chart_dropdown_slot = dropdown_slot
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         box.append(content)
@@ -643,6 +649,15 @@ class MapLayoutMixin:
             nxt = child.get_next_sibling()
             content.remove(child)
             child = nxt
+        # Also clear the dropdown slot in the header so a previous metric
+        # selector doesn't stack up next to the minimize button.
+        slot = getattr(self, "_replay_chart_dropdown_slot", None)
+        if slot is not None:
+            child = slot.get_first_child()
+            while child is not None:
+                nxt = child.get_next_sibling()
+                slot.remove(child)
+                child = nxt
         self._replay_chart_widget = None
         self._replay_chart_area: Gtk.Widget | None = None
         # Fresh replay starts un-minimized.
@@ -672,13 +687,16 @@ class MapLayoutMixin:
             dropdown = Gtk.DropDown.new(str_model, None)
             dropdown.set_halign(Gtk.Align.START)
             dropdown.set_valign(Gtk.Align.CENTER)
-            dropdown.set_margin_start(4)
-            dropdown.set_margin_bottom(5)
             init_sel = next(
                 (i for i, m in enumerate(avail) if m[0] == def_key), 0
             )
             dropdown.set_selected(init_sel)
-            content.append(dropdown)
+            # Park the metric selector in the header next to the minimize
+            # button so they share a single row.
+            if slot is not None:
+                slot.append(dropdown)
+            else:
+                content.append(dropdown)
 
         # When the chart cursor moves, update the marker on the live map at
         # the GPS coord of the highlighted sample.
