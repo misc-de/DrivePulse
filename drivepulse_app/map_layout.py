@@ -162,7 +162,7 @@ class MapLayoutMixin:
         self._tour_load_btn = load_btn
 
         plan_btn = Gtk.ToggleButton()
-        plan_btn.set_child(_child("dp-tour-plan-symbolic", "map.topnav.plan"))
+        plan_btn.set_child(_child("distance-symbolic", "map.topnav.plan"))
         plan_btn.add_css_class("flat")
         plan_btn.set_hexpand(True)
         plan_btn.connect("toggled", self._on_tour_plan_toggled)
