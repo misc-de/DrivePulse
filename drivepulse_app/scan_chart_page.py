@@ -99,11 +99,12 @@ def _draw_chart(
     mean_rgba = (*fg, 0.40)
     lbl_rgba  = (*fg, 0.95)
 
-    # Light theme: paint the plot area pure white so axes/data have a clean
-    # canvas against the muted grey app background.
+    # Light theme: paint the entire chart canvas white (not just the plot
+    # rect) so the area around the axes/labels matches the boxed compare list
+    # below — no isolated grey strip framing the coordinate system.
     if not dark:
         cr.set_source_rgb(1.0, 1.0, 1.0)
-        cr.rectangle(pl, pt, plot_w, plot_h)
+        cr.rectangle(0, 0, w, h)
         cr.fill()
 
     # Axis lines
@@ -237,10 +238,6 @@ class ScanChartContent(Gtk.Box):
         self._da = Gtk.DrawingArea()
         self._da.set_content_height(_CHART_H)
         self._da.set_hexpand(True)
-        self._da.set_margin_top(10)
-        self._da.set_margin_bottom(10)
-        self._da.set_margin_start(8)
-        self._da.set_margin_end(8)
         self._da.set_draw_func(self._draw)
         self.append(self._da)
         self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
