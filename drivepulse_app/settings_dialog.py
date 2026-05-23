@@ -1,6 +1,8 @@
 """Settings dialog for DrivePulse."""
 from __future__ import annotations
 
+import os
+import sys
 from typing import Any, Callable
 
 import gi
@@ -1188,16 +1190,39 @@ class SettingsDialog(Adw.NavigationPage):
 
     def _on_apply_done(self, ok: bool) -> bool:
         if ok:
-            self._update_btn.set_label(_translate(self.language, "settings.app.update_done"))
-            # Reload version label
             new_ver = updater.get_current_version()
             subtitle = self._update_row.get_subtitle() or ""
             prefix = subtitle.split("·")[1].strip() if "·" in subtitle else ""
             self._update_row.set_subtitle(f"v{new_ver}  ·  {prefix}")
+            self._update_btn.set_label(_translate(self.language, "settings.app.restart_required"))
+            self._update_btn.set_sensitive(True)
+            try:
+                self._update_btn.disconnect_by_func(self._on_apply_update)
+            except TypeError:
+                pass
+            self._update_btn.connect("clicked", self._show_restart_dialog)
+            self._show_restart_dialog(None)
         else:
             self._update_btn.set_label(_translate(self.language, "settings.app.update_error"))
-        self._update_btn.set_sensitive(False)
+            self._update_btn.set_sensitive(False)
         return False
+
+    def _show_restart_dialog(self, _btn) -> None:
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "settings.app.restart_dialog.title"),
+            body=_translate(self.language, "settings.app.restart_dialog.body"),
+        )
+        dialog.add_response("no", _translate(self.language, "settings.app.restart_dialog.no"))
+        dialog.add_response("yes", _translate(self.language, "settings.app.restart_dialog.yes"))
+        dialog.set_response_appearance("yes", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("yes")
+        dialog.set_close_response("no")
+        dialog.connect("response", self._on_restart_response)
+        dialog.present(self.get_root())
+
+    def _on_restart_response(self, _dialog, response: str) -> None:
+        if response == "yes":
+            os.execv(sys.executable, [sys.executable] + sys.argv)
 
     # ── Bluetooth OBD ─────────────────────────────────────────────────────────
 
