@@ -789,15 +789,21 @@ class SettingsDialog(Adw.NavigationPage):
             "avatar-default-symbolic",
         )
 
-        # ── Bottom navigation bar (standard GNOME pattern) ────────────────────
-        switcher_bar = Adw.ViewSwitcherBar()
-        switcher_bar.set_stack(view_stack)
-        switcher_bar.set_reveal(True)
+        # ── Top navigation (ViewSwitcher inside the header) ───────────────────
+        view_switcher = Adw.ViewSwitcher()
+        view_switcher.set_stack(view_stack)
+        view_switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
 
         # ── Header: NavigationView injects the back-arrow automatically ──────
         dlg_header = Adw.HeaderBar()
         dlg_header.set_show_start_title_buttons(False)
         dlg_header.set_show_end_title_buttons(False)
+        dlg_header.set_title_widget(view_switcher)
+
+        # Fallback switcher bar for narrow widths
+        switcher_bar = Adw.ViewSwitcherBar()
+        switcher_bar.set_stack(view_stack)
+        switcher_bar.set_reveal(False)
 
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(dlg_header)
