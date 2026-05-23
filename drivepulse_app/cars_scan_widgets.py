@@ -47,8 +47,9 @@ def _format_scan_date(raw: Any) -> str:
 def _format_scan_date_stack(raw: Any) -> str | None:
     """Pango markup for the three-line scan date stamp used in the sidebar.
 
-    Layout: dimmed year / MM.DD / HH:MM, centred. Returns ``None`` when the
-    timestamp can't be parsed so the caller can hide the label.
+    Layout: year (lightest) / MM.DD (subtle) / HH:MM (subtle), centred.
+    Returns ``None`` when the timestamp can't be parsed so the caller can
+    hide the label.
     """
     if not raw:
         return None
@@ -57,9 +58,9 @@ def _format_scan_date_stack(raw: Any) -> str | None:
     except Exception:
         return None
     return (
-        f'<span alpha="55%">{dt.strftime("%Y")}</span>\n'
-        f'{dt.strftime("%m.%d")}\n'
-        f'{dt.strftime("%H:%M")}'
+        f'<span alpha="40%">{dt.strftime("%Y")}</span>\n'
+        f'<span alpha="75%">{dt.strftime("%m.%d")}</span>\n'
+        f'<span alpha="75%">{dt.strftime("%H:%M")}</span>'
     )
 
 
