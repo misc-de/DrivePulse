@@ -382,6 +382,20 @@ class MapShumateMixin:
             area.set_visible(False)
             area.queue_draw()
 
+    def _shumate_set_scale_offset(self, offset_px: int) -> None:
+        """Push the bottom-left scale ruler to the right of the replay chart.
+
+        When the replay chart overlay covers the bottom-left corner the
+        scale ruler is hidden behind it — pointless. Bumping its
+        ``margin_start`` parks it just to the right of the chart instead.
+        """
+        smap = getattr(self, "_shumate_map", None)
+        if smap is None:
+            return
+        scale = smap.get_scale()
+        if scale is not None:
+            scale.set_margin_start(offset_px)
+
     def _shumate_set_replay_marker(self, lat: float, lon: float) -> None:
         self._replay_marker_pos = (lat, lon)
         area = getattr(self, "_replay_track_area", None)
