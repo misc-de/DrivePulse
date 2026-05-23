@@ -94,7 +94,7 @@ class CarsDetailRenderMixin:
             out[_SPECIAL_PROTO] = str(data["protocol"])
         if data.get("scanned_at"):
             out[_SPECIAL_SCAN_DATE] = _format_scan_date(data["scanned_at"])
-            stack = _format_scan_date_stack(data["scanned_at"])
+            stack = _format_scan_date_stack(data["scanned_at"], self.language)
             if stack is not None:
                 out["__scan_date_stack__"] = stack
         dtcs = data.get("dtcs") or []
