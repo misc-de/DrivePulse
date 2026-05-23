@@ -249,6 +249,82 @@ class MapShumateMixin:
             return
         self._poi_layer.set_visible(visible)
 
+    def _shumate_show_colored_track(
+        self, latlon_speed: list[tuple[float, float, float | None]]
+    ) -> None:
+        """Render a speed-coloured polyline for trip replay.
+
+        Builds one ``Shumate.PathLayer`` per quantised colour bin so the line
+        appears to gradient along the route. Layers are tracked in
+        ``self._replay_path_layers`` and cleared with
+        :meth:`_shumate_clear_colored_track`.
+        """
+        from .cars_trip_visuals import speed_to_rgb
+
+        self._shumate_clear_colored_track()
+        if not latlon_speed:
+            return
+
+        viewport = self._shumate_map.get_viewport()
+        inner = self._inner_map
+        self._replay_path_layers: list[Any] = []
+
+        speeds = [s for _, _, s in latlon_speed if s is not None]
+        vmax = max(speeds) if speeds else 0.0
+
+        current_layer = None
+        current_qcolor: tuple[float, float, float] | None = None
+
+        for i, (lat, lon, spd) in enumerate(latlon_speed):
+            r, g, b = speed_to_rgb(spd, vmax)
+            # Quantise to ~8 steps per channel so consecutive samples at
+            # similar speeds share a single PathLayer.
+            qcolor = (round(r * 8) / 8, round(g * 8) / 8, round(b * 8) / 8)
+            if qcolor != current_qcolor:
+                current_qcolor = qcolor
+                current_layer = Shumate.PathLayer.new(viewport)
+                rgba = Gdk.RGBA()
+                rgba.red, rgba.green, rgba.blue, rgba.alpha = (*qcolor, 0.92)
+                current_layer.set_stroke_color(rgba)
+                current_layer.set_stroke_width(5.0)
+                inner.add_layer(current_layer)
+                self._replay_path_layers.append(current_layer)
+                # Bridge from the previous sample so segments don't have gaps
+                # where the colour bin changes.
+                if i > 0:
+                    prev_lat, prev_lon, _ = latlon_speed[i - 1]
+                    current_layer.add_node(
+                        Shumate.Coordinate.new_full(prev_lat, prev_lon)
+                    )
+            if current_layer is not None:
+                current_layer.add_node(Shumate.Coordinate.new_full(lat, lon))
+
+        # Fit the viewport to the track bounds — same logic as the
+        # single-colour routing flow.
+        lats = [p[0] for p in latlon_speed]
+        lons = [p[1] for p in latlon_speed]
+        clat = (min(lats) + max(lats)) / 2.0
+        clon = (min(lons) + max(lons)) / 2.0
+        alloc = self._shumate_map.get_allocation()
+        px_w = max(alloc.width, 400)
+        px_h = max(alloc.height, 600)
+        zoom = zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
+        self._setting_pos = True
+        viewport.set_zoom_level(zoom)
+        viewport.set_location(clat, clon)
+        self._setting_pos = False
+
+    def _shumate_clear_colored_track(self) -> None:
+        layers = getattr(self, "_replay_path_layers", [])
+        inner = getattr(self, "_inner_map", None)
+        if inner is not None:
+            for layer in layers:
+                try:
+                    inner.remove_layer(layer)
+                except Exception:
+                    pass
+        self._replay_path_layers = []
+
     def _shumate_set_replay_marker(self, lat: float, lon: float) -> None:
         layer = getattr(self, "_replay_marker_layer", None)
         if layer is None:

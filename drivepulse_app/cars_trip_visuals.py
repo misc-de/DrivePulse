@@ -24,6 +24,21 @@ from .diagnostics import get_logger
 log = get_logger(__name__)
 
 
+def speed_to_rgb(spd: float | None, vmax: float) -> tuple[float, float, float]:
+    """Map a sample speed to (r, g, b) on the blue→green→red speed gradient.
+
+    Same colour ramp as the Fahrtenbuch's _draw_gps_track so all trip
+    visualisations share one palette.
+    """
+    if spd is None or vmax <= 0:
+        return (0.4, 0.6, 0.9)
+    t = min(1.0, spd / max(1.0, vmax))
+    r = 0.2 + 0.7 * t
+    g = 0.5 + 0.4 * (1 - abs(0.5 - t) * 2)
+    b = 0.9 - 0.8 * t
+    return (r, g, b)
+
+
 def build_trip_metric_data(
     samples: list, language: str
 ) -> tuple[dict[str, list], list[tuple[str, str, str, tuple[float, float, float], str]]]:
