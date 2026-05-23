@@ -39,10 +39,8 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         row.add_suffix(lbl)
         stats.append(row)
 
-    # Start timestamp is already shown in the page heading — only list the
-    # end time here so the stats list doesn't repeat the same date+time.
-    ended = _safe_ts(trip["ended_at"])
-    _add_stat(_translate(language, "cars.trip.end"), ended.strftime("%d.%m.%Y %H:%M:%S") if ended else "—")
+    # Start and end timestamps duplicate what's already in the page heading
+    # and the duration row below — drop both date stats here.
     dur_s = trip["duration_s"] or 0.0
     if dur_s:
         hrs = int(dur_s // 3600)
