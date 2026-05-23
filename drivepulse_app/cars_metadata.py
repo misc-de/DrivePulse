@@ -85,6 +85,11 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("011C",                    "cars.pid.011C"),
         (_SPECIAL_SCAN_DATE,        "cars.pid.SCAN_DATE"),
     )),
+    ("diagnostics", "cars.category.diagnostics", "dialog-warning-symbolic", (
+        (_SPECIAL_DTC,        "cars.pid.DTC"),
+        (_SPECIAL_PENDING,    "cars.pid.PENDING_DTC"),
+        ("0141", "cars.pid.0141"),
+    )),
     ("scans", "cars.category.scans", "folder-saved-search-symbolic", ()),
     ("trips", "cars.category.trips", "globe-symbolic", ()),
     ("photos", "cars.category.photos", "camera-photo-symbolic", ()),
@@ -97,12 +102,6 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("011F", "cars.pid.011F"),
         ("0142", "cars.pid.0142"),
         (_SPECIAL_ADAPTER_V, "cars.pid.ATRV"),
-    )),
-    ("drive", "cars.category.drive", "speedometer4-symbolic", (
-        ("010D", "cars.pid.010D"),
-        ("0131", "cars.pid.0131"),
-        ("0121", "cars.pid.0121"),
-        ("0130", "cars.pid.0130"),
     )),
     ("temperatures", "cars.category.temperatures", "thermometer-symbolic", (
         ("0105", "cars.pid.0105"),
@@ -134,10 +133,11 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         ("012E", "cars.pid.012E"),
         ("0133", "cars.pid.0133"),
     )),
-    ("diagnostics", "cars.category.diagnostics", "dialog-warning-symbolic", (
-        (_SPECIAL_DTC,        "cars.pid.DTC"),
-        (_SPECIAL_PENDING,    "cars.pid.PENDING_DTC"),
-        ("0141", "cars.pid.0141"),
+    ("drive", "cars.category.drive", "speedometer4-symbolic", (
+        ("010D", "cars.pid.010D"),
+        ("0131", "cars.pid.0131"),
+        ("0121", "cars.pid.0121"),
+        ("0130", "cars.pid.0130"),
     )),
 )
 
