@@ -715,6 +715,11 @@ class CarsPage(
 
     def set_collapsed(self, collapsed: bool) -> None:
         """Toggle the NavigationSplitView between mobile and desktop modes."""
+        # Mobile-only spacer rows in the categories list are toggled on every
+        # call (not just transitions) so they end up matching the target
+        # collapsed state even when the value doesn't actually change.
+        for spacer in getattr(self, "_cat_mobile_spacer_rows", []):
+            spacer.set_visible(collapsed)
         if self._split_view.get_collapsed() == collapsed:
             return
         self._split_view.set_collapsed(collapsed)
