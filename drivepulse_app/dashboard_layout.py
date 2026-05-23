@@ -19,8 +19,14 @@ class DashboardLayoutMixin:
             return False
 
         if hasattr(self, "cars_page"):
-            # Use the shorter dimension so phones in landscape stay narrow
-            self.cars_page.set_narrow(min(width, height) < self.CARS_NARROW_BREAKPOINT)
+            # Phones always render the cars sidebar narrow regardless of
+            # orientation; on larger displays still use the dimension-based
+            # threshold so split windows / docked tablets stay responsive.
+            narrow = (
+                getattr(self, "form_factor", "desktop") == "mobile"
+                or min(width, height) < self.CARS_NARROW_BREAKPOINT
+            )
+            self.cars_page.set_narrow(narrow)
 
         if hasattr(self, "stopwatch_page"):
             self.stopwatch_page._apply_layout(width, height)
