@@ -640,18 +640,6 @@ class CarsPage(
                         break
         finally:
             self._restoring_state = False
-        # Re-render once the widget hierarchy is realised. _render_detail at
-        # this point runs while the cars_page isn't yet appended to the
-        # dashboard window, and some Gtk widgets (notably the scan-date
-        # listbox row) don't honour set_visible(True) until they've seen at
-        # least one allocation pass. Re-firing the render on idle catches
-        # this so the date appears on the first cars-tab open after restart.
-        GLib.idle_add(self._render_detail_if_pushed)
-
-    def _render_detail_if_pushed(self) -> bool:
-        if self._detail_pushed:
-            self._render_detail()
-        return False  # one-shot idle
 
     def _persist_state(self) -> None:
         if self._restoring_state:
