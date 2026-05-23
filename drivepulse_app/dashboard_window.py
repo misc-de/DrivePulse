@@ -263,6 +263,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
         self.cars_page.get_sync_client = self._get_active_sync_client
         self.cars_page.on_load_stopwatch_run = self._load_persisted_run_into_stopwatch
+        self.cars_page.on_open_trip_as_route = self._open_trip_as_route_on_map
         self._cars_rotator = RotatedContainer()
         self._cars_rotator.set_child(self.cars_page)
         self._cars_rotator.set_hexpand(True)
@@ -782,6 +783,26 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
             self.view_stack.set_visible_child_name(self.PAGE_MAP)
             self._last_swipe_time = time.monotonic()
+
+    def _open_trip_as_route_on_map(
+        self,
+        coords_lonlat: list[list[float]],
+        distance_km: float | None,
+        duration_s: float | None,
+        label: str | None,
+    ) -> None:
+        """Switch to the Map tab and draw a recorded trip's polyline as the route."""
+        if not hasattr(self, "map_page") or not coords_lonlat:
+            return
+        self.view_stack.set_visible_child_name(self.PAGE_MAP)
+        GLib.idle_add(
+            lambda: (
+                self.map_page.load_trip_as_route(
+                    coords_lonlat, distance_km, duration_s, label
+                ),
+                False,
+            )[1]
+        )
 
     def _load_persisted_run_into_stopwatch(self, data: dict) -> None:
         """Hand off a saved stopwatch run, switch to the StopWatch tab, replay."""

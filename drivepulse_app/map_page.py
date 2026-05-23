@@ -759,6 +759,98 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
 
         return False
 
+    def load_trip_as_route(
+        self,
+        coords_lonlat: list[list[float]],
+        distance_km: float | None = None,
+        duration_s: float | None = None,
+        label: str | None = None,
+    ) -> None:
+        """Display a recorded trip's driven GPS polyline as the active route.
+
+        Unlike `_route_result`, no OSRM/Valhalla call is made — the polyline
+        is taken verbatim from the trip samples. Tour controls (start + info)
+        become visible; the info panel will be empty because there are no
+        turn-by-turn maneuvers for a recorded track.
+        """
+        if not coords_lonlat or len(coords_lonlat) < 2:
+            return
+
+        nav_view = getattr(self, "_nav_view", None)
+        while nav_view is not None and nav_view.get_previous_page(
+            nav_view.get_visible_page()
+        ) is not None:
+            nav_view.pop()
+
+        if self._tour_paused or self._tour_active:
+            self._abort_tour()
+
+        coords = [[float(c[0]), float(c[1])] for c in coords_lonlat]
+        start_lonlat = coords[0]
+        end_lonlat = coords[-1]
+        start = (start_lonlat[0], start_lonlat[1])
+        end = (end_lonlat[0], end_lonlat[1])
+
+        self._tour_steps = []
+        self._tour_step_idx = 0
+        self._step_min_dist = None
+        self._tour_coords = coords
+        self._gps_route_idx = 0
+        self._snapped_lat = None
+        self._snapped_lon = None
+        self._snapped_cum_m = 0.0
+        self._compute_route_progress_tables()
+        self._start_coord = start
+        self._end_coord = end
+        self._tour_waypoints = [start, end]
+        self._loaded_tour_id = None
+        self._route_coords = coords
+
+        target = 2
+        while len(self._entry_rows) < target:
+            self._insert_entry_after(self._entry_rows[-1][0])
+        while len(self._entry_rows) > target:
+            self._remove_entry(self._entry_rows[-1][0])
+        first_text = label or _translate(self.language, "cars.trip.start")
+        last_text = _translate(self.language, "cars.trip.end")
+        self._entry_rows[0][1].set_text(first_text)
+        self._entry_rows[-1][1].set_text(last_text)
+        self._update_placeholders()
+
+        parts: list[str] = []
+        if duration_s:
+            parts.append(
+                f"{_translate(self.language, 'map.duration_prefix')}{format_duration(float(duration_s))}"
+            )
+        if distance_km is not None:
+            parts.append(
+                f"{_translate(self.language, 'map.distance_prefix')}"
+                f"{format_distance(float(distance_km) * 1000.0, self.units)}"
+            )
+        self._status_lbl.set_text(" / ".join(parts))
+
+        self._set_tour_controls_visible(True)
+        if self._tour_save_btn is not None:
+            self._tour_save_btn.set_visible(False)
+        if self._steps_panel is not None:
+            self._steps_panel.set_visible(False)
+        if self._steps_toggle_btn is not None:
+            self._steps_toggle_btn.set_active(False)
+
+        lats = [c[1] for c in coords]
+        lons = [c[0] for c in coords]
+        self._set_follow(False)
+
+        if self._backend == "webkit":
+            self._js(f"mapSetRoute({json.dumps(coords)})")
+            pts_js = json.dumps([[p[0], p[1]] for p in self._tour_waypoints])
+            self._js(f"mapSetWaypoints({pts_js})")
+            min_lat, max_lat = min(lats), max(lats)
+            min_lon, max_lon = min(lons), max(lons)
+            self._js(f"mapFitBounds({min_lat},{min_lon},{max_lat},{max_lon})")
+        elif self._shumate_map is not None:
+            self._shumate_show_route(self._tour_waypoints, coords)
+
     # ── Form factor (mobile vs desktop chrome) ────────────────────────────────
 
     def set_form_factor(self, form_factor: str) -> None:
