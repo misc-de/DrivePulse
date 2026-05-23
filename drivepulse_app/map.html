@@ -547,6 +547,33 @@ function mapGoTo(lat, lon, zoom) {
   map.flyTo({ center: [lon, lat], zoom: zoom, pitch: 0, duration: 900 });
 }
 
+// Trip-replay scrubber marker: a single highlighted point on the polyline
+// that follows the chart cursor. Added on first call, removed via mapClearReplayMarker.
+function mapSetReplayMarker(lat, lon) {
+  if (!map) return;
+  const feat = { type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] }, properties: {} };
+  if (!map.getSource('replay-marker')) {
+    map.addSource('replay-marker', { type: 'geojson', data: feat });
+    map.addLayer({
+      id: 'replay-marker', type: 'circle', source: 'replay-marker',
+      paint: {
+        'circle-radius': 8,
+        'circle-color': '#1E88E5',
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 2,
+      },
+    });
+  } else {
+    map.getSource('replay-marker').setData(feat);
+  }
+}
+
+function mapClearReplayMarker() {
+  if (!map) return;
+  if (map.getLayer('replay-marker')) map.removeLayer('replay-marker');
+  if (map.getSource('replay-marker')) map.removeSource('replay-marker');
+}
+
 function mapSetRouteVisible(visible) {
   if (!map) return;
   const v = visible ? 'visible' : 'none';

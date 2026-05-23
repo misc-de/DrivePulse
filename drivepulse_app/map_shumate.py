@@ -84,6 +84,12 @@ class MapShumateMixin:
         self._marker_layer = Shumate.MarkerLayer.new(viewport)
         inner.add_layer(self._marker_layer)
 
+        # Holds the trip-replay scrubber marker — at most one marker, updated
+        # in place as the chart cursor moves.
+        self._replay_marker_layer = Shumate.MarkerLayer.new(viewport)
+        inner.add_layer(self._replay_marker_layer)
+        self._replay_marker: Any = None
+
         self._traffic_layer = Shumate.MarkerLayer.new(viewport)
         self._traffic_layer.set_visible(False)
         inner.add_layer(self._traffic_layer)
@@ -242,6 +248,31 @@ class MapShumateMixin:
         if self._poi_layer is None:
             return
         self._poi_layer.set_visible(visible)
+
+    def _shumate_set_replay_marker(self, lat: float, lon: float) -> None:
+        layer = getattr(self, "_replay_marker_layer", None)
+        if layer is None:
+            return
+        marker = getattr(self, "_replay_marker", None)
+        if marker is None:
+            da = Gtk.DrawingArea()
+            da.set_size_request(14, 14)
+            da.set_draw_func(
+                self._draw_dot,
+                ((0.12, 0.53, 0.90, 1.0), (1.0, 1.0, 1.0, 1.0)),
+            )
+            marker = Shumate.Marker.new()
+            marker.set_child(da)
+            self._replay_marker = marker
+            layer.add_marker(marker)
+        marker.set_location(lat, lon)
+
+    def _shumate_clear_replay_marker(self) -> None:
+        layer = getattr(self, "_replay_marker_layer", None)
+        if layer is None:
+            return
+        layer.remove_all()
+        self._replay_marker = None
 
     def _make_wp_marker(self, lat: float, lon: float, role: str) -> Any:
         if role == "start":

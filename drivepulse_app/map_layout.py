@@ -513,32 +513,112 @@ class MapLayoutMixin:
             _row(3, "map.replay.duration", dur)
 
     def _populate_replay_chart(self, samples: list) -> None:
-        """Build a speed-over-time chart from samples and place it in the overlay."""
-        from .cars_trip_visuals import _build_chart_widget
+        """Build a metric chart + dropdown for the replayed trip.
 
-        # Drop the previous chart widget if any
-        if self._replay_chart_widget is not None:
-            self._replay_chart_overlay.remove(self._replay_chart_widget)
-            self._replay_chart_widget = None
+        The chart cursor stays in sync with a marker on the live map: scrubbing
+        the chart moves a circle along the polyline so the user sees which
+        point on the route corresponds to the highlighted value.
+        """
+        from .cars_trip_visuals import _build_chart_widget, build_trip_metric_data
 
-        pts = [
-            (s["ts"], s["speed_kmh"], s["lat"], s["lon"])
-            for s in samples
-            if s["lat"] is not None and s["lon"] is not None and s["speed_kmh"] is not None
-        ]
-        if len(pts) < 2:
+        # Tear down anything from a previous replay.
+        child = self._replay_chart_overlay.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self._replay_chart_overlay.remove(child)
+            child = nxt
+        self._replay_chart_widget = None
+        self._replay_chart_area = None
+
+        metric_data, avail = build_trip_metric_data(samples, self.language)
+        if not avail:
             return
-        chart_state = {
-            "pts": pts,
-            "unit": "km/h",
-            "color": (0.34, 0.62, 0.86),
-            "fmt": "{:.0f}",
-            "key": "speed_kmh",
+
+        # Default to speed if present, otherwise first available.
+        def_key = "speed_kmh" if "speed_kmh" in metric_data else avail[0][0]
+        def_entry = next(m for m in avail if m[0] == def_key)
+        chart_state: dict[str, Any] = {
+            "pts": metric_data[def_key],
+            "unit": def_entry[2],
+            "color": def_entry[3],
+            "fmt": def_entry[4],
+            "key": def_key,
         }
-        cursor_state = {"idx": -1}
-        widget = _build_chart_widget(chart_state, cursor_state, lambda: None, height=140)
-        self._replay_chart_widget = widget
-        self._replay_chart_overlay.append(widget)
+        cursor_state: dict[str, Any] = {"idx": -1}
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.set_margin_start(4)
+        header.set_margin_end(4)
+        title_lbl = Gtk.Label(xalign=0.0)
+        title_lbl.add_css_class("caption-heading")
+        title_lbl.set_hexpand(True)
+        title_lbl.set_label(def_entry[1])
+        header.append(title_lbl)
+
+        dropdown = None
+        if len(avail) > 1:
+            str_model = Gtk.StringList()
+            for label in (m[1] for m in avail):
+                str_model.append(label)
+            dropdown = Gtk.DropDown.new(str_model, None)
+            dropdown.set_valign(Gtk.Align.CENTER)
+            init_sel = next(
+                (i for i, m in enumerate(avail) if m[0] == def_key), 0
+            )
+            dropdown.set_selected(init_sel)
+            header.append(dropdown)
+
+        self._replay_chart_overlay.append(header)
+
+        # When the chart cursor moves, update the marker on the live map at
+        # the GPS coord of the highlighted sample.
+        def _on_cursor_change() -> None:
+            idx = cursor_state.get("idx", -1)
+            pts = chart_state.get("pts") or []
+            if 0 <= idx < len(pts):
+                _ts, _val, clat, clon = pts[idx]
+                if clat is not None and clon is not None:
+                    self._map_set_replay_marker(clat, clon)
+            else:
+                self._map_clear_replay_marker()
+            if self._replay_chart_area is not None:
+                self._replay_chart_area.queue_draw()
+
+        area = _build_chart_widget(chart_state, cursor_state, _on_cursor_change, height=140)
+        self._replay_chart_area = area
+        self._replay_chart_widget = area
+        self._replay_chart_overlay.append(area)
+
+        if dropdown is not None:
+
+            def _on_metric_selected(dd: Gtk.DropDown, _pspec: Any) -> None:
+                sel = dd.get_selected()
+                if 0 <= sel < len(avail):
+                    key, lbl, unit, color, fmt = avail[sel]
+                    chart_state["pts"] = metric_data[key]
+                    chart_state["unit"] = unit
+                    chart_state["color"] = color
+                    chart_state["fmt"] = fmt
+                    chart_state["key"] = key
+                    title_lbl.set_label(lbl)
+                    cursor_state["idx"] = -1
+                    self._map_clear_replay_marker()
+                    if self._replay_chart_area is not None:
+                        self._replay_chart_area.queue_draw()
+
+            dropdown.connect("notify::selected", _on_metric_selected)
+
+    def _map_set_replay_marker(self, lat: float, lon: float) -> None:
+        if self._backend == "webkit":
+            self._js(f"mapSetReplayMarker({lat},{lon})")
+        elif getattr(self, "_shumate_map", None) is not None:
+            self._shumate_set_replay_marker(lat, lon)
+
+    def _map_clear_replay_marker(self) -> None:
+        if self._backend == "webkit":
+            self._js("mapClearReplayMarker()")
+        elif getattr(self, "_shumate_map", None) is not None:
+            self._shumate_clear_replay_marker()
 
     def _show_trip_replay(self, meta: dict) -> None:
         """Render a recorded trip's polyline + metadata on the live map."""
@@ -592,11 +672,12 @@ class MapLayoutMixin:
             self._set_follow(False)
 
     def _clear_replay_overlays(self) -> None:
-        """Hide the replay info + chart overlays and clear the polyline."""
+        """Hide the replay info + chart overlays and clear the polyline + marker."""
         if getattr(self, "_replay_info_overlay", None) is not None:
             self._replay_info_overlay.set_visible(False)
         if getattr(self, "_replay_chart_overlay", None) is not None:
             self._replay_chart_overlay.set_visible(False)
+        self._map_clear_replay_marker()
         if self._backend == "webkit":
             self._js("mapClearRoute()")
         elif getattr(self, "_shumate_map", None) is not None:
