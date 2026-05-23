@@ -1316,10 +1316,11 @@ class MapLayoutMixin:
         fab.set_halign(Gtk.Align.END)
         fab.set_valign(Gtk.Align.END)
         fab.set_margin_end(12)
-        # Sit at the same bottom edge as the replay-chart restore icon
-        # (margin_bottom = 12) so right- and left-side controls line up
-        # when the chart overlay is collapsed.
-        fab.set_margin_bottom(12)
+        # WebKit: align with the replay-chart restore icon (margin_bottom=12)
+        # so left and right controls share the same baseline.
+        # Shumate: keep the historical 36 px clearance so the FAB sits above
+        # the libshumate scale ruler that lives in the bottom-left corner.
+        fab.set_margin_bottom(36 if self._backend == "shumate" else 12)
         self._fab = fab
 
         self._poi_btn = Gtk.ToggleButton(icon_name="mark-location-symbolic")
