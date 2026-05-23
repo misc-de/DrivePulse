@@ -187,6 +187,9 @@ class MapLayoutMixin:
         self._tour_plan_active = btn.get_active()
         if self._search_bar is not None:
             self._search_bar.set_visible(self._tour_plan_active)
+        if self._tour_plan_active:
+            # Drop any trip-replay polyline / overlays so the planning UI starts clean.
+            self._clear_replay_overlays()
         GLib.idle_add(self._nudge_map_resize)
 
     def _on_tour_load_clicked(self, _btn: object) -> None:
@@ -366,7 +369,238 @@ class MapLayoutMixin:
         )
         icon = Gtk.Image.new_from_icon_name(icon_name)
         action_row.add_prefix(icon)
+        chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
+        action_row.add_suffix(chev)
+        action_row.set_activatable(True)
+        # Snapshot the metadata so the click handler doesn't need to re-query.
+        action_row._dp_history_meta = {  # type: ignore[attr-defined]
+            "kind": data["kind"],
+            "id": int(data["id"]),
+            "ts": data["ts"],
+            "distance_km": data["distance_km"],
+            "duration_s": data["duration_s"],
+            "trip_label": data["trip_label"],
+            "car_brand": data["car_brand"],
+            "car_label": data["car_label"],
+            "car_vin": data["car_vin"],
+        }
+        action_row.connect("activated", self._on_history_row_activated)
         listbox.append(action_row)
+
+    def _on_history_row_activated(self, row: Adw.ActionRow) -> None:
+        meta = getattr(row, "_dp_history_meta", None)
+        if not meta:
+            return
+        if meta["kind"] == "trip":
+            self._show_trip_replay(meta)
+        elif meta["kind"] == "tour":
+            db = getattr(self, "_map_db", None)
+            if db is None:
+                return
+            tour = db.get_saved_tour(int(meta["id"]))
+            if tour is None:
+                return
+            # _load_saved_tour pops the nav view and routes via _on_route_clicked
+            self._load_saved_tour(dict(tour))
+
+    # ── Trip / tour replay overlays ───────────────────────────────────────────
+
+    def _build_replay_info_overlay(self) -> Gtk.Widget:
+        """Top-left card showing the replayed trip's metadata."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.add_css_class("osd")
+        box.add_css_class("dp-replay-info")
+        box.set_halign(Gtk.Align.START)
+        box.set_valign(Gtk.Align.START)
+        box.set_margin_start(12)
+        box.set_margin_top(12)
+        box.set_visible(False)
+
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._replay_title_lbl = Gtk.Label(xalign=0.0)
+        self._replay_title_lbl.add_css_class("heading")
+        self._replay_title_lbl.set_hexpand(True)
+        head.append(self._replay_title_lbl)
+
+        close_btn = Gtk.Button(icon_name="window-close-symbolic")
+        close_btn.add_css_class("flat")
+        close_btn.add_css_class("circular")
+        close_btn.set_tooltip_text(_translate(self.language, "map.replay.close"))
+        close_btn.connect("clicked", lambda _b: self._clear_replay_overlays())
+        head.append(close_btn)
+        box.append(head)
+
+        self._replay_meta_grid = Gtk.Grid(column_spacing=12, row_spacing=2)
+        box.append(self._replay_meta_grid)
+
+        css = Gtk.CssProvider()
+        css.load_from_data(
+            b".dp-replay-info { border-radius: 10px; padding: 10px 14px; min-width: 220px; }"
+        )
+        box.connect(
+            "realize",
+            lambda w: Gtk.StyleContext.add_provider_for_display(
+                w.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            ),
+        )
+
+        self._replay_info_overlay = box
+        return box
+
+    def _build_replay_chart_overlay(self) -> Gtk.Widget:
+        """Bottom-left container for the speed chart shown during replay."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.add_css_class("osd")
+        box.add_css_class("dp-replay-chart")
+        box.set_halign(Gtk.Align.START)
+        box.set_valign(Gtk.Align.END)
+        box.set_margin_start(12)
+        box.set_margin_bottom(12)
+        box.set_size_request(340, -1)
+        box.set_visible(False)
+
+        css = Gtk.CssProvider()
+        css.load_from_data(b".dp-replay-chart { border-radius: 10px; padding: 6px; }")
+        box.connect(
+            "realize",
+            lambda w: Gtk.StyleContext.add_provider_for_display(
+                w.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            ),
+        )
+
+        self._replay_chart_overlay = box
+        self._replay_chart_widget: Gtk.Widget | None = None
+        return box
+
+    def _populate_replay_info(self, meta: dict, ended_at: str | None) -> None:
+        """Fill the top-left info card with car + trip metadata."""
+        grid = self._replay_meta_grid
+        # Clear previous rows
+        child = grid.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            grid.remove(child)
+            child = nxt
+
+        car_title = (
+            meta.get("car_label")
+            or meta.get("car_brand")
+            or (f"VIN …{meta['car_vin'][-5:]}" if meta.get("car_vin") else "")
+        )
+        if meta["kind"] == "tour":
+            car_title = meta.get("trip_label") or _translate(self.language, "map.history.kind_tour")
+        self._replay_title_lbl.set_label(car_title or _translate(self.language, "map.history.kind_trip"))
+
+        def _row(idx: int, key: str, value: str) -> None:
+            k = Gtk.Label(label=_translate(self.language, key), xalign=0.0)
+            k.add_css_class("dim-label")
+            k.add_css_class("caption")
+            v = Gtk.Label(label=value, xalign=0.0)
+            v.add_css_class("caption")
+            grid.attach(k, 0, idx, 1, 1)
+            grid.attach(v, 1, idx, 1, 1)
+
+        started_disp = self._format_history_ts(meta.get("ts") or "")
+        ended_disp = self._format_history_ts(ended_at or "")
+        _row(0, "map.replay.started", started_disp or "—")
+        if ended_disp:
+            _row(1, "map.replay.ended", ended_disp)
+        dist = meta.get("distance_km")
+        if dist:
+            _row(2, "map.replay.distance", f"{dist:.1f} km")
+        dur = self._format_history_duration(meta.get("duration_s"))
+        if dur:
+            _row(3, "map.replay.duration", dur)
+
+    def _populate_replay_chart(self, samples: list) -> None:
+        """Build a speed-over-time chart from samples and place it in the overlay."""
+        from .cars_trip_visuals import _build_chart_widget
+
+        # Drop the previous chart widget if any
+        if self._replay_chart_widget is not None:
+            self._replay_chart_overlay.remove(self._replay_chart_widget)
+            self._replay_chart_widget = None
+
+        pts = [
+            (s["ts"], s["speed_kmh"], s["lat"], s["lon"])
+            for s in samples
+            if s["lat"] is not None and s["lon"] is not None and s["speed_kmh"] is not None
+        ]
+        if len(pts) < 2:
+            return
+        chart_state = {
+            "pts": pts,
+            "unit": "km/h",
+            "color": (0.34, 0.62, 0.86),
+            "fmt": "{:.0f}",
+            "key": "speed_kmh",
+        }
+        cursor_state = {"idx": -1}
+        widget = _build_chart_widget(chart_state, cursor_state, lambda: None, height=140)
+        self._replay_chart_widget = widget
+        self._replay_chart_overlay.append(widget)
+
+    def _show_trip_replay(self, meta: dict) -> None:
+        """Render a recorded trip's polyline + metadata on the live map."""
+        db = getattr(self, "_map_db", None)
+        if db is None:
+            return
+        nav_view = getattr(self, "_nav_view", None)
+        if nav_view is not None:
+            nav_view.pop()
+
+        trip_id = int(meta["id"])
+        samples = list(db.samples_for_trip(trip_id))
+        latlon = [
+            (s["lat"], s["lon"]) for s in samples
+            if s["lat"] is not None and s["lon"] is not None
+        ]
+        if not latlon:
+            return
+
+        # Get the trip row for the actual ended_at (history meta only has ts=started_at)
+        try:
+            trip_row = self._map_db._conn.execute(
+                "SELECT ended_at FROM trips WHERE id=?", (trip_id,)
+            ).fetchone()
+            ended_at = trip_row["ended_at"] if trip_row else None
+        except Exception:
+            ended_at = None
+
+        coords_lonlat = [[lon, lat] for lat, lon in latlon]
+        self._map_show_track(coords_lonlat, latlon)
+        self._populate_replay_info(meta, ended_at)
+        self._populate_replay_chart(samples)
+        self._replay_info_overlay.set_visible(True)
+        if self._replay_chart_widget is not None:
+            self._replay_chart_overlay.set_visible(True)
+
+    def _map_show_track(self, coords_lonlat: list[list[float]], latlon: list[tuple[float, float]]) -> None:
+        """Draw a polyline on the live map for the given recorded GPS samples."""
+        import json as _json
+
+        if self._backend == "webkit":
+            self._js(f"mapSetRoute({_json.dumps(coords_lonlat)})")
+            # No waypoints for a replay — clear any leftover from previous planning.
+            self._js("mapSetWaypoints([])")
+            lats = [p[0] for p in latlon]
+            lons = [p[1] for p in latlon]
+            self._js(f"mapFitBounds({min(lats)},{min(lons)},{max(lats)},{max(lons)})")
+            self._set_follow(False)
+        elif getattr(self, "_shumate_map", None) is not None:
+            self._shumate_show_route([], coords_lonlat)
+            self._set_follow(False)
+
+    def _clear_replay_overlays(self) -> None:
+        """Hide the replay info + chart overlays and clear the polyline."""
+        if getattr(self, "_replay_info_overlay", None) is not None:
+            self._replay_info_overlay.set_visible(False)
+        if getattr(self, "_replay_chart_overlay", None) is not None:
+            self._replay_chart_overlay.set_visible(False)
+        if self._backend == "webkit":
+            self._js("mapClearRoute()")
+        elif getattr(self, "_shumate_map", None) is not None:
+            self._shumate_clear_route_layers()
 
     def _on_tour_save_clicked(self, _btn: object) -> None:
         import json as _json
@@ -780,6 +1014,8 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_maneuver_overlay())
             overlay.add_overlay(self._build_speed_zone_overlay())
             overlay.add_overlay(self._build_map_state_overlay())
+            overlay.add_overlay(self._build_replay_info_overlay())
+            overlay.add_overlay(self._build_replay_chart_overlay())
 
         self._map_content_box.append(overlay)
 
