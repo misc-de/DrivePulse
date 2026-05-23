@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk, Pango
 
 from .common import _translate
 from .diagnostics import get_logger
@@ -139,9 +139,13 @@ class CarsStopWatchRunsMixin:
                 cap_lbl = Gtk.Label(label=cap)
                 cap_lbl.add_css_class("caption")
                 cap_lbl.add_css_class("dim-label")
+                cap_lbl.set_wrap(True)
+                cap_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                cap_lbl.set_justify(Gtk.Justification.CENTER)
+                cap_lbl.set_lines(2)
                 cap_lbl.set_margin_bottom(10)
-                cap_lbl.set_margin_start(8)
-                cap_lbl.set_margin_end(8)
+                cap_lbl.set_margin_start(4)
+                cap_lbl.set_margin_end(4)
                 card.append(val_lbl)
                 card.append(cap_lbl)
                 summary_box.append(card)
@@ -213,9 +217,18 @@ class CarsStopWatchRunsMixin:
             if obd_t is not None or gps_t is not None:
                 _add_time_row(f"{range_str} km/h", obd_t, gps_t)
 
+        load_btn = Gtk.Button(label=_translate(self.language, "cars.stopwatch_run.load_in_stopwatch"))
+        load_btn.add_css_class("suggested-action")
+        load_btn.set_margin_top(8)
+        load_btn.set_margin_bottom(4)
+        load_btn.set_margin_start(12)
+        load_btn.set_margin_end(12)
+        load_btn.connect("clicked", lambda _b: self._load_run_in_stopwatch(data))
+        box.append(load_btn)
+
         del_btn = Gtk.Button(label=_translate(self.language, "cars.stopwatch_run.delete_title"))
         del_btn.add_css_class("destructive-action")
-        del_btn.set_margin_top(8)
+        del_btn.set_margin_top(4)
         del_btn.set_margin_bottom(16)
         del_btn.set_margin_start(12)
         del_btn.set_margin_end(12)
@@ -256,6 +269,16 @@ class CarsStopWatchRunsMixin:
         self.db.delete_stopwatch_run(run_id)
         self.nav_view.pop()
         self._render_detail()
+
+    def _load_run_in_stopwatch(self, data: dict[str, Any]) -> None:
+        """Hand off a persisted run to the StopWatch tab for replay."""
+        callback = getattr(self, "on_load_stopwatch_run", None)
+        if not callable(callback):
+            return
+        try:
+            callback(data)
+        except Exception:
+            log.exception("Could not load stopwatch run into StopWatch tab")
 
     def refresh_if_showing_car(self, car_id: int) -> None:
         if self._selected_car_id == car_id and self._detail_pushed and self._selected_category == "stopwatch_runs":
