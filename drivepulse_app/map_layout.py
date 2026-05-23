@@ -1489,23 +1489,15 @@ class MapLayoutMixin:
         box.set_margin_top(12)
         box.set_margin_end(12)
 
-        # Shumate paints OSD button backgrounds as a visible frame around the
-        # pair of zoom controls — drop "osd" there so just the circular icon
-        # buttons remain. WebKit keeps the OSD chip look for legibility over
-        # the satellite/dark tiles it renders.
-        use_osd = self._backend != "shumate"
-
         zoom_in = Gtk.Button(icon_name="zoom-in-symbolic")
         zoom_in.add_css_class("circular")
-        if use_osd:
-            zoom_in.add_css_class("osd")
+        zoom_in.add_css_class("osd")
         zoom_in.set_tooltip_text(_translate(self.language, "map.zoom_in"))
         zoom_in.connect("clicked", lambda _b: self._zoom_step(+1))
 
         zoom_out = Gtk.Button(icon_name="zoom-out-symbolic")
         zoom_out.add_css_class("circular")
-        if use_osd:
-            zoom_out.add_css_class("osd")
+        zoom_out.add_css_class("osd")
         zoom_out.set_tooltip_text(_translate(self.language, "map.zoom_out"))
         zoom_out.connect("clicked", lambda _b: self._zoom_step(-1))
 
