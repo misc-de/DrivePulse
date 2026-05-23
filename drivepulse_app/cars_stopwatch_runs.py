@@ -226,14 +226,15 @@ class CarsStopWatchRunsMixin:
         load_btn.connect("clicked", lambda _b: self._load_run_in_stopwatch(data))
         box.append(load_btn)
 
-        del_btn = Gtk.Button(label=_translate(self.language, "cars.stopwatch_run.delete_title"))
-        del_btn.add_css_class("destructive-action")
-        del_btn.set_margin_top(4)
-        del_btn.set_margin_bottom(16)
-        del_btn.set_margin_start(12)
-        del_btn.set_margin_end(12)
-        del_btn.connect("clicked", lambda _b: self._confirm_delete_stopwatch_run(run_id))
-        box.append(del_btn)
+        if not self.mock_mode:
+            del_btn = Gtk.Button(label=_translate(self.language, "cars.stopwatch_run.delete_title"))
+            del_btn.add_css_class("destructive-action")
+            del_btn.set_margin_top(4)
+            del_btn.set_margin_bottom(16)
+            del_btn.set_margin_start(12)
+            del_btn.set_margin_end(12)
+            del_btn.connect("clicked", lambda _b: self._confirm_delete_stopwatch_run(run_id))
+            box.append(del_btn)
 
         ts = self._parse_ts(data.get("run_at"))
         title = _translate(self.language, "cars.stopwatch_run.title",

@@ -205,7 +205,14 @@ class CarsPage(
         if abs(offset_y) > abs(offset_x) * 1.5:
             gesture.set_state(Gtk.EventSequenceState.DENIED)
             return
-        # Wenn Detail offen ist: Adw.NavigationView soll selbst zurückpoppen.
+        # Detail offen + Wisch nach rechts: wir poppen die Detail-Ansicht
+        # selbst, damit der Anwender konsistent „nach rechts = zurück zur
+        # Liste" bekommt, statt sich auf den Adw.NavigationView-Swipe zu
+        # verlassen (der hier oft gar nicht greift).
+        if self._detail_pushed and abs(offset_x) > 20 and offset_x > 0:
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+            self._drag_claimed = True
+            return
         if self._detail_pushed:
             return
         # Eindeutig horizontal (mind. 20 px, klar dominanter X-Anteil)
@@ -217,6 +224,12 @@ class CarsPage(
         if not self._drag_claimed:
             return
         self._drag_claimed = False
+        # In der Detail-Ansicht: Rechts-Wisch = zurück zur Auto-Liste,
+        # statt wie auf der Wurzel zum vorherigen Tab zu springen.
+        if self._detail_pushed:
+            if offset_x > 60:
+                self._on_detail_back()
+            return
         if offset_x > 60 and self.on_back_swipe is not None:
             self.on_back_swipe()
         elif offset_x < -60 and self.on_forward_swipe is not None:
@@ -790,6 +803,10 @@ class CarsPage(
         if self._detail_trash_handler is not None:
             btn.disconnect(self._detail_trash_handler)
             self._detail_trash_handler = None
+        # Mock mode: never expose a destructive action — the seeded vehicles
+        # and their records must stay intact.
+        if self.mock_mode:
+            action_fn = None
         if action_fn is not None:
             self._detail_trash_handler = btn.connect("clicked", lambda _b: action_fn())
             btn.set_visible(True)
