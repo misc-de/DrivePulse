@@ -90,8 +90,17 @@ def _draw_chart(
     plot_w = w - pl - _PAD_R
     plot_h = h - pt - _PAD_B
 
+    try:
+        dark = Adw.StyleManager.get_default().get_dark()
+    except Exception:
+        dark = True
+    fg = (1.0, 1.0, 1.0) if dark else (0.0, 0.0, 0.0)
+    axis_rgba = (*fg, 0.55)
+    mean_rgba = (*fg, 0.40)
+    lbl_rgba  = (*fg, 0.95)
+
     # Axis lines
-    cr.set_source_rgba(0.5, 0.5, 0.5, 0.15)
+    cr.set_source_rgba(*axis_rgba)
     cr.set_line_width(1.0)
     cr.move_to(pl, pt)
     cr.line_to(pl, pt + plot_h)
@@ -104,7 +113,7 @@ def _draw_chart(
         rng = mx - mn if abs(mx - mn) > 1e-9 else 1.0
         norm_mean = (main_mean - mn) / rng if abs(mx - mn) > 1e-9 else 0.5
         mean_y = pt + plot_h * (1.0 - norm_mean)
-        cr.set_source_rgba(0.65, 0.65, 0.65, 0.35)
+        cr.set_source_rgba(*mean_rgba)
         cr.set_line_width(1.0)
         cr.set_dash([5.0, 4.0], 0)
         cr.move_to(pl, mean_y)
@@ -113,7 +122,6 @@ def _draw_chart(
         cr.set_dash([], 0)
 
         # Left Y-axis labels
-        lbl_rgba = (0.65, 0.65, 0.65, 0.75)
         _txt(cr, _fmt(mx), pl - 4, pt, 9.5, rgba=lbl_rgba, align="right")
         if abs(mx - mn) > 1e-9:
             _txt(cr, _fmt(mn), pl - 4, pt + plot_h, 9.5, rgba=lbl_rgba, align="right")
