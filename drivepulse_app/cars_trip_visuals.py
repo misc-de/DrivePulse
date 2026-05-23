@@ -255,6 +255,13 @@ def _build_chart_widget(
         def _tx(ts: float) -> float:
             return PAD_L + ((ts - ts0) / t_span) * iw
 
+        # Light theme: paint the plot area pure white so the dark axes/data
+        # have a clean canvas against the muted grey app background.
+        if not dark:
+            cr.set_source_rgb(1.0, 1.0, 1.0)
+            cr.rectangle(PAD_L, PAD_T, iw, ih)
+            cr.fill()
+
         # Grid lines
         cr.set_line_width(1.0)
         cr.set_source_rgba(*grid_rgba)

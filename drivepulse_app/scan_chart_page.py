@@ -99,6 +99,13 @@ def _draw_chart(
     mean_rgba = (*fg, 0.40)
     lbl_rgba  = (*fg, 0.95)
 
+    # Light theme: paint the plot area pure white so axes/data have a clean
+    # canvas against the muted grey app background.
+    if not dark:
+        cr.set_source_rgb(1.0, 1.0, 1.0)
+        cr.rectangle(pl, pt, plot_w, plot_h)
+        cr.fill()
+
     # Axis lines
     cr.set_source_rgba(*axis_rgba)
     cr.set_line_width(1.0)
