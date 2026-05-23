@@ -176,7 +176,9 @@ class MapLayoutMixin:
         history_btn.connect("clicked", self._on_tour_history_clicked)
         self._tour_history_btn = history_btn
 
-        for btn in (load_btn, plan_btn, save_btn, history_btn):
+        # "Letzte Touren" sits on the far left as a view-only entry point;
+        # the tour-planning actions (load / plan / save) follow on the right.
+        for btn in (history_btn, load_btn, plan_btn, save_btn):
             bar.append(btn)
 
         self._map_content_box.append(bar)
