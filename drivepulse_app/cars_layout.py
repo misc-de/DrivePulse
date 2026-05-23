@@ -162,6 +162,10 @@ class CarsLayoutMixin:
         # everything from this key onward sits below an "OBD Daten" section
         # divider — those are the live-OBD-derived value groups.
         _OBD_SECTION_FIRST = "engine"
+        # Mobile-only blank spacer rows that introduce vertical space before
+        # the first OBD category, since the categories pack tighter in the
+        # collapsed sidebar.
+        self._cat_mobile_spacer_rows: list[Gtk.ListBoxRow] = []
         for cat_key, cat_name_key, icon_name, _items in CATEGORIES:
             if cat_key == _OBD_SECTION_FIRST:
                 sep_row = Gtk.ListBoxRow()
@@ -181,6 +185,19 @@ class CarsLayoutMixin:
                 sep_row.set_child(sep_lbl)
                 self.category_list.append(sep_row)
                 self._cat_section_rows.append(sep_row)
+
+                spacer_row = Gtk.ListBoxRow()
+                spacer_row.set_selectable(False)
+                spacer_row.set_activatable(False)
+                spacer = Gtk.Box()
+                spacer.set_size_request(-1, 14)
+                spacer_row.set_child(spacer)
+                # Initial state mirrors the current split-view collapsed flag
+                # so the spacer is correctly visible / hidden before any
+                # form-factor transitions fire.
+                spacer_row.set_visible(self._split_view.get_collapsed())
+                self.category_list.append(spacer_row)
+                self._cat_mobile_spacer_rows.append(spacer_row)
             row = Gtk.ListBoxRow()
             row.cat_key = cat_key  # type: ignore[attr-defined]
             row.cat_label_key = cat_name_key  # type: ignore[attr-defined]
