@@ -151,6 +151,35 @@ class CarsDetailRenderMixin:
         data, source_label = self._current_data()
         self.content_subtitle.set_text("" if is_live else source_label)
 
+        # Sidebar header row: loaded scan's timestamp. On mobile render as
+        # a centred three-line stack (year dimmed / MM.DD / HH:MM); on
+        # desktop keep the compact single-line "dd.mm.yyyy HH:MM" so the
+        # sidebar stays narrow. Hidden for the live view.
+        scan_row = getattr(self, "_scan_date_row", None)
+        scan_lbl = getattr(self, "_scan_date_label", None)
+        if scan_row is not None and scan_lbl is not None:
+            stack = data.get("__scan_date_stack__")
+            scan_date = data.get(_SPECIAL_SCAN_DATE)
+            has_date = (
+                not is_live
+                and scan_date
+                and scan_date != "—"
+            )
+            if has_date:
+                mobile = self._split_view.get_collapsed()
+                if mobile and stack:
+                    scan_lbl.set_justify(Gtk.Justification.CENTER)
+                    scan_lbl.set_xalign(0.5)
+                    scan_lbl.set_halign(Gtk.Align.CENTER)
+                    scan_lbl.set_markup(stack)
+                else:
+                    scan_lbl.set_xalign(0.0)
+                    scan_lbl.set_halign(Gtk.Align.START)
+                    scan_lbl.set_use_markup(False)
+                    scan_lbl.set_text(scan_date)
+                scan_row.set_visible(True)
+            else:
+                scan_row.set_visible(False)
 
         # Yellow-tint the "Diagnose" category row only when the loaded scan
         # actually carries DTCs. The flag is set in _flatten_profile.
