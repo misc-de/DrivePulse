@@ -142,16 +142,17 @@ class CarsDetailRenderMixin:
         data, source_label = self._current_data()
         self.content_subtitle.set_text("" if is_live else source_label)
 
-        # Sidebar header: show the loaded scan's date+time above the
+        # Sidebar header row: show the loaded scan's date+time above the
         # categories. Hidden for the live view (data streams in real time).
+        scan_row = getattr(self, "_scan_date_row", None)
         scan_lbl = getattr(self, "_scan_date_label", None)
-        if scan_lbl is not None:
+        if scan_row is not None and scan_lbl is not None:
             scan_date = data.get(_SPECIAL_SCAN_DATE)
             if not is_live and scan_date and scan_date != "—":
                 scan_lbl.set_text(scan_date)
-                scan_lbl.set_visible(True)
+                scan_row.set_visible(True)
             else:
-                scan_lbl.set_visible(False)
+                scan_row.set_visible(False)
 
         # Yellow-tint the "Diagnose" category row only when the loaded scan
         # actually carries DTCs. The flag is set in _flatten_profile.
