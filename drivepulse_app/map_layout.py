@@ -539,18 +539,20 @@ class MapLayoutMixin:
         self._refresh_fab_visibility()
 
     def _refresh_fab_visibility(self) -> None:
-        """Hide the bottom-right map options while the replay chart is open.
-
-        The full chart and the FAB compete for the bottom of the screen, so
-        the FAB only appears when the chart is collapsed (its restore icon
-        sits at the same height on the left).
-        """
+        """Hide the bottom-right map options while the replay chart is open or
+        while the coordinate chip is visible (shumate only)."""
         fab = getattr(self, "_fab", None)
         if fab is None:
             return
         chart = getattr(self, "_replay_chart_overlay", None)
         chart_open = chart is not None and chart.get_visible()
-        fab.set_visible(not chart_open)
+        coord_overlay = getattr(self, "_coord_overlay", None)
+        coord_open = (
+            self._backend == "shumate"
+            and coord_overlay is not None
+            and coord_overlay.get_visible()
+        )
+        fab.set_visible(not chart_open and not coord_open)
 
     def _populate_replay_info(self, meta: dict, ended_at: str | None) -> None:
         """Fill the top-left info card with car + trip metadata."""
@@ -760,14 +762,22 @@ class MapLayoutMixin:
             self._coord_lbl.set_label(
                 f"{abs(lat):.5f}° {ns}  {abs(lon):.5f}° {ew}"
             )
-            if self._coord_overlay is not None:
+            if self._coord_overlay is not None and not self._coord_overlay.get_visible():
                 self._coord_overlay.set_visible(True)
+                if self._backend == "shumate":
+                    self._shumate_set_scale_visible(False)
+                self._refresh_fab_visibility()
 
     def _map_clear_replay_marker(self) -> None:
         if self._backend == "webkit":
             self._js("mapClearReplayMarker()")
         elif getattr(self, "_shumate_map", None) is not None:
             self._shumate_clear_replay_marker()
+        if getattr(self, "_coord_overlay", None) is not None:
+            self._coord_overlay.set_visible(False)
+        if self._backend == "shumate":
+            self._shumate_set_scale_visible(True)
+        self._refresh_fab_visibility()
 
     def _show_trip_replay(self, meta: dict) -> None:
         """Render a recorded trip's polyline + metadata on the live map."""
