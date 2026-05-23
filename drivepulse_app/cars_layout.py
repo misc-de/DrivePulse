@@ -238,8 +238,15 @@ class CarsLayoutMixin:
         on_rename: "Callable[[Gtk.Label], None] | None" = None,
         on_share: "Callable[[], None] | None" = None,
         on_delete: "Callable[[], None] | None" = None,
+        on_back: "Callable[[], None] | None" = None,
     ) -> Gtk.Widget:
-        """Wrap content with a title + back-button header for sub-pages (trip, scan, accel run)."""
+        """Wrap content with a title + back-button header for sub-pages (trip, scan, accel run).
+
+        ``on_back`` overrides the default behaviour of popping ``self.nav_view``
+        — useful when the wrapped content is shown inline (e.g. inside the
+        cars detail value area on desktop) and there's no NavigationView page
+        to pop.
+        """
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         head.set_margin_start(8)
@@ -248,7 +255,10 @@ class CarsLayoutMixin:
         head.set_margin_bottom(4)
         back_btn = Gtk.Button(icon_name="go-previous-symbolic")
         back_btn.add_css_class("flat")
-        back_btn.connect("clicked", lambda _b: self.nav_view.pop())
+        if on_back is not None:
+            back_btn.connect("clicked", lambda _b: on_back())
+        else:
+            back_btn.connect("clicked", lambda _b: self.nav_view.pop())
         title_lbl = Gtk.Label(label=title, xalign=0.0)
         title_lbl.add_css_class("title-3")
         title_lbl.set_hexpand(True)

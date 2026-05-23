@@ -129,6 +129,21 @@ class CarsTripsMixin:
         def _on_rename(title_lbl: Gtk.Label) -> None:
             self._open_trip_rename_dialog(trip_id, title_lbl, page_ref)
 
+        # Desktop (split view uncollapsed): show the trip detail inline inside
+        # the same value-scroll area where the list lives, instead of pushing
+        # a sub-page that hides the trips list on the other side.
+        if not self._split_view.get_collapsed():
+            inline = self._wrap_sub_page(
+                page_content,
+                title,
+                on_rename=_on_rename,
+                on_share=(lambda: self._share_trip(trip_id)) if self._is_sync_active() else None,
+                on_delete=lambda: self._confirm_delete_trip(trip_id),
+                on_back=lambda: self._render_detail(),
+            )
+            self._value_scroll.set_child(inline)
+            return
+
         page = Adw.NavigationPage(
             child=self._wrap_sub_page(
                 page_content,
