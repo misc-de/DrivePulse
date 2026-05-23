@@ -82,7 +82,7 @@ class CarsTripsMixin:
             row.add_prefix(chk)
             row.set_activatable(False)
         else:
-            icon = Gtk.Image.new_from_icon_name("mark-location-symbolic")
+            icon = Gtk.Image.new_from_icon_name("distance-symbolic")
             row.add_prefix(icon)
             row.set_activatable(True)
             row.connect("activated", lambda _r, tid=trip_id: self._open_trip_detail(tid))
