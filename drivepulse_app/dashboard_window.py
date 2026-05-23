@@ -847,18 +847,14 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             name = page.get_name()
             row = Gtk.ListBoxRow()
             row.page_name = name  # type: ignore[attr-defined]
-            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            hbox.set_margin_top(10)
-            hbox.set_margin_bottom(10)
-            hbox.set_margin_start(14)
-            hbox.set_margin_end(14)
+            row.set_tooltip_text(page.get_title() or name)
             img = Gtk.Image.new_from_icon_name(page.get_icon_name() or "")
-            img.set_pixel_size(20)
-            lbl = Gtk.Label(label=page.get_title() or name, xalign=0.0)
-            lbl.set_hexpand(True)
-            hbox.append(img)
-            hbox.append(lbl)
-            row.set_child(hbox)
+            img.set_pixel_size(22)
+            img.set_margin_top(12)
+            img.set_margin_bottom(12)
+            img.set_margin_start(14)
+            img.set_margin_end(14)
+            row.set_child(img)
             listbox.append(row)
             self._left_nav_rows[name] = row
 
@@ -866,7 +862,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._sync_left_nav_selection()
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        box.set_size_request(200, -1)
+        box.set_size_request(56, -1)
         box.append(listbox)
         return box
 
