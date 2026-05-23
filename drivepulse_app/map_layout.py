@@ -653,6 +653,11 @@ class MapLayoutMixin:
         self._replay_info_overlay.set_visible(True)
         if self._replay_chart_widget is not None:
             self._replay_chart_overlay.set_visible(True)
+            # On shumate, the scale ruler sits in the same bottom-left
+            # corner and gets hidden under the chart. Push it past the
+            # chart's right edge so it stays visible alongside.
+            if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_offset"):
+                self._shumate_set_scale_offset(360)
 
     def _map_show_track(self, latlon_speed: list[tuple[float, float, float | None]]) -> None:
         """Draw a speed-coloured polyline on the live map for replayed samples."""
@@ -704,6 +709,8 @@ class MapLayoutMixin:
         elif getattr(self, "_shumate_map", None) is not None:
             self._shumate_clear_colored_track()
             self._shumate_clear_route_layers()
+            if hasattr(self, "_shumate_set_scale_offset"):
+                self._shumate_set_scale_offset(0)
 
     def _on_tour_save_clicked(self, _btn: object) -> None:
         import json as _json
