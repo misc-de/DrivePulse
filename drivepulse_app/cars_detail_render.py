@@ -326,8 +326,7 @@ class CarsDetailRenderMixin:
         title_lbl = Gtk.Label(label=label, xalign=0.0)
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_hexpand(True)
-        title_lbl.add_css_class("dim-label")
-        title_lbl.add_css_class("caption")
+        title_lbl.add_css_class("caption-heading")
         box.append(title_lbl)
 
         value_lbl = Gtk.Label(label=value_text, xalign=1.0)
@@ -380,8 +379,7 @@ class CarsDetailRenderMixin:
         title_lbl = Gtk.Label(label=label, xalign=0.0)
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_hexpand(True)
-        title_lbl.add_css_class("dim-label")
-        title_lbl.add_css_class("caption")
+        title_lbl.add_css_class("caption-heading")
         box.append(title_lbl)
 
         value_lbl = Gtk.Label(label=value_text, xalign=1.0)
