@@ -139,19 +139,21 @@ class CarsLayoutMixin:
         self.category_list.connect("row-selected", self._on_category_selected)
         self._cat_section_rows: list[Gtk.ListBoxRow] = []
 
-        # First row: scan timestamp of the currently loaded vehicle data,
-        # styled like the inline "OBD Daten" section heading further down.
-        # Hidden for the live view and when no scan date is available.
+        # First row: scan timestamp of the currently loaded vehicle data
+        # rendered as a three-line centred stack (year dimmed / MM.DD /
+        # HH:MM via Pango markup). Hidden for the live view and when no
+        # scan date is available.
         scan_date_row = Gtk.ListBoxRow()
         scan_date_row.set_selectable(False)
         scan_date_row.set_activatable(False)
-        self._scan_date_label = Gtk.Label(xalign=0.0)
-        self._scan_date_label.add_css_class("dim-label")
+        self._scan_date_label = Gtk.Label()
+        self._scan_date_label.set_use_markup(True)
+        self._scan_date_label.set_justify(Gtk.Justification.CENTER)
+        self._scan_date_label.set_xalign(0.5)
+        self._scan_date_label.set_halign(Gtk.Align.CENTER)
         self._scan_date_label.add_css_class("caption-heading")
-        self._scan_date_label.set_wrap(True)
-        self._scan_date_label.set_margin_top(4)
-        self._scan_date_label.set_margin_bottom(4)
-        self._scan_date_label.set_margin_start(8)
+        self._scan_date_label.set_margin_top(6)
+        self._scan_date_label.set_margin_bottom(6)
         scan_date_row.set_child(self._scan_date_label)
         scan_date_row.set_visible(False)
         self._scan_date_row = scan_date_row
