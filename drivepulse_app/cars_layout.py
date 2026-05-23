@@ -190,7 +190,7 @@ class CarsLayoutMixin:
                 spacer_row.set_selectable(False)
                 spacer_row.set_activatable(False)
                 spacer = Gtk.Box()
-                spacer.set_size_request(-1, 14)
+                spacer.set_size_request(-1, 7)
                 spacer_row.set_child(spacer)
                 # Initial state mirrors the current split-view collapsed flag
                 # so the spacer is correctly visible / hidden before any
