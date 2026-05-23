@@ -438,6 +438,14 @@ class MapShumateMixin:
         if scale is not None:
             scale.set_margin_start(offset_px)
 
+    def _shumate_set_scale_visible(self, visible: bool) -> None:
+        smap = getattr(self, "_shumate_map", None)
+        if smap is None:
+            return
+        scale = smap.get_scale()
+        if scale is not None:
+            scale.set_visible(visible)
+
     def _shumate_set_replay_marker(self, lat: float, lon: float) -> None:
         self._replay_marker_pos = (lat, lon)
         area = getattr(self, "_replay_track_area", None)
