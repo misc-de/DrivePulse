@@ -711,9 +711,10 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         prefix = _translate(self.language, "map.duration_prefix")
         distance_prefix = _translate(self.language, "map.distance_prefix")
         self._status_lbl.set_text(
-            f"{prefix}{format_duration(duration_s)} / "
+            f"{prefix}{format_duration(duration_s)}\n"
             f"{distance_prefix}{format_distance(distance_m, self.units)}"
         )
+        self._status_lbl.set_wrap(True)
         self._set_tour_controls_visible(True)
         if self._tour_save_btn is not None:
             self._tour_save_btn.set_visible(True)

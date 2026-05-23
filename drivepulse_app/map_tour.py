@@ -657,9 +657,10 @@ class MapTourMixin:
         distance_prefix = _translate(self.language, "map.distance_prefix")
         if self._status_lbl is not None:
             self._status_lbl.set_text(
-                f"{prefix}{format_duration(duration_s)} / "
+                f"{prefix}{format_duration(duration_s)}\n"
                 f"{distance_prefix}{format_distance(distance_m, self.units)}"
             )
+            self._status_lbl.set_wrap(True)
 
         if self._backend == "webkit":
             self._js(f"mapSetRoute({json.dumps(coords)})")
