@@ -133,15 +133,34 @@ class CarsLayoutMixin:
         self._sidebar.set_margin_start(8)
         self._sidebar.set_margin_end(4)
 
-        self._categories_label = Gtk.Label(xalign=0.0)
-        self._categories_label.add_css_class("heading")
-        self._sidebar.append(self._categories_label)
-
         self.category_list = Gtk.ListBox()
         self.category_list.set_selection_mode(Gtk.SelectionMode.BROWSE)
         self.category_list.add_css_class("navigation-sidebar")
         self.category_list.connect("row-selected", self._on_category_selected)
+        self._cat_section_rows: list[Gtk.ListBoxRow] = []
+        # Categories before this key get appended to the top of the list;
+        # everything from this key onward sits below an "OBD Daten" section
+        # divider — those are the live-OBD-derived value groups.
+        _OBD_SECTION_FIRST = "engine"
         for cat_key, cat_name_key, icon_name, _items in CATEGORIES:
+            if cat_key == _OBD_SECTION_FIRST:
+                sep_row = Gtk.ListBoxRow()
+                sep_row.set_selectable(False)
+                sep_row.set_activatable(False)
+                sep_lbl = Gtk.Label(
+                    label=_translate(self.language, "cars.section.obd_data"),
+                    xalign=0.0,
+                )
+                sep_lbl.add_css_class("dim-label")
+                sep_lbl.add_css_class("caption-heading")
+                sep_lbl.set_margin_top(14)
+                sep_lbl.set_margin_bottom(4)
+                sep_lbl.set_margin_start(8)
+                sep_row.section_label_key = "cars.section.obd_data"  # type: ignore[attr-defined]
+                sep_row.section_label_widget = sep_lbl  # type: ignore[attr-defined]
+                sep_row.set_child(sep_lbl)
+                self.category_list.append(sep_row)
+                self._cat_section_rows.append(sep_row)
             row = Gtk.ListBoxRow()
             row.cat_key = cat_key  # type: ignore[attr-defined]
             row.cat_label_key = cat_name_key  # type: ignore[attr-defined]
@@ -216,8 +235,6 @@ class CarsLayoutMixin:
         # Initiale Anordnung gemäß Einstellung
         self._apply_sidebar_side_to_body()
         outer.append(body)
-
-        self._categories_label.set_text(_translate(self.language, "cars.categories"))
 
         self._detail_page = Adw.NavigationPage(
             child=outer,
@@ -332,8 +349,9 @@ class CarsLayoutMixin:
         narrow = self._narrow
         # Sidebar-Breite umstellen
         self._sidebar.set_size_request(56 if narrow else 220, -1)
-        # Überschrift „Kategorien" ausblenden, wenn schmal
-        self._categories_label.set_visible(not narrow)
+        # Section dividers (e.g. "OBD Daten") are pure text — hide when narrow.
+        for sep in getattr(self, "_cat_section_rows", []):
+            sep.set_visible(not narrow)
         for row in self._cat_rows:
             lbl = getattr(row, "cat_label_widget", None)
             hbox = getattr(row, "cat_hbox", None)
