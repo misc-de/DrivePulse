@@ -454,11 +454,14 @@ class MapLayoutMixin:
         return box
 
     def _build_replay_info_restore_btn(self) -> Gtk.Widget:
-        """Small circular notepad button that re-expands a minimised info card."""
-        btn = Gtk.Button(icon_name="notepad-symbolic")
+        """Notepad button — identical style to the info toggle, shows trip data card."""
+        notepad_icon = Gtk.Image.new_from_icon_name("notepad-symbolic")
+        notepad_icon.set_pixel_size(20)
+        btn = Gtk.Button()
+        btn.set_child(notepad_icon)
         btn.add_css_class("osd")
         btn.add_css_class("circular")
-        btn.set_valign(Gtk.Align.START)
+        btn.set_size_request(40, 40)
         btn.set_tooltip_text(_translate(self.language, "map.replay.restore"))
         btn.set_visible(False)
         btn.connect("clicked", lambda _b: self._set_replay_info_minimized(False))
@@ -1614,9 +1617,10 @@ class MapLayoutMixin:
         return outer
 
     def _build_tour_controls(self) -> Gtk.Widget:
-        # Outer grid: col 0 = button column, col 1 = info card slot.
-        # Row 0: start button (col 0 only).
-        # Row 1: info toggle (col 0) | info card + restore btn (col 1).
+        # Grid layout:
+        # Row 0, Col 0: start button
+        # Row 1, Col 0: horizontal box — [info toggle] [notepad restore btn] (identical style)
+        # Row 1, Col 1: info card (shown when a trip is loaded)
         grid = Gtk.Grid(column_spacing=8, row_spacing=8)
         grid.set_halign(Gtk.Align.START)
         grid.set_valign(Gtk.Align.START)
@@ -1636,27 +1640,29 @@ class MapLayoutMixin:
         self._tour_start_btn.connect("clicked", self._on_tour_start_clicked)
         grid.attach(self._tour_start_btn, 0, 0, 1, 1)
 
+        # Row with info icon + notepad restore button side by side
+        icon_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        icon_row.set_valign(Gtk.Align.START)
+
         steps_icon = Gtk.Image.new_from_icon_name("info-symbolic")
         steps_icon.set_pixel_size(20)
         self._steps_toggle_btn = Gtk.ToggleButton()
         self._steps_toggle_btn.set_child(steps_icon)
         self._steps_toggle_btn.add_css_class("osd")
         self._steps_toggle_btn.add_css_class("circular")
-        self._steps_toggle_btn.set_halign(Gtk.Align.START)
-        self._steps_toggle_btn.set_valign(Gtk.Align.START)
         self._steps_toggle_btn.set_size_request(40, 40)
         self._steps_toggle_btn.set_tooltip_text(_translate(self.language, "map.steps.toggle"))
         self._steps_toggle_btn.connect("toggled", self._on_steps_toggle)
-        grid.attach(self._steps_toggle_btn, 0, 1, 1, 1)
+        icon_row.append(self._steps_toggle_btn)
 
-        # Info card slot: card and restore button occupy the same cell (one
-        # visible at a time) so the card sits naturally to the right of the
-        # info icon and tracks its vertical position automatically.
-        card_slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        card_slot.set_valign(Gtk.Align.START)
-        card_slot.append(self._build_replay_info_overlay())
-        card_slot.append(self._build_replay_info_restore_btn())
-        grid.attach(card_slot, 1, 1, 1, 1)
+        icon_row.append(self._build_replay_info_restore_btn())
+        grid.attach(icon_row, 0, 1, 1, 1)
+
+        # Info card sits in col 1, top-aligned next to the icon row
+        card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        card_box.set_valign(Gtk.Align.START)
+        card_box.append(self._build_replay_info_overlay())
+        grid.attach(card_box, 1, 1, 1, 1)
 
         grid.set_visible(False)
         return grid
