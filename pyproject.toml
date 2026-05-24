@@ -21,7 +21,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["drivepulse", "theme_defaults"]
+py-modules = ["drivepulse"]
 
 [tool.setuptools.packages.find]
 include = ["drivepulse_app*", "themes*"]
@@ -61,7 +61,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-files = ["drivepulse_app", "drivepulse.py", "theme_defaults.py"]
+files = ["drivepulse_app", "drivepulse.py"]
 exclude = ["__pycache__", "themes/"]
 ignore_missing_imports = true
 warn_unused_ignores = true
