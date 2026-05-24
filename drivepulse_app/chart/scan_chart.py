@@ -66,6 +66,14 @@ def _fmt_ts(ts: str) -> str:
     return ts[:10] if len(ts) >= 10 else ts
 
 
+def _fmt_rel_s(s: float) -> str:
+    """Format relative seconds as '0s', '1m23s', etc. for intra-scan X-axis."""
+    s = int(round(s))
+    if s < 60:
+        return f"{s}s"
+    return f"{s // 60}m{s % 60:02d}s"
+
+
 def _rgb_to_hex(rgb: tuple[float, float, float]) -> str:
     r, g, b = (max(0, min(255, int(round(c * 255)))) for c in rgb)
     return f"#{r:02x}{g:02x}{b:02x}"
@@ -135,6 +143,37 @@ def _compute_stats_for_car(db, car_id: int) -> dict:
     for pid, s in stats.items():
         s["avg"] = s["sum"] / s["count"]
         s["values"] = sorted(raw_values.get(pid) or [], key=lambda t: t[0])
+        s["intra_series"] = {}
+
+    # Intra-scan Zeitreihen
+    for scan_meta in scans:
+        scan_id = int(scan_meta["id"])
+        try:
+            if not db.scan_has_series(scan_id):
+                continue
+            scan_start_ts: float | None = None
+            try:
+                from datetime import datetime as _dt
+                scan_start_ts = _dt.fromisoformat(
+                    str(scan_meta["scanned_at"]).replace("Z", "+00:00")
+                ).timestamp()
+            except Exception:
+                pass
+            rows = db.get_scan_samples(scan_id)
+            pid_pts: dict[str, list[tuple[float, float]]] = {}
+            for row in rows:
+                _pid = str(row["pid"])
+                rel_s = float(row["ts"]) - (scan_start_ts or float(row["ts"]))
+                pid_pts.setdefault(_pid, []).append((rel_s, float(row["value"])))
+            for _pid, pts in pid_pts.items():
+                if _pid not in stats:
+                    stats[_pid] = {"min": 0.0, "max": 0.0, "sum": 0.0,
+                                   "count": 0, "unit": "", "values": [],
+                                   "intra_series": {}}
+                stats[_pid]["intra_series"][scan_id] = sorted(pts, key=lambda t: t[0])
+        except Exception:
+            pass
+
     return stats
 
 
@@ -241,11 +280,12 @@ def _draw_chart(
         if val2_unit:
             _txt(cr, val2_unit, pl + plot_w, pt - 10, 9.0, rgba=lbl_rgba, align="right")
 
-    # X-Achse: erster/letzter Timestamp der Hauptserie (sofern vorhanden)
+    # X-Achse: bei intra-Modus relative Zeitlabels, sonst Datum
     if main_ts:
-        first_ts = _fmt_ts(main_ts[0])
-        last_ts = _fmt_ts(main_ts[-1])
         ty_x = pt + plot_h + 14
+        # Intra-Modus: Labels sind bereits als "0s", "1m23s" formatiert
+        first_ts = main_ts[0]
+        last_ts = main_ts[-1]
         if first_ts == last_ts:
             _txt(cr, first_ts, pl + plot_w / 2, ty_x, 9.5, rgba=lbl_rgba, align="center")
         else:
@@ -748,8 +788,9 @@ class ScanChartContent(Gtk.Box):
     def _on_compare_scan_changed(self, dd: Gtk.DropDown, _prop, entry: dict) -> None:
         sel = dd.get_selected()
         scans = entry.get("scans_meta") or []
+        entry.pop("scan_id_resolved", None)
         if sel == 0:
-            entry["scan_ts"] = None  # "Neuester"
+            entry["scan_ts"] = None
         else:
             idx = sel - 1
             entry["scan_ts"] = str(scans[idx]["scanned_at"]) if 0 <= idx < len(scans) else None
@@ -924,17 +965,35 @@ class ScanChartContent(Gtk.Box):
 
     # ── Drawing ───────────────────────────────────────────────────────────
 
+    def _scan_id_for_ts(self, scan_ts: str) -> int | None:
+        """Return the scan_id whose scanned_at matches scan_ts, or None."""
+        for s in self._main_scans_meta:
+            if str(s["scanned_at"]) == scan_ts:
+                return int(s["id"])
+        return None
+
     def _series_for(
         self,
         stats: dict | None,
         pid: str | None,
         scan_ts: str | None = None,
+        scan_id: int | None = None,
     ) -> tuple[list[float], list[str], str]:
         if not stats or not pid or pid not in stats:
             return [], [], ""
+
+        # Intra-scan Modus: konkreter Scan + Zeitreihe vorhanden
+        if scan_ts is not None and scan_id is not None:
+            intra = (stats[pid].get("intra_series") or {}).get(scan_id)
+            if intra:
+                vals = [v for _, v in intra]
+                ts_labels = [_fmt_rel_s(t) for t, _ in intra]
+                unit = _unit_display(stats[pid].get("unit", ""), self._language)
+                return vals, ts_labels, unit
+
         pairs = stats[pid].get("values") or []
         # scan_ts None → "Alle Scans": komplette Verlaufslinie.
-        # Konkreter Timestamp → nur Datenpunkte dieses Scans.
+        # Konkreter Timestamp → Snapshot dieses Scans (ein Punkt).
         if scan_ts is not None:
             pairs = [(t, v) for t, v in pairs if t == scan_ts]
         vals = [v for _, v in pairs]
@@ -946,10 +1005,14 @@ class ScanChartContent(Gtk.Box):
         val1_pid = self._value_pids[0] if self._value_pids else None
         val2_pid = self._value_pids[1] if len(self._value_pids) > 1 else None
 
+        main_sid = self._scan_id_for_ts(self._main_scan_ts) if self._main_scan_ts else None
+
         # Hauptauto + Vergleichsautos als Serien-Gruppen
         groups: list[dict] = []
-        main_v1, main_ts, val1_unit = self._series_for(self._main_stats, val1_pid, self._main_scan_ts)
-        main_v2, _main_ts2, val2_unit = self._series_for(self._main_stats, val2_pid, self._main_scan_ts)
+        main_v1, main_ts, val1_unit = self._series_for(
+            self._main_stats, val1_pid, self._main_scan_ts, main_sid)
+        main_v2, _main_ts2, val2_unit = self._series_for(
+            self._main_stats, val2_pid, self._main_scan_ts, main_sid)
         groups.append({"color": _COLOR_MAIN, "val1": main_v1, "val2": main_v2})
 
         for entry in self._compare_cars:
@@ -957,8 +1020,16 @@ class ScanChartContent(Gtk.Box):
             if not stats:
                 continue
             scan_ts = entry.get("scan_ts")
-            v1, _ts1, u1 = self._series_for(stats, val1_pid, scan_ts)
-            v2, _ts2, u2 = self._series_for(stats, val2_pid, scan_ts)
+            cmp_sid = entry.get("scan_id_resolved") if scan_ts else None
+            if scan_ts and cmp_sid is None:
+                # Resolve once and cache
+                for s in (entry.get("scans_meta") or []):
+                    if str(s["scanned_at"]) == scan_ts:
+                        cmp_sid = int(s["id"])
+                        entry["scan_id_resolved"] = cmp_sid
+                        break
+            v1, _ts1, u1 = self._series_for(stats, val1_pid, scan_ts, cmp_sid)
+            v2, _ts2, u2 = self._series_for(stats, val2_pid, scan_ts, cmp_sid)
             if not val1_unit and u1:
                 val1_unit = u1
             if not val2_unit and u2:

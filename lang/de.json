@@ -509,6 +509,8 @@
   "settings.log_app.subtitle": "drivepulse.log schreiben (Warnungen, Fehler)",
   "settings.log_obd": "OBD-Log",
   "settings.log_obd.subtitle": "connection-log.jsonl und obd-log.jsonl schreiben (hohes Volumen)",
+  "settings.obd_auto_record": "Fahrt automatisch aufzeichnen",
+  "settings.obd_auto_record.subtitle": "Alle Sensorwerte während der Fahrt speichern (startet bei Motorbetrieb, endet beim Ausschalten)",
   "settings.vin_decoder": "VIN-Dekodierung",
   "settings.vin_decoder.desc": "Fahrzeugdaten automatisch per VIN abrufen. NHTSA ist immer kostenlos aktiv. auto.dev: 1.000 Anfragen/Monat kostenlos. vindecoder.eu: beste Daten für EU-Fahrzeuge, kostenpflichtig.",
   "settings.vin_decoder.autodev_key": "auto.dev API-Schlüssel (1.000/Monat kostenlos)",

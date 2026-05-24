@@ -489,6 +489,8 @@
   "settings.log_app.subtitle": "Write drivepulse.log (warnings, errors)",
   "settings.log_obd": "OBD log",
   "settings.log_obd.subtitle": "Write connection-log.jsonl and obd-log.jsonl (high volume)",
+  "settings.obd_auto_record": "Auto-record drive",
+  "settings.obd_auto_record.subtitle": "Record all sensor values while driving (starts when engine is on, stops when car is switched off)",
   "settings.vin_decoder": "VIN Decoding",
   "settings.vin_decoder.desc": "Automatically fetch vehicle data by VIN. NHTSA is always active and free. auto.dev: 1,000 requests/month free. vindecoder.eu: best data for EU vehicles, paid.",
   "settings.vin_decoder.autodev_key": "auto.dev API Key (1,000/month free)",

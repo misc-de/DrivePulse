@@ -131,6 +131,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         on_log_app_enabled_changed: Callable[[bool], None] | None = None,
         current_log_obd_enabled: bool = True,
         on_log_obd_enabled_changed: Callable[[bool], None] | None = None,
+        current_obd_auto_record: bool = True,
+        on_obd_auto_record_changed: Callable[[bool], None] | None = None,
         current_vindecoder_api_key: str = "",
         on_vindecoder_api_key_changed: Callable[[str], None] | None = None,
         current_vindecoder_secret_key: str = "",
@@ -176,6 +178,7 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self.on_tts_quality_changed = on_tts_quality_changed
         self.on_log_app_enabled_changed = on_log_app_enabled_changed
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
+        self.on_obd_auto_record_changed = on_obd_auto_record_changed
         self.on_vindecoder_api_key_changed = on_vindecoder_api_key_changed
         self.on_vindecoder_secret_key_changed = on_vindecoder_secret_key_changed
         self.on_autodev_api_key_changed = on_autodev_api_key_changed
@@ -391,6 +394,13 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self.log_obd_row.set_active(current_log_obd_enabled)
         self.log_obd_row.connect("notify::active", self._on_log_obd_toggled)
 
+        self.obd_auto_record_row = Adw.SwitchRow(
+            title=_translate(self.language, "settings.obd_auto_record"),
+            subtitle=_translate(self.language, "settings.obd_auto_record.subtitle"),
+        )
+        self.obd_auto_record_row.set_active(current_obd_auto_record)
+        self.obd_auto_record_row.connect("notify::active", self._on_obd_auto_record_toggled)
+
         # OBD hardware group
         obd_devices = scan_obd_devices()  # (label, port, is_present)
         self._obd_port_values: list[str | None] = [None]
@@ -503,6 +513,7 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         logging_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.logging"))
         logging_group.add(self.log_app_row)
         logging_group.add(self.log_obd_row)
+        logging_group.add(self.obd_auto_record_row)
         app_page.add(logging_group)
 
         # VIN decoder group
@@ -997,6 +1008,10 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
     def _on_log_obd_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_log_obd_enabled_changed is not None:
             self.on_log_obd_enabled_changed(row.get_active())
+
+    def _on_obd_auto_record_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
+        if self.on_obd_auto_record_changed is not None:
+            self.on_obd_auto_record_changed(row.get_active())
 
     def _on_autodev_key_changed(self, row: Adw.EntryRow) -> None:
         if self.on_autodev_api_key_changed is not None:
