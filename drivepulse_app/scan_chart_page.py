@@ -314,6 +314,7 @@ class ScanChartContent(Gtk.Box):
         pid_labels: dict,
         language: str = "de",
         main_car_id: int | None = None,
+        on_navigate_pid=None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_vexpand(True)
@@ -325,6 +326,7 @@ class ScanChartContent(Gtk.Box):
         self._pid_labels = pid_labels
         self._language = language
         self._main_car_id = main_car_id
+        self._on_navigate_pid = on_navigate_pid
 
         # PID-Auswahloptionen (Liste der bekannten PIDs aus Hauptauto)
         self._pid_options: list[tuple[str, str]] = []
@@ -383,6 +385,14 @@ class ScanChartContent(Gtk.Box):
         self._da.set_content_height(_CHART_H)
         self._da.set_hexpand(True)
         self._da.set_draw_func(self._draw)
+
+        # Vertikaler Wisch auf dem Chart-Canvas wechselt zum nächsten/
+        # vorherigen Sensor (hoch = nächster, runter = vorheriger).
+        if self._on_navigate_pid is not None:
+            chart_drag = Gtk.GestureDrag()
+            chart_drag.connect("drag-end", self._on_chart_swipe)
+            self._da.add_controller(chart_drag)
+
         self.append(self._da)
         self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
@@ -500,23 +510,6 @@ class ScanChartContent(Gtk.Box):
                 return disp
         return f"Fahrzeug {car_id}"
 
-    def _car_has_sensor_data(self, car_id: int) -> bool:
-        """Schnellcheck über die scans-Metadaten (pids_count) ohne den
-        teuren JSON-Blob jedes Scans zu laden."""
-        if self._db is None or car_id is None:
-            return False
-        try:
-            scans = self._db.list_scans_for_car(car_id)
-        except Exception:
-            return False
-        for s in scans:
-            try:
-                if int(s["pids_count"] or 0) > 0:
-                    return True
-            except (KeyError, TypeError, ValueError):
-                continue
-        return False
-
     def _refresh_add_car_dropdown(self) -> None:
         used = {self._main_car_id} | {c["car_id"] for c in self._compare_cars}
         self._add_car_candidates: list[int] = []
@@ -525,8 +518,6 @@ class ScanChartContent(Gtk.Box):
         for p in self._profiles:
             cid = p.get("car_id")
             if cid is None or cid in used:
-                continue
-            if not self._car_has_sensor_data(cid):
                 continue
             sl.append(self._lookup_car_name(cid))
             self._add_car_candidates.append(cid)
@@ -763,6 +754,21 @@ class ScanChartContent(Gtk.Box):
             dlg.connect("response", _resp)
             dlg.present()
 
+    # ── Chart-Wisch (Sensor wechseln) ────────────────────────────────────
+
+    def _on_chart_swipe(self, _gesture: Gtk.GestureDrag, dx: float, dy: float) -> None:
+        if self._on_navigate_pid is None:
+            return
+        # Vertikaler Wisch muss klar dominieren und mindestens 40 px sein
+        if abs(dy) < 40 or abs(dy) <= abs(dx) * 1.2:
+            return
+        # Hoch (dy < 0) = nächster Sensor, runter (dy > 0) = vorheriger
+        direction = 1 if dy < 0 else -1
+        try:
+            self._on_navigate_pid(direction)
+        except Exception:
+            _log.exception("scan-chart pid-navigation failed")
+
     # ── Persistenz ────────────────────────────────────────────────────────
 
     def _prefs_key(self) -> str | None:
@@ -814,8 +820,6 @@ class ScanChartContent(Gtk.Box):
             if cid is None or cid == self._main_car_id:
                 continue
             if not any(p.get("car_id") == cid for p in self._profiles):
-                continue
-            if not self._car_has_sensor_data(cid):
                 continue
             color_list = car_pref.get("color")
             restored_color: tuple[float, float, float] | None = None
