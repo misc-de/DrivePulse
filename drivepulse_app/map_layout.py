@@ -798,6 +798,7 @@ class MapLayoutMixin:
         db = getattr(self, "_map_db", None)
         if db is None:
             return
+        self._clear_replay_overlays()
         nav_view = getattr(self, "_nav_view", None)
         if nav_view is not None:
             nav_view.pop()
@@ -1074,6 +1075,7 @@ class MapLayoutMixin:
         self._update_placeholders()
 
         self._loaded_tour_id = int(tour["id"])
+        self._clear_replay_overlays()
         nav_view = getattr(self, "_nav_view", None)
         if nav_view is not None:
             nav_view.pop()
