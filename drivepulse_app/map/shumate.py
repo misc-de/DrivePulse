@@ -67,7 +67,7 @@ class MapShumateMixin:
         if scale is not None:
             scale.set_halign(Gtk.Align.START)
             scale.set_valign(Gtk.Align.END)
-            scale.set_margin_start(12)
+            scale.set_margin_start(7)
             scale.set_margin_bottom(36)
         # Initial scale unit follows the user's settings choice.
         self._shumate_apply_scale_unit(getattr(self, "units", "metric"))

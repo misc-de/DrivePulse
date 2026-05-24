@@ -96,7 +96,7 @@ class MapLayoutMixin:
         # so left and right controls share the same baseline.
         # Shumate: keep the historical 36 px clearance so the FAB sits above
         # the libshumate scale ruler that lives in the bottom-left corner.
-        fab.set_margin_bottom(36 if self._backend == "shumate" else 12)
+        fab.set_margin_bottom(41 if self._backend == "shumate" else 12)
         self._fab = fab
 
         self._poi_btn = Gtk.ToggleButton(icon_name="mark-location-symbolic")
