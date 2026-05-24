@@ -662,6 +662,16 @@ class CarsPage(
             # (_open_detail resets _selected_scan_id to None, so we set it here.)
             if self._initial_scan_id is not None:
                 self._selected_scan_id = self._initial_scan_id
+            elif self._initial_category == "scans":
+                # No specific scan saved yet — default to the most recent one so
+                # the green marker and sidebar date reflect a concrete entry.
+                try:
+                    if self.db is not None and self._selected_car_id is not None:
+                        scans = self.db.list_scans_for_car(self._selected_car_id)
+                        if scans:
+                            self._selected_scan_id = int(scans[0]["id"])
+                except Exception:
+                    pass
             cat = self._initial_category
             if cat:
                 for row in self._cat_rows:
