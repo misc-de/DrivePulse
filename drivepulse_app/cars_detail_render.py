@@ -409,9 +409,12 @@ class CarsDetailRenderMixin:
             stats_lbl = Gtk.Label(label=stats_text, xalign=1.0)
             stats_lbl.set_halign(Gtk.Align.END)
             stats_lbl.set_hexpand(True)
-            stats_lbl.add_css_class("dim-label")
             stats_lbl.add_css_class("caption")
             box.append(stats_lbl)
+
+            # Durchschnittswert (value_lbl) dezent darstellen
+            value_lbl.add_css_class("dim-label")
+            value_lbl.add_css_class("caption")
 
         box.append(value_lbl)
 
