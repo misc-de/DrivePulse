@@ -145,6 +145,7 @@ class SettingsDialog(Adw.NavigationPage):
         self.on_sidebar_side_changed = on_sidebar_side_changed
         self.on_theme_mode_changed = on_theme_mode_changed
         self.on_force_webkit_map_changed = on_force_webkit_map_changed
+        self._initial_force_webkit_map = bool(current_force_webkit_map)
         self.on_traffic_bundesweit_changed = on_traffic_bundesweit_changed
         self.on_traffic_nrw_changed = on_traffic_nrw_changed
         self.on_last_check_updated = on_last_check_updated
@@ -1046,8 +1047,24 @@ class SettingsDialog(Adw.NavigationPage):
             self.on_theme_mode_changed(modes[idx] if 0 <= idx < len(modes) else "auto")
 
     def _on_force_webkit_map_changed(self, *_args: Any) -> None:
+        new_value = self.force_webkit_map_switch.get_active()
         if self.on_force_webkit_map_changed is not None:
-            self.on_force_webkit_map_changed(self.force_webkit_map_switch.get_active())
+            self.on_force_webkit_map_changed(new_value)
+        if new_value != self._initial_force_webkit_map:
+            self._show_map_backend_restart_dialog()
+
+    def _show_map_backend_restart_dialog(self) -> None:
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "settings.map.webkit.restart_dialog.title"),
+            body=_translate(self.language, "settings.map.webkit.restart_dialog.body"),
+        )
+        dialog.add_response("no", _translate(self.language, "settings.app.restart_dialog.no"))
+        dialog.add_response("yes", _translate(self.language, "settings.app.restart_dialog.yes"))
+        dialog.set_response_appearance("yes", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("yes")
+        dialog.set_close_response("no")
+        dialog.connect("response", self._on_restart_response)
+        dialog.present(self.get_root())
 
     def _on_traffic_bundesweit_changed(self, *_args: Any) -> None:
         if self.on_traffic_bundesweit_changed is not None:

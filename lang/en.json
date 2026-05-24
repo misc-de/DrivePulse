@@ -83,6 +83,8 @@
   "settings.rotation_mode.follow_system": "Follow System",
   "settings.map.webkit": "Force WebKit map",
   "settings.map.webkit.subtitle": "Use the richer vector map. Needs more performance and applies after restart.",
+  "settings.map.webkit.restart_dialog.title": "Restart app?",
+  "settings.map.webkit.restart_dialog.body": "The map backend change only takes effect after restarting DrivePulse. Restart now?",
   "settings.traffic": "Traffic Information",
   "settings.traffic.bundesweit": "Nationwide (Autobahn)",
   "settings.traffic.bundesweit.subtitle": "Load traffic events for all German motorways when the traffic button is tapped.",
