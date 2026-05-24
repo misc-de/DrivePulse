@@ -27,10 +27,11 @@ def _install_theme_import_aliases() -> None:
 
     sys.modules.setdefault("common", common)
     sys.modules.setdefault("draw_helpers", draw_helpers)
-    # theme_defaults.py lives at the project root; register it so user themes
-    # can do `from theme_defaults import ...` regardless of working directory.
+    # _theme_defaults.py lives next to the built-in themes; register it under
+    # the top-level name `theme_defaults` so user themes can do
+    # `from theme_defaults import ...` regardless of working directory.
     if "theme_defaults" not in sys.modules:
-        _td_path = BUILTIN_THEMES_DIR.parent / "theme_defaults.py"
+        _td_path = BUILTIN_THEMES_DIR / "_theme_defaults.py"
         if _td_path.exists():
             spec = _il.util.spec_from_file_location("theme_defaults", _td_path)
             if spec and spec.loader:
