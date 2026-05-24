@@ -479,6 +479,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         if getattr(self, "_route_btn_spinner", None) is not None:
             self._route_btn.set_child(self._route_btn_spinner)
             self._route_btn_spinner.start()
+        # Centred overlay spinner — also visible when the search bar is hidden
+        # (e.g. loading a saved tour without plan-mode active).
+        self._set_route_loading(True)
         threading.Thread(
             target=self._compute_route,
             args=(start_text, wp_texts, end_text),
@@ -490,6 +493,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
             self._route_btn_spinner.stop()
         self._route_btn.set_label(_translate(self.language, "map.route"))
         self._route_btn.set_sensitive(True)
+        self._set_route_loading(False)
 
     def _on_clear_clicked(self, _btn: Gtk.Button) -> None:
         # Remove all rows except first two (start + end)

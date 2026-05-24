@@ -1336,6 +1336,7 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_speed_zone_overlay())
             overlay.add_overlay(self._build_map_state_overlay())
             overlay.add_overlay(self._build_replay_chart_overlay())
+            overlay.add_overlay(self._build_route_loading_overlay())
 
         self._map_content_box.append(overlay)
 
@@ -1413,6 +1414,50 @@ class MapLayoutMixin:
             self._refresh_3d_btn()
             fab.append(self._3d_btn)
         return fab
+
+    def _build_route_loading_overlay(self) -> Gtk.Widget:
+        """Centred spinner shown while a route is being computed or a tour is
+        loading — visible regardless of whether the search bar is up."""
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        wrap.set_halign(Gtk.Align.CENTER)
+        wrap.set_valign(Gtk.Align.CENTER)
+        wrap.add_css_class("osd")
+        wrap.add_css_class("dp-route-loading")
+        wrap.set_can_target(False)
+        wrap.set_visible(False)
+
+        spinner = Gtk.Spinner()
+        spinner.set_size_request(48, 48)
+        spinner.set_margin_top(14)
+        spinner.set_margin_bottom(14)
+        spinner.set_margin_start(14)
+        spinner.set_margin_end(14)
+        wrap.append(spinner)
+
+        css = Gtk.CssProvider()
+        css.load_from_data(b".dp-route-loading { border-radius: 14px; }")
+        wrap.connect(
+            "realize",
+            lambda w: Gtk.StyleContext.add_provider_for_display(
+                w.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            ),
+        )
+
+        self._route_loading_overlay = wrap
+        self._route_loading_spinner = spinner
+        return wrap
+
+    def _set_route_loading(self, active: bool) -> None:
+        overlay = getattr(self, "_route_loading_overlay", None)
+        spinner = getattr(self, "_route_loading_spinner", None)
+        if overlay is None or spinner is None:
+            return
+        if active:
+            spinner.start()
+            overlay.set_visible(True)
+        else:
+            spinner.stop()
+            overlay.set_visible(False)
 
     def _build_map_state_overlay(self) -> Gtk.Widget:
         wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
