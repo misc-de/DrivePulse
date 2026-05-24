@@ -258,7 +258,6 @@ def _draw_chart(
         mx: float,
         color: tuple[float, float, float],
         dashed: bool,
-        highlight_idx: int | None = None,
     ) -> None:
         n = len(vals)
         if n == 0:
@@ -289,28 +288,14 @@ def _draw_chart(
             cr.arc(xp(i), yp(v), dot_r, 0, 2 * math.pi)
             cr.fill()
 
-        # Ausgewählten Scan mit größerem Punkt + Ring hervorheben
-        if highlight_idx is not None and 0 <= highlight_idx < n:
-            hx = xp(highlight_idx)
-            hy = yp(vals[highlight_idx])
-            cr.set_source_rgba(r, g, b, 1.0)
-            cr.arc(hx, hy, 4.5, 0, 2 * math.pi)
-            cr.fill()
-            cr.set_source_rgba(r, g, b, 0.55)
-            cr.set_line_width(1.5)
-            cr.arc(hx, hy, 7.0, 0, 2 * math.pi)
-            cr.stroke()
-
     for g in series_groups:
         color = g.get("color") or _COLOR_MAIN
         v1 = g.get("val1") or []
         v2 = g.get("val2") or []
-        hi1 = g.get("hi1")
-        hi2 = g.get("hi2")
         if v1:
-            _draw_line(v1, v1_mn, v1_mx, color, dashed=False, highlight_idx=hi1)
+            _draw_line(v1, v1_mn, v1_mx, color, dashed=False)
         if v2:
-            _draw_line(v2, v2_mn, v2_mx, color, dashed=True, highlight_idx=hi2)
+            _draw_line(v2, v2_mn, v2_mx, color, dashed=True)
 
 
 # ---------------------------------------------------------------------------
@@ -944,23 +929,18 @@ class ScanChartContent(Gtk.Box):
         stats: dict | None,
         pid: str | None,
         scan_ts: str | None = None,
-    ) -> tuple[list[float], list[str], str, int | None]:
+    ) -> tuple[list[float], list[str], str]:
         if not stats or not pid or pid not in stats:
-            return [], [], "", None
+            return [], [], ""
         pairs = stats[pid].get("values") or []
-        # Immer die komplette Verlaufslinie zurückgeben.  Bei einem konkreten
-        # Timestamp wird der passende Index als highlight_idx zurückgegeben,
-        # damit der Punkt im Chart hervorgehoben werden kann.
-        highlight_idx: int | None = None
+        # scan_ts None → "Alle Scans": komplette Verlaufslinie.
+        # Konkreter Timestamp → nur Datenpunkte dieses Scans.
         if scan_ts is not None:
-            for i, (t, _) in enumerate(pairs):
-                if t == scan_ts:
-                    highlight_idx = i
-                    break
+            pairs = [(t, v) for t, v in pairs if t == scan_ts]
         vals = [v for _, v in pairs]
         ts = [t for t, _ in pairs]
         unit = _unit_display(stats[pid].get("unit", ""), self._language)
-        return vals, ts, unit, highlight_idx
+        return vals, ts, unit
 
     def _draw(self, _da, cr, w: int, h: int) -> None:
         val1_pid = self._value_pids[0] if self._value_pids else None
@@ -968,22 +948,22 @@ class ScanChartContent(Gtk.Box):
 
         # Hauptauto + Vergleichsautos als Serien-Gruppen
         groups: list[dict] = []
-        main_v1, main_ts, val1_unit, main_hi1 = self._series_for(self._main_stats, val1_pid, self._main_scan_ts)
-        main_v2, _main_ts2, val2_unit, main_hi2 = self._series_for(self._main_stats, val2_pid, self._main_scan_ts)
-        groups.append({"color": _COLOR_MAIN, "val1": main_v1, "val2": main_v2, "hi1": main_hi1, "hi2": main_hi2})
+        main_v1, main_ts, val1_unit = self._series_for(self._main_stats, val1_pid, self._main_scan_ts)
+        main_v2, _main_ts2, val2_unit = self._series_for(self._main_stats, val2_pid, self._main_scan_ts)
+        groups.append({"color": _COLOR_MAIN, "val1": main_v1, "val2": main_v2})
 
         for entry in self._compare_cars:
             stats = entry.get("stats")
             if not stats:
                 continue
             scan_ts = entry.get("scan_ts")
-            v1, _ts1, u1, hi1 = self._series_for(stats, val1_pid, scan_ts)
-            v2, _ts2, u2, hi2 = self._series_for(stats, val2_pid, scan_ts)
+            v1, _ts1, u1 = self._series_for(stats, val1_pid, scan_ts)
+            v2, _ts2, u2 = self._series_for(stats, val2_pid, scan_ts)
             if not val1_unit and u1:
                 val1_unit = u1
             if not val2_unit and u2:
                 val2_unit = u2
-            groups.append({"color": entry["color"], "val1": v1, "val2": v2, "hi1": hi1, "hi2": hi2})
+            groups.append({"color": entry["color"], "val1": v1, "val2": v2})
 
         bg_rgb = _lookup_card_bg(self._da)
         _draw_chart(
