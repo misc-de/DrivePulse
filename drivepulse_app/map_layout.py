@@ -1638,10 +1638,12 @@ class MapLayoutMixin:
         self._tour_start_btn = Gtk.Button()
         self._tour_start_btn.set_child(inner)
         self._tour_start_btn.add_css_class("osd")
+        self._tour_start_btn.set_halign(Gtk.Align.START)
         self._tour_start_btn.connect("clicked", self._on_tour_start_clicked)
         grid.attach(self._tour_start_btn, 0, 0, 1, 1)
 
         icon_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        icon_row.set_halign(Gtk.Align.START)
         icon_row.set_valign(Gtk.Align.START)
 
         steps_icon = Gtk.Image.new_from_icon_name("info-symbolic")
@@ -1650,6 +1652,7 @@ class MapLayoutMixin:
         self._steps_toggle_btn.set_child(steps_icon)
         self._steps_toggle_btn.add_css_class("osd")
         self._steps_toggle_btn.add_css_class("circular")
+        self._steps_toggle_btn.set_halign(Gtk.Align.START)
         self._steps_toggle_btn.set_size_request(40, 40)
         self._steps_toggle_btn.set_tooltip_text(_translate(self.language, "map.steps.toggle"))
         self._steps_toggle_btn.connect("toggled", self._on_steps_toggle)
