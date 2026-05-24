@@ -65,9 +65,9 @@ class CarsTripsMixin:
         km = trip["distance_km"]
         if km is not None:
             parts.append(f"{km:.1f} km")
-        vmax = trip["max_speed_kmh"]
-        if vmax is not None:
-            parts.append(f"max {vmax:.0f} km/h")
+        vavg = trip["avg_speed_kmh"]
+        if vavg is not None:
+            parts.append(f"Ø {vavg:.0f} km/h")
         if trip["ended_at"] is None:
             parts.append(f"⏺ {_translate(self.language, 'cars.trip.ongoing')}")
         row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
@@ -277,7 +277,7 @@ class CarsTripsMixin:
         started = self._parse_ts(trip["started_at"])
         if started is None:
             return _translate(self.language, "cars.trip.title", id=int(trip["id"]))
-        return started.strftime("%d.%m.%Y · %H:%M")
+        return started.strftime("%d.%m. %H:%M")
 
     def _trip_detail_title(self, trip: Any) -> str:
         return self._trip_display_title(trip)

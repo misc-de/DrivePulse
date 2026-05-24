@@ -312,7 +312,7 @@ class CarsDetailRenderMixin:
                             avg_str = f"{avg:.1f}"
                         else:
                             avg_str = f"{avg:.2f}"
-                        value_text = f"⌀ {avg_str} {unit}".strip()
+                        value_text = f"{avg_str} {unit}".strip()
                         is_unknown = False
                     if stats and len(stats.get("values") or []) > 1:
                         def on_click(_lbl=label, _pk=pid_key, _st=self._scan_pid_stats, _pl=_pid_labels, _lg=_lang):
