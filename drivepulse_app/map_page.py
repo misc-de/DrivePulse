@@ -284,6 +284,9 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         elif self._backend == "shumate":
             self._shumate_set_poi_visible(self._poi_visible)
             self._shumate_set_traffic_visible(self._traffic_visible)
+            coord_overlay = getattr(self, "_coord_overlay", None)
+            if coord_overlay is not None:
+                coord_overlay.set_visible(True)
         if self._traffic_visible and not self._traffic_loaded:
             self._traffic_loaded = True
             self._status_lbl.set_text(_translate(self.language, "map.traffic.loading"))

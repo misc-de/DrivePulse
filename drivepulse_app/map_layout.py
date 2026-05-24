@@ -540,19 +540,19 @@ class MapLayoutMixin:
 
     def _refresh_fab_visibility(self) -> None:
         """Hide the bottom-right map options while the replay chart is open or
-        while the coordinate chip is visible (shumate only)."""
+        while the coord chip is expanded (label visible, shumate only)."""
         fab = getattr(self, "_fab", None)
         if fab is None:
             return
         chart = getattr(self, "_replay_chart_overlay", None)
         chart_open = chart is not None and chart.get_visible()
-        coord_overlay = getattr(self, "_coord_overlay", None)
-        coord_open = (
+        coord_lbl = getattr(self, "_coord_lbl", None)
+        coord_expanded = (
             self._backend == "shumate"
-            and coord_overlay is not None
-            and coord_overlay.get_visible()
+            and coord_lbl is not None
+            and coord_lbl.get_visible()
         )
-        fab.set_visible(not chart_open and not coord_open)
+        fab.set_visible(not chart_open and not coord_expanded)
 
     def _populate_replay_info(self, meta: dict, ended_at: str | None) -> None:
         """Fill the top-left info card with car + trip metadata."""
@@ -762,8 +762,13 @@ class MapLayoutMixin:
             self._coord_lbl.set_label(
                 f"{abs(lat):.5f}° {ns}  {abs(lon):.5f}° {ew}"
             )
-            if self._coord_overlay is not None and not self._coord_overlay.get_visible():
-                self._coord_overlay.set_visible(True)
+            if not self._coord_lbl.get_visible():
+                # Expand: show label, stretch chip to full width, hide scale+FAB.
+                self._coord_lbl.set_visible(True)
+                if self._coord_overlay is not None:
+                    self._coord_overlay.set_halign(Gtk.Align.FILL)
+                if getattr(self, "_coord_chip", None) is not None:
+                    self._coord_chip.set_hexpand(True)
                 if self._backend == "shumate":
                     self._shumate_set_scale_visible(False)
                 self._refresh_fab_visibility()
@@ -773,10 +778,16 @@ class MapLayoutMixin:
             self._js("mapClearReplayMarker()")
         elif getattr(self, "_shumate_map", None) is not None:
             self._shumate_clear_replay_marker()
-        if getattr(self, "_coord_overlay", None) is not None:
-            self._coord_overlay.set_visible(False)
-        if self._backend == "shumate":
-            self._shumate_set_scale_visible(True)
+        coord_lbl = getattr(self, "_coord_lbl", None)
+        if coord_lbl is not None and coord_lbl.get_visible():
+            # Minimize: hide label, shrink chip back to icon-only width.
+            coord_lbl.set_visible(False)
+            if self._coord_overlay is not None:
+                self._coord_overlay.set_halign(Gtk.Align.START)
+            if getattr(self, "_coord_chip", None) is not None:
+                self._coord_chip.set_hexpand(False)
+            if self._backend == "shumate":
+                self._shumate_set_scale_visible(True)
         self._refresh_fab_visibility()
 
     def _show_trip_replay(self, meta: dict) -> None:
@@ -1404,18 +1415,19 @@ class MapLayoutMixin:
         return wrap
 
     def _build_coord_overlay(self) -> Gtk.Widget:
+        # Minimized (default, shumate only): icon only, natural width.
+        # Expanded (during replay scrubbing): icon + label, full width.
         wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        wrap.set_halign(Gtk.Align.FILL)
+        wrap.set_halign(Gtk.Align.START)
         wrap.set_valign(Gtk.Align.END)
         wrap.set_margin_start(8)
         wrap.set_margin_end(8)
         wrap.set_margin_bottom(36)
         wrap.set_can_target(False)
-        wrap.set_visible(False)
+        wrap.set_visible(False)  # shown for shumate in _apply_initial_overlay_state
 
         chip = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         chip.add_css_class("dp-coord-chip")
-        chip.set_hexpand(True)
 
         icon = Gtk.Image.new_from_icon_name("integral3-symbolic")
         icon.set_pixel_size(14)
@@ -1423,10 +1435,12 @@ class MapLayoutMixin:
 
         lbl = Gtk.Label(label="")
         lbl.set_xalign(0.0)
+        lbl.set_visible(False)  # hidden in minimized state
         chip.append(lbl)
 
         wrap.append(chip)
         self._coord_overlay = wrap
+        self._coord_chip = chip
         self._coord_lbl = lbl
         return wrap
 
