@@ -5,11 +5,11 @@ import concurrent.futures
 import json as _json
 import math
 import urllib.parse
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.http_client import http_get
-
 
 log = get_logger(__name__)
 

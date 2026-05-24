@@ -4,23 +4,34 @@ from __future__ import annotations
 import json
 import threading
 import time
+from typing import ClassVar
 
 from gi.repository import GLib
+from gi.repository import Gtk as _Gtk
 
 from drivepulse_app.common import _translate
-from drivepulse_app.map.services import (
-    compute_route, format_distance, format_duration, haversine, mock_speed_kmh,
-    osrm_route, maneuver_icon, maneuver_text_key,
-)
-from gi.repository import Gtk as _Gtk
-from drivepulse_app.tts import service as tts_service
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map.services import (
+    compute_route,
+    format_distance,
+    format_duration,
+    haversine,
+    maneuver_icon,
+    maneuver_text_key,
+    mock_speed_kmh,
+    osrm_route,
+)
+from drivepulse_app.tts import service as tts_service
 
 log = get_logger(__name__)
 
 
 class MapTourMixin:
     """Tour/navigation state machine, TTS and step detection."""
+
+    # Concrete MapPage initializes these as Optional[(float, float)].
+    _start_coord: tuple[float, float] | None
+    _end_coord: tuple[float, float] | None
 
     # Comfortable street-level zoom for tour following; max zoom (22) was
     # too close to be useful for navigation.
@@ -264,7 +275,7 @@ class MapTourMixin:
                 self._route_cum_m.append(self._route_cum_m[-1] + seg)
         if self._tour_steps:
             cum = 0.0
-            for i, step in enumerate(self._tour_steps):
+            for step in self._tour_steps:
                 # Maneuver k sits at the START of step k.  So its position
                 # along the route is the cumulative distance of steps 0..k-1.
                 self._step_cum_m.append(cum)
@@ -525,7 +536,7 @@ class MapTourMixin:
                 tts_service.prerender(text, lang, gender, quality=self._tts_quality)
 
     # Valhalla lane indication → matching nav icon
-    _LANE_ICON: dict[str, str] = {
+    _LANE_ICON: ClassVar[dict[str, str]] = {
         "left":         "dp-nav-left-symbolic",
         "slight_left":  "dp-nav-slight-left-symbolic",
         "straight":     "dp-nav-straight-symbolic",
@@ -601,7 +612,7 @@ class MapTourMixin:
         if not waypoints:
             return
         # Current GPS position → all remaining original waypoints (skip old start)
-        new_points = [(self._gps_lat, self._gps_lon)] + list(waypoints[1:])
+        new_points = [(self._gps_lat, self._gps_lon), *waypoints[1:]]
         self._last_reroute_time = time.monotonic()
         self._off_route_since = 0.0
         log.info("Off-route: recalculating route from current GPS position")
@@ -622,7 +633,7 @@ class MapTourMixin:
     def _apply_rerouted_route(
         self,
         all_points: list[tuple[float, float]],
-        result: "tuple[list[list[float]], float, float, list[dict]] | None",
+        result: tuple[list[list[float]], float, float, list[dict]] | None,
     ) -> bool:
         if result is None or not self._tour_active:
             return False

@@ -330,8 +330,8 @@ def test_get_stopwatch_run_missing_returns_empty_dict(db):
 
 def test_add_and_list_car_photos(db):
     cid = db.upsert_car(vin="VIN-PH")
-    p1 = db.add_car_photo(cid, "frontview.jpg")
-    p2 = db.add_car_photo(cid, "engine.jpg", taken_at="2026-04-01T00:00:00+00:00")
+    db.add_car_photo(cid, "frontview.jpg")
+    db.add_car_photo(cid, "engine.jpg", taken_at="2026-04-01T00:00:00+00:00")
     photos = db.list_photos_for_car(cid)
     files = {p["filename"] for p in photos}
     assert files == {"frontview.jpg", "engine.jpg"}

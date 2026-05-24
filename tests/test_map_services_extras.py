@@ -12,7 +12,6 @@ from drivepulse_app.map.services import (
     mock_speed_kmh,
 )
 
-
 # ─── _decode_polyline ────────────────────────────────────────────────────────
 
 def test_decode_polyline_empty_string():
@@ -22,7 +21,6 @@ def test_decode_polyline_empty_string():
 def test_decode_polyline_roundtrips_known_pair():
     # Single coordinate (50.0, 8.0) — precision 6.
     # Encoded with Google's 1e6 polyline format.
-    import math
 
     def _encode_one(value_micros: int) -> str:
         v = value_micros

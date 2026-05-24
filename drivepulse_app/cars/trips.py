@@ -6,10 +6,9 @@ from typing import Any
 
 from gi.repository import Adw, GLib, Gtk
 
-from drivepulse_app.common import _translate
 from drivepulse_app.cars.trip_widgets import _build_trip_detail_widget
+from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
-
 
 log = get_logger(__name__)
 
@@ -131,8 +130,8 @@ class CarsTripsMixin:
                 if s["lat"] is not None and s["lon"] is not None
             ]
             if len(coords_lonlat) >= 2:
-                distance_km = trip["distance_km"] if "distance_km" in trip.keys() else None
-                duration_s = trip["duration_s"] if "duration_s" in trip.keys() else None
+                distance_km = trip["distance_km"] if "distance_km" in trip.keys() else None  # noqa: SIM118
+                duration_s = trip["duration_s"] if "duration_s" in trip.keys() else None  # noqa: SIM118
                 label = self._trip_detail_title(trip)
                 on_open_as_route(coords_lonlat, distance_km, duration_s, label)
                 return
@@ -161,7 +160,7 @@ class CarsTripsMixin:
                 on_rename=rename_cb,
                 on_share=share_cb,
                 on_delete=delete_cb,
-                on_back=lambda: self._render_detail(),
+                on_back=self._render_detail,
             )
             self._value_scroll.set_child(inline)
             return
@@ -231,7 +230,7 @@ class CarsTripsMixin:
         self._trip_select_mode = True
         self._trip_selected_ids = {trip_id}
         self._render_detail()
-        self._set_trash(lambda: self._confirm_delete_selected_trips())
+        self._set_trash(self._confirm_delete_selected_trips)
 
     def _exit_trip_select_mode(self) -> None:
         self._trip_select_mode = False
@@ -272,7 +271,7 @@ class CarsTripsMixin:
 
     def _trip_display_title(self, trip: Any) -> str:
         """Label if set, otherwise formatted start date."""
-        label = trip["label"] if "label" in trip.keys() else None
+        label = trip["label"] if "label" in trip.keys() else None  # noqa: SIM118
         if label:
             return label
         started = self._parse_ts(trip["started_at"])

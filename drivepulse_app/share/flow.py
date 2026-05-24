@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import gi
 
@@ -150,7 +151,7 @@ class ShareFlow:
                 return False
             n = result.get("tours_added", 0)
             if n:
-                self._show_toast(f"Tour übertragen")
+                self._show_toast("Tour übertragen")
             else:
                 self._show_toast(self._t("share.nothing_new"))
             return False
@@ -382,8 +383,11 @@ class ShareFlow:
         photo_ids: list[int] | None = None,
     ) -> None:
         from drivepulse_app.share.protocol import (
-            build_vehicle_block, build_trips_payload, build_runs_payload,
-            build_scans_payload, build_photos_payload,
+            build_photos_payload,
+            build_runs_payload,
+            build_scans_payload,
+            build_trips_payload,
+            build_vehicle_block,
         )
 
         car_id = int(car["id"])

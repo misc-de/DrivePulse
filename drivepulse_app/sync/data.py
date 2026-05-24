@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from drivepulse_app.common import LOG_DIR
@@ -19,7 +19,7 @@ _SAMPLE_COLS = (
 
 
 def export_all(db: DriveDB) -> dict[str, Any]:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     cars_out: list[dict[str, Any]] = []
 
     for car in db.list_cars():
@@ -145,7 +145,7 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
                         trip.get("samples_count") or 0,
                     ),
                 )
-                trip_id = int(cur.lastrowid)
+                trip_id = int(cur.lastrowid or 0)
                 db._conn.commit()
             trips_added += 1
 
@@ -206,7 +206,7 @@ def upsert_paired_device(
     host: str,
     port: int,
 ) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     devices = load_paired_devices()
     for d in devices:
         if d.get("device_id") == device_id:

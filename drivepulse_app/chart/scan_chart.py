@@ -9,7 +9,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from drivepulse_app.cars.metadata import _parse_profile_pid_key, _unit_display
 from drivepulse_app.common import LOG_DIR
@@ -68,14 +68,14 @@ def _fmt_ts(ts: str) -> str:
 
 def _fmt_rel_s(s: float) -> str:
     """Format relative seconds as '0s', '1m23s', etc. for intra-scan X-axis."""
-    s = int(round(s))
+    s = round(s)
     if s < 60:
         return f"{s}s"
     return f"{s // 60}m{s % 60:02d}s"
 
 
 def _rgb_to_hex(rgb: tuple[float, float, float]) -> str:
-    r, g, b = (max(0, min(255, int(round(c * 255)))) for c in rgb)
+    r, g, b = (max(0, min(255, round(c * 255))) for c in rgb)
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
@@ -127,6 +127,8 @@ def _compute_stats_for_car(db, car_id: int) -> dict:
                 continue
             v = raw_val.get("value") if isinstance(raw_val, dict) else raw_val
             unit = str(raw_val.get("unit", "")) if isinstance(raw_val, dict) else ""
+            if v is None:
+                continue
             try:
                 num = float(v)
             except (TypeError, ValueError):
@@ -395,8 +397,6 @@ class ScanChartContent(Gtk.Box):
         self._compare_cars: list[dict] = []
         self._next_color_idx = 0
 
-        main_pid_label = pid_labels.get(main_pid, main_pid)
-
         # ── Info-Strip ────────────────────────────────────────────────────
         main_pid_stats = all_stats.get(main_pid) or {}
         mean = main_pid_stats.get("avg", 0.0)
@@ -601,6 +601,8 @@ class ScanChartContent(Gtk.Box):
                 if _parse_profile_pid_key(raw_key) != pid:
                     continue
                 v = raw_val.get("value") if isinstance(raw_val, dict) else raw_val
+                if v is None:
+                    continue
                 try:
                     float(v)
                 except (TypeError, ValueError):
@@ -638,11 +640,10 @@ class ScanChartContent(Gtk.Box):
             # nichts gewählt → Wert 2 vorhanden aber inaktiv
             if len(self._value_pids) > 1:
                 self._value_pids = self._value_pids[:1]
+        elif len(self._value_pids) >= 2:
+            self._value_pids[1] = pid
         else:
-            if len(self._value_pids) >= 2:
-                self._value_pids[1] = pid
-            else:
-                self._value_pids.append(pid)
+            self._value_pids.append(pid)
         self._save_prefs()
         self._da.queue_draw()
 

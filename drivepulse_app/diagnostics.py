@@ -9,7 +9,6 @@ import threading
 from pathlib import Path
 from typing import Any
 
-
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 _LOG_DIR = Path(os.environ.get("OBD_LOG_DIR", Path.home() / ".local" / "state" / "drivepulse"))
 _LOG_MAX_BYTES = 5 * 1024 * 1024

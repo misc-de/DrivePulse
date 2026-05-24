@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import sys
 import types
-from pathlib import Path
 from html import escape
+from pathlib import Path
 
 import pytest
 
@@ -185,11 +185,11 @@ class _CssProvider:
 
 class _Image(_Widget):
     @classmethod
-    def new_from_icon_name(cls, icon_name: str) -> "_Image":
+    def new_from_icon_name(cls, icon_name: str) -> _Image:
         return cls()
 
     @classmethod
-    def new_from_file(cls, filename: str) -> "_Image":
+    def new_from_file(cls, filename: str) -> _Image:
         return cls()
 
 

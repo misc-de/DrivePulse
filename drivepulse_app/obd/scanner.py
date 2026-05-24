@@ -4,18 +4,18 @@ from __future__ import annotations
 import hashlib
 import threading
 import time
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import gi
 
 gi.require_version("GLib", "2.0")
-from gi.repository import GLib  # noqa: E402
+from gi.repository import GLib
 
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.obd.adapter import AdapterInfo, AdapterKind, batch_query_stpx, probe_adapter
-
 
 log = get_logger(__name__)
 
@@ -45,7 +45,7 @@ class ObdScanner:
         self.obd = obd_module
         # When provided, the scanner queries the OBD bus through this callable so
         # the reader thread can safely interleave its own queries via a shared lock.
-        self._query_locked = query_locked or (lambda cmd: connection.query(cmd))
+        self._query_locked = query_locked or connection.query
         self._raw_send_locked = raw_send_locked
         self._adapter_info = adapter_info
         # Adapter-specific yield overrides the caller's default when known.
@@ -61,7 +61,7 @@ class ObdScanner:
             "scan_status": status,
             "scan_progress": progress,
             "scan_current": current,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         })
 
     def run(self) -> None:
@@ -152,7 +152,7 @@ class ObdScanner:
         )
         adapter_version = self._adapter_info.version if self._adapter_info else ""
         profile = {
-            "scanned_at": datetime.now(timezone.utc).isoformat(),
+            "scanned_at": datetime.now(UTC).isoformat(),
             "identity": identity,
             "vin": vin,
             "port": self.port,
@@ -210,7 +210,7 @@ class ObdScanner:
         PIDs not covered by the STPX decode table fall back to single queries
         so the result dict is always as complete as the single-query path.
         """
-        from drivepulse_app.obd.adapter import _MODE1_DECODE  # noqa: PLC0415
+        from drivepulse_app.obd.adapter import _MODE1_DECODE
 
         self._emit("scanning", 0.05, "STPX batch")
 
@@ -248,7 +248,7 @@ class ObdScanner:
             "cvn": cvn,
             "protocol": protocol,
             "profile_path": identity,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         })
 
     def _emit_complete(self, profile: dict[str, Any]) -> None:
@@ -258,7 +258,7 @@ class ObdScanner:
             "scan_progress": 1.0,
             "scan_current": "",
             "scan_profile": profile,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         })
 
     def _query_vin(self) -> str | None:

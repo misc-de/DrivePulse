@@ -2,13 +2,9 @@
 modules and GaugeState.set_value behaviour (clamping + min/max tracking)."""
 from __future__ import annotations
 
-import math
 import types
 
-import pytest
-
 from drivepulse_app.ui.gauge import GaugeState, _resolve_label
-
 
 # ─── _resolve_label ──────────────────────────────────────────────────────────
 

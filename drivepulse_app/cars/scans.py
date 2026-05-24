@@ -5,15 +5,17 @@ from typing import Any
 
 from gi.repository import Adw, GLib, Gtk
 
-from drivepulse_app.common import _translate
 from drivepulse_app.cars.scan_widgets import _build_scan_detail_widget, _safe_int
+from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
-
 
 log = get_logger(__name__)
 
 
 class CarsScansMixin:
+    # Concrete CarsPage initializes _scan_id_shown as Optional[int]; mypy
+    # would infer ``int`` from the assignment at line 142 in this mixin.
+    _scan_id_shown: int | None
 
     def _render_scans_into_value_list(self) -> None:
         if self.db is None or self._selected_car_id is None:
@@ -147,7 +149,7 @@ class CarsScansMixin:
         self._scan_select_mode = True
         self._scan_selected_ids = {scan_id}
         self._render_detail()
-        self._set_trash(lambda: self._confirm_delete_selected_scans())
+        self._set_trash(self._confirm_delete_selected_scans)
 
     def _exit_scan_select_mode(self) -> None:
         self._scan_select_mode = False

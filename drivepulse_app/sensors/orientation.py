@@ -4,16 +4,16 @@ from __future__ import annotations
 import os
 import socket
 import struct
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any, ClassVar
 
 import gi
 
 gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
-from gi.repository import Gio, GLib  # noqa: E402
+from gi.repository import Gio, GLib
 
 from drivepulse_app.diagnostics import get_logger
-
 
 log = get_logger(__name__)
 
@@ -28,7 +28,7 @@ class OrientationReader:
     Gracefully does nothing when neither service is available.
     """
 
-    _MAP: dict[str, tuple[int, bool]] = {
+    _MAP: ClassVar[dict[str, tuple[int, bool]]] = {
         "normal":    (0,   False),
         "right-up":  (270, True),
         "bottom-up": (180, False),

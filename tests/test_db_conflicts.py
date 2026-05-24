@@ -41,7 +41,7 @@ def test_count_share_conflicts_tracks_inserts(db):
 
 
 def test_list_share_conflicts_orders_newest_first(db):
-    a = _insert_conflict(db, "trip", 1, {})
+    _insert_conflict(db, "trip", 1, {})
     time.sleep(0.005)
     # Override received_at on the second row so the order is testable.
     db._conn.execute(

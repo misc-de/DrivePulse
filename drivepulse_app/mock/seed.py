@@ -9,13 +9,12 @@ from __future__ import annotations
 import json
 import math
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map.services import osrm_route
-
 
 log = get_logger(__name__)
 
@@ -322,10 +321,8 @@ def _generate_trip_samples(
         cur_speed = max(0.0, cur_speed)
 
         if i > 0:
-            d_km = _haversine_km(prev_pt, pt)
             heading = _bearing_deg(prev_pt, pt)
         else:
-            d_km = 0.0
             heading = 0.0
         prev_pt = pt
 
@@ -512,8 +509,8 @@ def _scan_blob_for(
 def _seed_scan_samples(
     db: Any,
     scan_id: int,
-    scanned_at: "datetime",
-    rng: "random.Random",
+    scanned_at: datetime,
+    rng: random.Random,
     scan_idx: int,
 ) -> None:
     """Generate a realistic ~10-minute OBD time series for a mock scan."""
@@ -668,7 +665,7 @@ def seed_mock_data(db: DriveDB) -> int:
     added = 0
     # All entries dated relative to "now" so timestamps look fresh on each
     # fresh DB but a re-run skips already-populated cars.
-    base_now = datetime.now(timezone.utc)
+    base_now = datetime.now(UTC)
 
     # Resolve each route once via OSRM so all three cars share the same
     # road-snapped polyline. Falls back to interpolation if the demo
@@ -695,8 +692,6 @@ def seed_mock_data(db: DriveDB) -> int:
             db.update_car_vin_data(car_id, json.dumps(car["vin_data"]))
         except Exception:
             pass
-
-        rng = _make_rng(car_idx)
 
         # --- Three trips per car ---------------------------------------
         for trip_idx, route in enumerate(_ROUTES):

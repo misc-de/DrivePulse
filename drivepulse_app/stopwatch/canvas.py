@@ -7,7 +7,7 @@ from typing import Any
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gtk
 
 
 class GForceCanvas(Gtk.DrawingArea):

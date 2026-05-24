@@ -2,16 +2,17 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gtk
 
-from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language, _translate
+from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language
 from drivepulse_app.ui.draw_helpers import _cardinal
 from drivepulse_app.ui.gauge import _builtin_dashboard_mods
 
@@ -302,7 +303,7 @@ class DashboardCanvas(Gtk.DrawingArea):
             self.data.gps_speed = max(0.0, speed)
         self._queue_draw()
 
-    def update_last_trip_stats(self, stats: "dict | None") -> None:
+    def update_last_trip_stats(self, stats: dict | None) -> None:
         """Letzter Trip oder laufende Session: rpm/coolant min-max, Distanz, Dauer."""
         if stats is None:
             self.data.last_trip_available = False

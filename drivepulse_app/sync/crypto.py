@@ -14,7 +14,6 @@ from cryptography.x509.oid import NameOID
 
 from drivepulse_app.diagnostics import get_logger
 
-
 log = get_logger(__name__)
 
 
@@ -47,7 +46,7 @@ def generate_tls_keypair(cert_path: Path, key_path: Path) -> None:
     except OSError:
         pass
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "drivepulse")])
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)

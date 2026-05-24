@@ -21,6 +21,14 @@ class DashboardTelemetryMixin:
     _scan_is_new_car: bool = False
     _pending_new_car_id: int | None = None
     _obd_recorder: ObdRecorder | None = None
+    # Declared so the concrete DashboardWindow can initialize these as
+    # Optional[...] without conflicting with the type mypy infers from the
+    # first assignment inside this mixin's methods.
+    last_payload: dict[str, Any] | None
+    _gps_last_seen: float
+    _last_gps_lat: float | None
+    _last_gps_lon: float | None
+    _last_gps_speed_kmh: float | None
     def _known_car_id_for_vin(self, vin: str | None) -> int | None:
         if not vin:
             return None
@@ -225,7 +233,7 @@ class DashboardTelemetryMixin:
             # Only update speed gauge from OBD payloads when OBD data is actually present.
             # When OBD is disconnected, the GPS branch owns the speed gauge.
             if speed is not None:
-                _gauge_speed = speed
+                _gauge_speed: float | None = speed
                 if obd_speed_kmh is not None:
                     _spd_src = _translate(self.language, "gauge.source.obd")
                 elif gps_speed_kmh is not None:

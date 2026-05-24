@@ -3,26 +3,31 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GObject, Gtk  # noqa: E402
-
 import threading
 from datetime import datetime
 
-from gi.repository import GLib  # noqa: E402
+from gi.repository import (
+    Adw,
+    Gio,
+    GLib,
+    GObject,
+    Gtk,
+)
 
+from drivepulse_app import updater
 from drivepulse_app.common import SUPPORTED_LANGUAGES, _normalize_language, _translate, language_name
-from drivepulse_app.ui.gauge import all_theme_options
 from drivepulse_app.obd.devices import scan_obd_devices
 from drivepulse_app.settings.bluetooth import SettingsBluetoothMixin
 from drivepulse_app.settings.dashcam import SettingsDashcamMixin
 from drivepulse_app.tts import service as tts_service
-from drivepulse_app import updater
+from drivepulse_app.ui.gauge import all_theme_options
 
 
 class DeviceItem(GObject.Object):
@@ -628,8 +633,6 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         tacho_page.add(tacho_group)
 
         # ── Dashcam page ──────────────────────────────────────────────────────
-        from drivepulse_app.dashcam.recorder import RESOLUTIONS, list_cameras  # lazy import
-
         dc_page = Adw.PreferencesPage(
             title=_translate(self.language, "settings.page.dashcam"),
         )
@@ -837,7 +840,7 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
 
     # ── Page lifecycle (NavigationPage signals) ───────────────────────────────
 
-    def _on_hiding(self, _page: "SettingsDialog") -> None:
+    def _on_hiding(self, _page: SettingsDialog) -> None:
         self._closing = True
         tts_service.set_download_callback(None)
         self._cancel_no_update_reset()
@@ -1124,5 +1127,5 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
 
     def _on_restart_response(self, _dialog, response: str) -> None:
         if response == "yes":
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            os.execv(sys.executable, [sys.executable, *sys.argv])
 

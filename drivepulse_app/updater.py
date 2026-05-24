@@ -49,6 +49,7 @@ def _git(*args: str, timeout: int = 30) -> tuple[int, str]:
             capture_output=True,
             text=True,
             timeout=timeout,
+            check=False,
         )
         output = r.stdout.strip() or r.stderr.strip()
         return r.returncode, output
@@ -214,6 +215,7 @@ def _run_migrations() -> None:
                 cwd=_APP_DIR,
                 timeout=60,
                 capture_output=True,
+                check=False,
             )
             if r.returncode == 0:
                 done.add(script.name)

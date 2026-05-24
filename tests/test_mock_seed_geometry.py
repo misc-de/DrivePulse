@@ -15,7 +15,6 @@ from drivepulse_app.mock.seed import (
     _resample_polyline,
 )
 
-
 # ─── _haversine_km ───────────────────────────────────────────────────────────
 
 def test_haversine_km_zero_when_same_point():

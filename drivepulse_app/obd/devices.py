@@ -12,8 +12,8 @@ def candidate_bt_addresses() -> list[tuple[str, int]]:
     if not OBD_BT_ADDR or OBD_PORT:
         return []
     result = []
-    for entry in OBD_BT_ADDR.split(","):
-        entry = entry.strip()
+    for raw in OBD_BT_ADDR.split(","):
+        entry = raw.strip()
         if not entry:
             continue
         parts = entry.split(":")
@@ -38,7 +38,7 @@ def scan_bt_paired_devices() -> list[tuple[str, str]]:
     try:
         # Try modern syntax first, fall back to legacy
         for args in (["bluetoothctl", "devices", "Paired"], ["bluetoothctl", "paired-devices"]):
-            result = subprocess.run(args, capture_output=True, text=True, timeout=5)
+            result = subprocess.run(args, capture_output=True, text=True, timeout=5, check=False)
             if result.returncode == 0 and result.stdout.strip():
                 break
         devices: list[tuple[str, str]] = []
@@ -105,7 +105,7 @@ def scan_bt_nearby_devices(
     try:
         result = subprocess.run(
             ["bluetoothctl", "devices"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, check=False,
         )
         known_db: dict[str, str] = {}
         for line in result.stdout.strip().splitlines():
@@ -171,14 +171,14 @@ def bind_bt_to_rfcomm(addr: str, channel: int = 1) -> tuple[str, str] | tuple[No
     # Release any stale binding first (ignore errors).
     try:
         subprocess.run(["rfcomm", "release", str(slot)],
-                       capture_output=True, timeout=3)
+                       capture_output=True, timeout=3, check=False)
     except Exception:
         pass
 
     # Try without sudo, then escalate via pkexec.
-    for cmd in (bind_cmd, ["pkexec"] + bind_cmd):
+    for cmd in (bind_cmd, ["pkexec", *bind_cmd]):
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, check=False)
             if result.returncode == 0:
                 return dev, ""
         except FileNotFoundError as exc:

@@ -4,22 +4,16 @@ aggregator that builds the chart series. These run without a live GTK loop;
 the helpers are deliberately side-effect free."""
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from drivepulse_app.chart.scan_chart import (
-    _PREFS_FILE,
     _compute_stats_for_car,
     _fmt,
     _fmt_scan_label,
     _fmt_ts,
-    _prefs_load,
-    _prefs_save,
     _rgb_to_hex,
     _safe_pids_count,
 )
-
 
 # ─── _fmt: numeric value bands ────────────────────────────────────────────────
 

@@ -10,7 +10,6 @@ import pytest
 from drivepulse_app.cars.profiles import _load_profiles, _scan_label
 from drivepulse_app.db import DriveDB
 
-
 # ─── _scan_label ─────────────────────────────────────────────────────────────
 
 def test_scan_label_formats_iso_to_german_date_with_dtc_plural():
@@ -79,12 +78,12 @@ def test_load_profiles_for_car_without_scans_synthesises_minimal_data(db):
 
 def test_load_profiles_pulls_latest_scan_data(db):
     cid = db.upsert_car(vin="VINBAR")
-    s1 = db.add_scan(cid, {
+    db.add_scan(cid, {
         "scanned_at": "2026-04-01T10:00:00+00:00",
         "dtcs": [],
         "live_data": {"Command(b'010C')": {"value": 1500, "unit": "rpm"}},
     })
-    s2 = db.add_scan(cid, {
+    db.add_scan(cid, {
         "scanned_at": "2026-05-01T10:00:00+00:00",
         "dtcs": ["P0420", "P0301"],
         "live_data": {"Command(b'010C')": {"value": 1700, "unit": "rpm"}},

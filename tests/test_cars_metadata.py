@@ -13,7 +13,6 @@ from drivepulse_app.cars.metadata import (
     _wmi_to_brand,
 )
 
-
 # ─── _unit_display ────────────────────────────────────────────────────────────
 
 def test_unit_display_translates_known_unit_en():

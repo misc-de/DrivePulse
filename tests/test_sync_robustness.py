@@ -243,8 +243,8 @@ def test_perform_sync_reports_server_import_failure(tmp_path):
 def test_sync_server_stops_after_pairing_timeout(monkeypatch, tmp_path):
     import threading
 
-    from drivepulse_app.sync.server import SyncServer
     import drivepulse_app.sync.server as sync_server
+    from drivepulse_app.sync.server import SyncServer
 
     monkeypatch.setattr(sync_server, "PAIRING_TIMEOUT_S", 0.05)
     timed_out = threading.Event()
@@ -284,8 +284,8 @@ def test_sync_server_stops_after_pairing_timeout(monkeypatch, tmp_path):
 def test_sync_server_pairing_cancels_timeout(monkeypatch, tmp_path):
     import threading
 
-    from drivepulse_app.sync.server import SyncServer
     import drivepulse_app.sync.server as sync_server
+    from drivepulse_app.sync.server import SyncServer
 
     monkeypatch.setattr(sync_server, "PAIRING_TIMEOUT_S", 0.05)
     timed_out = threading.Event()

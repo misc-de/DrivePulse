@@ -14,6 +14,10 @@ from gi.repository import Adw, Gtk
 class DashboardPiperOverlayMixin:
     """Build + drive the Piper download-progress overlay."""
 
+    # Concrete DashboardWindow.__init__ initializes this as Optional[str];
+    # mypy would otherwise infer ``str`` from the first assignment.
+    _piper_dl_current_model: str | None
+
     def _build_piper_dl_overlay(self) -> Gtk.Box:
         """Build the Piper download-progress overlay widget (initially hidden)."""
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)

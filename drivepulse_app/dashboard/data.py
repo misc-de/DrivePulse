@@ -1,7 +1,8 @@
 """Data shaping helpers for dashboard updates and trip recording."""
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from drivepulse_app.cars.metadata import _extract_inner_string, _parse_profile_pid_key, _wmi_to_brand
 

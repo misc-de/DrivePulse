@@ -188,7 +188,7 @@ def test_snap_to_route_perpendicular_offset():
     cum_m = [0.0]
 
     # 0.1° north of the midpoint
-    slat, slon, seg, cum = snap_to_route(0.1, 0.5, coords, cum_m)
+    slat, slon, seg, _cum = snap_to_route(0.1, 0.5, coords, cum_m)
 
     assert seg == 0
     assert abs(slat - 0.0) < 1e-6   # snapped back onto the road (lat=0)
@@ -197,8 +197,7 @@ def test_snap_to_route_perpendicular_offset():
 
 def test_snap_to_route_monotonic_start_idx():
     """start_idx prevents snapping back to an earlier segment."""
-    from drivepulse_app.map.services import snap_to_route
-    from drivepulse_app.map.services import haversine
+    from drivepulse_app.map.services import haversine, snap_to_route
 
     # Three-point route: A→B→C
     coords = [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]]
@@ -206,7 +205,7 @@ def test_snap_to_route_monotonic_start_idx():
     cum_m = [0.0, seg0_len]  # cum at vertex 0 and 1
 
     # GPS is on the first segment but start_idx=1 forces forward-only search
-    slat, slon, seg, cum = snap_to_route(0.0, 0.5, coords, cum_m, start_idx=1)
+    _slat, slon, seg, _cum = snap_to_route(0.0, 0.5, coords, cum_m, start_idx=1)
 
     assert seg == 1          # must NOT snap back to segment 0
     assert abs(slon - 1.0) < 1e-6   # clamped to start of segment 1
@@ -216,7 +215,7 @@ def test_snap_to_route_fallback_no_coords():
     """Returns raw position when route is empty."""
     from drivepulse_app.map.services import snap_to_route
 
-    slat, slon, seg, cum = snap_to_route(48.0, 11.0, [], [], start_idx=0)
+    slat, slon, _seg, _cum = snap_to_route(48.0, 11.0, [], [], start_idx=0)
 
     assert slat == 48.0
     assert slon == 11.0

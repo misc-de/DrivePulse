@@ -15,12 +15,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
-
 
 log = get_logger(__name__)
 
@@ -216,7 +216,7 @@ class DriveDB:
         profile_path: str | None = None,
     ) -> int:
         """Legt einen Auto-Eintrag an oder aktualisiert ihn. Liefert ``car_id``."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             cur = self._conn.cursor()
             row = None
@@ -244,7 +244,7 @@ class DriveDB:
                     " VALUES(?,?,?,?,?,?,?,?,?)",
                     (vin, brand, cal_id, cvn, label, protocol, now, now, profile_path),
                 )
-                car_id = int(cur.lastrowid)
+                car_id = int(cur.lastrowid or 0)
                 if vin:
                     import hashlib as _hashlib
                     h = _hashlib.sha256(vin.encode("utf-8")).hexdigest()
@@ -284,12 +284,12 @@ class DriveDB:
     # ----------------------------------------------------------------- Trips
 
     def start_trip(self, car_id: int, started_at: datetime | None = None) -> int:
-        ts = (started_at or datetime.now(timezone.utc)).isoformat()
+        ts = (started_at or datetime.now(UTC)).isoformat()
         with self._lock:
             cur = self._conn.cursor()
             cur.execute("INSERT INTO trips(car_id, started_at) VALUES(?,?)", (car_id, ts))
             self._conn.commit()
-            return int(cur.lastrowid)
+            return int(cur.lastrowid or 0)
 
     def end_trip(self, trip_id: int) -> None:
         """Aggregat-Spalten berechnen + ``ended_at`` setzen. Leere Fahrten werden gelöscht."""
@@ -313,7 +313,7 @@ class DriveDB:
                 "UPDATE trips SET ended_at=?, duration_s=?, max_speed_kmh=?,"
                 " avg_speed_kmh=?, samples_count=?, distance_km=? WHERE id=?",
                 (
-                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(UTC).isoformat(),
                     duration_s,
                     row["max_kmh"],
                     row["avg_kmh"],
@@ -331,7 +331,7 @@ class DriveDB:
                 (car_id,),
             ).fetchall())
 
-    def get_last_trip_stats(self, car_id: int) -> "dict | None":
+    def get_last_trip_stats(self, car_id: int) -> dict | None:
         """Min/Max-Werte des letzten abgeschlossenen Trips für car_id."""
         with self._lock:
             trip = self._conn.execute(
@@ -391,7 +391,7 @@ class DriveDB:
     def add_scan(self, car_id: int, data: dict[str, Any]) -> int:
         """Store a full OBD scan snapshot. Returns the new scan id."""
         import json as _json
-        scanned_at = data.get("scanned_at") or datetime.now(timezone.utc).isoformat()
+        scanned_at = data.get("scanned_at") or datetime.now(UTC).isoformat()
         protocol = data.get("protocol")
         dtc_count = len(data.get("dtcs") or [])
         pending_count = len(data.get("pending_dtcs") or [])
@@ -406,7 +406,7 @@ class DriveDB:
                 (car_id, scanned_at, protocol, dtc_count, pending_count, pids_count, blob),
             )
             self._conn.commit()
-            return int(cur.lastrowid)
+            return int(cur.lastrowid or 0)
 
     def list_scans_for_car(self, car_id: int) -> list[sqlite3.Row]:
         with self._lock:
@@ -537,7 +537,7 @@ class DriveDB:
         run_at: str | None = None,
     ) -> int:
         import json as _json
-        ts = run_at or datetime.now(timezone.utc).isoformat()
+        ts = run_at or datetime.now(UTC).isoformat()
         blob_results = _json.dumps(results, ensure_ascii=False, default=str)
         blob_samples = _json.dumps(samples, ensure_ascii=False, default=str)
         with self._lock:
@@ -549,7 +549,7 @@ class DriveDB:
                 (car_id, ts, lat, lon, blob_results, blob_samples),
             )
             self._conn.commit()
-            return int(cur.lastrowid)
+            return int(cur.lastrowid or 0)
 
     def list_stopwatch_runs_for_car(self, car_id: int) -> list[sqlite3.Row]:
         with self._lock:
@@ -596,7 +596,7 @@ class DriveDB:
         taken_at: str | None = None,
         shared_at: str | None = None,
     ) -> int:
-        ts = taken_at or datetime.now(timezone.utc).isoformat()
+        ts = taken_at or datetime.now(UTC).isoformat()
         with self._lock:
             cur = self._conn.cursor()
             cur.execute(
@@ -604,7 +604,7 @@ class DriveDB:
                 (car_id, filename, ts, shared_at),
             )
             self._conn.commit()
-            return int(cur.lastrowid)
+            return int(cur.lastrowid or 0)
 
     def list_photos_for_car(self, car_id: int) -> list[sqlite3.Row]:
         with self._lock:
@@ -641,7 +641,7 @@ class DriveDB:
     # ---------------------------------------------------------- seen_at helpers
 
     def mark_trip_seen(self, trip_id: int) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             self._conn.execute(
                 "UPDATE trips SET seen_at=? WHERE id=? AND seen_at IS NULL",
@@ -650,7 +650,7 @@ class DriveDB:
             self._conn.commit()
 
     def mark_scan_seen(self, scan_id: int) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             self._conn.execute(
                 "UPDATE scans SET seen_at=? WHERE id=? AND seen_at IS NULL",
@@ -659,7 +659,7 @@ class DriveDB:
             self._conn.commit()
 
     def mark_run_seen(self, run_id: int) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             self._conn.execute(
                 "UPDATE acceleration_runs SET seen_at=? WHERE id=? AND seen_at IS NULL",
@@ -668,7 +668,7 @@ class DriveDB:
             self._conn.commit()
 
     def mark_photo_seen(self, photo_id: int) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             self._conn.execute(
                 "UPDATE car_photos SET seen_at=? WHERE id=? AND seen_at IS NULL",
@@ -817,4 +817,3 @@ class DriveDB:
             self._conn.commit()
 
 
-from drivepulse_app.trip_recorder import TripRecorder  # noqa: E402

@@ -7,7 +7,6 @@ from drivepulse_app.common import LOG_DIR
 from drivepulse_app.diagnostics import atomic_write_text, get_logger
 from drivepulse_app.sync.crypto import generate_device_id
 
-
 log = get_logger(__name__)
 SYNC_DIR = LOG_DIR / "sync"
 CERT_PATH = SYNC_DIR / "cert.pem"

@@ -21,27 +21,23 @@ from __future__ import annotations
 import json
 import threading
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language, _translate
 from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger
-from drivepulse_app.tts import service as tts_service
-from drivepulse_app.map.shumate import MapShumateMixin
-from drivepulse_app.map.webkit import MapWebKitMixin
 from drivepulse_app.map.layout import MapLayoutMixin
 from drivepulse_app.map.layout_search import MapSearchBarMixin
 from drivepulse_app.map.layout_steps import MapStepsPanelMixin
 from drivepulse_app.map.layout_tour_actions import MapTourActionsMixin
 from drivepulse_app.map.replay import MapReplayMixin
-from drivepulse_app.map.tour import MapTourMixin
-from drivepulse_app.map.traffic import MapTrafficMixin
 from drivepulse_app.map.services import (
     MAP_ICONS,
     MAP_LABEL_KEYS,
@@ -51,13 +47,14 @@ from drivepulse_app.map.services import (
     format_duration,
     geocode,
     haversine,
-    maneuver_icon,
-    maneuver_text_key,
-    osrm_route,
     resolve_route_points,
     snap_to_route,
-    valhalla_route,
 )
+from drivepulse_app.map.shumate import MapShumateMixin
+from drivepulse_app.map.tour import MapTourMixin
+from drivepulse_app.map.traffic import MapTrafficMixin
+from drivepulse_app.map.webkit import MapWebKitMixin
+from drivepulse_app.tts import service as tts_service
 
 log = get_logger(__name__)
 

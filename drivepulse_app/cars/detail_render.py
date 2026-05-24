@@ -8,13 +8,9 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, GLib, Gtk, Pango
 
-from drivepulse_app.common import _translate
 from drivepulse_app.cars.metadata import (
-    CATEGORIES,
-    LIVE_KEY_TO_PID,
-    VIN_DATA_SPECIAL_KEYS,
     _SPECIAL_CAL,
     _SPECIAL_CVN,
     _SPECIAL_DTC,
@@ -22,12 +18,16 @@ from drivepulse_app.cars.metadata import (
     _SPECIAL_PROTO,
     _SPECIAL_SCAN_DATE,
     _SPECIAL_VIN,
+    CATEGORIES,
+    LIVE_KEY_TO_PID,
+    VIN_DATA_SPECIAL_KEYS,
     _extract_inner_string,
     _format_value_unit,
     _parse_profile_pid_key,
     _unit_display,
     _wmi_to_brand,
 )
+from drivepulse_app.common import _translate
 
 _PID_TO_LIVE_KEY: dict[str, str] = {pid: key for key, pid in LIVE_KEY_TO_PID.items()}
 
@@ -37,7 +37,7 @@ _PID_TO_LIVE_KEY: dict[str, str] = {pid: key for key, pid in LIVE_KEY_TO_PID.ite
 _OBD_SENSOR_CATEGORIES: frozenset[str] = frozenset({
     "engine", "temperatures", "throttle", "mixture", "fuel", "drive",
 })
-from drivepulse_app.cars.scan_widgets import _format_scan_date, _format_scan_date_stack, _dtc_parts
+from drivepulse_app.cars.scan_widgets import _dtc_parts, _format_scan_date, _format_scan_date_stack
 from drivepulse_app.chart.scan_chart import ScanChartContent
 
 
@@ -315,11 +315,8 @@ class CarsDetailRenderMixin:
                         value_text = f"⌀ {avg_str} {unit}".strip()
                         is_unknown = False
                     if stats and len(stats.get("values") or []) > 1:
-                        on_click = (
-                            lambda _lbl=label, _pk=pid_key, _st=self._scan_pid_stats,
-                                   _pl=_pid_labels, _lg=_lang:
-                            self._push_scan_chart(_lbl, _pk, _st, _pl, _lg)
-                        )
+                        def on_click(_lbl=label, _pk=pid_key, _st=self._scan_pid_stats, _pl=_pid_labels, _lg=_lang):
+                            return self._push_scan_chart(_lbl, _pk, _st, _pl, _lg)
                     else:
                         on_click = None
                 row = self._make_live_stats_row(label, value_text, stats, is_unknown, on_click)
@@ -432,7 +429,7 @@ class CarsDetailRenderMixin:
         self,
         label: str,
         value_text: str,
-        stats: "dict | None",
+        stats: dict | None,
         is_unknown: bool,
         on_click: Callable[[], None] | None = None,
     ) -> Gtk.ListBoxRow:

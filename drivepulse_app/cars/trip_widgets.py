@@ -9,11 +9,11 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk
 
-from drivepulse_app.common import _translate
 from drivepulse_app.cars.metadata import _CHART_METRICS
 from drivepulse_app.cars.trip_visuals import _build_chart_widget, _build_osm_map_widget, _draw_gps_track
+from drivepulse_app.common import _translate
 
 
 def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> Gtk.Widget:
@@ -95,7 +95,7 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
         if _cum_km > 0.01:
             metric_data["elapsed_km"] = _elapsed_pts
 
-    _avail = [(k, _translate(language, l), u, c, f) for k, l, u, c, f in _CHART_METRICS if k in metric_data]
+    _avail = [(k, _translate(language, lbl), u, c, f) for k, lbl, u, c, f in _CHART_METRICS if k in metric_data]
     if "elapsed_km" in metric_data:
         _avail.append((
             "elapsed_km",

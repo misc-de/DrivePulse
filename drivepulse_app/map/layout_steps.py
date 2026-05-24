@@ -92,7 +92,7 @@ class MapStepsPanelMixin:
         self._steps_row_widgets = []
         self._steps_row_listbox_rows = []
 
-        for idx, step in enumerate(self._tour_steps):
+        for step in self._tour_steps:
             m_type = step.get("type", "")
             m_modifier = step.get("modifier", "")
             name = step.get("name", "") or ""

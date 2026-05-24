@@ -9,9 +9,10 @@ Supported adapter families:
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
 
@@ -91,7 +92,8 @@ def probe_adapter(
         if port is None:
             log.debug("probe_adapter: no serial port accessible")
             return info
-        exchange = lambda cmd: raw_send(port, cmd)
+        def exchange(cmd: str) -> str:
+            return raw_send(port, cmd)
 
     # --- STN / OBDLink ---
     # STI is an STN-specific command; genuine ELM327 returns an error.

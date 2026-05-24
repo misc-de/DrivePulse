@@ -7,12 +7,16 @@ from typing import Any
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib  # noqa: E402
+from gi.repository import GLib
 
 from drivepulse_app.common import _translate
 
 
 class StopWatchReplayMixin:
+    # Concrete StopWatchPage declares _replay_timer_id: int | None; mypy infers
+    # None from the assignment in _stop_replay() so declare it explicitly here.
+    _replay_timer_id: int | None
+
     def _stop_replay(self) -> None:
         if self._replay_timer_id is not None:
             GLib.source_remove(self._replay_timer_id)

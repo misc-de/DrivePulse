@@ -7,16 +7,11 @@ from __future__ import annotations
 
 import subprocess
 
-import pytest
-
-from drivepulse_app.dashcam import recorder as dashcam_recorder
 from drivepulse_app.dashcam.recorder import (
     FPS_OPTIONS,
     RESOLUTIONS,
-    list_cameras,
     query_camera_modes,
 )
-
 
 # ─── public schema lock ──────────────────────────────────────────────────────
 

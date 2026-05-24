@@ -11,7 +11,6 @@ import pytest
 from drivepulse_app.db import DriveDB
 from drivepulse_app.trip_recorder import TripRecorder, _haversine_m
 
-
 # ─── _haversine_m: geodesic distance ─────────────────────────────────────────
 
 def test_haversine_zero_when_same_point():
@@ -71,7 +70,7 @@ def test_recorder_merges_last_known_gps_into_obd_sample(db):
     # GPS arrives first, then OBD — sample should carry both.
     rec.update_gps(lat=50.1, lon=8.6, altitude_m=120.0, heading_deg=180.0, gps_speed_kmh=85.0)
     rec.record_obd(ts=10.0, speed_kmh=80.0)
-    sample = list(db.samples_for_trip(rec.trip_id))[0]
+    sample = next(iter(db.samples_for_trip(rec.trip_id)))
     assert sample["lat"] == 50.1
     assert sample["lon"] == 8.6
     assert sample["altitude_m"] == 120.0
@@ -86,7 +85,7 @@ def test_recorder_obd_field_overrides_gps_cache_when_both_present(db):
     rec.set_car(vin="VIN-TR3")
     rec.update_gps(gps_speed_kmh=85.0, lat=50.0, lon=8.0)
     rec.record_obd(ts=10.0, gps_speed_kmh=99.9)  # explicit value
-    sample = list(db.samples_for_trip(rec.trip_id))[0]
+    sample = next(iter(db.samples_for_trip(rec.trip_id)))
     assert sample["gps_speed_kmh"] == 99.9
 
 

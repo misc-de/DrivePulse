@@ -7,7 +7,7 @@ from typing import Any
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gtk  # noqa: E402
+from gi.repository import Gdk, Gtk
 
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map.services import TILE_URLS, zoom_for_bbox

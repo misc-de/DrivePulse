@@ -32,7 +32,7 @@ import fcntl
 import os
 import signal
 import sys
-import time
+import time as time
 from pathlib import Path
 
 # Register bundled icons via XDG_DATA_DIRS **before** GTK is imported so the
@@ -48,32 +48,44 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, Gtk
 
 from drivepulse_app.common import (
     APP_ID,
-    SETTINGS_FILE,
     THEMES_DIR,
-    _detect_language,
-    _make_label_responsive,
-    _normalize_language,
-    _translate,
 )
-from drivepulse_app.ui.gauge import Gauge, GAUGE_THEMES, load_user_themes
-from drivepulse_app.dashboard.page import DashboardCanvas, DASHBOARD_THEMES
-from drivepulse_app.stopwatch.page import StopWatchPage
+from drivepulse_app.common import (
+    SETTINGS_FILE as SETTINGS_FILE,
+)
+from drivepulse_app.common import (
+    _detect_language as _detect_language,
+)
+from drivepulse_app.common import (
+    _make_label_responsive as _make_label_responsive,
+)
+from drivepulse_app.common import (
+    _normalize_language as _normalize_language,
+)
+from drivepulse_app.common import (
+    _translate as _translate,
+)
+from drivepulse_app.dashboard.page import DASHBOARD_THEMES as DASHBOARD_THEMES
+from drivepulse_app.dashboard.page import DashboardCanvas as DashboardCanvas
 from drivepulse_app.dashboard.window import DashboardWindow
-from drivepulse_app.ui.icon_registry import register_local_icon
-from drivepulse_app.obd.reader import ObdReader
-from drivepulse_app.startup_info import get_missing_required, print_required_python_packages
 from drivepulse_app.diagnostics import get_logger
-
+from drivepulse_app.obd.reader import ObdReader as ObdReader
+from drivepulse_app.startup_info import get_missing_required, print_required_python_packages
+from drivepulse_app.stopwatch.page import StopWatchPage as StopWatchPage
+from drivepulse_app.ui.gauge import GAUGE_THEMES as GAUGE_THEMES
+from drivepulse_app.ui.gauge import Gauge as Gauge
+from drivepulse_app.ui.gauge import load_user_themes
+from drivepulse_app.ui.icon_registry import register_local_icon
 
 log = get_logger(__name__)
 
 
 def _build_missing_deps_window(
-    app: "ObdDashboardApp",
+    app: ObdDashboardApp,
     missing: list[tuple[str, str, str]],
 ) -> Adw.ApplicationWindow:
     win = Adw.ApplicationWindow(application=app)
@@ -193,7 +205,7 @@ class ObdDashboardApp(Adw.Application):
         self.window.present()
 
 
-_lock_fh: "object | None" = None
+_lock_fh: object | None = None
 
 
 def _acquire_lock() -> bool:

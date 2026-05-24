@@ -12,7 +12,6 @@ from typing import Any
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.sync.crypto import verify_spki_fingerprint
 
-
 log = get_logger(__name__)
 
 

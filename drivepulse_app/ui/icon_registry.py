@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gio", "2.0")
-from gi.repository import Gdk, Gio, Gtk  # noqa: E402
+from gi.repository import Gdk, Gio, Gtk
 
 from drivepulse_app.common import APP_ID
 from drivepulse_app.diagnostics import get_logger

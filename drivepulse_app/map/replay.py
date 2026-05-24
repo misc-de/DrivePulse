@@ -433,7 +433,6 @@ class MapReplayMixin:
         ]
         if not latlon_speed:
             return
-        latlon = [(lat, lon) for lat, lon, _ in latlon_speed]
 
         # Get the trip row for the actual ended_at (history meta only has ts=started_at)
         try:
@@ -460,6 +459,7 @@ class MapReplayMixin:
     def _map_show_track(self, latlon_speed: list[tuple[float, float, float | None]]) -> None:
         """Draw a speed-coloured polyline on the live map for replayed samples."""
         import json as _json
+
         from drivepulse_app.cars.trip_visuals import speed_to_rgb
 
         latlon = [(lat, lon) for lat, lon, _ in latlon_speed]
@@ -474,9 +474,7 @@ class MapReplayMixin:
                 lat1, lon1, _spd_prev = latlon_speed[i - 1]
                 lat2, lon2, spd = latlon_speed[i]
                 r, g, b = speed_to_rgb(spd, vmax)
-                color = "#{:02x}{:02x}{:02x}".format(
-                    int(r * 255), int(g * 255), int(b * 255)
-                )
+                color = f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
                 features.append({
                     "type": "Feature",
                     "properties": {"color": color},

@@ -2,23 +2,26 @@
 from __future__ import annotations
 
 import time
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from drivepulse_app.sync.dialog import SyncDialog
 
 from drivepulse_app.app_settings import load_settings, save_settings
-from drivepulse_app.common import _detect_language, _normalize_language, _translate, LOG_DIR
+from drivepulse_app.common import LOG_DIR, _detect_language, _normalize_language, _translate
 from drivepulse_app.dashboard.page import DASHBOARD_THEMES
 from drivepulse_app.diagnostics import get_logger, set_log_enabled
-from drivepulse_app.ui.gauge import load_user_themes
 from drivepulse_app.settings.dialog import SettingsDialog
-
+from drivepulse_app.ui.gauge import load_user_themes
 
 log = get_logger(__name__)
 
 
 class DashboardSettingsMixin:
+    # Declared so mypy treats the concrete DashboardWindow.last_update_check
+    # (str | None) as compatible with what _set_last_update_check assigns.
+    last_update_check: str | None
+
     def _load_settings(self) -> dict[str, Any]:
         return load_settings()
 
@@ -330,8 +333,8 @@ class DashboardSettingsMixin:
         page = SyncDialog(
             self, self.language, self.db,
             on_sync_complete=_on_sync_complete,
-            on_connected=lambda name, ip: self._on_sync_connected(name, ip),
-            on_disconnected=lambda: self._on_sync_disconnected(),
+            on_connected=self._on_sync_connected,
+            on_disconnected=self._on_sync_disconnected,
         )
         self._active_sync_dialog: SyncDialog | None = page
         self.nav_view.push(page)
@@ -355,14 +358,16 @@ class DashboardSettingsMixin:
             return
         self.nav_view.push(self._build_sync_status_page())
 
-    def _build_sync_status_page(self) -> "Any":
+    def _build_sync_status_page(self) -> Any:
         import datetime
+
         import gi
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
         from gi.repository import Adw, GLib, Gtk
 
-        t = lambda key, **kw: _translate(self.language, key, **kw)
+        def t(key, **kw):
+            return _translate(self.language, key, **kw)
 
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
