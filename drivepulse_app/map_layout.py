@@ -95,6 +95,7 @@ _MANEUVER_CSS = b"""
   color: #ffffff;
   font-family: monospace;
   font-size: 12px;
+  background-color: transparent;
 }
 .dp-coord-chip image { color: rgba(255, 255, 255, 0.80); }
 /* Speed-limit sign - classic European round white/red circle */
@@ -1421,6 +1422,7 @@ class MapLayoutMixin:
         wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         wrap.set_halign(Gtk.Align.START)
         wrap.set_valign(Gtk.Align.END)
+        wrap.set_hexpand(True)
         wrap.set_margin_start(8)
         wrap.set_margin_end(8)
         wrap.set_margin_bottom(36)
