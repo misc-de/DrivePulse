@@ -234,7 +234,14 @@ class CarsPage(
         # statt wie auf der Wurzel zum vorherigen Tab zu springen.
         if self._detail_pushed:
             if offset_x > 60:
-                self._on_detail_back()
+                # Liegt eine Sub-Seite (Chart, Trip, Scan…) über der Detail-Wurzel,
+                # poppt der Wisch nur eine Ebene → zurück zur Auto-Detailseite,
+                # statt direkt bis in die Liste durchzubrechen.
+                visible = self.nav_view.get_visible_page()
+                if visible is not None and visible is not self._detail_page:
+                    self.nav_view.pop()
+                else:
+                    self._on_detail_back()
             return
         if offset_x > 60 and self.on_back_swipe is not None:
             self.on_back_swipe()
