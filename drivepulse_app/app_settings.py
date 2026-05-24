@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language  # noqa: F401
-from .diagnostics import atomic_write_text, get_logger
+from drivepulse_app.common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language  # noqa: F401
+from drivepulse_app.diagnostics import atomic_write_text, get_logger
 
 
 log = get_logger(__name__)

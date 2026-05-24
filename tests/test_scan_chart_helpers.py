@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from drivepulse_app.scan_chart_page import (
+from drivepulse_app.chart.scan_chart import (
     _PREFS_FILE,
     _compute_stats_for_car,
     _fmt,
@@ -200,7 +200,7 @@ def test_compute_stats_for_car_empty_when_db_raises():
 def prefs_setup(tmp_path, monkeypatch):
     """Patch _PREFS_FILE on the currently-resident scan_chart_page module
     and return (module, tmp file path) for the test to use."""
-    import drivepulse_app.scan_chart_page as scp
+    import drivepulse_app.chart.scan_chart as scp
     path = tmp_path / "scan_chart_prefs.json"
     monkeypatch.setattr(scp, "_PREFS_FILE", path)
     return scp, path

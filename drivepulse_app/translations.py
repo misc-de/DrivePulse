@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .diagnostics import get_logger
+from drivepulse_app.diagnostics import get_logger
 
 
 log = get_logger(__name__)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def test_dashcam_save_event_creates_protected_dir(tmp_path):
-    from drivepulse_app.dashcam_recorder import DashcamRecorder
+    from drivepulse_app.dashcam.recorder import DashcamRecorder
 
     rolling = tmp_path / "rolling"
     protected = tmp_path / "saved"
@@ -22,7 +22,7 @@ def test_dashcam_save_event_creates_protected_dir(tmp_path):
 
 
 def test_dashcam_segment_paths_include_subsecond_precision(tmp_path):
-    from drivepulse_app.dashcam_recorder import DashcamRecorder
+    from drivepulse_app.dashcam.recorder import DashcamRecorder
 
     recorder = DashcamRecorder()
     recorder.rolling_dir = tmp_path

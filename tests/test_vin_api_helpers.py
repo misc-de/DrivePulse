@@ -4,7 +4,7 @@ exercised here — they're integration points already covered indirectly by
 test_vin_api and would require live API access otherwise."""
 from __future__ import annotations
 
-from drivepulse_app.vin_api import _clean, merge_sources, strip_source_keys
+from drivepulse_app.vin.api import _clean, merge_sources, strip_source_keys
 
 
 # ─── _clean: normalise empty-ish strings ─────────────────────────────────────

@@ -10,8 +10,8 @@ import zipfile
 from pathlib import Path
 from typing import NamedTuple
 
-from .common import APP_VERSION, LOG_DIR
-from .diagnostics import atomic_write_text, get_logger
+from drivepulse_app.common import APP_VERSION, LOG_DIR
+from drivepulse_app.diagnostics import atomic_write_text, get_logger
 
 log = get_logger(__name__)
 

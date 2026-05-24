@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from drivepulse_app.db import DriveDB
-from drivepulse_app.share_protocol import share_import
+from drivepulse_app.share.protocol import share_import
 
 
 def _vin_hash(vin: str) -> str:

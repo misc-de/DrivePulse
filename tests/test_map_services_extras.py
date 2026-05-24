@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from drivepulse_app.map_services import (
+from drivepulse_app.map.services import (
     _decode_polyline,
     _flatten_route_steps,
     _flatten_valhalla_maneuvers,

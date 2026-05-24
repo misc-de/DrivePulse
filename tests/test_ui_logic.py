@@ -240,7 +240,7 @@ def test_scan_identity_selects_known_vehicle(tmp_path, drivepulse_module):
 
 
 def test_live_vehicle_add_button_hidden_for_known_vehicle(drivepulse_module):
-    from drivepulse_app.cars import CarsPage
+    from drivepulse_app.cars.page import CarsPage
 
     page = CarsPage.__new__(CarsPage)
     page.LIVE_ID = CarsPage.LIVE_ID
@@ -258,7 +258,7 @@ def test_live_vehicle_add_button_hidden_for_known_vehicle(drivepulse_module):
 
 
 def test_live_vehicle_add_uses_callback_and_refreshes(drivepulse_module):
-    from drivepulse_app.cars import CarsPage
+    from drivepulse_app.cars.page import CarsPage
 
     page = CarsPage.__new__(CarsPage)
     page._live_identity = {"VIN": "WVWZZZ1JZXW000001", "CALIBRATION_ID": "CAL"}
@@ -281,7 +281,7 @@ def test_live_vehicle_add_uses_callback_and_refreshes(drivepulse_module):
 
 
 def test_scan_widgets_tolerate_bad_numeric_counts(drivepulse_module):
-    from drivepulse_app.cars_scan_widgets import _build_scan_detail_widget
+    from drivepulse_app.cars.scan_widgets import _build_scan_detail_widget
 
     widget = _build_scan_detail_widget(
         "en",

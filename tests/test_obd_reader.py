@@ -65,7 +65,7 @@ def _fake_obd_module(connections):
 
 
 def test_response_to_plain_value_handles_null_quantity_and_fallback(drivepulse_module):
-    from drivepulse_app.obd_polling import response_to_plain_value
+    from drivepulse_app.obd.polling import response_to_plain_value
 
     assert response_to_plain_value(_Response(is_null=True)) is None
     assert response_to_plain_value(_Response(_Quantity())) == {"value": 42.5, "unit": "rpm"}
@@ -73,7 +73,7 @@ def test_response_to_plain_value_handles_null_quantity_and_fallback(drivepulse_m
 
 
 def test_should_query_key_respects_slow_poll_intervals(drivepulse_module):
-    from drivepulse_app.obd_polling import should_query_key
+    from drivepulse_app.obd.polling import should_query_key
 
     assert should_query_key("speed", 100.0, {"speed": 99.9}) is True
     assert should_query_key("fuel_level", 100.0, {}) is True
@@ -82,7 +82,7 @@ def test_should_query_key_respects_slow_poll_intervals(drivepulse_module):
 
 
 def test_candidate_ports_prefers_explicit_port(monkeypatch, drivepulse_module):
-    from drivepulse_app import obd_reader
+    from drivepulse_app.obd import reader as obd_reader
 
     monkeypatch.setattr(obd_reader, "OBD_PORT", "/dev/rfcomm0")
 
@@ -92,7 +92,7 @@ def test_candidate_ports_prefers_explicit_port(monkeypatch, drivepulse_module):
 
 
 def test_candidate_ports_discovers_bluetooth_usb_and_auto(monkeypatch, drivepulse_module):
-    from drivepulse_app import obd_reader
+    from drivepulse_app.obd import reader as obd_reader
 
     monkeypatch.setattr(obd_reader, "OBD_PORT", None)
 
@@ -116,7 +116,7 @@ def test_candidate_ports_discovers_bluetooth_usb_and_auto(monkeypatch, drivepuls
 
 
 def test_connect_uses_configured_obd_parameters(monkeypatch, drivepulse_module, tmp_log_paths):
-    from drivepulse_app import obd_reader
+    from drivepulse_app.obd import reader as obd_reader
 
     connection = _Connection(True)
     monkeypatch.setattr(obd_reader, "obd", _fake_obd_module([connection]))
@@ -134,7 +134,7 @@ def test_connect_uses_configured_obd_parameters(monkeypatch, drivepulse_module, 
 
 
 def test_connect_falls_back_to_mock_when_no_connection(monkeypatch, drivepulse_module):
-    from drivepulse_app import obd_reader
+    from drivepulse_app.obd import reader as obd_reader
 
     monkeypatch.setattr(obd_reader, "obd", _fake_obd_module([_Connection(False)]))
     monkeypatch.setattr(obd_reader, "OBD_PORT", "/dev/rfcomm0")
@@ -149,7 +149,7 @@ def test_connect_falls_back_to_mock_when_no_connection(monkeypatch, drivepulse_m
 
 
 def test_read_obd_collects_values_and_error_counts(monkeypatch, drivepulse_module):
-    from drivepulse_app import obd_reader
+    from drivepulse_app.obd import reader as obd_reader
 
     fake_obd = _fake_obd_module([])
     fake_obd.commands.SPEED = "bad"
@@ -167,7 +167,7 @@ def test_read_obd_collects_values_and_error_counts(monkeypatch, drivepulse_modul
 
 
 def test_read_obd_reuses_cached_slow_values_between_fast_polls(monkeypatch, drivepulse_module):
-    from drivepulse_app import obd_reader
+    from drivepulse_app.obd import reader as obd_reader
 
     fake_obd = _fake_obd_module([])
     monkeypatch.setattr(obd_reader, "obd", fake_obd)
@@ -217,7 +217,7 @@ def test_reconnect_after_three_failed_reads(monkeypatch, drivepulse_module):
 
 
 def test_mock_reconnect_probe_is_throttled(monkeypatch, drivepulse_module):
-    from drivepulse_app import obd_reader
+    from drivepulse_app.obd import reader as obd_reader
 
     monkeypatch.setattr(obd_reader, "obd", object())
     reader = drivepulse_module.ObdReader(lambda payload: None)
@@ -234,7 +234,7 @@ def test_mock_reconnect_probe_is_throttled(monkeypatch, drivepulse_module):
 
 
 def test_write_log_writes_jsonl(drivepulse_module, tmp_log_paths):
-    from drivepulse_app import obd_reader
+    from drivepulse_app.obd import reader as obd_reader
 
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.mock = False  # obd is mocked as None, forcing mock=True; override for log test
@@ -246,7 +246,7 @@ def test_write_log_writes_jsonl(drivepulse_module, tmp_log_paths):
 
 
 def test_gpsd_line_ignores_bad_optional_numbers(drivepulse_module):
-    from drivepulse_app.gps_reader import GpsReader
+    from drivepulse_app.sensors.gps import GpsReader
 
     updates = []
     reader = GpsReader(updates.append)
@@ -270,7 +270,7 @@ def test_gpsd_line_ignores_bad_optional_numbers(drivepulse_module):
 
 
 def test_gpsd_line_rejects_bad_speed(drivepulse_module):
-    from drivepulse_app.gps_reader import GpsReader
+    from drivepulse_app.sensors.gps import GpsReader
 
     updates = []
     reader = GpsReader(updates.append)
@@ -282,7 +282,7 @@ def test_gpsd_line_rejects_bad_speed(drivepulse_module):
 
 
 def test_obd_scanner_emits_scan_profile_without_profile_file(drivepulse_module):
-    from drivepulse_app.obd_scanner import ObdScanner
+    from drivepulse_app.obd.scanner import ObdScanner
 
     class Connection:
         supported_commands = set()

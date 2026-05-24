@@ -6,8 +6,8 @@ in should_query_key bursts the connection; a regression in the STPX
 parser corrupts every reading on STN/OBDLink adapters."""
 from __future__ import annotations
 
-from drivepulse_app.obd_adapter import _parse_stpx_line
-from drivepulse_app.obd_polling import (
+from drivepulse_app.obd.adapter import _parse_stpx_line
+from drivepulse_app.obd.polling import (
     OBD_POLL_INTERVALS,
     response_to_plain_value,
     should_query_key,

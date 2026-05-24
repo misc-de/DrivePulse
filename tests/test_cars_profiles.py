@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from drivepulse_app.cars_profiles import _load_profiles, _scan_label
+from drivepulse_app.cars.profiles import _load_profiles, _scan_label
 from drivepulse_app.db import DriveDB
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from drivepulse_app.rotation import RotationProvider, VALID_MODES
+from drivepulse_app.sensors.rotation import RotationProvider, VALID_MODES
 
 
 def test_initial_effective_is_zero():

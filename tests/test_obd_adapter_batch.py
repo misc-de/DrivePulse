@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from drivepulse_app.obd_adapter import _MODE1_DECODE, batch_query_stpx
+from drivepulse_app.obd.adapter import _MODE1_DECODE, batch_query_stpx
 
 
 def _send_fixed(response: str):

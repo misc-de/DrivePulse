@@ -8,7 +8,7 @@ import math
 
 import pytest
 
-from drivepulse_app.mock_seed import (
+from drivepulse_app.mock.seed import (
     _bearing_deg,
     _haversine_km,
     _interp_polyline,

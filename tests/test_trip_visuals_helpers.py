@@ -7,7 +7,7 @@ import math
 
 import pytest
 
-from drivepulse_app.cars_trip_visuals import build_trip_metric_data, speed_to_rgb
+from drivepulse_app.cars.trip_visuals import build_trip_metric_data, speed_to_rgb
 
 
 # ─── speed_to_rgb ────────────────────────────────────────────────────────────
