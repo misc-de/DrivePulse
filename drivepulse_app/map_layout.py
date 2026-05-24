@@ -1653,6 +1653,7 @@ class MapLayoutMixin:
         self._steps_toggle_btn.add_css_class("osd")
         self._steps_toggle_btn.add_css_class("circular")
         self._steps_toggle_btn.set_halign(Gtk.Align.START)
+        self._steps_toggle_btn.set_valign(Gtk.Align.START)
         self._steps_toggle_btn.set_size_request(40, 40)
         self._steps_toggle_btn.set_tooltip_text(_translate(self.language, "map.steps.toggle"))
         self._steps_toggle_btn.connect("toggled", self._on_steps_toggle)
