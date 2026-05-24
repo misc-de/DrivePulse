@@ -60,15 +60,14 @@ class MapShumateMixin:
                 self._shumate_map.set_property("show-zoom-buttons", False)
             except Exception:
                 pass
-        # Place the scale ruler at the same bottom-left baseline as the coord
-        # chip so they appear in the same spot (they alternate: scale hides
-        # when coord chip is visible, reappears when coord chip hides).
+        # Scale ruler lives in the bottom-right corner, below the FAB column.
+        # Hidden while the coord chip expands to full width (would cover it).
         scale = self._shumate_map.get_scale()
         if scale is not None:
-            scale.set_halign(Gtk.Align.START)
+            scale.set_halign(Gtk.Align.END)
             scale.set_valign(Gtk.Align.END)
-            scale.set_margin_start(8)
-            scale.set_margin_bottom(31)
+            scale.set_margin_end(8)
+            scale.set_margin_bottom(8)
         # Initial scale unit follows the user's settings choice.
         self._shumate_apply_scale_unit(getattr(self, "units", "metric"))
 

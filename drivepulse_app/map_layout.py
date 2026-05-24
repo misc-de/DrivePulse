@@ -653,7 +653,8 @@ class MapLayoutMixin:
             if dur:
                 _block(idx, "map.replay.duration", dur)
 
-        self._replay_info_overlay.set_visible(True)
+        # Start minimized — only the notepad icon shows; user opens the card on demand.
+        self._set_replay_info_minimized(True)
 
     def _populate_replay_chart(self, samples: list) -> None:
         """Build a metric chart + dropdown for the replayed trip.
@@ -839,7 +840,8 @@ class MapLayoutMixin:
         # The info card lives inside the tour-controls grid, so the grid must
         # be visible for the card to appear.
         self._set_tour_controls_visible(True)
-        self._replay_info_overlay.set_visible(True)
+        # Start minimized — only the notepad icon shows; user opens the card on demand.
+        self._set_replay_info_minimized(True)
         if self._replay_chart_widget is not None:
             self._replay_chart_overlay.set_visible(True)
             # On shumate, the scale ruler sits in the same bottom-left
