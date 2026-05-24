@@ -1,0 +1,125 @@
+# SAE J1979 / ISO 15031-5 Mode 01 standard PIDs.
+# Source: https://en.wikipedia.org/wiki/OBD-II_PIDs (public reference)
+# Loaded for every connected vehicle as the baseline telemetry set.
+
+source = "SAE J1979 Mode 01"
+
+[[pid]]
+key = "engine_load"
+pid = "0104"
+category = "engine"
+name = "Calculated Engine Load"
+unit = "%"
+formula = "A * 100 / 255"
+min = 0
+max = 100
+
+[[pid]]
+key = "coolant_temp"
+pid = "0105"
+category = "engine"
+name = "Engine Coolant Temperature"
+unit = "C"
+formula = "A - 40"
+min = -40
+max = 215
+
+[[pid]]
+key = "rpm"
+pid = "010C"
+category = "engine"
+name = "Engine RPM"
+unit = "rpm"
+formula = "(256 * A + B) / 4"
+min = 0
+max = 16383
+
+[[pid]]
+key = "speed"
+pid = "010D"
+category = "vehicle"
+name = "Vehicle Speed"
+unit = "km/h"
+formula = "A"
+min = 0
+max = 255
+
+[[pid]]
+key = "intake_temp"
+pid = "010F"
+category = "engine"
+name = "Intake Air Temperature"
+unit = "C"
+formula = "A - 40"
+min = -40
+max = 215
+
+[[pid]]
+key = "maf"
+pid = "0110"
+category = "engine"
+name = "Mass Air Flow Rate"
+unit = "g/s"
+formula = "(256 * A + B) / 100"
+min = 0
+max = 655.35
+
+[[pid]]
+key = "throttle_pos"
+pid = "0111"
+category = "engine"
+name = "Throttle Position"
+unit = "%"
+formula = "A * 100 / 255"
+min = 0
+max = 100
+
+[[pid]]
+key = "runtime"
+pid = "011F"
+category = "vehicle"
+name = "Run Time Since Engine Start"
+unit = "s"
+formula = "256 * A + B"
+min = 0
+max = 65535
+
+[[pid]]
+key = "fuel_level"
+pid = "012F"
+category = "fuel"
+name = "Fuel Tank Level Input"
+unit = "%"
+formula = "A * 100 / 255"
+min = 0
+max = 100
+
+[[pid]]
+key = "control_module_voltage"
+pid = "0142"
+category = "electrical"
+name = "Control Module Voltage"
+unit = "V"
+formula = "(256 * A + B) / 1000"
+min = 0
+max = 65.535
+
+[[pid]]
+key = "ambient_temp"
+pid = "0146"
+category = "environment"
+name = "Ambient Air Temperature"
+unit = "C"
+formula = "A - 40"
+min = -40
+max = 215
+
+[[pid]]
+key = "fuel_rate"
+pid = "015E"
+category = "fuel"
+name = "Engine Fuel Rate"
+unit = "L/h"
+formula = "(256 * A + B) / 20"
+min = 0
+max = 3276.75
