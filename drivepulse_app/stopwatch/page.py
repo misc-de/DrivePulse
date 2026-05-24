@@ -360,11 +360,17 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._col_gps_sg = self._make_size_group()
         self._col_best_sg = self._make_size_group()
 
+        first = True
         for target in self.SPEED_TARGETS_KMH:
-            self.results_box.append(self._make_result_row(f"0–{target} km/h", target))
+            self.results_box.append(
+                self._make_result_row(f"0–{target} km/h", target, show_captions=first)
+            )
+            first = False
         for lo, hi in self.RANGE_TARGETS_KMH:
-            self.results_box.append(self._make_result_row(f"{lo}–{hi} km/h", (lo, hi)))
-        self.results_box.append(self._make_result_row("Vmax", "vmax"))
+            self.results_box.append(
+                self._make_result_row(f"{lo}–{hi} km/h", (lo, hi), show_captions=False)
+            )
+        self.results_box.append(self._make_result_row("Vmax", "vmax", show_captions=False))
 
     def _make_size_group(self) -> Any:
         size_group = getattr(Gtk, "SizeGroup", None)
@@ -373,7 +379,7 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             return _NoopSizeGroup()
         return size_group(mode=size_group_mode)
 
-    def _make_result_row(self, label_text: str, key: Any) -> Gtk.Box:
+    def _make_result_row(self, label_text: str, key: Any, *, show_captions: bool = True) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         row.add_css_class("card")
         row.add_css_class("dp-table-row")
@@ -400,6 +406,8 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             cap_lbl.add_css_class("caption")
             cap_lbl.add_css_class("dim-label")
             cap_lbl.set_xalign(1.0)
+            if not show_captions:
+                cap_lbl.set_visible(False)
             val_lbl = Gtk.Label(label="--")
             val_lbl.add_css_class("monospace")
             val_lbl.set_xalign(1.0)
