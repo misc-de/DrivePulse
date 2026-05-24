@@ -540,14 +540,25 @@ class ScanChartContent(Gtk.Box):
 
         self._cars_list.append(self._main_car_row)
 
-        # "+ Fahrzeug"-Zeile mit Dropdown-Selektor
-        self._add_car_row = Adw.ActionRow()
-        self._add_car_row.set_title("Fahrzeug hinzufügen")
+        # "+ Fahrzeug"-Zeile: Titel oben, Dropdown darunter.
+        self._add_car_row = Gtk.ListBoxRow()
+        self._add_car_row.set_selectable(False)
+        self._add_car_row.set_activatable(False)
+        _add_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        _add_box.set_margin_top(8)
+        _add_box.set_margin_bottom(8)
+        _add_box.set_margin_start(12)
+        _add_box.set_margin_end(12)
+        _add_title = Gtk.Label(label="Fahrzeug hinzufügen", xalign=0.0)
+        _add_title.add_css_class("heading")
         self._add_car_dd = Gtk.DropDown()
-        self._add_car_dd.set_valign(Gtk.Align.CENTER)
+        self._add_car_dd.set_halign(Gtk.Align.FILL)
+        self._add_car_dd.set_hexpand(True)
         self._refresh_add_car_dropdown()
         self._add_car_dd.connect("notify::selected", self._on_add_car_selected)
-        self._add_car_row.add_suffix(self._add_car_dd)
+        _add_box.append(_add_title)
+        _add_box.append(self._add_car_dd)
+        self._add_car_row.set_child(_add_box)
         self._cars_list.append(self._add_car_row)
 
         wrap.append(self._cars_list)
@@ -626,8 +637,8 @@ class ScanChartContent(Gtk.Box):
             self._add_car_candidates.append(cid)
         self._add_car_dd.set_model(sl)
         self._add_car_dd.set_selected(0)
-        # Verstecken, wenn keine Kandidaten mehr da sind
-        self._add_car_row.set_visible(len(self._add_car_candidates) > 0)
+        # "Fahrzeug hinzufügen"-Zeile bleibt immer sichtbar; bei fehlenden
+        # Kandidaten enthält das Dropdown lediglich den "—"-Platzhalter.
 
     # ── Value handlers ────────────────────────────────────────────────────
 
