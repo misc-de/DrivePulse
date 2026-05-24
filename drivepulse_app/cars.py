@@ -657,15 +657,17 @@ class CarsPage(
         self._restoring_state = True
         try:
             self._open_detail(src)
+            # Restore scan_id before select_row so the _render_detail triggered
+            # synchronously by _on_category_selected already shows the green icon.
+            # (_open_detail resets _selected_scan_id to None, so we set it here.)
+            if self._initial_scan_id is not None:
+                self._selected_scan_id = self._initial_scan_id
             cat = self._initial_category
             if cat:
                 for row in self._cat_rows:
                     if getattr(row, "cat_key", "") == cat:
                         self.category_list.select_row(row)
                         break
-            # _open_detail resets _selected_scan_id; restore after it.
-            if self._initial_scan_id is not None:
-                self._selected_scan_id = self._initial_scan_id
         finally:
             self._restoring_state = False
         # Re-render once the widget hierarchy is realised. _render_detail at
