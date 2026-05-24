@@ -360,24 +360,13 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._col_obd_sg = self._make_size_group()
         self._col_gps_sg = self._make_size_group()
         self._col_best_sg = self._make_size_group()
-        # Vertical size group ties every row to the same height as row 1 (which
-        # has captions). Rows without captions therefore keep the gap above the
-        # value, and col.valign=END pushes the value to the bottom of that gap.
-        self._row_height_sg = self._make_size_group(vertical=True)
 
-        first = True
+        self.results_box.append(self._make_header_row())
         for target in self.SPEED_TARGETS_KMH:
-            row = self._make_result_row(f"0–{target} km/h", target, show_captions=first)
-            self._row_height_sg.add_widget(row)
-            self.results_box.append(row)
-            first = False
+            self.results_box.append(self._make_data_row(f"0–{target} km/h", target))
         for lo, hi in self.RANGE_TARGETS_KMH:
-            row = self._make_result_row(f"{lo}–{hi} km/h", (lo, hi), show_captions=False)
-            self._row_height_sg.add_widget(row)
-            self.results_box.append(row)
-        vmax_row = self._make_result_row("Vmax", "vmax", show_captions=False)
-        self._row_height_sg.add_widget(vmax_row)
-        self.results_box.append(vmax_row)
+            self.results_box.append(self._make_data_row(f"{lo}–{hi} km/h", (lo, hi)))
+        self.results_box.append(self._make_data_row("Vmax", "vmax"))
 
     def _make_size_group(self, *, vertical: bool = False) -> Any:
         size_group = getattr(Gtk, "SizeGroup", None)
@@ -387,7 +376,40 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             return _NoopSizeGroup()
         return size_group(mode=size_group_mode)
 
-    def _make_result_row(self, label_text: str, key: Any, *, show_captions: bool = True) -> Gtk.Box:
+    def _make_header_row(self) -> Gtk.Box:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.add_css_class("dp-table-header")
+        row.set_margin_top(2)
+        row.set_margin_bottom(4)
+
+        spacer = Gtk.Label(label="")
+        spacer.set_hexpand(True)
+        spacer.set_margin_start(10)
+
+        def _make_hdr(text: str, sg: Any) -> Gtk.Label:
+            lbl = Gtk.Label(label=text)
+            lbl.add_css_class("caption")
+            lbl.add_css_class("dim-label")
+            lbl.set_xalign(1.0)
+            lbl.set_margin_end(6)
+            sg.add_widget(lbl)
+            return lbl
+
+        self._header_obd_lbl = _make_hdr("OBD", self._col_obd_sg)
+        self._header_gps_lbl = _make_hdr("GPS", self._col_gps_sg)
+        self._header_best_lbl = _make_hdr(_translate(self.language, "stopwatch.best"), self._col_best_sg)
+        self._header_best_lbl.set_margin_end(10)
+        # Source-spalten erst sichtbar, wenn die Quelle erkannt wurde.
+        self._header_obd_lbl.set_visible(False)
+        self._header_gps_lbl.set_visible(False)
+
+        row.append(spacer)
+        row.append(self._header_obd_lbl)
+        row.append(self._header_gps_lbl)
+        row.append(self._header_best_lbl)
+        return row
+
+    def _make_data_row(self, label_text: str, key: Any) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         row.add_css_class("card")
         row.add_css_class("dp-table-row")
@@ -397,7 +419,6 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         name_lbl = Gtk.Label(label=label_text)
         name_lbl.add_css_class("heading")
         name_lbl.set_halign(Gtk.Align.START)
-        name_lbl.set_valign(Gtk.Align.END)
         name_lbl.set_hexpand(True)
         name_lbl.set_margin_start(10)
         ellipsize_mode = getattr(getattr(Pango, "EllipsizeMode", None), "END", None)
@@ -405,50 +426,32 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             name_lbl.set_ellipsize(ellipsize_mode)
         name_lbl.set_max_width_chars(10)
 
-        def _make_col(caption: str, sg: Any, initially_hidden: bool) -> tuple[Gtk.Box, Gtk.Label, Gtk.Label]:
-            col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-            col.set_halign(Gtk.Align.END)
-            # Bottom-align inside the (size-grouped) row so values from rows
-            # without captions stay flush with row 1's value baseline.
-            col.set_valign(Gtk.Align.END)
-            col.set_margin_end(6)
-            cap_lbl = Gtk.Label(label=caption)
-            cap_lbl.add_css_class("caption")
-            cap_lbl.add_css_class("dim-label")
-            cap_lbl.set_xalign(1.0)
-            val_lbl = Gtk.Label(label="--")
-            val_lbl.add_css_class("monospace")
-            val_lbl.set_xalign(1.0)
-            sg.add_widget(val_lbl)
-            if show_captions:
-                col.append(cap_lbl)
-            col.append(val_lbl)
+        def _make_val(sg: Any, initially_hidden: bool) -> Gtk.Label:
+            lbl = Gtk.Label(label="--")
+            lbl.add_css_class("monospace")
+            lbl.set_xalign(1.0)
+            lbl.set_margin_end(6)
+            sg.add_widget(lbl)
             if initially_hidden:
-                col.set_visible(False)
-            return col, cap_lbl, val_lbl
+                lbl.set_visible(False)
+            return lbl
 
-        obd_col, obd_cap, obd_val = _make_col("OBD", self._col_obd_sg, initially_hidden=True)
-        gps_col, gps_cap, gps_val = _make_col("GPS", self._col_gps_sg, initially_hidden=True)
-        best_col, best_cap, best_val = _make_col(
-            _translate(self.language, "stopwatch.best"), self._col_best_sg, initially_hidden=False
-        )
-        best_col.set_margin_end(10)
+        obd_val = _make_val(self._col_obd_sg, initially_hidden=True)
+        gps_val = _make_val(self._col_gps_sg, initially_hidden=True)
+        best_val = _make_val(self._col_best_sg, initially_hidden=False)
         best_val.add_css_class("heading")
+        best_val.set_margin_end(10)
 
         row.append(name_lbl)
-        row.append(obd_col)
-        row.append(gps_col)
-        row.append(best_col)
+        row.append(obd_val)
+        row.append(gps_val)
+        row.append(best_val)
 
         self.result_labels[(key, "obd")] = obd_val
         self.result_labels[(key, "gps")] = gps_val
         self.result_labels[(key, "best")] = best_val
-        self._obd_captions[key] = obd_cap
-        self._gps_captions[key] = gps_cap
-        self._best_captions[key] = best_cap
-        # source_rows now points to the whole column box so set_visible() hides caption + value together
-        self.source_rows[(key, "obd")] = obd_col
-        self.source_rows[(key, "gps")] = gps_col
+        self.source_rows[(key, "obd")] = obd_val
+        self.source_rows[(key, "gps")] = gps_val
         if key == "vmax":
             self._vmax_name_lbl = name_lbl
         return row
@@ -472,8 +475,8 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         if not self.armed and not self.running:
             self.status_label.set_text(_translate(self.language, "stopwatch.ready"))
         best_text = _translate(self.language, "stopwatch.best")
-        for lbl in self._best_captions.values():
-            lbl.set_text(best_text)
+        if hasattr(self, "_header_best_lbl"):
+            self._header_best_lbl.set_text(best_text)
         self._update_best_labels()
         self._update_maxes_label()
 
