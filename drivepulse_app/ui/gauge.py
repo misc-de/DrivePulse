@@ -115,7 +115,7 @@ _EXAMPLE_THEME = '''\
 #
 # Full documentation and minimal template:
 #   <app-directory>/themes/_vorlage.py
-#   <app-directory>/theme_defaults.py
+#   <app-directory>/themes/_theme_defaults.py
 #
 # Required fields: THEME_TYPE, LABEL, draw()
 # Optional:        CSS  (empty string = use app default)
