@@ -84,7 +84,16 @@ class CarsDetailRenderMixin:
             cat_key = getattr(row, "cat_key", "")
             if cat_key not in _OBD_SENSOR_CATEGORIES:
                 continue
-            row.set_sensitive(is_live or self._category_has_sensor_values(cat_key))
+            has_values = is_live or self._category_has_sensor_values(cat_key)
+            row.set_sensitive(has_values)
+            for w in (getattr(row, "cat_label_widget", None),
+                      getattr(row, "cat_icon_widget", None)):
+                if w is None:
+                    continue
+                if has_values:
+                    w.remove_css_class("dim-label")
+                else:
+                    w.add_css_class("dim-label")
 
     def _current_data(self) -> tuple[dict[str, Any], str]:
         if self._selected_source == self.LIVE_ID:
