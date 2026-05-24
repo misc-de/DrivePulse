@@ -414,17 +414,11 @@ class MapLayoutMixin:
     # ── Trip / tour replay overlays ───────────────────────────────────────────
 
     def _build_replay_info_overlay(self) -> Gtk.Widget:
-        """Top-left card showing the replayed trip's metadata."""
+        """Card showing the replayed trip's metadata (lives inside the tour-controls grid)."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("osd")
         box.add_css_class("dp-replay-info")
-        box.set_halign(Gtk.Align.START)
-        box.set_valign(Gtk.Align.START)
-        box.set_margin_start(12)
-        # Default to the desktop margin; set_form_factor() pushes the card
-        # further down on mobile where the top-left info button would
-        # otherwise overlap the card.
-        box.set_margin_top(12)
+        box.set_valign(Gtk.Align.CENTER)
         box.set_visible(False)
 
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -433,17 +427,13 @@ class MapLayoutMixin:
         self._replay_title_lbl.set_hexpand(True)
         head.append(self._replay_title_lbl)
 
-        close_btn = Gtk.Button(icon_name="window-close-symbolic")
-        close_btn.add_css_class("flat")
-        close_btn.add_css_class("circular")
-        close_btn.set_tooltip_text(_translate(self.language, "map.replay.close"))
-        # Only dismiss this info card — the chart overlay and the polyline
-        # stay so the user can keep inspecting the route after hiding the
-        # metadata box.
-        close_btn.connect(
-            "clicked", lambda _b: self._replay_info_overlay.set_visible(False)
-        )
-        head.append(close_btn)
+        min_btn = Gtk.Button(icon_name="window-minimize-symbolic")
+        min_btn.add_css_class("flat")
+        min_btn.add_css_class("circular")
+        min_btn.set_tooltip_text(_translate(self.language, "map.replay.minimize"))
+        # Minimise hides the card and shows the compact notepad-icon restore button.
+        min_btn.connect("clicked", lambda _b: self._set_replay_info_minimized(True))
+        head.append(min_btn)
         box.append(head)
 
         self._replay_meta_grid = Gtk.Grid(column_spacing=12, row_spacing=2)
@@ -462,6 +452,24 @@ class MapLayoutMixin:
 
         self._replay_info_overlay = box
         return box
+
+    def _build_replay_info_restore_btn(self) -> Gtk.Widget:
+        """Small circular notepad button that re-expands a minimised info card."""
+        btn = Gtk.Button(icon_name="notepad-symbolic")
+        btn.add_css_class("osd")
+        btn.add_css_class("circular")
+        btn.set_valign(Gtk.Align.CENTER)
+        btn.set_tooltip_text(_translate(self.language, "map.replay.restore"))
+        btn.set_visible(False)
+        btn.connect("clicked", lambda _b: self._set_replay_info_minimized(False))
+        self._replay_info_restore_btn = btn
+        return btn
+
+    def _set_replay_info_minimized(self, minimized: bool) -> None:
+        if getattr(self, "_replay_info_overlay", None) is not None:
+            self._replay_info_overlay.set_visible(not minimized)
+        if getattr(self, "_replay_info_restore_btn", None) is not None:
+            self._replay_info_restore_btn.set_visible(minimized)
 
     def _build_replay_chart_overlay(self) -> Gtk.Widget:
         """Bottom-left container for the speed chart shown during replay."""
@@ -642,9 +650,6 @@ class MapLayoutMixin:
             if dur:
                 _block(idx, "map.replay.duration", dur)
 
-        # Anchor the card below the tour-start + info-icon column
-        # (≈ 105 px: 12 top margin + start button + spacing + info button).
-        self._replay_info_overlay.set_margin_top(105)
         self._replay_info_overlay.set_visible(True)
 
     def _populate_replay_chart(self, samples: list) -> None:
@@ -824,6 +829,9 @@ class MapLayoutMixin:
         self._map_show_track(latlon_speed)
         self._populate_replay_info(meta, ended_at)
         self._populate_replay_chart(samples)
+        # The info card lives inside the tour-controls grid, so the grid must
+        # be visible for the card to appear.
+        self._set_tour_controls_visible(True)
         self._replay_info_overlay.set_visible(True)
         if self._replay_chart_widget is not None:
             self._replay_chart_overlay.set_visible(True)
@@ -875,11 +883,12 @@ class MapLayoutMixin:
         """Hide the replay info + chart overlays and clear the polyline + marker."""
         if getattr(self, "_replay_info_overlay", None) is not None:
             self._replay_info_overlay.set_visible(False)
-            # Reset top margin so a follow-up history replay sits at its
-            # native top-left position, not the under-info-icon offset used
-            # by the Fahrtenbuch trip-route view.
-            ff = getattr(self, "_form_factor", "desktop")
-            self._replay_info_overlay.set_margin_top(72 if ff == "mobile" else 12)
+        if getattr(self, "_replay_info_restore_btn", None) is not None:
+            self._replay_info_restore_btn.set_visible(False)
+        # If neither a tour plan nor a tour is active, the controls were only
+        # shown to host the info card — hide them again.
+        if not getattr(self, "_tour_plan_active", False) and not getattr(self, "_tour_active", False) and not getattr(self, "_tour_paused", False):
+            self._set_tour_controls_visible(False)
         if getattr(self, "_replay_chart_overlay", None) is not None:
             self._replay_chart_overlay.set_visible(False)
         if getattr(self, "_replay_chart_restore_btn", None) is not None:
@@ -1312,7 +1321,6 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_maneuver_overlay())
             overlay.add_overlay(self._build_speed_zone_overlay())
             overlay.add_overlay(self._build_map_state_overlay())
-            overlay.add_overlay(self._build_replay_info_overlay())
             overlay.add_overlay(self._build_replay_chart_overlay())
             overlay.add_overlay(self._build_replay_chart_restore_btn())
             overlay.add_overlay(self._build_coord_overlay())
@@ -1604,12 +1612,15 @@ class MapLayoutMixin:
         return outer
 
     def _build_tour_controls(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_halign(Gtk.Align.START)
-        box.set_valign(Gtk.Align.START)
-        box.set_margin_start(12)
-        box.set_margin_top(12)
-        self._tour_controls_box = box
+        # Outer grid: col 0 = button column, col 1 = info card slot.
+        # Row 0: start button (col 0 only).
+        # Row 1: info toggle (col 0) | info card + restore btn (col 1).
+        grid = Gtk.Grid(column_spacing=8, row_spacing=8)
+        grid.set_halign(Gtk.Align.START)
+        grid.set_valign(Gtk.Align.START)
+        grid.set_margin_start(12)
+        grid.set_margin_top(12)
+        self._tour_controls_box = grid
 
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self._tour_btn_icon = Gtk.Image.new_from_icon_name("media-playback-start-symbolic")
@@ -1621,7 +1632,7 @@ class MapLayoutMixin:
         self._tour_start_btn.set_child(inner)
         self._tour_start_btn.add_css_class("osd")
         self._tour_start_btn.connect("clicked", self._on_tour_start_clicked)
-        box.append(self._tour_start_btn)
+        grid.attach(self._tour_start_btn, 0, 0, 1, 1)
 
         steps_icon = Gtk.Image.new_from_icon_name("info-symbolic")
         steps_icon.set_pixel_size(20)
@@ -1630,13 +1641,23 @@ class MapLayoutMixin:
         self._steps_toggle_btn.add_css_class("osd")
         self._steps_toggle_btn.add_css_class("circular")
         self._steps_toggle_btn.set_halign(Gtk.Align.START)
+        self._steps_toggle_btn.set_valign(Gtk.Align.CENTER)
         self._steps_toggle_btn.set_size_request(40, 40)
         self._steps_toggle_btn.set_tooltip_text(_translate(self.language, "map.steps.toggle"))
         self._steps_toggle_btn.connect("toggled", self._on_steps_toggle)
-        box.append(self._steps_toggle_btn)
+        grid.attach(self._steps_toggle_btn, 0, 1, 1, 1)
 
-        box.set_visible(False)
-        return box
+        # Info card slot: card and restore button occupy the same cell (one
+        # visible at a time) so the card sits naturally to the right of the
+        # info icon and tracks its vertical position automatically.
+        card_slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        card_slot.set_valign(Gtk.Align.CENTER)
+        card_slot.append(self._build_replay_info_overlay())
+        card_slot.append(self._build_replay_info_restore_btn())
+        grid.attach(card_slot, 1, 1, 1, 1)
+
+        grid.set_visible(False)
+        return grid
 
     def _build_steps_panel(self) -> Gtk.Widget:
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
