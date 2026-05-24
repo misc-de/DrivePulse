@@ -788,6 +788,7 @@ class MapLayoutMixin:
                 self._coord_chip.set_hexpand(False)
             if self._backend == "shumate":
                 self._shumate_set_scale_visible(True)
+        self._step_preview_row = None
         self._refresh_fab_visibility()
 
     def _show_trip_replay(self, meta: dict) -> None:
@@ -1661,6 +1662,7 @@ class MapLayoutMixin:
         listbox = Gtk.ListBox()
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         listbox.add_css_class("navigation-sidebar")
+        listbox.connect("row-activated", self._on_step_row_activated)
         scrolled.set_child(listbox)
         wrap.append(scrolled)
 
@@ -1678,6 +1680,24 @@ class MapLayoutMixin:
         self._steps_panel.set_visible(show)
         if show:
             self._scroll_steps_to_active()
+
+    def _on_step_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        lat = getattr(row, "_step_lat", None)
+        lon = getattr(row, "_step_lon", None)
+        if lat is None or lon is None:
+            return
+        prev = getattr(self, "_step_preview_row", None)
+        if prev is row:
+            self._map_clear_replay_marker()
+            return
+        self._step_preview_row = row
+        self._map_set_replay_marker(lat, lon)
+        if self._backend == "shumate":
+            smap = getattr(self, "_shumate_map", None)
+            if smap is not None:
+                smap.get_viewport().set_location(lat, lon)
+        elif self._backend == "webkit":
+            self._js(f"mapGoTo({lat}, {lon}, 15)")
 
     def _rebuild_steps_list(self) -> None:
         if self._steps_listbox is None:
@@ -1722,9 +1742,11 @@ class MapLayoutMixin:
             row_box.append(text_col)
 
             row = Gtk.ListBoxRow()
-            row.set_activatable(False)
+            row.set_activatable(True)
             row.set_selectable(False)
             row.set_child(row_box)
+            row._step_lat = float(step.get("lat") or 0.0)
+            row._step_lon = float(step.get("lon") or 0.0)
             self._steps_listbox.append(row)
             self._steps_row_widgets.append(row_box)
             self._steps_row_listbox_rows.append(row)
