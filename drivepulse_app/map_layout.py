@@ -482,7 +482,9 @@ class MapLayoutMixin:
         box.set_halign(Gtk.Align.START)
         box.set_valign(Gtk.Align.END)
         box.set_margin_start(12)
-        box.set_margin_bottom(12)
+        # Shumate: lift the chart up to share the TTS button's baseline so the
+        # left+right bottom controls sit on the same line.
+        box.set_margin_bottom(36 if self._backend == "shumate" else 12)
         box.set_size_request(340, -1)
         box.set_visible(False)
 
@@ -528,14 +530,17 @@ class MapLayoutMixin:
         return box
 
     def _build_replay_chart_restore_btn(self) -> Gtk.Widget:
-        """Tiny bottom-left icon that re-opens a minimized chart overlay."""
-        btn = Gtk.Button(icon_name="utilities-system-monitor-symbolic")
+        """Icon to restore a minimised chart overlay — same shape as the info
+        and notepad buttons in the top-left, placed directly under the info."""
+        icon = Gtk.Image.new_from_icon_name("utilities-system-monitor-symbolic")
+        icon.set_pixel_size(20)
+        btn = Gtk.Button()
+        btn.set_child(icon)
         btn.add_css_class("osd")
         btn.add_css_class("circular")
         btn.set_halign(Gtk.Align.START)
-        btn.set_valign(Gtk.Align.END)
-        btn.set_margin_start(12)
-        btn.set_margin_bottom(12)
+        btn.set_valign(Gtk.Align.START)
+        btn.set_size_request(40, 40)
         btn.set_tooltip_text(_translate(self.language, "map.replay.chart_restore"))
         btn.set_visible(False)
         btn.connect("clicked", lambda _b: self._set_replay_chart_minimized(False))
@@ -1333,7 +1338,6 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_speed_zone_overlay())
             overlay.add_overlay(self._build_map_state_overlay())
             overlay.add_overlay(self._build_replay_chart_overlay())
-            overlay.add_overlay(self._build_replay_chart_restore_btn())
 
         self._map_content_box.append(overlay)
 
@@ -1662,7 +1666,14 @@ class MapLayoutMixin:
         self._steps_toggle_btn.set_size_request(40, 40)
         self._steps_toggle_btn.set_tooltip_text(_translate(self.language, "map.steps.toggle"))
         self._steps_toggle_btn.connect("toggled", self._on_steps_toggle)
-        icon_row.append(self._steps_toggle_btn)
+
+        # Left column: info toggle on top, chart-restore icon directly below.
+        info_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        info_col.set_halign(Gtk.Align.START)
+        info_col.set_valign(Gtk.Align.START)
+        info_col.append(self._steps_toggle_btn)
+        info_col.append(self._build_replay_chart_restore_btn())
+        icon_row.append(info_col)
 
         # notepad_slot: notepad button and info card share the same position.
         # Clicking the notepad button swaps them — the card opens where the
