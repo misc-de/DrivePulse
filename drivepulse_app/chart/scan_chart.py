@@ -11,7 +11,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
-from drivepulse_app.cars.metadata import _unit_display
+from drivepulse_app.cars.metadata import _parse_profile_pid_key, _unit_display
 from drivepulse_app.common import LOG_DIR
 from drivepulse_app.diagnostics import atomic_write_text, get_logger
 from drivepulse_app.ui.draw_helpers import _txt
@@ -328,15 +328,16 @@ class ScanChartContent(Gtk.Box):
         self._main_car_id = main_car_id
         self._on_navigate_pid = on_navigate_pid
 
-        # Vergleichs-Kandidaten: nur Autos mit mindestens einem echten Datapoint
-        # (≠ None und ≠ 0) in irgendeinem Scan. Einmal beim Öffnen berechnet,
-        # damit das Dropdown später ohne DB-Roundtrip auskommt.
+        # Vergleichs-Kandidaten: nur Autos die mindestens einen Datapoint
+        # für den aktuell betrachteten Sensor (main_pid) haben — sonst wäre
+        # der Vergleich leer.  Einmal beim Öffnen berechnet, damit das
+        # Dropdown später ohne DB-Roundtrip auskommt.
         self._cars_with_data: set[int] = set()
         for _p in profiles:
             _cid = _p.get("car_id")
             if _cid is None or _cid == main_car_id:
                 continue
-            if self._car_has_sensor_values(_cid):
+            if self._car_has_pid_values(_cid, main_pid):
                 self._cars_with_data.add(_cid)
 
         # PID-Auswahloptionen (Liste der bekannten PIDs aus Hauptauto)
@@ -544,7 +545,7 @@ class ScanChartContent(Gtk.Box):
                 return disp
         return f"Fahrzeug {car_id}"
 
-    def _car_has_sensor_values(self, car_id: int) -> bool:
+    def _car_has_pid_values(self, car_id: int, pid: str) -> bool:
         if self._db is None:
             return False
         try:
@@ -556,14 +557,15 @@ class ScanChartContent(Gtk.Box):
                 data = self._db.get_scan_data(int(scan_meta["id"]))
             except Exception:
                 continue
-            for raw_val in (data.get("live_data") or {}).values():
+            for raw_key, raw_val in (data.get("live_data") or {}).items():
+                if _parse_profile_pid_key(raw_key) != pid:
+                    continue
                 v = raw_val.get("value") if isinstance(raw_val, dict) else raw_val
                 try:
-                    num = float(v)
+                    float(v)
                 except (TypeError, ValueError):
                     continue
-                if num != 0:
-                    return True
+                return True
         return False
 
     def _refresh_add_car_dropdown(self) -> None:
