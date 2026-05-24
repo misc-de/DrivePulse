@@ -384,6 +384,15 @@ class _AlertDialog(_Widget):
     def choose(self, parent, cancellable, callback) -> None:
         pass
 
+    def present(self, parent=None) -> None:
+        # Modale Restart-Dialoge sind in den Tests rein passiv — die Test-
+        # Mocks haben keinen GTK-Loop. Wir merken nur, dass präsentiert wurde.
+        self.props["presented"] = True
+        self.props["presented_parent"] = parent
+
+    def connect(self, signal: str, handler) -> None:
+        self.props.setdefault("signals", {}).setdefault(signal, []).append(handler)
+
 
 class _EntryRow(_ActionRow):
     def __init__(self, title: str = "", **kwargs) -> None:
