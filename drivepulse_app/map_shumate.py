@@ -73,6 +73,15 @@ class MapShumateMixin:
         # Initial scale unit follows the user's settings choice.
         self._shumate_apply_scale_unit(getattr(self, "units", "metric"))
 
+        # SimpleMap's tile-source attribution sits in the bottom-right corner
+        # by default — centre it for a tidier banner.
+        license_widget = (
+            self._shumate_map.get_license()
+            if hasattr(self._shumate_map, "get_license") else None
+        )
+        if license_widget is not None:
+            license_widget.set_halign(Gtk.Align.CENTER)
+
         self._inner_map = (
             self._shumate_map.get_map()
             if hasattr(self._shumate_map, "get_map")
