@@ -235,6 +235,8 @@
   "map.maneuver.off_ramp": "Abfahrt nehmen",
   "map.maneuver.on_street": " auf {name}",
   "cars.list.intro": "Wähle ein Fahrzeug, um seine Werte anzuzeigen.",
+  "cars.list.errors": "Fehler",
+  "cars.list.scan": "Scan",
   "cars.empty": "Noch keine Fahrzeuge gespeichert. Verbinde dich mit einem OBD-Dongle, öffne die Live-Verbindung und speichere das erkannte Fahrzeug mit +.",
   "cars.live.title": "Live-Verbindung",
   "cars.live.subtitle": "Keine OBD-Verbindung",
