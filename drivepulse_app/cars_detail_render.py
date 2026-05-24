@@ -39,6 +39,21 @@ def _format_dtc(entry: Any) -> str:
     return f"{code}: {desc}" if desc else code
 
 
+def _chart_ordered_pids(all_stats: dict) -> list[str]:
+    """PIDs in CATEGORIES-Reihenfolge, gefiltert auf solche, für die das
+    Hauptauto bereits Werte aufgezeichnet hat. Reihenfolge ist die im UI
+    sichtbare und entscheidet damit über „nächster/voriger Sensor"-Wisch."""
+    ordered: list[str] = []
+    for _ck, _cnk, _ic, items in CATEGORIES:
+        for pid_key, _lk in items:
+            if pid_key.startswith("__"):
+                continue
+            s = all_stats.get(pid_key)
+            if s and (s.get("values") or []):
+                ordered.append(pid_key)
+    return ordered
+
+
 class CarsDetailRenderMixin:
     def _current_data(self) -> tuple[dict[str, Any], str]:
         if self._selected_source == self.LIVE_ID:
@@ -255,62 +270,10 @@ class CarsDetailRenderMixin:
                         value_text = f"⌀ {avg_str} {unit}".strip()
                         is_unknown = False
                     if stats and len(stats.get("values") or []) > 1:
-                        def _make_cb(
-                            lbl: str,
-                            pk: str,
-                            all_s: dict,
-                            plabels: dict,
-                            lang: str,
-                        ) -> "callable":
-                            def _ordered_pids() -> list[str]:
-                                ordered: list[str] = []
-                                for _ck, _cnk, _ic, _itm in CATEGORIES:
-                                    for pid_key, _lk in _itm:
-                                        if pid_key.startswith("__"):
-                                            continue
-                                        s = all_s.get(pid_key)
-                                        if s and (s.get("values") or []):
-                                            ordered.append(pid_key)
-                                return ordered
-
-                            def _navigate(direction: int) -> None:
-                                ordered = _ordered_pids()
-                                if pk not in ordered or len(ordered) <= 1:
-                                    return
-                                idx = ordered.index(pk)
-                                new_pid = ordered[(idx + direction) % len(ordered)]
-                                new_lbl = plabels.get(new_pid, new_pid)
-                                # Aktuelle Chart-Page ersetzen
-                                self.nav_view.pop()
-                                _make_cb(new_lbl, new_pid, all_s, plabels, lang)()
-
-                            def _open() -> None:
-                                content = ScanChartContent(
-                                    pk, all_s,
-                                    getattr(self, "_profiles", []),
-                                    getattr(self, "db", None),
-                                    plabels, lang,
-                                    main_car_id=getattr(self, "_selected_car_id", None),
-                                    on_navigate_pid=_navigate,
-                                )
-                                scroll = Gtk.ScrolledWindow()
-                                scroll.set_policy(
-                                    Gtk.PolicyType.NEVER,
-                                    Gtk.PolicyType.AUTOMATIC,
-                                )
-                                scroll.set_vexpand(True)
-                                scroll.set_hexpand(True)
-                                scroll.set_child(content)
-                                page = Adw.NavigationPage(
-                                    child=self._wrap_sub_page(scroll, lbl),
-                                    title=lbl,
-                                )
-                                page.set_tag(f"scan-chart-{pk}")
-                                self.nav_view.push(page)
-                            return _open
-                        on_click = _make_cb(
-                            label, pid_key,
-                            self._scan_pid_stats, _pid_labels, _lang,
+                        on_click = (
+                            lambda _lbl=label, _pk=pid_key, _st=self._scan_pid_stats,
+                                   _pl=_pid_labels, _lg=_lang:
+                            self._push_scan_chart(_lbl, _pk, _st, _pl, _lg)
                         )
                     else:
                         on_click = None
@@ -335,6 +298,52 @@ class CarsDetailRenderMixin:
             value_label.add_css_class("dim-label")
         row.add_suffix(value_label)
         return row
+
+    # ---------------------------------------------------- Scan-Chart sub-page
+
+    def _push_scan_chart(
+        self,
+        label: str,
+        pid: str,
+        all_stats: dict,
+        pid_labels: dict,
+        language: str,
+    ) -> None:
+        """Push a ScanChartContent sub-page for *pid* onto nav_view.
+
+        The vertical-swipe navigator calls back into this method to replace
+        the current page with the next/previous sensor's chart, so the
+        per-(car, pid) persistence is reset cleanly for each sensor.
+        """
+        def _navigate(direction: int) -> None:
+            ordered = _chart_ordered_pids(all_stats)
+            if pid not in ordered or len(ordered) <= 1:
+                return
+            idx = ordered.index(pid)
+            new_pid = ordered[(idx + direction) % len(ordered)]
+            new_label = pid_labels.get(new_pid, new_pid)
+            self.nav_view.pop()
+            self._push_scan_chart(new_label, new_pid, all_stats, pid_labels, language)
+
+        content = ScanChartContent(
+            pid, all_stats,
+            getattr(self, "_profiles", []),
+            getattr(self, "db", None),
+            pid_labels, language,
+            main_car_id=getattr(self, "_selected_car_id", None),
+            on_navigate_pid=_navigate,
+        )
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_hexpand(True)
+        scroll.set_child(content)
+        page = Adw.NavigationPage(
+            child=self._wrap_sub_page(scroll, label),
+            title=label,
+        )
+        page.set_tag(f"scan-chart-{pid}")
+        self.nav_view.push(page)
 
     # ---------------------------------------------------- Fahrten-Rendering
 
