@@ -772,13 +772,16 @@ class MapLayoutMixin:
                 f"{abs(lat):.5f}° {ns}  {abs(lon):.5f}° {ew}"
             )
             if not self._coord_lbl.get_visible():
-                # Expand: show label, stretch chip to full width, hide scale+FAB.
+                # Expand: show label, stretch chip to full width, hide scale.
                 self._coord_lbl.set_visible(True)
                 if self._coord_chip is not None:
                     self._coord_chip.set_halign(Gtk.Align.FILL)
                 if self._backend == "shumate":
                     self._shumate_set_scale_visible(False)
-                self._refresh_fab_visibility()
+            # Always sync FAB visibility — not just on first expand — so the
+            # FAB stays hidden for the entire duration the chip is expanded,
+            # regardless of which other code paths may have toggled it.
+            self._refresh_fab_visibility()
 
     def _map_clear_replay_marker(self) -> None:
         if self._backend == "webkit":
