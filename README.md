@@ -12,7 +12,7 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
 ---
 
 ## Screenshots
-<img width="270" alt="Screenshot from 2026-05-20 15:21:11" src="https://github.com/user-attachments/assets/0dedf136-f6cd-4dac-89c5-e62bc1f51a10" />
+<img width="270" alt="Screenshot from 2026-05-24 14:08:48" src="https://github.com/user-attachments/assets/30c50be2-fbe1-4f8b-b9ba-605b32c2e9a5" />
 <img width="270" alt="Screenshot from 2026-05-20 15:27:23" src="https://github.com/user-attachments/assets/4c587e3f-2d2a-4d2f-b634-54db573c4111" />
 <img width="270" alt="Screenshot from 2026-05-20 15:27:30" src="https://github.com/user-attachments/assets/e97a6892-e589-4170-baa5-53408a11dbaa" />
 <img width="270" alt="Screenshot from 2026-05-20 15:27:44" src="https://github.com/user-attachments/assets/73e6f51a-7127-4624-a078-963d2659dc16" />
