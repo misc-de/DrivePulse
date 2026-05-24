@@ -418,7 +418,7 @@ class MapLayoutMixin:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("osd")
         box.add_css_class("dp-replay-info")
-        box.set_valign(Gtk.Align.CENTER)
+        box.set_valign(Gtk.Align.START)
         box.set_visible(False)
 
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -458,7 +458,7 @@ class MapLayoutMixin:
         btn = Gtk.Button(icon_name="notepad-symbolic")
         btn.add_css_class("osd")
         btn.add_css_class("circular")
-        btn.set_valign(Gtk.Align.CENTER)
+        btn.set_valign(Gtk.Align.START)
         btn.set_tooltip_text(_translate(self.language, "map.replay.restore"))
         btn.set_visible(False)
         btn.connect("clicked", lambda _b: self._set_replay_info_minimized(False))
@@ -1643,7 +1643,7 @@ class MapLayoutMixin:
         self._steps_toggle_btn.add_css_class("osd")
         self._steps_toggle_btn.add_css_class("circular")
         self._steps_toggle_btn.set_halign(Gtk.Align.START)
-        self._steps_toggle_btn.set_valign(Gtk.Align.CENTER)
+        self._steps_toggle_btn.set_valign(Gtk.Align.START)
         self._steps_toggle_btn.set_size_request(40, 40)
         self._steps_toggle_btn.set_tooltip_text(_translate(self.language, "map.steps.toggle"))
         self._steps_toggle_btn.connect("toggled", self._on_steps_toggle)
@@ -1653,7 +1653,7 @@ class MapLayoutMixin:
         # visible at a time) so the card sits naturally to the right of the
         # info icon and tracks its vertical position automatically.
         card_slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        card_slot.set_valign(Gtk.Align.CENTER)
+        card_slot.set_valign(Gtk.Align.START)
         card_slot.append(self._build_replay_info_overlay())
         card_slot.append(self._build_replay_info_restore_btn())
         grid.attach(card_slot, 1, 1, 1, 1)
