@@ -50,7 +50,7 @@ class ObdReader(GObject.Object):
     # Minimum OBD() timeout for direct BT connections (ELM327 init can be slow over BT)
     _BT_OBD_TIMEOUT = 15.0
     # Periodic re-scan keeps the scan history (DTCs, PIDs) fresh while connected.
-    _RESCAN_INTERVAL_S = float(os.environ.get("OBD_RESCAN_INTERVAL", "60"))
+    _RESCAN_INTERVAL_S = float(os.environ.get("OBD_RESCAN_INTERVAL", "90"))
     # How often to probe for a real dongle while in mock fallback. Lower = faster
     # pickup when the car is started, at the cost of more failed connect attempts.
     _MOCK_RECONNECT_INTERVAL_S = float(os.environ.get("OBD_MOCK_RECONNECT_INTERVAL", "3"))

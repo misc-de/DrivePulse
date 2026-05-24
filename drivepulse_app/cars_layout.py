@@ -388,9 +388,6 @@ class CarsLayoutMixin:
         # Section dividers (e.g. "OBD Daten") are pure text — hide when narrow.
         for sep in getattr(self, "_cat_section_rows", []):
             sep.set_visible(not narrow)
-        scan_row = getattr(self, "_scan_date_row", None)
-        if scan_row is not None and narrow:
-            scan_row.set_visible(False)
         for row in self._cat_rows:
             lbl = getattr(row, "cat_label_widget", None)
             hbox = getattr(row, "cat_hbox", None)

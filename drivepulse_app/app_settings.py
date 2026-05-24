@@ -51,6 +51,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # startup so the user lands where they left off.
     "last_cars_source": None,
     "last_cars_category": None,
+    "last_cars_scan_id": None,
 }
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}

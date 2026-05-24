@@ -390,7 +390,6 @@ class CarsDetailRenderMixin:
         value_lbl.set_selectable(on_click is None)
         if is_unknown:
             value_lbl.add_css_class("dim-label")
-        box.append(value_lbl)
 
         if stats and "min" in stats and "max" in stats:
             unit = _unit_display(stats.get("unit", ""), getattr(self, "language", "de"))
@@ -413,5 +412,7 @@ class CarsDetailRenderMixin:
             stats_lbl.add_css_class("dim-label")
             stats_lbl.add_css_class("caption")
             box.append(stats_lbl)
+
+        box.append(value_lbl)
 
         return row

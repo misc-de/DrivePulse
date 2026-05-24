@@ -112,6 +112,8 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self.autodev_api_key: str = self.settings.get("autodev_api_key") or ""
         self.last_cars_source: str | None = self.settings.get("last_cars_source") or None
         self.last_cars_category: str | None = self.settings.get("last_cars_category") or None
+        _raw_scan_id = self.settings.get("last_cars_scan_id")
+        self.last_cars_scan_id: int | None = int(_raw_scan_id) if _raw_scan_id is not None else None
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
         self._last_gps_lat: float | None = None
@@ -254,6 +256,7 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
             vindecoder_secret_key=self.vindecoder_secret_key or None,
             initial_source=self.last_cars_source,
             initial_category=self.last_cars_category,
+            initial_scan_id=self.last_cars_scan_id,
             on_state_changed=self._on_cars_state_changed,
         )
         self.cars_page._autodev_api_key = self.autodev_api_key or None
@@ -980,12 +983,15 @@ class DashboardWindow(DashboardSettingsMixin, DashboardLayoutMixin, DashboardTel
         self._save_settings()
         return False
 
-    def _on_cars_state_changed(self, source: str | None, category: str | None) -> None:
-        """Persist the last viewed source + category from the Cars page."""
-        if source == self.last_cars_source and category == self.last_cars_category:
+    def _on_cars_state_changed(self, source: str | None, category: str | None, scan_id: int | None = None) -> None:
+        """Persist the last viewed source + category + scan from the Cars page."""
+        if (source == self.last_cars_source
+                and category == self.last_cars_category
+                and scan_id == self.last_cars_scan_id):
             return
         self.last_cars_source = source
         self.last_cars_category = category
+        self.last_cars_scan_id = scan_id
         self._save_settings()
 
     def _install_form_factor_breakpoint(self) -> None:
