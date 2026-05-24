@@ -287,12 +287,14 @@ class CarsDetailRenderMixin:
             value_text, is_unknown = self._format_entry(pid_key, raw)
             if is_unknown and pid_key in _vin_data_keys:
                 continue
-            # Im Scan-Modus werden die einzelnen PID-Zeilen komplett
-            # ausgeblendet — der Mittelwert wurde entfernt und die rohen
-            # Stichproben sind via Chart-Aufruf erreichbar. Section-Header
-            # (__-Prefix) bleiben unberührt; Live-Modus ist nicht betroffen.
+            # Im Scan-Modus nur PIDs anzeigen, für die tatsächlich Sensordaten
+            # vorliegen. Section-Header (__-Prefix) bleiben unberührt; im
+            # Live-Modus wird ebenfalls nicht gefiltert, da Werte dort
+            # in Echtzeit ankommen.
             if not is_live and not pid_key.startswith("__"):
-                continue
+                _scan_stats = self._scan_pid_stats.get(pid_key)
+                if not _scan_stats or not (_scan_stats.get("values") or []):
+                    continue
             label = _translate(self.language, label_key)
             if not pid_key.startswith("__"):
                 if is_live:
