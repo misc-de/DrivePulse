@@ -31,11 +31,10 @@ class CarsScansMixin:
         if not scans:
             self.value_list.append(self._info_row(_translate(self.language, "cars.scans.empty")))
             return
-        for i, scan in enumerate(scans):
-            prev = scans[i + 1] if i + 1 < len(scans) else None
-            self.value_list.append(self._make_scan_row(scan, prev))
+        for scan in scans:
+            self.value_list.append(self._make_scan_row(scan))
 
-    def _make_scan_row(self, scan: Any, prev_scan: Any | None) -> Adw.ActionRow:
+    def _make_scan_row(self, scan: Any) -> Adw.ActionRow:
         row = Adw.ActionRow()
         ts = self._parse_ts(scan["scanned_at"])
         title = ts.strftime("%d.%m.%Y · %H:%M") if ts else str(scan["id"])
@@ -51,29 +50,10 @@ class CarsScansMixin:
             row.add_prefix(dot)
 
         dtc = _safe_int(scan["dtc_count"])
-        pending = _safe_int(scan["pending_dtc_count"])
         pids = _safe_int(scan["pids_count"])
 
-        # DTC trend vs. previous scan — only annotated when something
-        # actually changed; an explicit "unchanged" tag is noise.
-        trend: str | None = None
-        if prev_scan is None:
-            trend = _translate(self.language, "cars.scan.trend_first")
-        else:
-            delta = dtc - _safe_int(prev_scan["dtc_count"])
-            if delta > 0:
-                trend = _translate(self.language, "cars.scan.trend_up", delta=delta)
-            elif delta < 0:
-                trend = _translate(self.language, "cars.scan.trend_down", delta=abs(delta))
-
-        parts = [
-            f"{dtc} {_translate(self.language, 'cars.scan.dtc_count')}",
-            f"{pending} {_translate(self.language, 'cars.scan.pending_count')}",
-            f"{pids} {_translate(self.language, 'cars.scan.pids_count')}",
-        ]
-        if trend:
-            parts.append(trend)
-        row.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
+        subtitle = f"{pids} {_translate(self.language, 'cars.scan.pids_count')}"
+        row.set_subtitle(GLib.markup_escape_text(subtitle))
         row.set_subtitle_lines(0)
         sid = int(scan["id"])
         if self._scan_select_mode:
