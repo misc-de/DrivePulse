@@ -1,19 +1,19 @@
 """Photo gallery for saved cars — upload (local / camera), grid view, multi-select, delete."""
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 import threading
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gio, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from drivepulse_app.common import LOG_DIR, _translate
 from drivepulse_app.diagnostics import get_logger
@@ -242,7 +242,7 @@ class CarsPhotosMixin:
         dest_dir = PHOTOS_DIR / str(car_id)
         dest_dir.mkdir(parents=True, exist_ok=True)
         ext = src.suffix.lower() or ".jpg"
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         base = ts.strftime("%Y%m%d_%H%M%S")
         stem = src.stem[-20:] if len(src.stem) > 20 else src.stem
         filename = f"{base}_{stem}{ext}"
@@ -279,7 +279,7 @@ class CarsPhotosMixin:
     def _import_camera_jpeg(self, car_id: int, src: Path) -> None:
         dest_dir = PHOTOS_DIR / str(car_id)
         dest_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         filename = f"{ts.strftime('%Y%m%d_%H%M%S')}_cam.jpg"
         dest = dest_dir / filename
         counter = 1
@@ -373,7 +373,7 @@ class CarsPhotosMixin:
         self._photo_select_mode = True
         self._photo_selected_ids = {photo_id}
         self._render_detail()
-        self._set_trash(lambda: self._confirm_delete_selected_photos())
+        self._set_trash(self._confirm_delete_selected_photos)
 
     def _exit_photo_select_mode(self) -> None:
         self._photo_select_mode = False
@@ -482,7 +482,10 @@ class CameraPhotoDialog:
             root = parent.get_root() if hasattr(parent, "get_root") else parent
             if isinstance(root, Gtk.Window):
                 win.set_transient_for(root)
-        win.connect("close-request", lambda _w: self._cleanup() or False)
+        def _on_close_request(_w: Gtk.Window) -> bool:
+            self._cleanup()
+            return False
+        win.connect("close-request", _on_close_request)
         self._window = win
 
         stack = Gtk.Stack()
@@ -625,7 +628,8 @@ class CameraPhotoDialog:
             self._capture_btn.set_sensitive(False)
         self._stop_pipeline()
 
-        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        # NamedTemporaryFile with delete=False: closed here but kept on disk for capture thread
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)  # noqa: SIM115
         tmp.close()
         tmp_path = Path(tmp.name)
         self._temp_path = tmp_path

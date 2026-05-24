@@ -7,19 +7,19 @@ import math
 import os
 import threading
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, Gtk
 
-from drivepulse_app.common import _translate
 from drivepulse_app.cars.metadata import _CHART_METRICS
+from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
-
 
 log = get_logger(__name__)
 
@@ -88,8 +88,8 @@ def build_trip_metric_data(
             metric_data["elapsed_km"] = elapsed_pts
 
     avail: list = [
-        (k, _translate(language, l), u, c, f)
-        for k, l, u, c, f in _CHART_METRICS
+        (k, _translate(language, lbl), u, c, f)
+        for k, lbl, u, c, f in _CHART_METRICS
         if k in metric_data
     ]
     if "elapsed_km" in metric_data:
@@ -128,6 +128,8 @@ def _draw_gps_track(cr: Any, width: int, height: int, points: list[tuple[float, 
     import math as _m
     cos_lat = _m.cos(_m.radians((lat_min + lat_max) / 2))
     aspect = (lon_span * cos_lat) / lat_span
+    draw_w: float
+    draw_h: float
     if aspect > iw / ih:
         draw_w = iw
         draw_h = iw / aspect
@@ -181,7 +183,7 @@ def _draw_gps_track(cr: Any, width: int, height: int, points: list[tuple[float, 
 def _build_chart_widget(
     chart_state: dict,
     cursor_state: dict,
-    on_cursor_change: "Callable",
+    on_cursor_change: Callable,
     height: int = 180,
 ) -> Gtk.DrawingArea:
     """Generic metric/time chart. chart_state holds current pts, unit, color, fmt.
@@ -589,8 +591,8 @@ def _get_tile_surface(zoom: int, tx: int, ty: int) -> Any:
 def _tile_to_grayscale(surf: Any) -> Any:
     """Convert OSM tile to grayscale using numpy (fast, << 1 ms per tile)."""
     try:
-        import numpy as np
         import cairo as _c
+        import numpy as np
         w, h = surf.get_width(), surf.get_height()
         out = _c.ImageSurface(_c.FORMAT_ARGB32, w, h)
         cr = _c.Context(out)
@@ -616,11 +618,11 @@ def _tile_to_grayscale(surf: Any) -> Any:
 
 
 def _build_osm_map_widget(
-    gps_points: list[tuple[float, float, "float | None"]],
-    chart_state: "dict | None" = None,
-    cursor_state: "dict | None" = None,
+    gps_points: list[tuple[float, float, float | None]],
+    chart_state: dict | None = None,
+    cursor_state: dict | None = None,
     height: int = 300,
-) -> "Gtk.DrawingArea | None":
+) -> Gtk.DrawingArea | None:
     """Tile-stitched OSM map with pinch-zoom, finger-pan, double-tap reset.
 
     gps_points:   (lat, lon, speed_kmh) — GPS track
@@ -638,8 +640,10 @@ def _build_osm_map_widget(
     lon_min, lon_max = min(lons), max(lons)
     lat_pad = max((lat_max - lat_min) * 0.15, 0.003)
     lon_pad = max((lon_max - lon_min) * 0.15, 0.005)
-    lat_min -= lat_pad; lat_max += lat_pad
-    lon_min -= lon_pad; lon_max += lon_pad
+    lat_min -= lat_pad
+    lat_max += lat_pad
+    lon_min -= lon_pad
+    lon_max += lon_pad
     center_lat = (lat_min + lat_max) / 2
     center_lon = (lon_min + lon_max) / 2
 

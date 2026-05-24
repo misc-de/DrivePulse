@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import types
 from pathlib import Path
+from typing import ClassVar
 
 
 class _Quantity:
@@ -285,7 +286,7 @@ def test_obd_scanner_emits_scan_profile_without_profile_file(drivepulse_module):
     from drivepulse_app.obd.scanner import ObdScanner
 
     class Connection:
-        supported_commands = set()
+        supported_commands: ClassVar[set] = set()
 
         def query(self, command):
             if command == "VIN":

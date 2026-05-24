@@ -5,14 +5,15 @@ import os
 import subprocess
 import threading
 import time
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, GObject  # noqa: E402
+from gi.repository import GLib, GObject
 
 try:
     import obd
@@ -30,14 +31,13 @@ from drivepulse_app.common import (
     OBD_TIMEOUT_SECONDS,
     POLL_INTERVAL_SECONDS,
 )
-from drivepulse_app.sensors.bluetooth import BluetoothPtyBridge
 from drivepulse_app.diagnostics import append_jsonl, get_logger
-from drivepulse_app.obd.mock import MockObdSimulator
-from drivepulse_app.obd.adapter import AdapterInfo, probe_adapter, raw_send, _serial_port
+from drivepulse_app.obd.adapter import AdapterInfo, _serial_port, probe_adapter, raw_send
 from drivepulse_app.obd.devices import candidate_bt_addresses, parse_bt_port
+from drivepulse_app.obd.mock import MockObdSimulator
 from drivepulse_app.obd.polling import command_map, response_to_plain_value, should_query_key
 from drivepulse_app.obd.scanner import ObdScanner
-
+from drivepulse_app.sensors.bluetooth import BluetoothPtyBridge
 
 log = get_logger(__name__)
 
@@ -96,7 +96,7 @@ class ObdReader(GObject.Object):
             return
         try:
             payload = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "event": event,
                 "obd_port": self._configured_port or OBD_PORT,
                 "obd_baudrate": OBD_BAUDRATE,
@@ -130,7 +130,7 @@ class ObdReader(GObject.Object):
             candidates.extend(str(path) for path in sorted(Path("/").glob(pattern.lstrip("/"))))
         if OBD_SOCKET_URL:
             candidates.append(OBD_SOCKET_URL)
-        return candidates + [None]
+        return [*candidates, None]
 
     def _try_bt_direct(self, addr: str, channel: int) -> bool:
         """Try direct Bluetooth RFCOMM socket without rfcomm bind. Returns True on success."""
@@ -228,14 +228,14 @@ class ObdReader(GObject.Object):
         # Release any stale binding first (ignore errors)
         for prefix in ([], ["pkexec"]):
             try:
-                subprocess.run(prefix + release_cmd, capture_output=True, timeout=5)
+                subprocess.run([*prefix, *release_cmd], capture_output=True, timeout=5, check=False)
             except Exception as exc:
                 self._connection_log("rfcomm_release_error", addr=addr, error=str(exc))
             break
         # Try bind without sudo, then with pkexec (GUI password dialog)
-        for cmd in (bind_cmd, ["pkexec"] + bind_cmd):
+        for cmd in (bind_cmd, ["pkexec", *bind_cmd]):
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, check=False)
                 if result.returncode == 0:
                     self._connection_log("rfcomm_bind_ok", addr=addr, dev=dev, cmd=cmd[0])
                     return dev
@@ -265,7 +265,7 @@ class ObdReader(GObject.Object):
         GLib.idle_add(
             self.on_update,
             {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "source": "status",
                 "obd_connecting": True,
                 "connection_status": "Connecting to OBD...",
@@ -325,7 +325,7 @@ class ObdReader(GObject.Object):
                     is_rfcomm = self._configured_port.startswith("/dev/rfcomm")
                     success = False
                     try:
-                        connect_kwargs: dict[str, Any] = {
+                        connect_kwargs = {
                             "fast": False if is_rfcomm else OBD_FAST,
                             "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT) if is_rfcomm else OBD_TIMEOUT_SECONDS,
                         }
@@ -472,7 +472,7 @@ class ObdReader(GObject.Object):
             self._maybe_reconnect_from_mock()
             self._maybe_periodic_rescan()
             payload = self._read_mock() if self.mock else self._read_obd()
-            payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+            payload["timestamp"] = datetime.now(UTC).isoformat()
             payload["source"] = ("mock" if self.force_mock else "mock_fallback") if self.mock else "obd"
             payload["obd_connecting"] = False
             payload["connection_status"] = self._connection_status()

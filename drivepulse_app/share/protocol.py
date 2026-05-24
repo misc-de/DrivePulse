@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +37,7 @@ def build_vehicle_block(car: Any, anon: bool, include_obd: bool) -> dict:
         block["brand"] = car["brand"] or ""
     if not anon and include_obd:
         for key in ("cal_id", "cvn", "protocol"):
-            val = car[key] if key in car.keys() else None
+            val = car[key] if key in car.keys() else None  # noqa: SIM118
             if val:
                 block[key] = val
     return block
@@ -62,7 +62,7 @@ def build_trips_payload(db: DriveDB, car_id: int, trip_ids: list[int] | None = N
             "max_speed_kmh": trip["max_speed_kmh"],
             "avg_speed_kmh": trip["avg_speed_kmh"],
             "samples_count": trip["samples_count"],
-            "label": trip["label"] if "label" in trip.keys() else None,
+            "label": trip["label"] if "label" in trip.keys() else None,  # noqa: SIM118
             "samples": samples_out,
         })
     return out
@@ -170,7 +170,7 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
         return {"ok": False, "error": "invalid payload"}
 
     if payload.get("type") == "share_tours":
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         existing = {t["name"]: t for t in db.list_saved_tours()}
         tours_added = 0
         for tour in payload.get("tours") or []:
@@ -190,7 +190,7 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
         from drivepulse_app.common import LOG_DIR
         photos_dir = LOG_DIR / "car_photos"
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     trips_added = 0
     runs_added = 0
     scans_added = 0
@@ -226,7 +226,7 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
                     vin_anon,
                 ),
             )
-            car_id = int(cur.lastrowid)
+            car_id = int(cur.lastrowid or 0)
             db._conn.commit()
     else:
         car_id = int(car["id"])
@@ -242,15 +242,15 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
         if not started_at:
             continue
         if started_at in existing_by_started:
-            existing = existing_by_started[started_at]
-            if _trips_identical(existing, trip):
+            existing_trip = existing_by_started[started_at]
+            if _trips_identical(existing_trip, trip):
                 continue
             conflict_data = json.dumps(trip, ensure_ascii=False)
             with db._lock:
                 db._conn.execute(
                     "INSERT INTO share_conflicts(type, car_id, local_id, incoming_json, received_at)"
                     " VALUES(?,?,?,?,?)",
-                    ("trip", car_id, int(existing["id"]), conflict_data, now),
+                    ("trip", car_id, int(existing_trip["id"]), conflict_data, now),
                 )
                 db._conn.commit()
             conflicts += 1
@@ -275,7 +275,7 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
                     now,
                 ),
             )
-            trip_id = int(cur.lastrowid)
+            trip_id = int(cur.lastrowid or 0)
             db._conn.commit()
         trips_added += 1
         try:

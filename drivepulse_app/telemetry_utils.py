@@ -12,6 +12,8 @@ def plain_number(data: dict[str, Any], key: str) -> float | None:
         value = item.get("value")
     else:
         value = item
+    if value is None:
+        return None
     try:
         return float(value)
     except Exception:

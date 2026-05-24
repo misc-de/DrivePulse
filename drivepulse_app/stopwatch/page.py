@@ -2,17 +2,18 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Pango  # noqa: E402
+from gi.repository import Gtk, Pango
 
+from drivepulse_app.common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language, _translate
 from drivepulse_app.stopwatch.canvas import GForceCanvas
 from drivepulse_app.stopwatch.processing import StopWatchProcessingMixin
 from drivepulse_app.stopwatch.replay import StopWatchReplayMixin
-from drivepulse_app.common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language, _translate
 
 _WARNING_CSS = (
     b"button.warning-reset{background:rgba(229,165,10,0.85);color:#1c1c1c;}"
@@ -673,10 +674,10 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         for row in self.results.values():
             if row["obd"] is not None or row["gps"] is not None:
                 return True
-        for row in self.range_results.values():
-            if row["obd"] is not None or row["gps"] is not None:
-                return True
-        return False
+        return any(
+            row["obd"] is not None or row["gps"] is not None
+            for row in self.range_results.values()
+        )
 
     def load_persisted_run(self, data: dict[str, Any]) -> bool:
         """Restore a saved run into the page so it can be replayed.

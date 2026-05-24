@@ -4,21 +4,19 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk
 
-from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language, _translate
-from drivepulse_app.db import DriveDB
 from drivepulse_app.cars.actions import CarsActionsMixin
 from drivepulse_app.cars.detail_render import CarsDetailRenderMixin
 from drivepulse_app.cars.layout import CarsLayoutMixin
-from drivepulse_app.cars.trips import CarsTripsMixin
 from drivepulse_app.cars.metadata import (
     CATEGORIES,
     LIVE_KEY_TO_PID,
@@ -26,16 +24,19 @@ from drivepulse_app.cars.metadata import (
     _wmi_to_brand,
 )
 from drivepulse_app.cars.profiles import _load_profiles
+from drivepulse_app.cars.trips import CarsTripsMixin
+from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language, _translate
+from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.vin.api import fetch_vin_data
 
 log = get_logger(__name__)
-from drivepulse_app.cars.stopwatch_runs import CarsStopWatchRunsMixin
-from drivepulse_app.cars.scans import CarsScansMixin
 from drivepulse_app.cars.photos import CarsPhotosMixin
+from drivepulse_app.cars.scans import CarsScansMixin
+from drivepulse_app.cars.stopwatch_runs import CarsStopWatchRunsMixin
 
 
-def _extract_session_number(v: Any) -> "float | None":
+def _extract_session_number(v: Any) -> float | None:
     if isinstance(v, dict) and "value" in v:
         try:
             return float(v["value"])
@@ -329,7 +330,7 @@ class CarsPage(
         from drivepulse_app.vin.review_dialog import VinReviewDialog
         dialog = VinReviewDialog(vin, data, self.language)
 
-        def _on_response(d: "VinReviewDialog", response: str) -> None:
+        def _on_response(d: VinReviewDialog, response: str) -> None:
             self._vin_review_open = False
             if response == "accept":
                 accepted = d.get_accepted_data()
@@ -558,6 +559,8 @@ class CarsPage(
                 else:
                     v = raw_val
                     unit = ""
+                if v is None:
+                    continue
                 try:
                     num = float(v)
                 except (TypeError, ValueError):
@@ -585,7 +588,7 @@ class CarsPage(
                     continue
                 scan_start_ts: float | None = None
                 try:
-                    from datetime import datetime, timezone
+                    from datetime import datetime
                     scan_start_ts = datetime.fromisoformat(
                         str(scan_meta["scanned_at"]).replace("Z", "+00:00")
                     ).timestamp()
@@ -777,7 +780,7 @@ class CarsPage(
         # startup shows the list, not the previously open detail page.
         if not self._restoring_state and self.on_state_changed is not None:
             try:
-                self.on_state_changed(None, None)
+                self.on_state_changed(None, None, None)
             except Exception:
                 pass
 
@@ -893,6 +896,8 @@ class CarsPage(
             self._share_vehicle()
 
     def _share_vehicle(self) -> None:
+        if self.db is None:
+            return
         from drivepulse_app.share.flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_vehicle(
             self._selected_source, self._selected_car_id
@@ -912,6 +917,8 @@ class CarsPage(
         def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
             if resp != "send":
                 return
+            if self.db is None:
+                return
             from drivepulse_app.share.flow import ShareFlow
             ShareFlow(self, self.db, self.language, self.get_sync_client).share_trips(
                 self._selected_car_id, [trip_id]
@@ -923,6 +930,8 @@ class CarsPage(
     def _share_selected_trips(self) -> None:
         ids = list(self._trip_selected_ids)
         self._exit_trip_select_mode()
+        if self.db is None:
+            return
         from drivepulse_app.share.flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_trips(
             self._selected_car_id, ids
@@ -931,6 +940,8 @@ class CarsPage(
     def _share_selected_scans(self) -> None:
         ids = list(self._scan_selected_ids)
         self._exit_scan_select_mode()
+        if self.db is None:
+            return
         from drivepulse_app.share.flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_scans(
             self._selected_car_id, ids
@@ -939,6 +950,8 @@ class CarsPage(
     def _share_selected_runs(self) -> None:
         ids = list(self._run_selected_ids)
         self._exit_run_select_mode()
+        if self.db is None:
+            return
         from drivepulse_app.share.flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_runs(
             self._selected_car_id, ids
@@ -947,18 +960,24 @@ class CarsPage(
     def _share_selected_photos(self) -> None:
         ids = list(self._photo_selected_ids)
         self._exit_photo_select_mode()
+        if self.db is None:
+            return
         from drivepulse_app.share.flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_photos(
             self._selected_car_id, ids
         )
 
     def _share_run(self, run_id: int) -> None:
+        if self.db is None:
+            return
         from drivepulse_app.share.flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_run(
             self._selected_car_id, run_id
         )
 
     def _share_scan(self, scan_id: int) -> None:
+        if self.db is None:
+            return
         from drivepulse_app.share.flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_scan(
             self._selected_car_id, scan_id

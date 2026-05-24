@@ -6,7 +6,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gsk", "4.0")
 gi.require_version("Graphene", "1.0")
-from gi.repository import Graphene, Gsk, Gtk  # noqa: E402
+from gi.repository import Graphene, Gsk, Gtk
 
 
 class RotatedContainer(Gtk.Widget):

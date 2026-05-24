@@ -10,35 +10,36 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk
 
+from drivepulse_app.cars.page import CarsPage
 from drivepulse_app.common import (
     DB_FILE,
     _detect_language,
     _make_label_responsive,
     _translate,
 )
-from drivepulse_app.ui.gauge import Gauge, GAUGE_THEMES, all_theme_options, get_theme_css
-from drivepulse_app.dashboard.page import DashboardCanvas, DASHBOARD_THEMES
 from drivepulse_app.dashboard.layout import DashboardLayoutMixin
-from drivepulse_app.stopwatch.page import StopWatchPage
-from drivepulse_app.cars.page import CarsPage
-from drivepulse_app.map.page import MapPage
-from drivepulse_app.dashcam.page import DashcamPage
-from drivepulse_app.dashboard.telemetry import DashboardTelemetryMixin
-from drivepulse_app.db import DriveDB
+from drivepulse_app.dashboard.page import DASHBOARD_THEMES, DashboardCanvas
 from drivepulse_app.dashboard.piper_overlay import DashboardPiperOverlayMixin
 from drivepulse_app.dashboard.settings import DashboardSettingsMixin
+from drivepulse_app.dashboard.telemetry import DashboardTelemetryMixin
+from drivepulse_app.dashcam.page import DashcamPage
+from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger, set_log_enabled
+from drivepulse_app.map.page import MapPage
+from drivepulse_app.stopwatch.page import StopWatchPage
+from drivepulse_app.ui.gauge import Gauge, all_theme_options, get_theme_css
 
 log = get_logger(__name__)
-from drivepulse_app.sensors.gps import GpsReader
 from drivepulse_app.mock.tour import MockTourSimulator
-from drivepulse_app.sensors.orientation import OrientationReader
 from drivepulse_app.obd.reader import ObdReader
-from drivepulse_app.sensors.rotation import RotationProvider, Source as RotationSource
-from drivepulse_app.ui.rotated_container import RotatedContainer
+from drivepulse_app.sensors.gps import GpsReader
+from drivepulse_app.sensors.orientation import OrientationReader
+from drivepulse_app.sensors.rotation import RotationProvider
+from drivepulse_app.sensors.rotation import Source as RotationSource
 from drivepulse_app.trip_recorder import TripRecorder
+from drivepulse_app.ui.rotated_container import RotatedContainer
 
 
 class DashboardWindow(
@@ -625,9 +626,8 @@ class DashboardWindow(
 
     def _on_visible_page_changed(self, _stack: Adw.ViewStack, _pspec: Any) -> None:
         page = self.view_stack.get_visible_child_name()
-        if page == self.PAGE_CARS:
-            if not self._nav_visible:
-                self._set_nav_visible(True)
+        if page == self.PAGE_CARS and not self._nav_visible:
+            self._set_nav_visible(True)
         if page == self.PAGE_MAP:
             GLib.timeout_add(50, self.map_page.on_shown)
         if page in self._GPS_REQUIRED_PAGES:
@@ -724,14 +724,14 @@ class DashboardWindow(
         if not hasattr(self, "map_page") or not coords_lonlat:
             return
         self.view_stack.set_visible_child_name(self.PAGE_MAP)
-        GLib.idle_add(
-            lambda: (
-                self.map_page.load_trip_as_route(
-                    coords_lonlat, distance_km, duration_s, label
-                ),
-                False,
-            )[1]
-        )
+
+        def _load_and_remove() -> bool:
+            self.map_page.load_trip_as_route(
+                coords_lonlat, distance_km, duration_s, label
+            )
+            return False
+
+        GLib.idle_add(_load_and_remove)
 
     def _load_persisted_run_into_stopwatch(self, data: dict) -> None:
         """Hand off a saved stopwatch run, switch to the StopWatch tab, replay."""

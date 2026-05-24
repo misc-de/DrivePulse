@@ -1,6 +1,7 @@
 """Map page tour-management actions — topnav (Load/Plan/Save/History) and saved-tour list."""
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 
 from gi.repository import Adw, GLib, Gtk
@@ -292,7 +293,7 @@ class MapTourActionsMixin:
 
     def _on_tour_save_clicked(self, _btn: object) -> None:
         import json as _json
-        from datetime import datetime, timezone
+        from datetime import datetime
         db = getattr(self, "_map_db", None)
         if db is None:
             return
@@ -345,7 +346,7 @@ class MapTourActionsMixin:
             name = name_entry.get_text().strip() or default_name
             as_new = save_new_check is None or save_new_check.get_active()
             wp_json = _json.dumps(waypoints)
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             if not as_new and loaded_id is not None:
                 db.update_saved_tour(loaded_id, name, wp_json)
             else:
@@ -453,7 +454,7 @@ class MapTourActionsMixin:
         while len(self._entry_rows) > target:
             self._remove_entry(self._entry_rows[-1][0])
 
-        for (_, entry, __), text in zip(self._entry_rows, waypoints):
+        for (_, entry, __), text in zip(self._entry_rows, waypoints, strict=False):
             entry.set_text(text)
         self._update_placeholders()
 

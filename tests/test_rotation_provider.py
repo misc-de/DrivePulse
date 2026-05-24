@@ -7,9 +7,7 @@ source or follow the mode. A regression here either double-rotates the
 gauges or leaves them upside-down."""
 from __future__ import annotations
 
-import pytest
-
-from drivepulse_app.sensors.rotation import RotationProvider, VALID_MODES
+from drivepulse_app.sensors.rotation import VALID_MODES, RotationProvider
 
 
 def test_initial_effective_is_zero():

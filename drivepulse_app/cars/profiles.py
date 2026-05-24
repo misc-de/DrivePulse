@@ -5,10 +5,9 @@ import json
 from datetime import datetime
 from typing import Any
 
-from drivepulse_app.db import DriveDB
 from drivepulse_app.cars.metadata import _wmi_to_brand
+from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger
-
 
 log = get_logger(__name__)
 
@@ -72,7 +71,7 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
                 "live_data": {},
             }
 
-        vin_data_raw = row["vin_data_json"] if "vin_data_json" in row.keys() else None
+        vin_data_raw = row["vin_data_json"] if "vin_data_json" in row.keys() else None  # noqa: SIM118
         vin_data: dict[str, Any] = {}
         if vin_data_raw is not None:
             try:

@@ -8,7 +8,6 @@ from gi.repository import Adw, GLib, Gtk, Pango
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 
-
 log = get_logger(__name__)
 
 
@@ -204,7 +203,7 @@ class CarsStopWatchRunsMixin:
             row.add_suffix(sfx)
             group.add(row)
 
-        for target_str in sorted(targets.keys(), key=lambda s: float(s)):
+        for target_str in sorted(targets.keys(), key=float):
             v = targets[target_str]
             obd_t = v.get("obd")
             gps_t = v.get("gps")
@@ -289,7 +288,7 @@ class CarsStopWatchRunsMixin:
         self._run_select_mode = True
         self._run_selected_ids = {run_id}
         self._render_detail()
-        self._set_trash(lambda: self._confirm_delete_selected_runs())
+        self._set_trash(self._confirm_delete_selected_runs)
 
     def _exit_run_select_mode(self) -> None:
         self._run_select_mode = False

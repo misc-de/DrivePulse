@@ -5,18 +5,18 @@ import json
 import math
 import socket
 import threading
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 import gi
 
 gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
-from gi.repository import Gio, GLib  # noqa: E402
+from gi.repository import Gio, GLib
 
 from drivepulse_app.common import APP_ID
 from drivepulse_app.diagnostics import get_logger
-
 
 log = get_logger(__name__)
 
@@ -142,7 +142,7 @@ class GpsReader:
                 "source": "gps",
                 "gps_lat": {"value": lat, "unit": "degree"},
                 "gps_lon": {"value": lon, "unit": "degree"},
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
             # Speed: GeoClue reports -1 when unavailable; only include valid values.
             speed = self._geoclue_double(location, "Speed")
@@ -212,7 +212,7 @@ class GpsReader:
         gps_payload: dict[str, Any] = {
             "source": "gps",
             "gps_speed": {"value": speed_value * 3.6, "unit": "km/h"},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         track = data.get("track")
         track_value = self._finite_float(track)

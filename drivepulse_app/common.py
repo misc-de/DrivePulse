@@ -7,9 +7,10 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Pango  # noqa: E402
+from gi.repository import Gtk, Pango
 
-from drivepulse_app.translations import SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, TRANSLATIONS, language_name
+from drivepulse_app.translations import SOURCE_LANGUAGE, SUPPORTED_LANGUAGES, TRANSLATIONS
+from drivepulse_app.translations import language_name as language_name
 
 # ---------------------------------------------------------------------------
 # Paths and OBD configuration

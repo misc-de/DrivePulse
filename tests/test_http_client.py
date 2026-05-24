@@ -25,7 +25,7 @@ def test_http_get_returns_none_on_request_exception(monkeypatch):
         def get(self, *_args, **_kwargs):
             raise requests.exceptions.ConnectionError("simulated")
 
-    monkeypatch.setattr(http_client, "_session", lambda: _BrokenSession())
+    monkeypatch.setattr(http_client, "_session", _BrokenSession)
     assert http_client.http_get("https://api.example.com/anything") is None
 
 
@@ -41,7 +41,7 @@ def test_http_get_returns_none_on_http_error_status(monkeypatch):
         def get(self, *_args, **_kwargs):
             return _Resp()
 
-    monkeypatch.setattr(http_client, "_session", lambda: _Session())
+    monkeypatch.setattr(http_client, "_session", _Session)
     assert http_client.http_get("https://api.example.com/x") is None
 
 
@@ -56,7 +56,7 @@ def test_http_get_returns_parsed_json_on_success(monkeypatch):
         def get(self, *_args, **_kwargs):
             return _Resp()
 
-    monkeypatch.setattr(http_client, "_session", lambda: _Session())
+    monkeypatch.setattr(http_client, "_session", _Session)
     out = http_client.http_get("https://api.example.com/x")
     assert out == {"ok": True, "data": [1, 2, 3]}
 
@@ -74,7 +74,7 @@ def test_http_get_returns_none_when_json_parse_fails(monkeypatch):
         def get(self, *_args, **_kwargs):
             return _Resp()
 
-    monkeypatch.setattr(http_client, "_session", lambda: _Session())
+    monkeypatch.setattr(http_client, "_session", _Session)
     assert http_client.http_get("https://api.example.com/x") is None
 
 
@@ -93,6 +93,6 @@ def test_http_get_passes_timeout_through_to_session(monkeypatch):
             seen["timeout"] = kwargs.get("timeout")
             return _Resp()
 
-    monkeypatch.setattr(http_client, "_session", lambda: _Session())
+    monkeypatch.setattr(http_client, "_session", _Session)
     http_client.http_get("https://api.example.com/x", timeout=7)
     assert seen["timeout"] == 7

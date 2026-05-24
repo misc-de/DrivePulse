@@ -16,7 +16,6 @@ from drivepulse_app.app_settings import (
     save_settings,
 )
 
-
 # ─── _bounded_int ─────────────────────────────────────────────────────────────
 
 def test_bounded_int_passes_in_range():

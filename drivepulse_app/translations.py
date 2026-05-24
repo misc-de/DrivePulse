@@ -13,7 +13,6 @@ from pathlib import Path
 
 from drivepulse_app.diagnostics import get_logger
 
-
 log = get_logger(__name__)
 
 
@@ -50,7 +49,7 @@ def _make_supported(translations: dict[str, dict[str, str]]) -> tuple[str, ...]:
         return (SOURCE_LANGUAGE,)
     others = sorted(c for c in codes if c != SOURCE_LANGUAGE)
     if SOURCE_LANGUAGE in codes:
-        return tuple([SOURCE_LANGUAGE] + others)
+        return (SOURCE_LANGUAGE, *others)
     return tuple(sorted(codes))
 
 

@@ -26,7 +26,8 @@ def test_stopwatch_start_reset_and_target_capture(monkeypatch, drivepulse_module
     assert page.running is False
     assert page.status_label.get_text() == "Armed. Timing starts when acceleration is detected."
 
-    rn = lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key)
+    def rn(payload, key):
+        return drivepulse_module.DashboardWindow._plain_number(page, payload, key)
     page.update_payload(_payload(speed=0), rn)
     page.update_payload(_payload(speed=2, g=0.25), rn)
     assert page.running is False  # sustained only 0 s so far
@@ -60,7 +61,8 @@ def test_stopwatch_finishes_when_all_targets_have_a_source(monkeypatch, drivepul
     page = drivepulse_module.StopWatchPage()
     page.start_measurement()
 
-    rn = lambda payload, key: drivepulse_module.DashboardWindow._plain_number(page, payload, key)
+    def rn(payload, key):
+        return drivepulse_module.DashboardWindow._plain_number(page, payload, key)
     page.update_payload(_payload(speed=0), rn)
     page.update_payload(_payload(speed=5, g=0.25), rn)
     page.update_payload(_payload(speed=10, g=0.25), rn)

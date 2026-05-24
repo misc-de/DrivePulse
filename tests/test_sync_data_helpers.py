@@ -5,12 +5,10 @@ test_sync_robustness already covers malformed-payload + duplicate-timestamp
 edge cases; this file adds the happy-path roundtrip plus mode semantics."""
 from __future__ import annotations
 
-import json
-
 import pytest
 
-from drivepulse_app.sync import data as sync_data
 from drivepulse_app.db import DriveDB
+from drivepulse_app.sync import data as sync_data
 from drivepulse_app.sync.data import (
     export_all,
     import_data,
@@ -270,7 +268,6 @@ def test_save_then_load_paired_devices_roundtrip(paired_file):
 
 def test_save_paired_devices_writes_atomically_to_0600(paired_file):
     # Pairing fingerprints are security-sensitive — file mode must be 0600.
-    import os
     save_paired_devices([{"device_id": "x"}])
     assert paired_file.stat().st_mode & 0o777 == 0o600
 

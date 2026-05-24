@@ -3,12 +3,37 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from drivepulse_app.common import _translate
 
 
 class StopWatchProcessingMixin:
+    # Attribute declarations to match concrete StopWatchPage. mypy cannot see
+    # across the mixin/composition boundary, so any attribute the mixin reads
+    # or writes is declared here at the class level using the type the concrete
+    # page initializes it with.
+    start_monotonic: float | None
+    last_obd_speed: float | None
+    last_speed_time: float | None
+    computed_acceleration_g: float | None
+    max_obd_speed: float | None
+    max_gps_speed: float | None
+    max_g: float | None
+    _max_obd_speed_t: float | None
+    _max_gps_speed_t: float | None
+    _saved_vmax_obd: float | None
+    _saved_vmax_obd_t: float | None
+    _saved_vmax_gps: float | None
+    _saved_vmax_gps_t: float | None
+    _engage_since: float | None
+    _prestart_since: float | None
+    _last_heading_deg: float | None
+    _last_heading_time: float | None
+    _saved_results: dict[Any, Any] | None
+    _saved_range_results: dict[Any, Any] | None
+
     def _update_lateral_g(self, heading_deg: float | None, speed_kmh: float | None, now: float) -> None:
         """Estimate lateral G from GPS heading change × speed (centripetal acceleration).
 

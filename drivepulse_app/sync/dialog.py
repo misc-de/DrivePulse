@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import gi
 
@@ -13,18 +14,18 @@ from gi.repository import Adw, GLib, Gtk
 from drivepulse_app.common import _translate
 from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.sync.client import SyncClient
 from drivepulse_app.sync.crypto import (
     generate_tls_keypair,
     generate_token,
     get_local_ip,
     get_spki_fingerprint,
 )
-from drivepulse_app.sync.identity import CERT_PATH, KEY_PATH, SYNC_DIR, get_or_create_device_id
 from drivepulse_app.sync.data import export_all, import_data
+from drivepulse_app.sync.flow import parse_pairing_url, perform_sync
+from drivepulse_app.sync.identity import CERT_PATH, KEY_PATH, SYNC_DIR, get_or_create_device_id
 from drivepulse_app.sync.qr_scanner import WebcamQRScanner, scan_supported
 from drivepulse_app.sync.server import SyncServer
-from drivepulse_app.sync.client import SyncClient
-from drivepulse_app.sync.flow import parse_pairing_url, perform_sync
 
 # Sync mode constants
 MODE_MERGE = "merge"
@@ -316,7 +317,10 @@ class SyncDialog(Adw.NavigationPage):
                     GLib.idle_add(lambda: self._server_status_label.set_text(msg))
                     if self._on_sync_complete:
                         GLib.idle_add(self._on_sync_complete)
-                    GLib.idle_add(lambda: (self._stop_server(), False)[1])
+                    def _stop_and_remove() -> bool:
+                        self._stop_server()
+                        return False
+                    GLib.idle_add(_stop_and_remove)
                 except Exception as exc:
                     log.exception("Could not import sync data on server side")
                     _err = str(exc)
@@ -598,9 +602,8 @@ class SyncDialog(Adw.NavigationPage):
         """Pop all sync sub-pages, then pop the sync home page itself."""
         # Nur grau schalten wenn kein Pairing stattgefunden hat (abgebrochen).
         # Server-Disconnect wird über den Session-Timeout gemeldet.
-        if not self._server_survived_dialog and not self._client_paired:
-            if self._on_disconnected:
-                self._on_disconnected()
+        if not self._server_survived_dialog and not self._client_paired and self._on_disconnected:
+            self._on_disconnected()
         if self._outer_nav is None:
             return False
         if self._outer_nav.find_page("sync") is not None:
@@ -883,7 +886,7 @@ class ServerShareClient:
     client picks it up on its next keepalive ping via /share/pending.
     """
 
-    def __init__(self, server: "SyncServer") -> None:
+    def __init__(self, server: SyncServer) -> None:
         self._server = server
 
     def vehicle_check(self, vin_hash: str) -> bool | None:

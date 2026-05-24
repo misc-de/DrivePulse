@@ -7,8 +7,8 @@ import threading
 from gi.repository import GLib, Gtk
 
 from drivepulse_app.common import _translate
-from drivepulse_app.map.services import bab_fetch_sources
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map.services import bab_fetch_sources
 
 log = get_logger(__name__)
 

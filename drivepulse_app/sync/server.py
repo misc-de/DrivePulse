@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-import json
 import hmac
+import json
 import os
 import ssl
-import time
 import threading
+import time
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
-
 
 log = get_logger(__name__)
 
@@ -345,7 +345,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             if not self._check_bearer():
                 self._send_json(403, {"ok": False, "error": "unauthorized"})
                 return
-            from urllib.parse import urlparse, parse_qs
+            from urllib.parse import parse_qs, urlparse
             qs = parse_qs(urlparse(self.path).query)
             vin_hash = (qs.get("h") or [""])[0]
             if not vin_hash:

@@ -11,9 +11,8 @@ from drivepulse_app.dashboard.data import (
     scan_identity_from_payload,
     scan_profile_dashboard_data,
 )
-from drivepulse_app.ui.draw_helpers import _cardinal, _norm
 from drivepulse_app.telemetry_utils import display_speed, has_obd_data, plain_number
-
+from drivepulse_app.ui.draw_helpers import _cardinal, _norm
 
 # ─── telemetry_utils.plain_number ────────────────────────────────────────────
 
@@ -121,7 +120,7 @@ def test_scan_profile_extracts_pid_values():
             "Command(b'010D')": {"value": 87.5, "unit": "km/h"},
         }
     }
-    pids, info, dtcs, pending = scan_profile_dashboard_data(data)
+    pids, _info, dtcs, pending = scan_profile_dashboard_data(data)
     assert pids["010C"] == 1500.0
     assert pids["010D"] == 87.5
     assert dtcs == []

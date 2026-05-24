@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 OBD_COMMAND_ATTRS: tuple[tuple[str, str], ...] = (
     ("rpm", "RPM"),
     ("speed", "SPEED"),

@@ -9,7 +9,6 @@ from drivepulse_app.share.protocol import (
     make_vin_hash,
 )
 
-
 # ─── make_vin_hash ────────────────────────────────────────────────────────────
 
 def test_make_vin_hash_is_stable():

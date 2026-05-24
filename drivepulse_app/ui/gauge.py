@@ -4,14 +4,15 @@ from __future__ import annotations
 import importlib.util
 import math
 import sys
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gtk
 
 from drivepulse_app.diagnostics import get_logger
 
@@ -21,9 +22,10 @@ log = get_logger(__name__)
 
 def _install_theme_import_aliases() -> None:
     """Keep existing theme files compatible after moving app code into a package."""
+    import importlib as _il
+
     from drivepulse_app import common
     from drivepulse_app.ui import draw_helpers as draw_helpers
-    import importlib as _il
 
     sys.modules.setdefault("common", common)
     sys.modules.setdefault("draw_helpers", draw_helpers)

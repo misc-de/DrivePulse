@@ -5,9 +5,10 @@ import shutil
 import signal
 import subprocess
 import threading
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
 
@@ -20,8 +21,8 @@ _GST_OK = False
 try:
     import gi as _gi
     _gi.require_version("Gst", "1.0")
-    from gi.repository import Gst as _Gst
     from gi.repository import GLib as _GLib
+    from gi.repository import Gst as _Gst
     _Gst.init(None)
     _GST_OK = True
 except Exception:
@@ -43,7 +44,7 @@ def list_cameras() -> list[str]:
         try:
             out = subprocess.run(
                 ["v4l2-ctl", "--device", str(dev), "--info"],
-                capture_output=True, text=True, timeout=2,
+                capture_output=True, text=True, timeout=2, check=False,
             )
             if "Video Capture" in out.stdout:
                 cameras.append(str(dev))
@@ -64,7 +65,7 @@ def query_camera_modes(device: str) -> dict[str, list[int]]:
     try:
         result = subprocess.run(
             ["v4l2-ctl", "--device", device, "--list-formats-ext"],
-            capture_output=True, text=True, timeout=4,
+            capture_output=True, text=True, timeout=4, check=False,
         )
         current_res: str | None = None
         for line in result.stdout.splitlines():
@@ -179,7 +180,7 @@ class DashcamRecorder:
         if not candidates:
             return []
         self.protected_dir.mkdir(parents=True, exist_ok=True)
-        tag = datetime.now(timezone.utc).strftime("event_%Y%m%d_%H%M%S")
+        tag = datetime.now(UTC).strftime("event_%Y%m%d_%H%M%S")
         saved: list[Path] = []
         for i, src in enumerate(candidates):
             if src.exists():
@@ -219,7 +220,7 @@ class DashcamRecorder:
     def segment_elapsed_seconds(self) -> float:
         if self._seg_started is None:
             return 0.0
-        return (datetime.now(timezone.utc) - self._seg_started).total_seconds()
+        return (datetime.now(UTC) - self._seg_started).total_seconds()
 
     @property
     def rolling_size_mb(self) -> float:
@@ -247,7 +248,7 @@ class DashcamRecorder:
             seg = self._next_segment_path()
             with self._lock:
                 self._segments.append(seg)
-            self._seg_started = datetime.now(timezone.utc)
+            self._seg_started = datetime.now(UTC)
             if self.on_segment_start:
                 self.on_segment_start(seg)
             ok = self._run_segment(seg)
@@ -416,7 +417,7 @@ class DashcamRecorder:
         # Open next segment
         seg = self._next_segment_path()
         self._gst_last_seg = seg
-        self._seg_started = datetime.now(timezone.utc)
+        self._seg_started = datetime.now(UTC)
         with self._lock:
             self._segments.append(seg)
         if self.on_segment_start:
@@ -425,7 +426,7 @@ class DashcamRecorder:
         return str(seg)
 
     def _next_segment_path(self) -> Path:
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
         return self.rolling_dir / f"dc_{ts}.mp4"
 
     def _run_segment(self, out: Path) -> bool:
@@ -434,7 +435,7 @@ class DashcamRecorder:
 
         # ── GStreamer strategies (droidcamsrc for Halium/FuriPhone, then PipeWire,
         #    libcamera, V4L2).  gst-launch-1.0 -e finalises the MP4 on SIGINT.
-        w, h = self.resolution.split("x") if "x" in self.resolution else ("1280", "720")
+        _w, _h = self.resolution.split("x") if "x" in self.resolution else ("1280", "720")
         osd_elements = ""
         if self.gps_osd or self.speed_osd:
             osd_txt = _VIDEOS_DIR / "tmp" / "osd.txt"
@@ -464,7 +465,7 @@ class DashcamRecorder:
                 f" ! h264parse ! mp4mux fragment-duration=2000"
                 f" ! filesink location={out}"
             )
-            cmd = ["gst-launch-1.0", "-e"] + pipeline.split()
+            cmd = ["gst-launch-1.0", "-e", *pipeline.split()]
             log.debug("gst attempt src=%s", src)
             ok = self._run_proc(cmd, duration_s, use_sigint=True)
             if ok:
@@ -503,7 +504,7 @@ class DashcamRecorder:
         ]:
             if self._stop_event.is_set():
                 return False
-            cmd = ["ffmpeg", "-y"] + input_flags + ["-i", self.camera] + base_out + [str(out)]
+            cmd = ["ffmpeg", "-y", *input_flags, "-i", self.camera, *base_out, str(out)]
             log.debug("ffmpeg attempt: %s", input_flags)
             if self._run_proc(cmd, duration_s, use_sigint=False):
                 return True

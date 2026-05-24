@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC
+
 
 def test_db_returns_empty_scan_data_for_invalid_json(tmp_path):
     from drivepulse_app.db import DriveDB
@@ -85,21 +87,21 @@ def test_db_bulk_sample_insert_skips_malformed_rows_and_duplicates(tmp_path):
 
 
 def test_db_last_trip_stats_uses_latest_completed_trip(tmp_path):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from drivepulse_app.db import DriveDB
 
     db = DriveDB(tmp_path / "drivepulse.sqlite3")
     try:
         car_id = db.upsert_car(vin="STATSVIN")
-        old_trip = db.start_trip(car_id, datetime(2026, 1, 1, tzinfo=timezone.utc))
+        old_trip = db.start_trip(car_id, datetime(2026, 1, 1, tzinfo=UTC))
         db.add_samples(old_trip, [
             {"ts": 1.0, "speed_kmh": 10, "rpm": 1000, "coolant_c": 80},
             {"ts": 2.0, "speed_kmh": 20, "rpm": 2000, "coolant_c": 90},
         ])
         db.end_trip(old_trip)
 
-        latest_trip = db.start_trip(car_id, datetime(2026, 1, 2, tzinfo=timezone.utc))
+        latest_trip = db.start_trip(car_id, datetime(2026, 1, 2, tzinfo=UTC))
         db.add_samples(latest_trip, [
             {"ts": 3.0, "speed_kmh": 30, "rpm": 3000, "coolant_c": 70},
             {"ts": 4.0, "speed_kmh": 40, "rpm": 4000, "coolant_c": 75},
@@ -119,8 +121,8 @@ def test_db_last_trip_stats_uses_latest_completed_trip(tmp_path):
 
 
 def test_profiles_load_vehicle_scan_data_from_database(tmp_path):
-    from drivepulse_app.db import DriveDB
     from drivepulse_app.cars.profiles import _load_profiles
+    from drivepulse_app.db import DriveDB
 
     vin = "WVWZZZ1JZXW000001"
     db = DriveDB(tmp_path / "drivepulse.sqlite3")

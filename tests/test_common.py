@@ -15,7 +15,6 @@ from drivepulse_app.common import (
 )
 from drivepulse_app.translations import SOURCE_LANGUAGE, SUPPORTED_LANGUAGES
 
-
 # ─── _env_float / _env_int_or_none ────────────────────────────────────────────
 
 def test_env_float_parses_valid(monkeypatch):

@@ -60,6 +60,14 @@ ignore = [
     "PLR2004", # magic value comparisons — UI pixel constants
     "PLR0911", # too many return statements
     "SIM108",  # ternary preference — not always clearer
+    "PLC0415", # import-outside-top-level — deliberate lazy imports (Pillow, optional deps, circular avoidance)
+    "E402",    # module-import-not-at-top-of-file — gi.require_version("Gtk", "4.0") must precede gi.repository imports
+    "PLW0603", # global-statement — used intentionally for module-scoped singletons (logger, locks)
+    "SIM105",  # suppressible-exception — explicit try/except is often clearer than contextlib.suppress
+    "RUF001",  # ambiguous-unicode-character-string — German Umlaute and typographic chars in UI strings
+    "RUF002",  # ambiguous-unicode-character-docstring — German Umlaute in German docstrings
+    "RUF003",  # ambiguous-unicode-character-comment — German Umlaute in German comments
+    "PLC0414", # useless-import-alias — `import X as X` is PEP 484 explicit re-export for tests that monkeypatch through the app module
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -88,20 +96,29 @@ follow_imports = "skip"
 # so attr-defined errors on these modules are structural false positives.
 [[tool.mypy.overrides]]
 module = [
-    "drivepulse_app.cars_actions",
-    "drivepulse_app.cars_detail_render",
-    "drivepulse_app.cars_layout",
-    "drivepulse_app.cars_photos",
-    "drivepulse_app.cars_scans",
-    "drivepulse_app.cars_stopwatch_runs",
-    "drivepulse_app.cars_trips",
-    "drivepulse_app.dashboard_layout",
-    "drivepulse_app.dashboard_settings",
-    "drivepulse_app.dashboard_telemetry",
-    "drivepulse_app.map_layout",
-    "drivepulse_app.map_tour",
-    "drivepulse_app.map_traffic",
-    "drivepulse_app.stopwatch_processing",
-    "drivepulse_app.stopwatch_replay",
+    "drivepulse_app.cars.actions",
+    "drivepulse_app.cars.detail_render",
+    "drivepulse_app.cars.layout",
+    "drivepulse_app.cars.photos",
+    "drivepulse_app.cars.scans",
+    "drivepulse_app.cars.stopwatch_runs",
+    "drivepulse_app.cars.trips",
+    "drivepulse_app.dashboard.layout",
+    "drivepulse_app.dashboard.piper_overlay",
+    "drivepulse_app.dashboard.settings",
+    "drivepulse_app.dashboard.telemetry",
+    "drivepulse_app.map.layout",
+    "drivepulse_app.map.layout_search",
+    "drivepulse_app.map.layout_steps",
+    "drivepulse_app.map.layout_tour_actions",
+    "drivepulse_app.map.replay",
+    "drivepulse_app.map.shumate",
+    "drivepulse_app.map.tour",
+    "drivepulse_app.map.traffic",
+    "drivepulse_app.map.webkit",
+    "drivepulse_app.settings.bluetooth",
+    "drivepulse_app.settings.dashcam",
+    "drivepulse_app.stopwatch.processing",
+    "drivepulse_app.stopwatch.replay",
 ]
-disable_error_code = ["attr-defined"]
+disable_error_code = ["attr-defined", "has-type", "var-annotated"]

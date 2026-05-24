@@ -13,7 +13,6 @@ from drivepulse_app.obd.polling import (
     should_query_key,
 )
 
-
 # ─── should_query_key ─────────────────────────────────────────────────────────
 
 def test_should_query_key_fast_pids_always_true():

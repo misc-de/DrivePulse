@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import bisect
 import time
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 import gi
 
 gi.require_version("GLib", "2.0")
-from gi.repository import GLib  # noqa: E402
+from gi.repository import GLib
 
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map.services import bearing, haversine
-
 
 log = get_logger(__name__)
 
@@ -196,7 +196,7 @@ class MockTourSimulator:
             "gps_lon": {"value": lon, "unit": "degree"},
             "gps_speed": {"value": speed, "unit": "km/h"},
             "gps_heading": {"value": heading, "unit": "deg"},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         try:
             self._on_payload(payload)

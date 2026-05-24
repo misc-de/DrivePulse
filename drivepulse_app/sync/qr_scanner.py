@@ -1,7 +1,8 @@
 """GStreamer-based webcam QR scanner — based on HA-Matter/qr_tools.py."""
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger

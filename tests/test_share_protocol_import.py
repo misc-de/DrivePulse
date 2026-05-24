@@ -8,7 +8,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
@@ -135,7 +134,7 @@ def test_share_import_creates_car_on_first_share(db):
 
 
 def test_share_import_uses_existing_car_when_vin_hash_matches(db):
-    cid = db.upsert_car(vin="VIN-EXISTING")
+    db.upsert_car(vin="VIN-EXISTING")
     share_import(db, _share("VIN-EXISTING"))
     cars = db.list_cars()
     # Still one car total — the share landed on the existing row.

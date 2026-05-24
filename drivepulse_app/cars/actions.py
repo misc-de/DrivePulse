@@ -8,11 +8,15 @@ from gi.repository import Adw, GLib, Gtk
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 
-
 log = get_logger(__name__)
 
 
 class CarsActionsMixin:
+    # Concrete CarsPage initializes these as Optional[int]; mypy would otherwise
+    # infer their type from the first assignment inside this mixin's methods.
+    _selected_car_id: int | None
+    _scan_id_shown: int | None
+
     def _make_delete_dialog(self, heading_key: str, body_key: str) -> Adw.AlertDialog:
         """Create a destructive AlertDialog with a red heading."""
         try:

@@ -8,10 +8,9 @@ from typing import Any
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import GLib, Gtk
 
 from drivepulse_app.diagnostics import get_logger
-
 
 log = get_logger(__name__)
 
@@ -21,7 +20,7 @@ WEBKIT_OK = False
 WebKit: Any = None
 try:
     gi.require_version("WebKit", "6.0")
-    from gi.repository import WebKit as WebKit  # noqa: PLC0414
+    from gi.repository import WebKit as WebKit  # type: ignore[no-redef]
     WEBKIT_OK = True
 except (ValueError, ImportError):
     try:

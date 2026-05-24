@@ -10,9 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-gi.require_version("Gsk", "4.0")
-gi.require_version("Graphene", "1.0")
-from gi.repository import Adw, Gdk, GLib, Graphene, Gsk, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language, _translate
 from drivepulse_app.dashcam.recorder import DashcamRecorder
@@ -49,8 +47,8 @@ class _CameraPreview:
     def __init__(
         self,
         picture: Gtk.Picture,
-        on_first_frame: "Callable[[], None] | None" = None,
-        on_all_failed:  "Callable[[str], None] | None" = None,
+        on_first_frame: Callable[[], None] | None = None,
+        on_all_failed:  Callable[[str], None] | None = None,
     ) -> None:
         self._picture        = picture
         self._on_first_frame = on_first_frame
@@ -78,7 +76,7 @@ class _CameraPreview:
         log.debug("Camera preview: %d pipeline(s) to try", len(self._attempts))
         self._try_next()
 
-    def _build_attempts(self) -> "list[tuple[str, bool]]":
+    def _build_attempts(self) -> list[tuple[str, bool]]:
         cam = self._camera
         # Sources in priority order: PipeWire (Furios/Halium) → libcamera → V4L2 → auto
         sources = [
@@ -227,7 +225,7 @@ class DashcamPage(Gtk.Box):
         self._recorder.on_preview_ready = self._on_preview_ready
 
         # Called on the GTK main thread whenever recording starts or stops.
-        self.on_recording_changed: "Callable[[bool], None] | None" = None
+        self.on_recording_changed: Callable[[bool], None] | None = None
 
         self._tick_source:   int | None = None
         self._dim_source:    int | None = None
@@ -442,11 +440,10 @@ class DashcamPage(Gtk.Box):
     def _on_preview_failed(self, _msg: str) -> None:
         pass
 
-    def _on_preview_ready(self, paintable: Any) -> bool:
+    def _on_preview_ready(self, paintable: Any) -> None:
         """Called on the main thread when GStreamer in-process recording provides a preview."""
         self._preview_pic.set_paintable(paintable)
         self._no_cam_icon.set_visible(False)
-        return False
 
     # ── Public setters (called from dashboard_settings) ───────────────────────
 

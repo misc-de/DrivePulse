@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language, _translate
+from drivepulse_app.common import SOURCE_LANGUAGE, _translate
 
 _GRAD_STOPS = [
     (0.00, (0.10, 0.92, 0.50)),

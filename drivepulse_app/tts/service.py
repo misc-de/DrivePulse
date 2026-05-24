@@ -15,8 +15,9 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Any, Literal
 
 try:
     import requests as _requests
@@ -109,14 +110,14 @@ _download_cancel_events: dict[str, threading.Event] = {}
 
 # Optional UI callback: called with (model_name, fraction).
 # fraction: 0.0–1.0 = progress, -1.0 = cancelled/error, 2.0 = done
-_progress_cb: "Callable[[str, float], None] | None" = None
+_progress_cb: Callable[[str, float], Any] | None = None
 
 
 # ---------------------------------------------------------------------------
 # Download progress public API
 # ---------------------------------------------------------------------------
 
-def set_download_callback(cb: "Callable[[str, float], None] | None") -> None:
+def set_download_callback(cb: Callable[[str, float], Any] | None) -> None:
     """Register a callback that receives (model_name, fraction) progress updates.
 
     fraction meanings:
@@ -190,7 +191,7 @@ def _download_piper_model(model_name: str) -> None:
     _download_cancel_events[model_name] = cancel_event
 
     target_dir = _PIPER_DIRS[0]  # ~/.local/share/piper
-    tmp: "Path | None" = None
+    tmp: Path | None = None
     try:
         _emit_progress(model_name, 0.0)
 
@@ -376,7 +377,7 @@ def _prerender_sync(text: str, language: str, gender: VoiceGender, quality: str,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
-            assert echo.stdout is not None and piper_proc.stdout is not None  # noqa: S101 — stdout=PIPE guarantees non-None
+            assert echo.stdout is not None and piper_proc.stdout is not None
             echo.stdout.close()
             data = piper_proc.stdout.read()
             piper_proc.wait()
@@ -407,7 +408,7 @@ def _prerender_sync(text: str, language: str, gender: VoiceGender, quality: str,
             _prerender_active.discard(key)
 
 
-def _play_cached_file(path: Path, sample_rate: int = 22050) -> "subprocess.Popen | None":
+def _play_cached_file(path: Path, sample_rate: int = 22050) -> subprocess.Popen | None:
     """Play a pre-rendered raw PCM file via aplay (instant — no piper needed)."""
     try:
         return subprocess.Popen(
@@ -598,7 +599,7 @@ def _launch_piper(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-        assert echo.stdout is not None and piper_proc.stdout is not None  # noqa: S101 — stdout=PIPE guarantees non-None
+        assert echo.stdout is not None and piper_proc.stdout is not None
         echo.stdout.close()  # let echo exit when piper closes the pipe
         aplay = subprocess.Popen(
             ["aplay", "-r", str(_piper_sample_rate(model)), "-f", "S16_LE", "-c", "1", "-q"],

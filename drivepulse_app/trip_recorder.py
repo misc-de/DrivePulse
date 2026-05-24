@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from drivepulse_app.db import DriveDB
@@ -34,7 +34,7 @@ class TripRecorder:
 
     IDLE_TIMEOUT_S = 120.0
 
-    def __init__(self, db: "DriveDB") -> None:
+    def __init__(self, db: DriveDB) -> None:
         self.db = db
         self.car_id: int | None = None
         self.trip_id: int | None = None

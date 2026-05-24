@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from drivepulse_app.vin.api import _clean, merge_sources, strip_source_keys
 
-
 # ─── _clean: normalise empty-ish strings ─────────────────────────────────────
 
 def test_clean_strips_whitespace():

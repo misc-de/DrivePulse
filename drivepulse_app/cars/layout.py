@@ -7,10 +7,10 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, Gtk, Pango
 
-from drivepulse_app.common import _translate
 from drivepulse_app.cars.metadata import CATEGORIES
+from drivepulse_app.common import _translate
 
 
 class CarsLayoutMixin:
@@ -287,10 +287,10 @@ class CarsLayoutMixin:
         self,
         content: Gtk.Widget,
         title: str,
-        on_rename: "Callable[[Gtk.Label], None] | None" = None,
-        on_share: "Callable[[], None] | None" = None,
-        on_delete: "Callable[[], None] | None" = None,
-        on_back: "Callable[[], None] | None" = None,
+        on_rename: Callable[[Gtk.Label], None] | None = None,
+        on_share: Callable[[], None] | None = None,
+        on_delete: Callable[[], None] | None = None,
+        on_back: Callable[[], None] | None = None,
     ) -> Gtk.Widget:
         """Wrap content with a title + back-button header for sub-pages (trip, scan, accel run).
 

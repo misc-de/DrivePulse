@@ -8,7 +8,8 @@ mixin; relies on the ``_dc_*`` widget attributes that ``__init__`` wires up.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from gi.repository import Adw, GLib, Gtk
 

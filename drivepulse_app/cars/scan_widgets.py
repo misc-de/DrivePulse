@@ -8,7 +8,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.common import _translate
 
@@ -107,7 +107,6 @@ def _build_scan_detail_widget(
             lb.append(r)
         return lb
 
-    ts = _safe_scan_ts(scan_meta["scanned_at"])
     dtc = _safe_int(scan_meta["dtc_count"])
     pending = _safe_int(scan_meta["pending_dtc_count"])
     pids = _safe_int(scan_meta["pids_count"])

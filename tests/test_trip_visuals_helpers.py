@@ -9,7 +9,6 @@ import pytest
 
 from drivepulse_app.cars.trip_visuals import build_trip_metric_data, speed_to_rgb
 
-
 # ─── speed_to_rgb ────────────────────────────────────────────────────────────
 
 def test_speed_to_rgb_none_returns_neutral_fallback():
@@ -30,7 +29,7 @@ def test_speed_to_rgb_zero_speed_is_blue_end():
 
 
 def test_speed_to_rgb_max_speed_is_red_end():
-    r, g, b = speed_to_rgb(100.0, vmax=100.0)
+    r, _g, b = speed_to_rgb(100.0, vmax=100.0)
     # Hot end of the ramp: high red, low blue.
     assert r > b
     # Specifically: r = 0.2 + 0.7*1 = 0.9, b = 0.9 - 0.8*1 = 0.1.
@@ -47,7 +46,7 @@ def test_speed_to_rgb_clamps_above_vmax():
 
 def test_speed_to_rgb_mid_speed_has_green_peak():
     # Green channel peaks at t=0.5 → g = 0.5 + 0.4 = 0.9.
-    r, g, b = speed_to_rgb(50.0, vmax=100.0)
+    _r, g, _b = speed_to_rgb(50.0, vmax=100.0)
     assert g == pytest.approx(0.9, abs=0.01)
 
 
@@ -160,7 +159,7 @@ def test_build_trip_metric_data_avail_entries_have_translated_label():
     samples = [_sample(ts=i, speed_kmh=50) for i in range(10)]
     _metric_data, avail = build_trip_metric_data(samples, language="en")
     speed_entry = next(e for e in avail if e[0] == "speed_kmh")
-    key, label, unit, color, fmt = speed_entry
+    _key, label, unit, color, fmt = speed_entry
     # Label must come from the translation table (not the raw key).
     assert label != "cars.metric.speed_kmh"
     assert unit == "km/h"
