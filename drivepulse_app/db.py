@@ -12,6 +12,7 @@ Optimiert auf:
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -427,7 +428,7 @@ class DriveDB:
             return {}
         try:
             return _json.loads(row["data_json"])
-        except Exception:
+        except json.JSONDecodeError:
             log.exception("Could not decode scan JSON for scan_id=%s", scan_id)
             return {}
 
@@ -577,7 +578,7 @@ class DriveDB:
                 "results": _json.loads(row["results_json"]),
                 "samples": _json.loads(row["samples_json"]),
             }
-        except Exception:
+        except json.JSONDecodeError:
             log.exception("Could not decode stopwatch run JSON for run_id=%s", run_id)
             return {}
 

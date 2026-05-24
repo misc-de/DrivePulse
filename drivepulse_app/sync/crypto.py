@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import datetime
 import hashlib
 import os
 import socket
@@ -10,7 +11,6 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
-import datetime
 
 from drivepulse_app.diagnostics import get_logger
 
@@ -56,6 +56,21 @@ def generate_tls_keypair(cert_path: Path, key_path: Path) -> None:
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
         .not_valid_after(now + datetime.timedelta(hours=2))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=False,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
         .sign(key, hashes.SHA256())
     )
     cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
