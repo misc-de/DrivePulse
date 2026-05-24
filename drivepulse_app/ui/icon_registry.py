@@ -26,8 +26,9 @@ def build_icon_gresource(app_dir: Path | None = None) -> Path | None:
     pre-compiled .gresource shipped with the app is used as-is.
     """
     app_dir = app_dir or PROJECT_ROOT
-    src_xml = app_dir / "icons.gresource.xml"
-    out_bin = app_dir / "icons.gresource"
+    icons_dir = app_dir / "icons"
+    src_xml = icons_dir / "icons.gresource.xml"
+    out_bin = icons_dir / "icons.gresource"
     if not src_xml.exists():
         return out_bin if out_bin.exists() else None
     if out_bin.exists() and out_bin.stat().st_mtime >= src_xml.stat().st_mtime:
@@ -35,7 +36,7 @@ def build_icon_gresource(app_dir: Path | None = None) -> Path | None:
     try:
         subprocess.run(
             ["glib-compile-resources", "--target", str(out_bin), str(src_xml)],
-            cwd=str(app_dir),
+            cwd=str(icons_dir),
             check=True,
             capture_output=True,
         )
@@ -74,7 +75,7 @@ def register_local_icon(app_dir: Path | None = None) -> None:
         theme.add_search_path(str(icons_dir))
 
     # App icon (PNG, for window/taskbar).
-    local_icon = app_dir / "icon.png"
+    local_icon = app_dir / "icons" / "icon.png"
     if local_icon.exists():
         try:
             cache_dir = app_dir / ".icon-cache" / "hicolor" / "128x128" / "apps"

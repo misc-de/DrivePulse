@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_ID="de.cais.DrivePulse"
 ICON_DEST="$HOME/.local/share/icons/hicolor/128x128/apps/$APP_ID.png"
 DESKTOP_DEST="$HOME/.local/share/applications/$APP_ID.desktop"
@@ -9,10 +10,10 @@ DESKTOP_DEST="$HOME/.local/share/applications/$APP_ID.desktop"
 echo "Installing DrivePulse…"
 
 mkdir -p "$(dirname "$ICON_DEST")"
-cp "$SCRIPT_DIR/icon.png" "$ICON_DEST"
+cp "$PROJECT_ROOT/icons/icon.png" "$ICON_DEST"
 echo "  Icon         → $ICON_DEST"
 
-ICONS_SRC="$SCRIPT_DIR/icons/hicolor/symbolic/actions"
+ICONS_SRC="$PROJECT_ROOT/icons/hicolor/symbolic/actions"
 ICONS_DEST="$HOME/.local/share/icons/hicolor/symbolic/actions"
 if [ -d "$ICONS_SRC" ]; then
     mkdir -p "$ICONS_DEST"
@@ -29,7 +30,7 @@ Name=DrivePulse
 Comment=OBD-II Dashboard
 Comment[de]=OBD-II Armaturenbrett
 Icon=$APP_ID
-Exec=python3 $SCRIPT_DIR/drivepulse.py
+Exec=python3 $PROJECT_ROOT/drivepulse.py
 Terminal=false
 Categories=Utility;
 Keywords=OBD;Auto;Fahrzeug;Dashboard;GPS;

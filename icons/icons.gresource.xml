@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/de/cais/DrivePulse/icons/scalable/actions">
+    <file alias="speedometer4-symbolic.svg">hicolor/symbolic/actions/speedometer4-symbolic.svg</file>
+<file alias="driving-symbolic.svg">hicolor/symbolic/actions/driving-symbolic.svg</file>
+    <file alias="playback-speed-symbolic.svg">hicolor/symbolic/actions/playback-speed-symbolic.svg</file>
+    <file alias="thermometer-symbolic.svg">hicolor/symbolic/actions/thermometer-symbolic.svg</file>
+    <file alias="globe-symbolic.svg">hicolor/symbolic/actions/globe-symbolic.svg</file>
+    <file alias="dp-tour-plan-symbolic.svg">hicolor/symbolic/actions/dp-tour-plan-symbolic.svg</file>
+    <file alias="info-symbolic.svg">hicolor/symbolic/actions/info-symbolic.svg</file>
+    <file alias="step_object_LinearMotor-symbolic.svg">hicolor/symbolic/actions/step_object_LinearMotor-symbolic.svg</file>
+    <file alias="stopwatch-symbolic.svg">hicolor/symbolic/actions/stopwatch-symbolic.svg</file>
+    <file alias="share-alt-symbolic.svg">hicolor/symbolic/actions/share-alt-symbolic.svg</file>
+    <file alias="navigate-north-symbolic.svg">hicolor/symbolic/actions/navigate-north-symbolic.svg</file>
+    <file alias="xsi-search.svg">hicolor/symbolic/actions/xsi-search.svg</file>
+    <file alias="kstars_satellites-symbolic.svg">hicolor/symbolic/actions/kstars_satellites-symbolic.svg</file>
+    <file alias="dialog-layers-symbolic.svg">hicolor/symbolic/actions/dialog-layers-symbolic.svg</file>
+    <file alias="dp-nav-straight-symbolic.svg">hicolor/symbolic/actions/dp-nav-straight-symbolic.svg</file>
+    <file alias="dp-nav-left-symbolic.svg">hicolor/symbolic/actions/dp-nav-left-symbolic.svg</file>
+    <file alias="dp-nav-right-symbolic.svg">hicolor/symbolic/actions/dp-nav-right-symbolic.svg</file>
+    <file alias="dp-nav-slight-left-symbolic.svg">hicolor/symbolic/actions/dp-nav-slight-left-symbolic.svg</file>
+    <file alias="dp-nav-slight-right-symbolic.svg">hicolor/symbolic/actions/dp-nav-slight-right-symbolic.svg</file>
+    <file alias="dp-nav-sharp-left-symbolic.svg">hicolor/symbolic/actions/dp-nav-sharp-left-symbolic.svg</file>
+    <file alias="dp-nav-sharp-right-symbolic.svg">hicolor/symbolic/actions/dp-nav-sharp-right-symbolic.svg</file>
+    <file alias="dp-nav-uturn-symbolic.svg">hicolor/symbolic/actions/dp-nav-uturn-symbolic.svg</file>
+    <file alias="dp-nav-roundabout-symbolic.svg">hicolor/symbolic/actions/dp-nav-roundabout-symbolic.svg</file>
+    <file alias="dp-nav-merge-symbolic.svg">hicolor/symbolic/actions/dp-nav-merge-symbolic.svg</file>
+    <file alias="dp-nav-fork-left-symbolic.svg">hicolor/symbolic/actions/dp-nav-fork-left-symbolic.svg</file>
+    <file alias="dp-nav-fork-right-symbolic.svg">hicolor/symbolic/actions/dp-nav-fork-right-symbolic.svg</file>
+    <file alias="dp-nav-ramp-symbolic.svg">hicolor/symbolic/actions/dp-nav-ramp-symbolic.svg</file>
+    <file alias="dp-nav-depart-symbolic.svg">hicolor/symbolic/actions/dp-nav-depart-symbolic.svg</file>
+    <file alias="dp-nav-arrive-symbolic.svg">hicolor/symbolic/actions/dp-nav-arrive-symbolic.svg</file>
+    <file alias="dp-view-3d-symbolic.svg">hicolor/symbolic/actions/dp-view-3d-symbolic.svg</file>
+    <file alias="dp-bluetooth-symbolic.svg">hicolor/symbolic/actions/dp-bluetooth-symbolic.svg</file>
+    <file alias="dp-chevron-down-symbolic.svg">hicolor/symbolic/actions/dp-chevron-down-symbolic.svg</file>
+    <file alias="dp-chevron-up-symbolic.svg">hicolor/symbolic/actions/dp-chevron-up-symbolic.svg</file>
+    <file alias="library-symbolic.svg">hicolor/symbolic/actions/library-symbolic.svg</file>
+    <file alias="integral3-symbolic.svg">hicolor/symbolic/actions/integral3-symbolic.svg</file>
+    <file alias="distance-symbolic.svg">hicolor/symbolic/actions/distance-symbolic.svg</file>
+    <file alias="notepad-symbolic.svg">hicolor/symbolic/actions/notepad-symbolic.svg</file>
+  </gresource>
+</gresources>

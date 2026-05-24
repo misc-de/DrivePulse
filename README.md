@@ -1,6 +1,6 @@
 # DrivePulse
 
-<img src="icon.png" alt="DrivePulse" width="128"/>
+<img src="icons/icon.png" alt="DrivePulse" width="128"/>
 
 
 ⚠️ **AI-assisted project**
@@ -112,13 +112,13 @@ python3 drivepulse.py
 ## Installation (desktop integration)
 
 ```bash
-bash install.sh
+bash scripts/install.sh
 ```
 
 Installs the icon and `.desktop` file to `~/.local/share/` so DrivePulse appears in the application menu.
 
 ```bash
-bash uninstall.sh   # to remove
+bash scripts/uninstall.sh   # to remove
 ```
 
 ---
@@ -227,9 +227,12 @@ themes/
   _minimal.py              Minimal theme skeleton
   _vorlage.py              Theme template / boilerplate
 icons/
+  icon.png                 App icon (128×128 PNG)
+  icons.gresource.xml      GResource manifest
+  icons.gresource          Compiled icon bundle
   hicolor/symbolic/actions/  SVG icons (currentColor, 16×16)
-icons.gresource.xml        GResource manifest
-icons.gresource            Compiled icon bundle
+scripts/
+  install.sh, uninstall.sh  Desktop-Entry installer
 ```
 
 ### DashData variables (used by dashboard themes)
