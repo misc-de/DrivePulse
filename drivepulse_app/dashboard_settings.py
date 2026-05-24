@@ -66,6 +66,7 @@ class DashboardSettingsMixin:
                 "autodev_api_key": getattr(self, "autodev_api_key", ""),
                 "last_cars_source": getattr(self, "last_cars_source", None),
                 "last_cars_category": getattr(self, "last_cars_category", None),
+                "last_cars_scan_id": getattr(self, "last_cars_scan_id", None),
             })
         except Exception:
             log.exception("Could not save dashboard settings")

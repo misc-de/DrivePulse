@@ -79,7 +79,8 @@ class CarsPage(
         vindecoder_secret_key: str | None = None,
         initial_source: str | None = None,
         initial_category: str | None = None,
-        on_state_changed: Callable[[str | None, str | None], None] | None = None,
+        initial_scan_id: int | None = None,
+        on_state_changed: Callable[[str | None, str | None, int | None], None] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.language = _normalize_language(language)
@@ -89,7 +90,8 @@ class CarsPage(
         self._vindecoder_secret_key: str | None = vindecoder_secret_key
         self._initial_source: str | None = initial_source
         self._initial_category: str | None = initial_category
-        self.on_state_changed: Callable[[str | None, str | None], None] | None = on_state_changed
+        self._initial_scan_id: int | None = initial_scan_id
+        self.on_state_changed: Callable[[str | None, str | None, int | None], None] | None = on_state_changed
         # Suppress on_state_changed callbacks while restoring saved state or
         # during initial UI construction, so we don't write a "user opened
         # live/vehicle" entry just from default widget signals firing.
@@ -506,6 +508,7 @@ class CarsPage(
         # category visually — switching to vehicle/Stammdaten yanked the
         # user out of the list whenever they tapped an entry.
         self._selected_scan_id = scan_id
+        self._persist_state()
         if not self._detail_pushed:
             return
         # Re-render so the checkmark on the now-selected scan appears.
@@ -660,6 +663,9 @@ class CarsPage(
                     if getattr(row, "cat_key", "") == cat:
                         self.category_list.select_row(row)
                         break
+            # _open_detail resets _selected_scan_id; restore after it.
+            if self._initial_scan_id is not None:
+                self._selected_scan_id = self._initial_scan_id
         finally:
             self._restoring_state = False
         # Re-render once the widget hierarchy is realised. _render_detail at
@@ -682,7 +688,7 @@ class CarsPage(
         if cb is None:
             return
         try:
-            cb(self._selected_source, self._selected_category)
+            cb(self._selected_source, self._selected_category, self._selected_scan_id)
         except Exception:
             pass
 
