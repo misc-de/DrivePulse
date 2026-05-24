@@ -597,12 +597,12 @@ class CarsPage(
                     pid = str(row["pid"])
                     rel_s = float(row["ts"]) - (scan_start_ts or float(row["ts"]))
                     pid_pts.setdefault(pid, []).append((rel_s, float(row["value"])))
-                for pid, pts in pid_pts.items():
+                for pid, intra_pts in pid_pts.items():
                     if pid not in stats:
                         stats[pid] = {"min": 0.0, "max": 0.0, "sum": 0.0,
                                       "count": 0, "unit": "", "values": [],
                                       "intra_series": {}}
-                    stats[pid]["intra_series"][scan_id] = sorted(pts, key=lambda t: t[0])
+                    stats[pid]["intra_series"][scan_id] = sorted(intra_pts, key=lambda t: t[0])
             except Exception:
                 pass
 

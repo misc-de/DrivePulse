@@ -46,7 +46,7 @@ class ObdRecorder:
         recorder.stop()   # called on disconnect / app shutdown
     """
 
-    def __init__(self, scan_id: int, db: "DriveDB") -> None:
+    def __init__(self, scan_id: int, db: DriveDB) -> None:
         self._scan_id = scan_id
         self._db = db
         self._active = False
