@@ -262,6 +262,28 @@ class CarsDetailRenderMixin:
                             plabels: dict,
                             lang: str,
                         ) -> "callable":
+                            def _ordered_pids() -> list[str]:
+                                ordered: list[str] = []
+                                for _ck, _cnk, _ic, _itm in CATEGORIES:
+                                    for pid_key, _lk in _itm:
+                                        if pid_key.startswith("__"):
+                                            continue
+                                        s = all_s.get(pid_key)
+                                        if s and (s.get("values") or []):
+                                            ordered.append(pid_key)
+                                return ordered
+
+                            def _navigate(direction: int) -> None:
+                                ordered = _ordered_pids()
+                                if pk not in ordered or len(ordered) <= 1:
+                                    return
+                                idx = ordered.index(pk)
+                                new_pid = ordered[(idx + direction) % len(ordered)]
+                                new_lbl = plabels.get(new_pid, new_pid)
+                                # Aktuelle Chart-Page ersetzen
+                                self.nav_view.pop()
+                                _make_cb(new_lbl, new_pid, all_s, plabels, lang)()
+
                             def _open() -> None:
                                 content = ScanChartContent(
                                     pk, all_s,
@@ -269,6 +291,7 @@ class CarsDetailRenderMixin:
                                     getattr(self, "db", None),
                                     plabels, lang,
                                     main_car_id=getattr(self, "_selected_car_id", None),
+                                    on_navigate_pid=_navigate,
                                 )
                                 scroll = Gtk.ScrolledWindow()
                                 scroll.set_policy(
