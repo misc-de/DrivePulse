@@ -558,20 +558,18 @@ class MapLayoutMixin:
         self._refresh_fab_visibility()
 
     def _refresh_fab_visibility(self) -> None:
-        """Hide the bottom-right map options while the replay chart is open or
-        while the coord chip is expanded (label visible, shumate only)."""
+        """Hide the bottom-right map options only while the (now unused) coord
+        chip is expanded — the replay chart no longer hides the FAB column."""
         fab = getattr(self, "_fab", None)
         if fab is None:
             return
-        chart = getattr(self, "_replay_chart_overlay", None)
-        chart_open = chart is not None and chart.get_visible()
         coord_lbl = getattr(self, "_coord_lbl", None)
         coord_expanded = (
             self._backend == "shumate"
             and coord_lbl is not None
             and coord_lbl.get_visible()
         )
-        fab.set_visible(not chart_open and not coord_expanded)
+        fab.set_visible(not coord_expanded)
 
     def _populate_replay_info(self, meta: dict, ended_at: str | None) -> None:
         """Fill the top-left info card with car + trip metadata."""
@@ -850,11 +848,8 @@ class MapLayoutMixin:
         # Start minimized — only the notepad icon shows; user opens the card on demand.
         self._set_replay_info_minimized(True)
         if self._replay_chart_widget is not None:
-            self._replay_chart_overlay.set_visible(True)
-            # Replay chart covers the bottom-left corner; hide the scale ruler
-            # so the two don't compete for attention.
-            if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_visible"):
-                self._shumate_set_scale_visible(False)
+            # Start minimized — only the restore icon shows; user opens the chart on demand.
+            self._set_replay_chart_minimized(True)
         self._refresh_fab_visibility()
 
     def _map_show_track(self, latlon_speed: list[tuple[float, float, float | None]]) -> None:
