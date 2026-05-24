@@ -965,6 +965,20 @@ class CarsPage(
             else:
                 self._set_trash(None)
         self._selected_category = new_cat
+        # Entering the scans list with no scan picked yet → highlight the most
+        # recent one so the green marker reflects a concrete entry.
+        if (
+            new_cat == "scans"
+            and self._selected_scan_id is None
+            and self._selected_car_id is not None
+            and self.db is not None
+        ):
+            try:
+                scans = self.db.list_scans_for_car(self._selected_car_id)
+                if scans:
+                    self._selected_scan_id = int(scans[0]["id"])
+            except Exception:
+                pass
         self._update_photo_upload_btn_visibility()
         if self._detail_pushed:
             self._render_detail()
