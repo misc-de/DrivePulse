@@ -782,6 +782,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
 
         if self._tour_paused or self._tour_active:
             self._abort_tour()
+        self._clear_replay_overlays()
 
         coords = [[float(c[0]), float(c[1])] for c in coords_lonlat]
         start_lonlat = coords[0]
