@@ -460,6 +460,29 @@ class ScanChartContent(Gtk.Box):
         )
         main_dot.set_valign(Gtk.Align.CENTER)
         self._main_car_row.add_prefix(main_dot)
+
+        # Scan-Auswahl fürs Hauptauto: "Neuester"-Sentinel + alle Scans mit
+        # Sensordaten, neuester zuerst.
+        self._main_scans_meta: list = []
+        self._main_scan_ts: str | None = None  # None = "Neuester"
+        if self._db is not None and main_car_id is not None:
+            try:
+                _ms = list(self._db.list_scans_for_car(main_car_id))
+                self._main_scans_meta = [s for s in _ms if _safe_pids_count(s) > 0]
+            except Exception:
+                self._main_scans_meta = []
+        self._main_scan_dd: Gtk.DropDown | None = None
+        if self._main_scans_meta:
+            main_scan_sl = Gtk.StringList()
+            main_scan_sl.append("Neuester")
+            for s in self._main_scans_meta:
+                main_scan_sl.append(_fmt_scan_label(str(s["scanned_at"])))
+            self._main_scan_dd = Gtk.DropDown(model=main_scan_sl)
+            self._main_scan_dd.set_valign(Gtk.Align.CENTER)
+            self._main_scan_dd.set_selected(0)
+            self._main_scan_dd.connect("notify::selected", self._on_main_scan_changed)
+            self._main_car_row.add_suffix(self._main_scan_dd)
+
         self._cars_list.append(self._main_car_row)
 
         # "+ Fahrzeug"-Zeile mit Dropdown-Selektor
@@ -642,14 +665,13 @@ class ScanChartContent(Gtk.Box):
             scans_meta = []
         scans_meta = [s for s in scans_meta if _safe_pids_count(s) > 0]
         entry["scans_meta"] = scans_meta
-        # Default: neuester Scan — sofern Persistenz einen gültigen Scan
-        # liefert, wird dieser stattdessen ausgewählt.
+        # Default: "Neuester"-Sentinel (None). Wenn Persistenz einen konkreten
+        # Scan kennt und dieser noch existiert, wird er stattdessen gewählt.
         restored = entry.pop("_restored_scan_ts", None)
-        default_ts = str(scans_meta[0]["scanned_at"]) if scans_meta else None
         if restored and any(str(s["scanned_at"]) == restored for s in scans_meta):
             entry["scan_ts"] = restored
         else:
-            entry["scan_ts"] = default_ts
+            entry["scan_ts"] = None
 
         box = entry["suffix_box"]
         child = box.get_first_child()
@@ -657,18 +679,19 @@ class ScanChartContent(Gtk.Box):
             box.remove(child)
             child = box.get_first_child()
 
-        # Scan-Dropdown (neuester / wiederhergestellter Scan vorausgewählt)
+        # Scan-Dropdown: "Neuester" + alle Scans mit Sensordaten
         if scans_meta:
             scan_sl = Gtk.StringList()
+            scan_sl.append("Neuester")
             for s in scans_meta:
                 scan_sl.append(_fmt_scan_label(str(s["scanned_at"])))
             scan_dd = Gtk.DropDown(model=scan_sl)
             scan_dd.set_valign(Gtk.Align.CENTER)
-            target_idx = 0
+            target_idx = 0  # "Neuester" (Sentinel = None)
             if entry.get("scan_ts"):
                 for i, s in enumerate(scans_meta):
                     if str(s["scanned_at"]) == entry["scan_ts"]:
-                        target_idx = i
+                        target_idx = i + 1
                         break
             scan_dd.set_selected(target_idx)
             scan_dd.connect("notify::selected", self._on_compare_scan_changed, entry)
@@ -690,10 +713,24 @@ class ScanChartContent(Gtk.Box):
     def _on_compare_scan_changed(self, dd: Gtk.DropDown, _prop, entry: dict) -> None:
         sel = dd.get_selected()
         scans = entry.get("scans_meta") or []
-        if 0 <= sel < len(scans):
-            entry["scan_ts"] = str(scans[sel]["scanned_at"])
+        if sel == 0:
+            entry["scan_ts"] = None  # "Neuester"
         else:
-            entry["scan_ts"] = None
+            idx = sel - 1
+            entry["scan_ts"] = str(scans[idx]["scanned_at"]) if 0 <= idx < len(scans) else None
+        self._save_prefs()
+        self._da.queue_draw()
+
+    def _on_main_scan_changed(self, dd: Gtk.DropDown, _prop) -> None:
+        sel = dd.get_selected()
+        if sel == 0:
+            self._main_scan_ts = None  # "Neuester"
+        else:
+            idx = sel - 1
+            if 0 <= idx < len(self._main_scans_meta):
+                self._main_scan_ts = str(self._main_scans_meta[idx]["scanned_at"])
+            else:
+                self._main_scan_ts = None
         self._save_prefs()
         self._da.queue_draw()
 
@@ -791,6 +828,7 @@ class ScanChartContent(Gtk.Box):
         prefs = _prefs_load()
         prefs[key] = {
             "value2": val2,
+            "main_scan_ts": self._main_scan_ts,
             "cars": cars_data,
         }
         _prefs_save(prefs)
@@ -811,6 +849,14 @@ class ScanChartContent(Gtk.Box):
                 if pid == val2:
                     self._val2_dd.set_selected(i + 1)  # löst _on_val2_changed aus
                     self._on_add_val2(None)
+                    break
+
+        # Haupt-Scan-Auswahl wiederherstellen
+        saved_main_scan = saved.get("main_scan_ts")
+        if saved_main_scan and self._main_scan_dd is not None:
+            for i, s in enumerate(self._main_scans_meta):
+                if str(s["scanned_at"]) == saved_main_scan:
+                    self._main_scan_dd.set_selected(i + 1)
                     break
 
         # Vergleichs-Fahrzeuge wiederherstellen (nur die mit Sensordaten,
@@ -850,7 +896,11 @@ class ScanChartContent(Gtk.Box):
         if not stats or not pid or pid not in stats:
             return [], [], ""
         pairs = stats[pid].get("values") or []
-        if scan_ts is not None:
+        # scan_ts None → "Neuester": letzter Eintrag (Liste ist nach
+        # Timestamp aufsteigend sortiert). Konkreter Timestamp → exakter Filter.
+        if scan_ts is None:
+            pairs = pairs[-1:] if pairs else []
+        else:
             pairs = [(t, v) for t, v in pairs if t == scan_ts]
         vals = [v for _, v in pairs]
         ts = [t for t, _ in pairs]
@@ -863,8 +913,8 @@ class ScanChartContent(Gtk.Box):
 
         # Hauptauto + Vergleichsautos als Serien-Gruppen
         groups: list[dict] = []
-        main_v1, main_ts, val1_unit = self._series_for(self._main_stats, val1_pid)
-        main_v2, _main_ts2, val2_unit = self._series_for(self._main_stats, val2_pid)
+        main_v1, main_ts, val1_unit = self._series_for(self._main_stats, val1_pid, self._main_scan_ts)
+        main_v2, _main_ts2, val2_unit = self._series_for(self._main_stats, val2_pid, self._main_scan_ts)
         groups.append({"color": _COLOR_MAIN, "val1": main_v1, "val2": main_v2})
 
         for entry in self._compare_cars:
