@@ -408,7 +408,9 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             cap_lbl.add_css_class("dim-label")
             cap_lbl.set_xalign(1.0)
             if not show_captions:
-                cap_lbl.set_visible(False)
+                # Keep the caption slot in the layout so the value below stays
+                # bottom-aligned to row 1's value; just render the caption text invisible.
+                cap_lbl.set_opacity(0.0)
             val_lbl = Gtk.Label(label="--")
             val_lbl.add_css_class("monospace")
             val_lbl.set_xalign(1.0)
