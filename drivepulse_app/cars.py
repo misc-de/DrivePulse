@@ -659,10 +659,14 @@ class CarsPage(
         src = self._initial_source
         if not src:
             return
-        if src != self.LIVE_ID:
-            valid = any(str(e.get("path")) == src for e in self._profiles)
-            if not valid:
-                return
+        # LIVE is ephemeral (depends on what's currently connected) — never
+        # auto-restore it. Restarting should land on the Cars overview, not
+        # on a live-connection detail page.
+        if src == self.LIVE_ID:
+            return
+        valid = any(str(e.get("path")) == src for e in self._profiles)
+        if not valid:
+            return
         self._restoring_state = True
         try:
             self._open_detail(src)
@@ -777,18 +781,11 @@ class CarsPage(
         if hasattr(self, "_detail_back_btn"):
             self._detail_back_btn.set_visible(collapsed)
         if not collapsed:
-            # Desktop view always shows the detail pane alongside the sidebar.
-            # If no vehicle has been opened yet, pre-render the live view so
-            # the right pane shows the currently connected car right away
-            # instead of an empty placeholder. Mark this as restore so the
-            # fallback doesn't overwrite persisted "user is on the list" state.
-            if not self._detail_pushed:
-                self._restoring_state = True
-                try:
-                    self._open_detail(self.LIVE_ID)
-                finally:
-                    self._restoring_state = False
-            else:
+            # Desktop view shows sidebar + detail side-by-side. Don't auto-open
+            # the live view here — the user landing on "Cars" expects the
+            # overview, not a forced detail page that then sticks across
+            # restarts via the persisted last-source.
+            if self._detail_pushed:
                 self._split_view.set_show_content(True)
                 # Re-render so form-factor-aware widgets (scan-date stack,
                 # etc.) swap their layout to the desktop variant.

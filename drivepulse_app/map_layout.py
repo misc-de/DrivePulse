@@ -548,6 +548,8 @@ class MapLayoutMixin:
             self._replay_chart_overlay.set_visible(not minimized)
         if getattr(self, "_replay_chart_restore_btn", None) is not None:
             self._replay_chart_restore_btn.set_visible(minimized)
+        if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_visible"):
+            self._shumate_set_scale_visible(minimized)
         self._refresh_fab_visibility()
 
     def _refresh_fab_visibility(self) -> None:
@@ -844,11 +846,10 @@ class MapLayoutMixin:
         self._set_replay_info_minimized(True)
         if self._replay_chart_widget is not None:
             self._replay_chart_overlay.set_visible(True)
-            # On shumate, the scale ruler sits in the same bottom-left
-            # corner and gets hidden under the chart. Push it past the
-            # chart's right edge so it stays visible alongside.
-            if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_offset"):
-                self._shumate_set_scale_offset(360)
+            # Replay chart covers the bottom-left corner; hide the scale ruler
+            # so the two don't compete for attention.
+            if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_visible"):
+                self._shumate_set_scale_visible(False)
         self._refresh_fab_visibility()
 
     def _map_show_track(self, latlon_speed: list[tuple[float, float, float | None]]) -> None:
@@ -911,8 +912,8 @@ class MapLayoutMixin:
         elif getattr(self, "_shumate_map", None) is not None:
             self._shumate_clear_colored_track()
             self._shumate_clear_route_layers()
-            if hasattr(self, "_shumate_set_scale_offset"):
-                self._shumate_set_scale_offset(0)
+            if hasattr(self, "_shumate_set_scale_visible"):
+                self._shumate_set_scale_visible(True)
 
     def _on_tour_save_clicked(self, _btn: object) -> None:
         import json as _json
@@ -1333,7 +1334,6 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_map_state_overlay())
             overlay.add_overlay(self._build_replay_chart_overlay())
             overlay.add_overlay(self._build_replay_chart_restore_btn())
-            overlay.add_overlay(self._build_coord_overlay())
 
         self._map_content_box.append(overlay)
 
