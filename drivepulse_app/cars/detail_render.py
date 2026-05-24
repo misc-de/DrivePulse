@@ -288,12 +288,15 @@ class CarsDetailRenderMixin:
             if is_unknown and pid_key in _vin_data_keys:
                 continue
             # Im Scan-Modus nur PIDs anzeigen, für die tatsächlich Sensordaten
-            # vorliegen. Section-Header (__-Prefix) bleiben unberührt; im
-            # Live-Modus wird ebenfalls nicht gefiltert, da Werte dort
-            # in Echtzeit ankommen.
+            # vorliegen UND ein rohes Einzelmesswert vorhanden ist (sonst
+            # blieb nur ein "—"-Strich übrig, seit der ⌀-Override draußen ist).
+            # Section-Header (__-Prefix) bleiben unberührt; im Live-Modus wird
+            # nicht gefiltert, da Werte dort in Echtzeit ankommen.
             if not is_live and not pid_key.startswith("__"):
                 _scan_stats = self._scan_pid_stats.get(pid_key)
                 if not _scan_stats or not (_scan_stats.get("values") or []):
+                    continue
+                if is_unknown:
                     continue
             label = _translate(self.language, label_key)
             if not pid_key.startswith("__"):
