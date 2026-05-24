@@ -499,11 +499,7 @@ class CarsDetailRenderMixin:
             stats_lbl.set_hexpand(True)
             stats_lbl.add_css_class("caption")
             box.append(stats_lbl)
-
-            # Durchschnittswert (value_lbl) dezent darstellen
-            value_lbl.add_css_class("dim-label")
-            value_lbl.add_css_class("caption")
-
-        box.append(value_lbl)
+        else:
+            box.append(value_lbl)
 
         return row
