@@ -9,6 +9,7 @@ Mixins:
   MapWebKitMixin   (map_webkit.py)  — WebKit/MapLibre backend
   MapShumateMixin  (map_shumate.py) — Shumate raster backend
   MapLayoutMixin   (map_layout.py)  — UI construction (_build_* methods, CSS, step list)
+  MapReplayMixin   (map_replay.py)  — Trip-replay info card, chart, polyline + marker
   MapTourMixin     (map_tour.py)    — Tour state machine, TTS, step detection
   MapTrafficMixin  (map_traffic.py) — Autobahn traffic API, filtering, popover
 """
@@ -32,6 +33,7 @@ from . import tts_service
 from .map_shumate import MapShumateMixin
 from .map_webkit import MapWebKitMixin
 from .map_layout import MapLayoutMixin
+from .map_replay import MapReplayMixin
 from .map_tour import MapTourMixin
 from .map_traffic import MapTrafficMixin
 from .map_services import (
@@ -55,7 +57,15 @@ log = get_logger(__name__)
 
 # ── MapPage widget ────────────────────────────────────────────────────────────
 
-class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, MapTrafficMixin, Gtk.Box):
+class MapPage(
+    MapWebKitMixin,
+    MapShumateMixin,
+    MapLayoutMixin,
+    MapReplayMixin,
+    MapTourMixin,
+    MapTrafficMixin,
+    Gtk.Box,
+):
     """OpenStreetMap navigation page — WebKit/MapLibre (3D) or Shumate (2D)."""
     __gtype_name__ = "MapPage"
 
