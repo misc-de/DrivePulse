@@ -120,7 +120,7 @@ def test_db_last_trip_stats_uses_latest_completed_trip(tmp_path):
 
 def test_profiles_load_vehicle_scan_data_from_database(tmp_path):
     from drivepulse_app.db import DriveDB
-    from drivepulse_app.cars_profiles import _load_profiles
+    from drivepulse_app.cars.profiles import _load_profiles
 
     vin = "WVWZZZ1JZXW000001"
     db = DriveDB(tmp_path / "drivepulse.sqlite3")

@@ -4,7 +4,7 @@ regressions here surface as visible bugs across the cars detail view, the
 scan chart, and the per-PID stat lines."""
 from __future__ import annotations
 
-from drivepulse_app.cars_metadata import (
+from drivepulse_app.cars.metadata import (
     _extract_inner_string,
     _format_status_string,
     _format_value_unit,

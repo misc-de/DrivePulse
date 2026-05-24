@@ -50,7 +50,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: E402
 
-from .common import (
+from drivepulse_app.common import (
     APP_ID,
     SETTINGS_FILE,
     THEMES_DIR,
@@ -59,14 +59,14 @@ from .common import (
     _normalize_language,
     _translate,
 )
-from .gauge import Gauge, GAUGE_THEMES, load_user_themes
-from .dashboard import DashboardCanvas, DASHBOARD_THEMES
-from .stopwatch import StopWatchPage
-from .dashboard_window import DashboardWindow
-from .icon_registry import register_local_icon
-from .obd_reader import ObdReader
-from .startup_info import get_missing_required, print_required_python_packages
-from .diagnostics import get_logger
+from drivepulse_app.ui.gauge import Gauge, GAUGE_THEMES, load_user_themes
+from drivepulse_app.dashboard.page import DashboardCanvas, DASHBOARD_THEMES
+from drivepulse_app.stopwatch.page import StopWatchPage
+from drivepulse_app.dashboard.window import DashboardWindow
+from drivepulse_app.ui.icon_registry import register_local_icon
+from drivepulse_app.obd.reader import ObdReader
+from drivepulse_app.startup_info import get_missing_required, print_required_python_packages
+from drivepulse_app.diagnostics import get_logger
 
 
 log = get_logger(__name__)

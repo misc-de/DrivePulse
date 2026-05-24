@@ -81,7 +81,7 @@ def test_stopwatch_rotation_uses_dashboard_layout_decision(drivepulse_module):
 
 
 def test_settings_dialog_calls_callbacks(drivepulse_module):
-    from drivepulse_app.settings_dialog import SettingsDialog
+    from drivepulse_app.settings.dialog import SettingsDialog
 
     unit_calls = []
     language_calls = []
@@ -109,7 +109,7 @@ def test_settings_dialog_calls_callbacks(drivepulse_module):
 
 
 def test_settings_dialog_callbacks_fallback_for_out_of_range_indices(drivepulse_module):
-    from drivepulse_app.settings_dialog import SettingsDialog
+    from drivepulse_app.settings.dialog import SettingsDialog
 
     language_calls = []
     obd_calls = []

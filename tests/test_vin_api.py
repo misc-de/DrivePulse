@@ -7,7 +7,7 @@ def test_vin_is_url_encoded_in_nhtsa_request(monkeypatch):
     a second query parameter into the NHTSA URL."""
     import urllib.request
 
-    from drivepulse_app import vin_api
+    from drivepulse_app.vin import api as vin_api
 
     captured: list[str] = []
 
@@ -43,7 +43,7 @@ def test_vin_is_url_encoded_in_nhtsa_request(monkeypatch):
 def test_vin_is_url_encoded_in_autodev_request(monkeypatch):
     import urllib.request
 
-    from drivepulse_app import vin_api
+    from drivepulse_app.vin import api as vin_api
 
     captured: list[str] = []
 

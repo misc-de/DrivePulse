@@ -7,8 +7,9 @@ import subprocess
 
 import pytest
 
-from drivepulse_app import common, obd_devices
-from drivepulse_app.obd_devices import (
+from drivepulse_app.obd import devices as obd_devices
+from drivepulse_app import common
+from drivepulse_app.obd.devices import (
     candidate_bt_addresses,
     parse_bt_port,
     scan_bt_paired_devices,

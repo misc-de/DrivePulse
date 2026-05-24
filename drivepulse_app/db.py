@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from .diagnostics import get_logger
+from drivepulse_app.diagnostics import get_logger
 
 
 log = get_logger(__name__)
@@ -764,4 +764,4 @@ class DriveDB:
             self._conn.commit()
 
 
-from .trip_recorder import TripRecorder  # noqa: E402
+from drivepulse_app.trip_recorder import TripRecorder  # noqa: E402

@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from drivepulse_app.sync_crypto import (  # noqa: E402
+from drivepulse_app.sync.crypto import (  # noqa: E402
     generate_device_id,
     generate_token,
 )

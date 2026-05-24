@@ -6,9 +6,9 @@ import time
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .db import DriveDB
+    from drivepulse_app.db import DriveDB
 
-from .diagnostics import get_logger
+from drivepulse_app.diagnostics import get_logger
 
 log = get_logger(__name__)
 

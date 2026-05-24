@@ -5,7 +5,7 @@ import pytest
 
 def test_import_data_ignores_unsupported_payload(tmp_path):
     from drivepulse_app.db import DriveDB
-    from drivepulse_app.sync_data import import_data
+    from drivepulse_app.sync.data import import_data
 
     db = DriveDB(tmp_path / "drivepulse.sqlite3")
     try:
@@ -21,7 +21,7 @@ def test_import_data_ignores_unsupported_payload(tmp_path):
 
 def test_import_data_skips_malformed_entries(tmp_path):
     from drivepulse_app.db import DriveDB
-    from drivepulse_app.sync_data import import_data
+    from drivepulse_app.sync.data import import_data
 
     db = DriveDB(tmp_path / "drivepulse.sqlite3")
     try:
@@ -55,7 +55,7 @@ def test_import_data_skips_malformed_entries(tmp_path):
 
 def test_sync_preserves_profile_path_and_deduplicates_vinless_cars(tmp_path):
     from drivepulse_app.db import DriveDB
-    from drivepulse_app.sync_data import export_all, import_data
+    from drivepulse_app.sync.data import export_all, import_data
 
     source = DriveDB(tmp_path / "source.sqlite3")
     target = DriveDB(tmp_path / "target.sqlite3")
@@ -80,7 +80,7 @@ def test_sync_preserves_profile_path_and_deduplicates_vinless_cars(tmp_path):
 
 def test_import_data_reports_actual_inserted_samples_for_duplicate_timestamps(tmp_path):
     from drivepulse_app.db import DriveDB
-    from drivepulse_app.sync_data import import_data
+    from drivepulse_app.sync.data import import_data
 
     db = DriveDB(tmp_path / "drivepulse.sqlite3")
     try:
@@ -119,7 +119,7 @@ def test_import_data_reports_actual_inserted_samples_for_duplicate_timestamps(tm
 
 
 def test_parse_pairing_url_validates_expiry():
-    from drivepulse_app.sync_flow import parse_pairing_url
+    from drivepulse_app.sync.flow import parse_pairing_url
 
     info = parse_pairing_url(
         "drivepulse://pair?v=1&h=192.0.2.10&p=8765&fp=fingerprint&t=token&exp=999",
@@ -145,7 +145,7 @@ def test_parse_pairing_url_validates_expiry():
 
 
 def test_parse_pairing_url_rejects_out_of_range_port():
-    from drivepulse_app.sync_flow import parse_pairing_url
+    from drivepulse_app.sync.flow import parse_pairing_url
 
     for port in ("0", "65536", "-1"):
         try:
@@ -162,7 +162,7 @@ def test_parse_pairing_url_rejects_out_of_range_port():
 
 def test_sync_client_refuses_pairing_before_fingerprint_verification():
     pytest.importorskip("cryptography")
-    from drivepulse_app.sync_client import SyncClient
+    from drivepulse_app.sync.client import SyncClient
 
     client = SyncClient("127.0.0.1", 8765, "fingerprint", "device")
 
@@ -175,7 +175,7 @@ def test_get_local_ip_uses_timeout_and_fallback(monkeypatch):
     import socket
 
     pytest.importorskip("cryptography")
-    from drivepulse_app import sync_crypto
+    from drivepulse_app.sync import crypto as sync_crypto
 
     calls = []
 
@@ -202,7 +202,7 @@ def test_get_local_ip_uses_timeout_and_fallback(monkeypatch):
 
 def test_sync_identity_replaces_empty_persisted_device_id(monkeypatch, tmp_path):
     pytest.importorskip("cryptography")
-    from drivepulse_app import sync_identity
+    from drivepulse_app.sync import identity as sync_identity
 
     sync_dir = tmp_path / "sync"
     device_file = sync_dir / "device_id.txt"
@@ -219,7 +219,7 @@ def test_sync_identity_replaces_empty_persisted_device_id(monkeypatch, tmp_path)
 
 def test_perform_sync_reports_server_import_failure(tmp_path):
     from drivepulse_app.db import DriveDB
-    from drivepulse_app.sync_flow import perform_sync
+    from drivepulse_app.sync.flow import perform_sync
 
     class Client:
         def export_from_server(self):
@@ -243,8 +243,8 @@ def test_perform_sync_reports_server_import_failure(tmp_path):
 def test_sync_server_stops_after_pairing_timeout(monkeypatch, tmp_path):
     import threading
 
-    from drivepulse_app.sync_server import SyncServer
-    import drivepulse_app.sync_server as sync_server
+    from drivepulse_app.sync.server import SyncServer
+    import drivepulse_app.sync.server as sync_server
 
     monkeypatch.setattr(sync_server, "PAIRING_TIMEOUT_S", 0.05)
     timed_out = threading.Event()
@@ -284,8 +284,8 @@ def test_sync_server_stops_after_pairing_timeout(monkeypatch, tmp_path):
 def test_sync_server_pairing_cancels_timeout(monkeypatch, tmp_path):
     import threading
 
-    from drivepulse_app.sync_server import SyncServer
-    import drivepulse_app.sync_server as sync_server
+    from drivepulse_app.sync.server import SyncServer
+    import drivepulse_app.sync.server as sync_server
 
     monkeypatch.setattr(sync_server, "PAIRING_TIMEOUT_S", 0.05)
     timed_out = threading.Event()
@@ -312,8 +312,8 @@ def test_sync_handler_rejects_oversized_body(monkeypatch):
     from io import BytesIO
     from types import SimpleNamespace
 
-    from drivepulse_app import sync_server
-    from drivepulse_app.sync_server import _SyncHandler
+    from drivepulse_app.sync import server as sync_server
+    from drivepulse_app.sync.server import _SyncHandler
 
     monkeypatch.setattr(sync_server, "MAX_SYNC_BODY_BYTES", 4)
     handler = _SyncHandler.__new__(_SyncHandler)
@@ -337,7 +337,7 @@ def test_sync_poller_treats_403_as_reachable(monkeypatch):
     import urllib.error
     import urllib.request
 
-    from drivepulse_app.sync_poller import SyncPoller
+    from drivepulse_app.sync.poller import SyncPoller
 
     def fake_urlopen(*_args, **_kwargs):
         raise urllib.error.HTTPError(
@@ -353,7 +353,7 @@ def test_sync_poller_treats_other_http_errors_as_offline(monkeypatch):
     import urllib.error
     import urllib.request
 
-    from drivepulse_app.sync_poller import SyncPoller
+    from drivepulse_app.sync.poller import SyncPoller
 
     def fake_urlopen(*_args, **_kwargs):
         raise urllib.error.HTTPError(
@@ -375,8 +375,8 @@ def test_sync_client_pins_cert_for_subsequent_requests(monkeypatch, tmp_path):
     import ssl
 
     pytest.importorskip("cryptography")
-    from drivepulse_app.sync_client import SyncClient
-    from drivepulse_app.sync_crypto import generate_tls_keypair, get_spki_fingerprint
+    from drivepulse_app.sync.client import SyncClient
+    from drivepulse_app.sync.crypto import generate_tls_keypair, get_spki_fingerprint
 
     # Build a real self-signed cert/key pair so the SSL plumbing has
     # something legitimate to chew on.
@@ -422,8 +422,8 @@ def test_sync_client_make_context_requires_cert_after_pinning(tmp_path):
     import ssl
 
     pytest.importorskip("cryptography")
-    from drivepulse_app.sync_client import SyncClient
-    from drivepulse_app.sync_crypto import generate_tls_keypair
+    from drivepulse_app.sync.client import SyncClient
+    from drivepulse_app.sync.crypto import generate_tls_keypair
 
     cert_path = tmp_path / "cert.pem"
     key_path = tmp_path / "key.pem"
@@ -449,8 +449,8 @@ def test_sync_client_failed_verify_clears_pinned_cert(monkeypatch, tmp_path):
     import ssl
 
     pytest.importorskip("cryptography")
-    from drivepulse_app.sync_client import SyncClient
-    from drivepulse_app.sync_crypto import generate_tls_keypair
+    from drivepulse_app.sync.client import SyncClient
+    from drivepulse_app.sync.crypto import generate_tls_keypair
 
     cert_path = tmp_path / "cert.pem"
     key_path = tmp_path / "key.pem"
@@ -488,7 +488,7 @@ def test_generate_tls_keypair_writes_key_with_0600_mode(tmp_path):
     import stat
 
     pytest.importorskip("cryptography")
-    from drivepulse_app.sync_crypto import generate_tls_keypair
+    from drivepulse_app.sync.crypto import generate_tls_keypair
 
     cert_path = tmp_path / "sync" / "cert.pem"
     key_path = tmp_path / "sync" / "key.pem"
@@ -510,7 +510,7 @@ def test_generate_tls_keypair_overwrites_loose_permissions(tmp_path):
     import stat
 
     pytest.importorskip("cryptography")
-    from drivepulse_app.sync_crypto import generate_tls_keypair
+    from drivepulse_app.sync.crypto import generate_tls_keypair
 
     sync_dir = tmp_path / "sync"
     sync_dir.mkdir()
@@ -535,7 +535,7 @@ def test_sync_handler_ping_rejects_unauthenticated_caller():
     """
     from types import SimpleNamespace
 
-    from drivepulse_app.sync_server import _SyncHandler
+    from drivepulse_app.sync.server import _SyncHandler
 
     reset_calls = []
     srv = SimpleNamespace(
@@ -571,7 +571,7 @@ def test_sync_dialog_blocks_server_start_without_user_action(drivepulse_module):
     import threading
 
     pytest.importorskip("cryptography")
-    from drivepulse_app.sync_dialog import SyncDialog
+    from drivepulse_app.sync.dialog import SyncDialog
 
     dialog = SyncDialog.__new__(SyncDialog)
     dialog._server_lock = threading.RLock()
@@ -590,7 +590,7 @@ def test_sync_dialog_stop_invalidates_pending_server_start(drivepulse_module):
     import threading
 
     pytest.importorskip("cryptography")
-    from drivepulse_app.sync_dialog import SyncDialog
+    from drivepulse_app.sync.dialog import SyncDialog
 
     dialog = SyncDialog.__new__(SyncDialog)
     dialog._server_lock = threading.RLock()
@@ -610,7 +610,7 @@ def test_sync_dialog_close_stops_server_and_invalidates_starts(drivepulse_module
     import threading
 
     pytest.importorskip("cryptography")
-    from drivepulse_app.sync_dialog import SyncDialog
+    from drivepulse_app.sync.dialog import SyncDialog
 
     class FakeServer:
         def __init__(self):

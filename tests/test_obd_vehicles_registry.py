@@ -1,5 +1,5 @@
 """Smoke tests for the generic OBD-II PID registry."""
-from drivepulse_app.obd_vehicles import load_standard_pids, pids_by_category
+from drivepulse_app.obd.vehicles import load_standard_pids, pids_by_category
 
 
 def test_standard_pids_load() -> None:

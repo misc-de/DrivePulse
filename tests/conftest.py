@@ -623,7 +623,7 @@ def drivepulse_module(monkeypatch):
 @pytest.fixture
 def tmp_log_paths(monkeypatch, drivepulse_module, tmp_path: Path):
     from drivepulse_app import app_settings
-    from drivepulse_app import obd_reader
+    from drivepulse_app.obd import reader as obd_reader
 
     log_dir = tmp_path / "state"
     monkeypatch.setattr(drivepulse_module, "SETTINGS_FILE", log_dir / "settings.json")

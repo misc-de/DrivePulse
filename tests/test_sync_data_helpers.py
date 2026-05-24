@@ -9,9 +9,9 @@ import json
 
 import pytest
 
-from drivepulse_app import sync_data
+from drivepulse_app.sync import data as sync_data
 from drivepulse_app.db import DriveDB
-from drivepulse_app.sync_data import (
+from drivepulse_app.sync.data import (
     export_all,
     import_data,
     load_paired_devices,

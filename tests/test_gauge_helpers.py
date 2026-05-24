@@ -7,7 +7,7 @@ import types
 
 import pytest
 
-from drivepulse_app.gauge import GaugeState, _resolve_label
+from drivepulse_app.ui.gauge import GaugeState, _resolve_label
 
 
 # ─── _resolve_label ──────────────────────────────────────────────────────────

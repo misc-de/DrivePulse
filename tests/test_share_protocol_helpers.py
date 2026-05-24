@@ -2,7 +2,7 @@
 trip-comparison logic that prevents redundant DB writes during sync."""
 from __future__ import annotations
 
-from drivepulse_app.share_protocol import (
+from drivepulse_app.share.protocol import (
     _round2,
     _trips_identical,
     make_anon_vin,

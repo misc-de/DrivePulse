@@ -4,8 +4,8 @@ from __future__ import annotations
 import shutil
 from importlib import metadata, util
 
-from .common import OBD_BAUDRATE, OBD_FAST, OBD_PORT, OBD_TIMEOUT_SECONDS
-from .diagnostics import get_logger
+from drivepulse_app.common import OBD_BAUDRATE, OBD_FAST, OBD_PORT, OBD_TIMEOUT_SECONDS
+from drivepulse_app.diagnostics import get_logger
 
 
 log = get_logger(__name__)
