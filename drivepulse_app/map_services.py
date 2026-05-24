@@ -602,6 +602,9 @@ def zoom_for_bbox(
 
     dlat = max(abs(lat_rad(lat2) - lat_rad(lat1)) / math.pi, 1e-9)
     dlon = max(abs(lon2 - lon1) / 360.0, 1e-9)
-    z_lat = math.floor(math.log2(px_h * 0.88 / tile / dlat))
-    z_lon = math.floor(math.log2(px_w * 0.88 / tile / dlon))
-    return float(max(1, min(zoom_max, z_lat, z_lon)))
+    # 0.95 leaves a slim padding around the route; previous 0.88 + math.floor
+    # was overly conservative and produced visibly empty borders. Shumate
+    # accepts fractional zoom, so use the raw log2 result for a tighter fit.
+    z_lat = math.log2(px_h * 0.95 / tile / dlat)
+    z_lon = math.log2(px_w * 0.95 / tile / dlon)
+    return float(max(1.0, min(float(zoom_max), z_lat, z_lon)))

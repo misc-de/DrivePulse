@@ -474,11 +474,22 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         end_text = texts[-1]
         self._status_lbl.set_text(_translate(self.language, "map.routing.searching"))
         self._route_btn.set_sensitive(False)
+        # Swap label → spinner so the user sees something happening during the
+        # geocode + OSRM round-trip (can take a couple of seconds).
+        if getattr(self, "_route_btn_spinner", None) is not None:
+            self._route_btn.set_child(self._route_btn_spinner)
+            self._route_btn_spinner.start()
         threading.Thread(
             target=self._compute_route,
             args=(start_text, wp_texts, end_text),
             daemon=True,
         ).start()
+
+    def _restore_route_btn(self) -> None:
+        if getattr(self, "_route_btn_spinner", None) is not None:
+            self._route_btn_spinner.stop()
+        self._route_btn.set_label(_translate(self.language, "map.route"))
+        self._route_btn.set_sensitive(True)
 
     def _on_clear_clicked(self, _btn: Gtk.Button) -> None:
         # Remove all rows except first two (start + end)
@@ -693,7 +704,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
 
     def _route_error(self) -> bool:
         self._status_lbl.set_text(_translate(self.language, "map.routing.error"))
-        self._route_btn.set_sensitive(True)
+        self._restore_route_btn()
         return False
 
     def _route_result(
@@ -701,7 +712,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         all_points: list[tuple[float, float]],
         result: tuple[list[list[float]], float, float, list[dict]] | None,
     ) -> bool:
-        self._route_btn.set_sensitive(True)
+        self._restore_route_btn()
         if result is None:
             self._status_lbl.set_text(_translate(self.language, "map.routing.error"))
             return False

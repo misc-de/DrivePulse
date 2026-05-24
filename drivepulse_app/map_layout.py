@@ -1157,6 +1157,9 @@ class MapLayoutMixin:
         self._route_btn.set_label(_translate(self.language, "map.route"))
         self._route_btn.add_css_class("suggested-action")
         self._route_btn.connect("clicked", self._on_route_clicked)
+        # Spinner that takes the button's place while the route is computing.
+        self._route_btn_spinner = Gtk.Spinner()
+        self._route_btn_spinner.set_size_request(20, 20)
 
         self._status_lbl = Gtk.Label(label="")
         self._status_lbl.add_css_class("dim-label")
