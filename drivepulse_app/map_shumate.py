@@ -60,14 +60,16 @@ class MapShumateMixin:
                 self._shumate_map.set_property("show-zoom-buttons", False)
             except Exception:
                 pass
-        # Scale ruler sits in the bottom-left corner. Hidden while the replay
-        # chart is open (the chart covers the same area).
+        # Scale ruler sits on the left at the same vertical level as the TTS
+        # (speaker) button on the right FAB column. FAB margin_bottom=36 +
+        # button height 40 = midline at 56; scale (~14 px) gets margin_bottom=49
+        # to share that midline. Hidden while the replay chart is open.
         scale = self._shumate_map.get_scale()
         if scale is not None:
             scale.set_halign(Gtk.Align.START)
             scale.set_valign(Gtk.Align.END)
             scale.set_margin_start(12)
-            scale.set_margin_bottom(8)
+            scale.set_margin_bottom(49)
         # Initial scale unit follows the user's settings choice.
         self._shumate_apply_scale_unit(getattr(self, "units", "metric"))
 
