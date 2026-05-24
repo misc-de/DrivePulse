@@ -360,22 +360,29 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._col_obd_sg = self._make_size_group()
         self._col_gps_sg = self._make_size_group()
         self._col_best_sg = self._make_size_group()
+        # Vertical size group ties every row to the same height as row 1 (which
+        # has captions). Rows without captions therefore keep the gap above the
+        # value, and col.valign=END pushes the value to the bottom of that gap.
+        self._row_height_sg = self._make_size_group(vertical=True)
 
         first = True
         for target in self.SPEED_TARGETS_KMH:
-            self.results_box.append(
-                self._make_result_row(f"0–{target} km/h", target, show_captions=first)
-            )
+            row = self._make_result_row(f"0–{target} km/h", target, show_captions=first)
+            self._row_height_sg.add_widget(row)
+            self.results_box.append(row)
             first = False
         for lo, hi in self.RANGE_TARGETS_KMH:
-            self.results_box.append(
-                self._make_result_row(f"{lo}–{hi} km/h", (lo, hi), show_captions=False)
-            )
-        self.results_box.append(self._make_result_row("Vmax", "vmax", show_captions=False))
+            row = self._make_result_row(f"{lo}–{hi} km/h", (lo, hi), show_captions=False)
+            self._row_height_sg.add_widget(row)
+            self.results_box.append(row)
+        vmax_row = self._make_result_row("Vmax", "vmax", show_captions=False)
+        self._row_height_sg.add_widget(vmax_row)
+        self.results_box.append(vmax_row)
 
-    def _make_size_group(self) -> Any:
+    def _make_size_group(self, *, vertical: bool = False) -> Any:
         size_group = getattr(Gtk, "SizeGroup", None)
-        size_group_mode = getattr(getattr(Gtk, "SizeGroupMode", None), "HORIZONTAL", None)
+        mode_name = "VERTICAL" if vertical else "HORIZONTAL"
+        size_group_mode = getattr(getattr(Gtk, "SizeGroupMode", None), mode_name, None)
         if size_group is None or size_group_mode is None:
             return _NoopSizeGroup()
         return size_group(mode=size_group_mode)
@@ -401,16 +408,16 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         def _make_col(caption: str, sg: Any, initially_hidden: bool) -> tuple[Gtk.Box, Gtk.Label, Gtk.Label]:
             col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
             col.set_halign(Gtk.Align.END)
-            col.set_valign(Gtk.Align.CENTER)
+            # Bottom-align inside the (size-grouped) row so values from rows
+            # without captions stay flush with row 1's value baseline.
+            col.set_valign(Gtk.Align.END)
             col.set_margin_end(6)
             cap_lbl = Gtk.Label(label=caption)
             cap_lbl.add_css_class("caption")
             cap_lbl.add_css_class("dim-label")
             cap_lbl.set_xalign(1.0)
             if not show_captions:
-                # Keep the caption slot in the layout so the value below stays
-                # bottom-aligned to row 1's value; just render the caption text invisible.
-                cap_lbl.set_opacity(0.0)
+                cap_lbl.set_visible(False)
             val_lbl = Gtk.Label(label="--")
             val_lbl.add_css_class("monospace")
             val_lbl.set_xalign(1.0)
