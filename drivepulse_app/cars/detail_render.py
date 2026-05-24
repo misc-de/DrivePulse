@@ -30,6 +30,13 @@ from drivepulse_app.cars.metadata import (
 )
 
 _PID_TO_LIVE_KEY: dict[str, str] = {pid: key for key, pid in LIVE_KEY_TO_PID.items()}
+
+# OBD-Sensor-Gruppen unter „OBD Daten" — alle Kategorien ab `engine` in
+# CATEGORIES.  Diese werden ausgegraut, wenn das geladene Auto keinen
+# echten (≠ None, ≠ 0) Wert für irgendeine PID der Gruppe hat.
+_OBD_SENSOR_CATEGORIES: frozenset[str] = frozenset({
+    "engine", "temperatures", "throttle", "mixture", "fuel", "drive",
+})
 from drivepulse_app.cars.scan_widgets import _format_scan_date, _format_scan_date_stack, _dtc_parts
 from drivepulse_app.chart.scan_chart import ScanChartContent
 
@@ -55,6 +62,30 @@ def _chart_ordered_pids(all_stats: dict) -> list[str]:
 
 
 class CarsDetailRenderMixin:
+    def _category_has_sensor_values(self, cat_key: str) -> bool:
+        cat = next((c for c in CATEGORIES if c[0] == cat_key), None)
+        if cat is None:
+            return False
+        for pid_key, _ in cat[3]:
+            if pid_key.startswith("__"):
+                continue
+            stats = self._scan_pid_stats.get(pid_key)
+            if not stats:
+                continue
+            for entry in stats.get("values") or []:
+                num = entry[1] if isinstance(entry, tuple) else entry
+                if num is not None and num != 0:
+                    return True
+        return False
+
+    def _update_sensor_category_greying(self) -> None:
+        is_live = self._selected_source == self.LIVE_ID
+        for row in getattr(self, "_cat_rows", []):
+            cat_key = getattr(row, "cat_key", "")
+            if cat_key not in _OBD_SENSOR_CATEGORIES:
+                continue
+            row.set_sensitive(is_live or self._category_has_sensor_values(cat_key))
+
     def _current_data(self) -> tuple[dict[str, Any], str]:
         if self._selected_source == self.LIVE_ID:
             d: dict[str, Any] = {}
@@ -212,6 +243,8 @@ class CarsDetailRenderMixin:
                 else:
                     _w.remove_css_class("warning")
             break
+
+        self._update_sensor_category_greying()
 
         if cat_key == "trips":
             self._render_trips_into_value_list()
