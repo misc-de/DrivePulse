@@ -416,13 +416,12 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             cap_lbl.add_css_class("caption")
             cap_lbl.add_css_class("dim-label")
             cap_lbl.set_xalign(1.0)
-            if not show_captions:
-                cap_lbl.set_visible(False)
             val_lbl = Gtk.Label(label="--")
             val_lbl.add_css_class("monospace")
             val_lbl.set_xalign(1.0)
             sg.add_widget(val_lbl)
-            col.append(cap_lbl)
+            if show_captions:
+                col.append(cap_lbl)
             col.append(val_lbl)
             if initially_hidden:
                 col.set_visible(False)
