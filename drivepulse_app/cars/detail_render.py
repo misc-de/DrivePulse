@@ -94,6 +94,9 @@ class CarsDetailRenderMixin:
                     w.remove_css_class("dim-label")
                 else:
                     w.add_css_class("dim-label")
+            icon = getattr(row, "cat_icon_widget", None)
+            if icon is not None:
+                icon.set_opacity(1.0 if has_values else 0.35)
 
     def _current_data(self) -> tuple[dict[str, Any], str]:
         if self._selected_source == self.LIVE_ID:
