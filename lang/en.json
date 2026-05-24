@@ -235,6 +235,8 @@
   "map.maneuver.off_ramp": "Take the exit",
   "map.maneuver.on_street": " onto {name}",
   "cars.list.intro": "Select a vehicle to view its values.",
+  "cars.list.errors": "Errors",
+  "cars.list.scan": "Scan",
   "cars.empty": "No vehicles saved yet. Connect to an OBD dongle, open Live connection, then use + to save the detected vehicle.",
   "cars.live.title": "Live connection",
   "cars.live.subtitle": "No OBD connection",

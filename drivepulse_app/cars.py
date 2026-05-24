@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import datetime
 from typing import Any, Callable
 
 import gi
@@ -430,16 +431,24 @@ class CarsPage(
             vin = entry.get("vin", "")
             label = entry.get("label") or ""
             brand = entry.get("brand") or ""
-            title = label or brand or (f"VIN …{vin[-5:]}" if vin else _translate(self.language, "cars.unknown"))
+            title = label or brand or (f"VIN …{vin[-4:]}" if vin else _translate(self.language, "cars.unknown"))
             row.set_title(GLib.markup_escape_text(title))
             sub_parts: list[str] = []
             if vin:
-                sub_parts.append(f"VIN …{vin[-5:]}")
-            cal = _extract_inner_string((entry["data"].get("vehicle_info") or {}).get("CALIBRATION_ID"))
-            if cal:
-                sub_parts.append(f"Cal {cal}")
-            if entry.get("scan_label"):
-                sub_parts.append(entry["scan_label"])
+                sub_parts.append(f"VIN …{vin[-4:]}")
+            latest_scan_at = entry.get("latest_scan_at")
+            if latest_scan_at:
+                dtc_count = int(entry.get("latest_dtc_count") or 0)
+                sub_parts.append(
+                    f"{_translate(self.language, 'cars.list.errors')}: {dtc_count}"
+                )
+                try:
+                    scan_dt = datetime.fromisoformat(str(latest_scan_at).replace("Z", "+00:00"))
+                    sub_parts.append(
+                        f"{_translate(self.language, 'cars.list.scan')}: {scan_dt.strftime('%d.%m.%Y')}"
+                    )
+                except Exception:
+                    pass
             row.set_subtitle(GLib.markup_escape_text(" · ".join(sub_parts)) if sub_parts else "—")
             row.set_activatable(True)
             chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
