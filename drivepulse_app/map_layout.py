@@ -770,6 +770,7 @@ class MapLayoutMixin:
                     self._coord_overlay.set_halign(Gtk.Align.FILL)
                 if getattr(self, "_coord_chip", None) is not None:
                     self._coord_chip.set_hexpand(True)
+                    self._coord_chip.set_halign(Gtk.Align.FILL)
                 if self._backend == "shumate":
                     self._shumate_set_scale_visible(False)
                 self._refresh_fab_visibility()
@@ -787,6 +788,7 @@ class MapLayoutMixin:
                 self._coord_overlay.set_halign(Gtk.Align.START)
             if getattr(self, "_coord_chip", None) is not None:
                 self._coord_chip.set_hexpand(False)
+                self._coord_chip.set_halign(Gtk.Align.START)
             if self._backend == "shumate":
                 self._shumate_set_scale_visible(True)
         self._step_preview_row = None
