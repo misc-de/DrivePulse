@@ -11,6 +11,7 @@ from drivepulse_app.common import _detect_language, _normalize_language, _transl
 from drivepulse_app.cars.profiles import _load_profiles
 from drivepulse_app.dashboard.data import obd_sample_fields, scan_identity_from_payload, scan_profile_dashboard_data
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.obd.recorder import ObdRecorder
 from drivepulse_app.telemetry_utils import display_speed, has_obd_data, plain_number
 
 
@@ -20,6 +21,7 @@ log = get_logger(__name__)
 class DashboardTelemetryMixin:
     _scan_is_new_car: bool = False
     _pending_new_car_id: "int | None" = None
+    _obd_recorder: "ObdRecorder | None" = None
     def _known_car_id_for_vin(self, vin: str | None) -> int | None:
         if not vin:
             return None
@@ -93,9 +95,24 @@ class DashboardTelemetryMixin:
         if car_id is None:
             return
         try:
-            self.db.add_scan(car_id, profile)
+            scan_id = self.db.add_scan(car_id, profile)
         except Exception:
             log.exception("Could not save scan profile to database")
+            return
+        auto_record = getattr(self, "settings", {}).get("obd_auto_record", True)
+        if auto_record and self.db is not None:
+            self._start_obd_recorder(scan_id)
+
+    def _start_obd_recorder(self, scan_id: int) -> None:
+        self._stop_obd_recorder()
+        recorder = ObdRecorder(scan_id, self.db)
+        recorder.start()
+        self._obd_recorder = recorder
+
+    def _stop_obd_recorder(self) -> None:
+        if self._obd_recorder is not None:
+            self._obd_recorder.stop()
+            self._obd_recorder = None
 
     def _hide_scan_bar(self) -> bool:
         self.scan_bar.set_visible(False)
@@ -123,6 +140,9 @@ class DashboardTelemetryMixin:
         if source == "obd_scan":
             self._handle_scan_update(payload)
             return
+
+        if self._obd_recorder is not None:
+            self._obd_recorder.handle_payload(payload)
 
         if source == "obd_scan_identity":
             self._handle_scan_identity(payload)
@@ -192,6 +212,7 @@ class DashboardTelemetryMixin:
         self._obd_active = obd_connected
         if was_obd_active and not obd_connected:
             self.cars_page.clear_live_session()
+            self._stop_obd_recorder()
         obd_connecting = bool(payload.get("obd_connecting"))
         gps_connected = self._gps_connected_with_holdover(gps_speed_kmh is not None if active else False)
         _prev_gps_connected = getattr(self, "_gps_was_connected", False)

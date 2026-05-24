@@ -90,6 +90,16 @@ CREATE TABLE IF NOT EXISTS scans (
 );
 CREATE INDEX IF NOT EXISTS idx_scans_car_date ON scans(car_id, scanned_at DESC);
 
+CREATE TABLE IF NOT EXISTS scan_samples (
+    scan_id  INTEGER NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+    ts       REAL    NOT NULL,
+    pid      TEXT    NOT NULL,
+    value    REAL    NOT NULL,
+    unit     TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY (scan_id, ts, pid)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_scan_samples_lookup ON scan_samples(scan_id, pid, ts);
+
 CREATE TABLE IF NOT EXISTS acceleration_runs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     car_id          INTEGER NOT NULL REFERENCES cars(id) ON DELETE CASCADE,
@@ -420,6 +430,48 @@ class DriveDB:
         except Exception:
             log.exception("Could not decode scan JSON for scan_id=%s", scan_id)
             return {}
+
+    def add_scan_samples(self, scan_id: int, rows: list[dict]) -> int:
+        """Bulk-insert (scan_id, ts, pid, value, unit) rows. Returns count inserted."""
+        if not rows:
+            return 0
+        data = [
+            (scan_id, float(r["ts"]), str(r["pid"]), float(r["value"]), str(r.get("unit", "")))
+            for r in rows
+        ]
+        with self._lock:
+            self._conn.executemany(
+                "INSERT OR IGNORE INTO scan_samples(scan_id, ts, pid, value, unit) VALUES(?,?,?,?,?)",
+                data,
+            )
+            self._conn.commit()
+        return len(data)
+
+    def get_scan_samples(
+        self, scan_id: int, pid: str | None = None
+    ) -> list[sqlite3.Row]:
+        """Return scan_samples rows ordered by ts. Optionally filter to one pid."""
+        with self._lock:
+            if pid is not None:
+                return list(self._conn.execute(
+                    "SELECT ts, pid, value, unit FROM scan_samples"
+                    " WHERE scan_id=? AND pid=? ORDER BY ts",
+                    (scan_id, pid),
+                ).fetchall())
+            return list(self._conn.execute(
+                "SELECT ts, pid, value, unit FROM scan_samples"
+                " WHERE scan_id=? ORDER BY ts",
+                (scan_id,),
+            ).fetchall())
+
+    def scan_has_series(self, scan_id: int) -> bool:
+        """True when at least one sample row exists for this scan."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM scan_samples WHERE scan_id=? LIMIT 1", (scan_id,)
+            ).fetchone()
+        return row is not None
+
 
     # --------------------------------------------------------------- Samples
 

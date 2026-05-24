@@ -509,6 +509,62 @@ def _scan_blob_for(
     }
 
 
+def _seed_scan_samples(
+    db: Any,
+    scan_id: int,
+    scanned_at: "datetime",
+    rng: "random.Random",
+    scan_idx: int,
+) -> None:
+    """Generate a realistic ~10-minute OBD time series for a mock scan."""
+    from drivepulse_app.obd.recorder import _KEY_TO_PID
+
+    base_ts = scanned_at.timestamp()
+    interval = 5.0          # seconds between samples
+    duration = 600.0        # 10 minutes
+    steps = int(duration / interval)
+
+    # Starting values that warm up over the drive
+    rpm_base = 800.0 + scan_idx * 100
+    coolant_start = 20.0 + scan_idx * 15
+    speed_base = 0.0
+
+    rows: list[dict] = []
+    for i in range(steps):
+        t = base_ts + i * interval
+        frac = i / max(1, steps - 1)
+
+        rpm = rpm_base + rng.gauss(0, 80) + frac * 1200
+        speed = max(0.0, speed_base + frac * 90 + rng.gauss(0, 12))
+        coolant = coolant_start + frac * (90 - coolant_start) + rng.gauss(0, 1.5)
+        throttle = max(0.0, min(100.0, 10 + frac * 40 + rng.gauss(0, 8)))
+        load = max(0.0, min(100.0, 15 + frac * 35 + rng.gauss(0, 5)))
+        intake = 20.0 + frac * 15 + rng.gauss(0, 2)
+        maf = max(0.5, 2.0 + frac * 18 + rng.gauss(0, 1.5))
+        fuel = max(5.0, min(100.0, 60 - frac * 8 + rng.gauss(0, 0.5)))
+        runtime = i * interval
+        voltage = 12.5 + rng.gauss(0, 0.15)
+
+        values = {
+            "rpm": (max(600.0, rpm), "revolutions_per_minute"),
+            "speed": (max(0.0, speed), "kph"),
+            "coolant_temp": (coolant, "degree_Celsius"),
+            "throttle_pos": (throttle, "percent"),
+            "engine_load": (load, "percent"),
+            "intake_temp": (intake, "degree_Celsius"),
+            "maf": (maf, "gps"),
+            "fuel_level": (fuel, "percent"),
+            "runtime": (runtime, "second"),
+            "control_module_voltage": (voltage, "volt"),
+        }
+        for key, (val, unit) in values.items():
+            pid = _KEY_TO_PID.get(key)
+            if pid:
+                rows.append({"ts": t, "pid": pid, "value": val, "unit": unit})
+
+    db.add_scan_samples(scan_id, rows)
+
+
 def _stopwatch_run_for(
     car: dict[str, Any],
     when: datetime,
@@ -672,7 +728,8 @@ def seed_mock_data(db: DriveDB) -> int:
             scan_rng = _make_rng(car_idx * 200 + scan_idx + 17)
             scanned_at = base_now - timedelta(days=21 - scan_idx * 7 - car_idx)
             blob = _scan_blob_for(car, scanned_at, scan_rng, dtc_catalog[scan_idx], scan_idx)
-            db.add_scan(car_id, blob)
+            scan_id = db.add_scan(car_id, blob)
+            _seed_scan_samples(db, scan_id, scanned_at, scan_rng, scan_idx)
 
         # --- Three stopwatch runs per car ------------------------------
         for run_idx in range(3):

@@ -114,6 +114,7 @@ class DashboardWindow(
         self.tts_quality: str = self.settings.get("tts_quality", "high")
         self.log_app_enabled: bool = bool(self.settings.get("log_app_enabled", True))
         self.log_obd_enabled: bool = bool(self.settings.get("log_obd_enabled", True))
+        self.obd_auto_record: bool = bool(self.settings.get("obd_auto_record", True))
         self.vindecoder_api_key: str = self.settings.get("vindecoder_api_key") or ""
         self.vindecoder_secret_key: str = self.settings.get("vindecoder_secret_key") or ""
         self.autodev_api_key: str = self.settings.get("autodev_api_key") or ""

@@ -575,6 +575,37 @@ class CarsPage(
             pts = raw_values.get(pid) or []
             pts.sort(key=lambda t: t[0])
             s["values"] = pts
+            s["intra_series"] = {}
+
+        # Intra-scan Zeitreihen aus scan_samples laden
+        for scan_meta in scans:
+            scan_id = int(scan_meta["id"])
+            try:
+                if not self.db.scan_has_series(scan_id):
+                    continue
+                scan_start_ts: float | None = None
+                try:
+                    from datetime import datetime, timezone
+                    scan_start_ts = datetime.fromisoformat(
+                        str(scan_meta["scanned_at"]).replace("Z", "+00:00")
+                    ).timestamp()
+                except Exception:
+                    pass
+                rows = self.db.get_scan_samples(scan_id)
+                pid_pts: dict[str, list[tuple[float, float]]] = {}
+                for row in rows:
+                    pid = str(row["pid"])
+                    rel_s = float(row["ts"]) - (scan_start_ts or float(row["ts"]))
+                    pid_pts.setdefault(pid, []).append((rel_s, float(row["value"])))
+                for pid, pts in pid_pts.items():
+                    if pid not in stats:
+                        stats[pid] = {"min": 0.0, "max": 0.0, "sum": 0.0,
+                                      "count": 0, "unit": "", "values": [],
+                                      "intra_series": {}}
+                    stats[pid]["intra_series"][scan_id] = sorted(pts, key=lambda t: t[0])
+            except Exception:
+                pass
+
         GLib.idle_add(self._apply_scan_pid_stats, stats)
 
     def _apply_scan_pid_stats(self, stats: dict) -> bool:
