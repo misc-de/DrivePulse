@@ -390,7 +390,7 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         name_lbl = Gtk.Label(label=label_text)
         name_lbl.add_css_class("heading")
         name_lbl.set_halign(Gtk.Align.START)
-        name_lbl.set_valign(Gtk.Align.CENTER)
+        name_lbl.set_valign(Gtk.Align.END)
         name_lbl.set_hexpand(True)
         name_lbl.set_margin_start(10)
         ellipsize_mode = getattr(getattr(Pango, "EllipsizeMode", None), "END", None)
