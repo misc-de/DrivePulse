@@ -288,15 +288,12 @@ class CarsDetailRenderMixin:
             if is_unknown and pid_key in _vin_data_keys:
                 continue
             # Im Scan-Modus nur PIDs anzeigen, für die tatsächlich Sensordaten
-            # vorliegen UND ein rohes Einzelmesswert vorhanden ist (sonst
-            # blieb nur ein "—"-Strich übrig, seit der ⌀-Override draußen ist).
-            # Section-Header (__-Prefix) bleiben unberührt; im Live-Modus wird
-            # nicht gefiltert, da Werte dort in Echtzeit ankommen.
+            # vorliegen. Section-Header (__-Prefix) bleiben unberührt; im
+            # Live-Modus wird ebenfalls nicht gefiltert, da Werte dort
+            # in Echtzeit ankommen.
             if not is_live and not pid_key.startswith("__"):
                 _scan_stats = self._scan_pid_stats.get(pid_key)
                 if not _scan_stats or not (_scan_stats.get("values") or []):
-                    continue
-                if is_unknown:
                     continue
             label = _translate(self.language, label_key)
             if not pid_key.startswith("__"):
@@ -306,6 +303,22 @@ class CarsDetailRenderMixin:
                     on_click = None
                 else:
                     stats = self._scan_pid_stats.get(pid_key)
+                    # Wenn der Scan-Blob kein rohes live_data für diese PID hat,
+                    # fällt _format_entry auf "—" zurück. Dann den aggregierten
+                    # Mittelwert als Wert einsetzen — ohne ⌀-Präfix, das Symbol
+                    # ist der Punkt der vorigen Iteration, der entfernt werden
+                    # sollte.
+                    if is_unknown and stats and "avg" in stats:
+                        avg = stats["avg"]
+                        unit = _unit_display(stats.get("unit", ""), _lang)
+                        if abs(avg) >= 100:
+                            avg_str = f"{avg:.0f}"
+                        elif abs(avg) >= 10:
+                            avg_str = f"{avg:.1f}"
+                        else:
+                            avg_str = f"{avg:.2f}"
+                        value_text = f"{avg_str} {unit}".strip()
+                        is_unknown = False
                     if stats and len(stats.get("values") or []) > 1:
                         def on_click(_lbl=label, _pk=pid_key, _st=self._scan_pid_stats, _pl=_pid_labels, _lg=_lang):
                             return self._push_scan_chart(_lbl, _pk, _st, _pl, _lg)
