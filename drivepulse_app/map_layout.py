@@ -766,10 +766,7 @@ class MapLayoutMixin:
             if not self._coord_lbl.get_visible():
                 # Expand: show label, stretch chip to full width, hide scale+FAB.
                 self._coord_lbl.set_visible(True)
-                if self._coord_overlay is not None:
-                    self._coord_overlay.set_halign(Gtk.Align.FILL)
-                if getattr(self, "_coord_chip", None) is not None:
-                    self._coord_chip.set_hexpand(True)
+                if self._coord_chip is not None:
                     self._coord_chip.set_halign(Gtk.Align.FILL)
                 if self._backend == "shumate":
                     self._shumate_set_scale_visible(False)
@@ -784,10 +781,7 @@ class MapLayoutMixin:
         if coord_lbl is not None and coord_lbl.get_visible():
             # Minimize: hide label, shrink chip back to icon-only width.
             coord_lbl.set_visible(False)
-            if self._coord_overlay is not None:
-                self._coord_overlay.set_halign(Gtk.Align.START)
             if getattr(self, "_coord_chip", None) is not None:
-                self._coord_chip.set_hexpand(False)
                 self._coord_chip.set_halign(Gtk.Align.START)
             if self._backend == "shumate":
                 self._shumate_set_scale_visible(True)
@@ -1421,18 +1415,18 @@ class MapLayoutMixin:
     def _build_coord_overlay(self) -> Gtk.Widget:
         # Minimized (default, shumate only): icon only, natural width.
         # Expanded (during replay scrubbing): icon + label, full width.
-        wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        wrap.set_halign(Gtk.Align.START)
-        wrap.set_valign(Gtk.Align.END)
-        wrap.set_hexpand(True)
-        wrap.set_margin_start(8)
-        wrap.set_margin_end(8)
-        wrap.set_margin_bottom(36)
-        wrap.set_can_target(False)
-        wrap.set_visible(False)  # shown for shumate in _apply_initial_overlay_state
-
+        # chip is the direct Overlay child so GTK Overlay's halign=FILL
+        # allocation gives it the exact screen width minus margins without
+        # needing an intermediate wrapper Box.
         chip = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         chip.add_css_class("dp-coord-chip")
+        chip.set_halign(Gtk.Align.START)
+        chip.set_valign(Gtk.Align.END)
+        chip.set_margin_start(8)
+        chip.set_margin_end(8)
+        chip.set_margin_bottom(36)
+        chip.set_can_target(False)
+        chip.set_visible(False)  # shown for shumate in _apply_initial_overlay_state
 
         icon = Gtk.Image.new_from_icon_name("integral3-symbolic")
         icon.set_pixel_size(14)
@@ -1443,11 +1437,10 @@ class MapLayoutMixin:
         lbl.set_visible(False)  # hidden in minimized state
         chip.append(lbl)
 
-        wrap.append(chip)
-        self._coord_overlay = wrap
+        self._coord_overlay = chip
         self._coord_chip = chip
         self._coord_lbl = lbl
-        return wrap
+        return chip
 
     def _install_map_tap_controller(self, widget: Gtk.Widget) -> None:
         """Attach a capture-phase legacy controller to the map widget so a short
