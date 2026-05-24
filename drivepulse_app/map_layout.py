@@ -1696,7 +1696,9 @@ class MapLayoutMixin:
         # Sit below the stacked tour-controls column
         # (start button + info button + spacing + top margin ≈ 105 px).
         wrap.set_margin_top(105)
-        wrap.set_margin_bottom(12)
+        # Shumate: end at the TTS button's bottom edge (FAB margin_bottom=36)
+        # so the panel doesn't overlap the scale ruler that shares this corner.
+        wrap.set_margin_bottom(36 if self._backend == "shumate" else 12)
         wrap.set_size_request(280, -1)
         wrap.set_visible(False)
 
@@ -1723,9 +1725,16 @@ class MapLayoutMixin:
         show = btn.get_active() and bool(self._tour_steps)
         if show:
             self._rebuild_steps_list()
-        self._steps_panel.set_visible(show)
+        self._set_steps_panel_visible(show)
         if show:
             self._scroll_steps_to_active()
+
+    def _set_steps_panel_visible(self, visible: bool) -> None:
+        """Toggle the steps panel + hide the shumate scale while it's open."""
+        if self._steps_panel is not None:
+            self._steps_panel.set_visible(visible)
+        if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_visible"):
+            self._shumate_set_scale_visible(not visible)
 
     def _on_step_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         lat = getattr(row, "_step_lat", None)

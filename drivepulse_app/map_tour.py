@@ -214,7 +214,7 @@ class MapTourMixin:
             if self._steps_toggle_btn is not None:
                 self._steps_toggle_btn.set_active(False)
             if self._steps_panel is not None:
-                self._steps_panel.set_visible(False)
+                self._set_steps_panel_visible(False)
 
     def _fetch_guide_to_start(
         self, gps_lat: float, gps_lon: float, start_lat: float, start_lon: float
@@ -681,7 +681,7 @@ class MapTourMixin:
         ):
             self._rebuild_steps_list()
             if self._steps_panel is not None:
-                self._steps_panel.set_visible(bool(self._tour_steps))
+                self._set_steps_panel_visible(bool(self._tour_steps))
 
         if self._on_tour_resumed is not None:
             self._on_tour_resumed()

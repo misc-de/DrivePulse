@@ -746,7 +746,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         if self._steps_toggle_btn is not None and self._steps_toggle_btn.get_active():
             self._rebuild_steps_list()
             if self._steps_panel is not None:
-                self._steps_panel.set_visible(bool(self._tour_steps))
+                self._set_steps_panel_visible(bool(self._tour_steps))
 
         if coords:
             lats = [c[1] for c in coords]
@@ -834,7 +834,7 @@ class MapPage(MapWebKitMixin, MapShumateMixin, MapLayoutMixin, MapTourMixin, Map
         if self._tour_save_btn is not None:
             self._tour_save_btn.set_visible(False)
         if self._steps_panel is not None:
-            self._steps_panel.set_visible(False)
+            self._set_steps_panel_visible(False)
         if self._steps_toggle_btn is not None:
             self._steps_toggle_btn.set_active(False)
 
