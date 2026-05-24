@@ -83,6 +83,8 @@
   "settings.rotation_mode.follow_system": "System folgen",
   "settings.map.webkit": "WebKit-Karte erzwingen",
   "settings.map.webkit.subtitle": "Nutzt die schönere Vektorkarte. Braucht mehr Leistung und gilt nach Neustart.",
+  "settings.map.webkit.restart_dialog.title": "App neu starten?",
+  "settings.map.webkit.restart_dialog.body": "Die Änderung des Karten-Backends wird erst nach einem Neustart von DrivePulse wirksam. Jetzt neu starten?",
   "settings.traffic": "Verkehrsinformationen",
   "settings.traffic.bundesweit": "Bundesweit (Autobahn)",
   "settings.traffic.bundesweit.subtitle": "Beim Antippen des Verkehr-Schalters alle deutschen Autobahnen laden.",
