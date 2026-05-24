@@ -24,6 +24,8 @@ class CarsScansMixin:
         except Exception:
             log.exception("Could not list scans for car id=%s", self._selected_car_id)
             scans = []
+        # Nur Scan-Läufe mit erfassten Sensordaten anzeigen
+        scans = [s for s in scans if _safe_int(s["pids_count"]) > 0]
         if not scans:
             self.value_list.append(self._info_row(_translate(self.language, "cars.scans.empty")))
             return
