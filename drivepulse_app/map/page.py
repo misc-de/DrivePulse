@@ -6,12 +6,15 @@ Backend priority:
   3. Placeholder             — neither library available
 
 Mixins:
-  MapWebKitMixin   (map_webkit.py)  — WebKit/MapLibre backend
-  MapShumateMixin  (map_shumate.py) — Shumate raster backend
-  MapLayoutMixin   (map_layout.py)  — UI construction (_build_* methods, CSS, step list)
-  MapReplayMixin   (map_replay.py)  — Trip-replay info card, chart, polyline + marker
-  MapTourMixin     (map_tour.py)    — Tour state machine, TTS, step detection
-  MapTrafficMixin  (map_traffic.py) — Autobahn traffic API, filtering, popover
+  MapWebKitMixin       (webkit.py)             — WebKit/MapLibre backend
+  MapShumateMixin      (shumate.py)            — Shumate raster backend
+  MapLayoutMixin       (layout.py)             — Map area, FAB, zoom, maneuver banner
+  MapSearchBarMixin    (layout_search.py)      — Waypoint entry rows + DnD reorder
+  MapStepsPanelMixin   (layout_steps.py)       — Turn-by-turn steps side panel
+  MapTourActionsMixin  (layout_tour_actions.py)— Topnav, saved-tour list, history
+  MapReplayMixin       (replay.py)             — Trip-replay info card, chart, polyline + marker
+  MapTourMixin         (tour.py)               — Tour state machine, TTS, step detection
+  MapTrafficMixin      (traffic.py)            — Autobahn traffic API, filtering, popover
 """
 from __future__ import annotations
 
@@ -33,6 +36,9 @@ from drivepulse_app.tts import service as tts_service
 from drivepulse_app.map.shumate import MapShumateMixin
 from drivepulse_app.map.webkit import MapWebKitMixin
 from drivepulse_app.map.layout import MapLayoutMixin
+from drivepulse_app.map.layout_search import MapSearchBarMixin
+from drivepulse_app.map.layout_steps import MapStepsPanelMixin
+from drivepulse_app.map.layout_tour_actions import MapTourActionsMixin
 from drivepulse_app.map.replay import MapReplayMixin
 from drivepulse_app.map.tour import MapTourMixin
 from drivepulse_app.map.traffic import MapTrafficMixin
@@ -61,6 +67,9 @@ class MapPage(
     MapWebKitMixin,
     MapShumateMixin,
     MapLayoutMixin,
+    MapSearchBarMixin,
+    MapStepsPanelMixin,
+    MapTourActionsMixin,
     MapReplayMixin,
     MapTourMixin,
     MapTrafficMixin,
