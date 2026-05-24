@@ -80,6 +80,8 @@ class SyncClient:
                 # CERT_REQUIRED on every subsequent request, not just rely on
                 # the one-time SPKI check that has already happened here.
                 self._pinned_cert_pem = ssl.DER_cert_to_PEM_cert(cert_der)
+            else:
+                self._pinned_cert_pem = None
             return self._fingerprint_verified
         except Exception:
             log.exception("Could not verify sync peer fingerprint for %s:%s", self._host, self._port)
