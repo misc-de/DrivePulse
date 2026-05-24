@@ -1161,7 +1161,8 @@ class MapLayoutMixin:
         self._status_lbl = Gtk.Label(label="")
         self._status_lbl.add_css_class("dim-label")
         self._status_lbl.set_hexpand(True)
-        self._status_lbl.set_halign(Gtk.Align.START)
+        self._status_lbl.set_halign(Gtk.Align.CENTER)
+        self._status_lbl.set_justify(Gtk.Justification.CENTER)
 
         for w in (self._status_lbl, self._route_btn):
             action.append(w)
