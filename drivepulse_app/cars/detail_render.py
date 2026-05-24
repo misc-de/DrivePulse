@@ -287,14 +287,12 @@ class CarsDetailRenderMixin:
             value_text, is_unknown = self._format_entry(pid_key, raw)
             if is_unknown and pid_key in _vin_data_keys:
                 continue
-            # Im Scan-Modus nur PIDs anzeigen, für die tatsächlich Sensordaten
-            # vorliegen. Section-Header (__-Prefix) bleiben unberührt; im
-            # Live-Modus wird ebenfalls nicht gefiltert, da Werte dort
-            # in Echtzeit ankommen.
+            # Im Scan-Modus werden die einzelnen PID-Zeilen komplett
+            # ausgeblendet — der Mittelwert wurde entfernt und die rohen
+            # Stichproben sind via Chart-Aufruf erreichbar. Section-Header
+            # (__-Prefix) bleiben unberührt; Live-Modus ist nicht betroffen.
             if not is_live and not pid_key.startswith("__"):
-                _scan_stats = self._scan_pid_stats.get(pid_key)
-                if not _scan_stats or not (_scan_stats.get("values") or []):
-                    continue
+                continue
             label = _translate(self.language, label_key)
             if not pid_key.startswith("__"):
                 if is_live:
@@ -303,17 +301,6 @@ class CarsDetailRenderMixin:
                     on_click = None
                 else:
                     stats = self._scan_pid_stats.get(pid_key)
-                    if stats and "avg" in stats:
-                        avg = stats["avg"]
-                        unit = _unit_display(stats.get("unit", ""), _lang)
-                        if abs(avg) >= 100:
-                            avg_str = f"{avg:.0f}"
-                        elif abs(avg) >= 10:
-                            avg_str = f"{avg:.1f}"
-                        else:
-                            avg_str = f"{avg:.2f}"
-                        value_text = f"{avg_str} {unit}".strip()
-                        is_unknown = False
                     if stats and len(stats.get("values") or []) > 1:
                         def on_click(_lbl=label, _pk=pid_key, _st=self._scan_pid_stats, _pl=_pid_labels, _lg=_lang):
                             return self._push_scan_chart(_lbl, _pk, _st, _pl, _lg)
