@@ -13,11 +13,12 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 from .cars_metadata import _unit_display
 from .draw_helpers import _txt
 
-_CHART_H = 220
-_PAD_L = 42
-_PAD_R = 14
-_PAD_T = 20
-_PAD_B = 24
+_CHART_H = 260
+_PAD_L = 48
+_PAD_R = 16
+_PAD_R_OVERLAY = 56
+_PAD_T = 26
+_PAD_B = 36
 
 _COLOR_MAIN    = (0.35, 0.60, 1.00)   # blue
 _COLOR_OVERLAY = (1.00, 0.60, 0.20)   # orange
@@ -29,6 +30,11 @@ def _fmt(v: float) -> str:
     if abs(v) >= 10:
         return f"{v:.1f}"
     return f"{v:.2f}"
+
+
+def _fmt_ts(ts: str) -> str:
+    # ISO 8601 → YYYY-MM-DD (oder Originalstring, wenn zu kurz)
+    return ts[:10] if len(ts) >= 10 else ts
 
 
 # ---------------------------------------------------------------------------
@@ -96,9 +102,15 @@ def _draw_chart(
     main_mean: float,
     overlay_vals: list[float] | None,
     bg_rgb: tuple[float, float, float] | None = None,
+    main_unit: str = "",
+    overlay_unit: str = "",
+    main_ts: list[str] | None = None,
 ) -> None:
-    pl, pt = _PAD_L, _PAD_T
-    plot_w = w - pl - _PAD_R
+    has_overlay = bool(overlay_vals)
+    pl = _PAD_L
+    pr = _PAD_R_OVERLAY if has_overlay else _PAD_R
+    pt = _PAD_T
+    plot_w = w - pl - pr
     plot_h = h - pt - _PAD_B
 
     try:
@@ -107,8 +119,11 @@ def _draw_chart(
         dark = True
     fg = (1.0, 1.0, 1.0) if dark else (0.0, 0.0, 0.0)
     axis_rgba = (*fg, 0.55)
+    grid_rgba = (*fg, 0.16)
     mean_rgba = (*fg, 0.40)
     lbl_rgba  = (*fg, 0.95)
+    ov_axis_rgba = (*_COLOR_OVERLAY, 0.55)
+    ov_lbl_rgba  = (*_COLOR_OVERLAY, 0.95)
 
     # Light theme: paint the full chart canvas with the same card surface tone
     # used by the boxed compare list below, so the chart visually sits on the
@@ -118,7 +133,21 @@ def _draw_chart(
         cr.rectangle(0, 0, w, h)
         cr.fill()
 
-    # Axis lines
+    # 4 Tick-Fraktionen (von unten): Min, 1/3, 2/3, Max
+    tick_fracs = (0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0)
+
+    # Innere Gitterlinien (nur 1/3 und 2/3, damit L-Achse sauber bleibt)
+    cr.set_source_rgba(*grid_rgba)
+    cr.set_line_width(1.0)
+    cr.set_dash([2.0, 3.0], 0)
+    for f in tick_fracs[1:-1]:
+        ty = pt + plot_h * (1.0 - f)
+        cr.move_to(pl, ty)
+        cr.line_to(pl + plot_w, ty)
+        cr.stroke()
+    cr.set_dash([], 0)
+
+    # L-Achse (links + unten)
     cr.set_source_rgba(*axis_rgba)
     cr.set_line_width(1.0)
     cr.move_to(pl, pt)
@@ -129,8 +158,8 @@ def _draw_chart(
     # Mean line (main series, dashed)
     if main_vals:
         mn, mx = min(main_vals), max(main_vals)
-        rng = mx - mn if abs(mx - mn) > 1e-9 else 1.0
-        norm_mean = (main_mean - mn) / rng if abs(mx - mn) > 1e-9 else 0.5
+        same = abs(mx - mn) <= 1e-9
+        norm_mean = (main_mean - mn) / (mx - mn) if not same else 0.5
         mean_y = pt + plot_h * (1.0 - norm_mean)
         cr.set_source_rgba(*mean_rgba)
         cr.set_line_width(1.0)
@@ -140,10 +169,46 @@ def _draw_chart(
         cr.stroke()
         cr.set_dash([], 0)
 
-        # Left Y-axis labels
-        _txt(cr, _fmt(mx), pl - 4, pt, 9.5, rgba=lbl_rgba, align="right")
-        if abs(mx - mn) > 1e-9:
-            _txt(cr, _fmt(mn), pl - 4, pt + plot_h, 9.5, rgba=lbl_rgba, align="right")
+        # Linke Y-Achse: 4 Tick-Labels (Min, 1/3, 2/3, Max)
+        for f in tick_fracs:
+            val = mn + f * (mx - mn)
+            ty = pt + plot_h * (1.0 - f)
+            _txt(cr, _fmt(val), pl - 5, ty, 9.5, rgba=lbl_rgba, align="right")
+            if same:
+                break
+
+    # Einheit der Hauptserie über der linken Y-Achse
+    if main_unit:
+        _txt(cr, main_unit, pl, pt - 10, 9.0, rgba=lbl_rgba, align="left")
+
+    # X-Achse: erster/letzter Scan-Timestamp
+    if main_ts:
+        first_ts = _fmt_ts(main_ts[0])
+        last_ts = _fmt_ts(main_ts[-1])
+        ty_x = pt + plot_h + 14
+        if first_ts == last_ts:
+            _txt(cr, first_ts, pl + plot_w / 2, ty_x, 9.5, rgba=lbl_rgba, align="center")
+        else:
+            _txt(cr, first_ts, pl, ty_x, 9.5, rgba=lbl_rgba, align="left")
+            _txt(cr, last_ts, pl + plot_w, ty_x, 9.5, rgba=lbl_rgba, align="right")
+
+    # Rechte Y-Achse für Overlay (eigene Skala, orange)
+    if has_overlay:
+        ov_mn, ov_mx = min(overlay_vals), max(overlay_vals)
+        ov_same = abs(ov_mx - ov_mn) <= 1e-9
+        cr.set_source_rgba(*ov_axis_rgba)
+        cr.set_line_width(1.0)
+        cr.move_to(pl + plot_w, pt)
+        cr.line_to(pl + plot_w, pt + plot_h)
+        cr.stroke()
+        for f in tick_fracs:
+            val = ov_mn + f * (ov_mx - ov_mn)
+            ty = pt + plot_h * (1.0 - f)
+            _txt(cr, _fmt(val), pl + plot_w + 5, ty, 9.5, rgba=ov_lbl_rgba, align="left")
+            if ov_same:
+                break
+        if overlay_unit:
+            _txt(cr, overlay_unit, pl + plot_w, pt - 10, 9.0, rgba=ov_lbl_rgba, align="right")
 
     def _draw_series(vals: list[float], color: tuple, dot_r: float = 3.5) -> None:
         n = len(vals)
@@ -204,7 +269,9 @@ class ScanChartContent(Gtk.Box):
 
         self._overlay_stats: dict = {}
         self._overlay_pid: str | None = None
+        self._overlay_scan_ts: str | None = None
         self._pid_options: list[tuple[str, str]] = []
+        self._scan_options: list[tuple[str, float]] = []
         self._car_options: list[tuple[int, str]] = []
 
         main_stats = all_stats.get(main_pid) or {}
@@ -259,9 +326,18 @@ class ScanChartContent(Gtk.Box):
         overlay_dot.set_markup('<span foreground="#ff9933" size="large">⬤</span>')
         overlay_dot.set_valign(Gtk.Align.CENTER)
         compare_hdr.append(overlay_dot)
-        compare_hdr_lbl = Gtk.Label(label="Vergleich", xalign=0.0)
-        compare_hdr_lbl.add_css_class("heading")
-        compare_hdr.append(compare_hdr_lbl)
+        self._hdr_lbl = Gtk.Label(label="Vergleich", xalign=0.0)
+        self._hdr_lbl.add_css_class("heading")
+        self._hdr_lbl.set_hexpand(True)
+        compare_hdr.append(self._hdr_lbl)
+        self._hdr_clear_btn = Gtk.Button.new_from_icon_name("window-close-symbolic")
+        self._hdr_clear_btn.add_css_class("flat")
+        self._hdr_clear_btn.add_css_class("circular")
+        self._hdr_clear_btn.set_valign(Gtk.Align.CENTER)
+        self._hdr_clear_btn.set_tooltip_text("Auswahl entfernen")
+        self._hdr_clear_btn.set_visible(False)
+        self._hdr_clear_btn.connect("clicked", self._on_clear_clicked)
+        compare_hdr.append(self._hdr_clear_btn)
         compare_outer.append(compare_hdr)
 
         compare_list = Gtk.ListBox()
@@ -269,9 +345,9 @@ class ScanChartContent(Gtk.Box):
         compare_list.add_css_class("boxed-list")
         compare_list.set_valign(Gtk.Align.START)
 
-        # Car row
-        car_row = Adw.ActionRow()
-        car_row.set_title("Fahrzeug")
+        # Car row (nur sichtbar, solange kein Auto gewählt ist)
+        self._car_row = Adw.ActionRow()
+        self._car_row.set_title("Fahrzeug")
 
         for p in profiles:
             cid = p.get("car_id")
@@ -291,15 +367,14 @@ class ScanChartContent(Gtk.Box):
         self._car_dd = Gtk.DropDown(model=car_sl)
         self._car_dd.set_valign(Gtk.Align.CENTER)
         self._car_dd.connect("notify::selected", self._on_car_selected)
-        car_row.add_suffix(self._car_dd)
-        compare_list.append(car_row)
+        self._car_row.add_suffix(self._car_dd)
+        compare_list.append(self._car_row)
 
-        # PID row
+        # PID row (Vergleichswert) — sichtbar, sobald Auto gewählt
         self._pid_row = Adw.ActionRow()
-        self._pid_row.set_title("Wert")
-        self._pid_row.set_sensitive(False)
+        self._pid_row.set_title("Vergleichswert")
+        self._pid_row.set_visible(False)
 
-        # suffix container — we swap contents without touching ActionRow
         self._pid_suffix = Gtk.Box(spacing=4)
         self._pid_suffix.set_valign(Gtk.Align.CENTER)
         self._pid_row.add_suffix(self._pid_suffix)
@@ -309,24 +384,45 @@ class ScanChartContent(Gtk.Box):
         self._pid_suffix.append(self._pid_placeholder)
 
         compare_list.append(self._pid_row)
+
+        # Scan row (Einzel-Scan) — sichtbar, sobald PID gewählt
+        self._scan_row = Adw.ActionRow()
+        self._scan_row.set_title("Scan")
+        self._scan_row.set_visible(False)
+
+        self._scan_suffix = Gtk.Box(spacing=4)
+        self._scan_suffix.set_valign(Gtk.Align.CENTER)
+        self._scan_row.add_suffix(self._scan_suffix)
+
+        scan_placeholder = Gtk.Label(label="—")
+        scan_placeholder.add_css_class("dim-label")
+        self._scan_suffix.append(scan_placeholder)
+
+        compare_list.append(self._scan_row)
+
         compare_outer.append(compare_list)
         self.append(compare_outer)
+
+        # Startzustand: nur Fahrzeug-Zeile sichtbar
+        self._pid_row.set_visible(False)
+        self._scan_row.set_visible(False)
 
     # ── Callbacks ─────────────────────────────────────────────────────────
 
     def _on_car_selected(self, dd: Gtk.DropDown, _prop) -> None:
         sel = dd.get_selected()
         if sel == 0:
-            self._overlay_stats = {}
-            self._overlay_pid = None
-            self._set_pid_suffix_placeholder("—")
-            self._pid_row.set_sensitive(False)
-            self._da.queue_draw()
+            # Nichts ausgewählt: kompletter Reset auf Startzustand
+            self._reset_to_no_car_state()
             return
 
-        car_id, _ = self._car_options[sel - 1]
+        car_id, car_name = self._car_options[sel - 1]
+        self._hdr_lbl.set_label(car_name)
+        self._hdr_clear_btn.set_visible(True)
+        self._car_row.set_visible(False)
+        self._pid_row.set_visible(True)
+        self._scan_row.set_visible(False)
         self._set_pid_suffix_spinner()
-        self._pid_row.set_sensitive(False)
         threading.Thread(
             target=lambda: GLib.idle_add(
                 self._on_stats_loaded,
@@ -343,16 +439,52 @@ class ScanChartContent(Gtk.Box):
     def _on_pid_selected(self, dd: Gtk.DropDown, _prop) -> None:
         sel = dd.get_selected()
         self._overlay_pid = self._pid_options[sel - 1][0] if sel > 0 else None
+        self._overlay_scan_ts = None
+        if self._overlay_pid:
+            self._rebuild_scan_dd(self._overlay_pid)
+        else:
+            self._scan_row.set_visible(False)
         self._da.queue_draw()
+
+    def _on_scan_selected(self, dd: Gtk.DropDown, _prop) -> None:
+        sel = dd.get_selected()
+        # Index 0 = "Alle Scans" → kein Filter
+        self._overlay_scan_ts = self._scan_options[sel - 1][0] if sel > 0 else None
+        self._da.queue_draw()
+
+    def _on_clear_clicked(self, _btn) -> None:
+        # Setzt das Auto-Dropdown zurück; das löst _on_car_selected mit sel=0 aus.
+        self._car_dd.set_selected(0)
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
-    def _clear_pid_suffix(self) -> None:
+    def _reset_to_no_car_state(self) -> None:
+        self._overlay_stats = {}
+        self._overlay_pid = None
+        self._overlay_scan_ts = None
+        self._pid_options = []
+        self._scan_options = []
+        self._hdr_lbl.set_label("Vergleich")
+        self._hdr_clear_btn.set_visible(False)
+        self._car_row.set_visible(True)
+        self._pid_row.set_visible(False)
+        self._scan_row.set_visible(False)
+        self._set_pid_suffix_placeholder("—")
+        self._clear_box(self._scan_suffix)
+        ph = Gtk.Label(label="—")
+        ph.add_css_class("dim-label")
+        self._scan_suffix.append(ph)
+        self._da.queue_draw()
+
+    def _clear_box(self, box: Gtk.Box) -> None:
         while True:
-            child = self._pid_suffix.get_first_child()
+            child = box.get_first_child()
             if child is None:
                 break
-            self._pid_suffix.remove(child)
+            box.remove(child)
+
+    def _clear_pid_suffix(self) -> None:
+        self._clear_box(self._pid_suffix)
 
     def _set_pid_suffix_placeholder(self, text: str) -> None:
         self._clear_pid_suffix()
@@ -377,7 +509,7 @@ class ScanChartContent(Gtk.Box):
 
         if not self._pid_options:
             self._set_pid_suffix_placeholder("Keine Daten")
-            self._pid_row.set_sensitive(False)
+            self._scan_row.set_visible(False)
             self._da.queue_draw()
             return
 
@@ -392,25 +524,68 @@ class ScanChartContent(Gtk.Box):
 
         self._clear_pid_suffix()
         self._pid_suffix.append(dd)
-        self._pid_row.set_sensitive(True)
 
-        # Auto-select same PID if available in overlay car
+        # Auto-select gleiche PID wie Hauptserie, sonst nichts vorbelegen
         for i, (pid, _) in enumerate(self._pid_options):
             if pid == self._main_pid:
                 dd.set_selected(i + 1)
                 break
 
+    def _rebuild_scan_dd(self, pid: str) -> None:
+        pairs = (self._overlay_stats.get(pid) or {}).get("values") or []
+        self._scan_options = list(pairs)  # [(ts, val), ...]
+
+        if not self._scan_options:
+            self._scan_row.set_visible(False)
+            return
+
+        sl = Gtk.StringList()
+        sl.append("Alle Scans")
+        for ts, _v in self._scan_options:
+            sl.append(self._fmt_scan_ts(ts))
+
+        dd = Gtk.DropDown(model=sl)
+        dd.set_valign(Gtk.Align.CENTER)
+        dd.connect("notify::selected", self._on_scan_selected)
+
+        self._clear_box(self._scan_suffix)
+        self._scan_suffix.append(dd)
+        self._scan_row.set_visible(True)
+
+    @staticmethod
+    def _fmt_scan_ts(ts: str) -> str:
+        # ISO 8601 → "YYYY-MM-DD HH:MM"
+        if len(ts) >= 16:
+            return ts[:16].replace("T", " ")
+        return ts
+
     # ── Drawing ───────────────────────────────────────────────────────────
 
     def _draw(self, _da, cr, w: int, h: int) -> None:
         main_stats = self._all_stats.get(self._main_pid) or {}
-        main_vals = [v for _, v in (main_stats.get("values") or [])]
+        main_pairs = main_stats.get("values") or []
+        main_vals = [v for _, v in main_pairs]
+        main_ts = [ts for ts, _ in main_pairs]
         main_mean = main_stats.get("avg", 0.0)
+        main_unit = _unit_display(main_stats.get("unit", ""), self._language)
 
         overlay_vals: list[float] | None = None
+        overlay_unit = ""
         if self._overlay_pid and self._overlay_pid in self._overlay_stats:
-            ov = [v for _, v in (self._overlay_stats[self._overlay_pid].get("values") or [])]
+            ov_stats = self._overlay_stats[self._overlay_pid]
+            pairs = ov_stats.get("values") or []
+            if self._overlay_scan_ts:
+                pairs = [(ts, v) for ts, v in pairs if ts == self._overlay_scan_ts]
+            ov = [v for _, v in pairs]
             overlay_vals = ov if ov else None
+            if overlay_vals:
+                overlay_unit = _unit_display(ov_stats.get("unit", ""), self._language)
 
         bg_rgb = _lookup_card_bg(self._da)
-        _draw_chart(cr, w, h, main_vals, main_mean, overlay_vals, bg_rgb=bg_rgb)
+        _draw_chart(
+            cr, w, h, main_vals, main_mean, overlay_vals,
+            bg_rgb=bg_rgb,
+            main_unit=main_unit,
+            overlay_unit=overlay_unit,
+            main_ts=main_ts,
+        )
