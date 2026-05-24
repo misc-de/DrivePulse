@@ -461,13 +461,15 @@ class ScanChartContent(Gtk.Box):
         self._values_list.add_css_class("boxed-list")
         self._values_list.set_valign(Gtk.Align.START)
 
-        # Wert 1 row — auf den geöffneten PID fixiert (nicht änderbar)
+        # Wert 1 row — auf den geöffneten PID fixiert (nicht änderbar).
+        # Dropdown sitzt als Prefix linksbündig, der "+"-Button bleibt rechts.
         self._val1_row = Adw.ActionRow()
-        self._val1_row.set_title("Wert 1")
         self._val1_dd = self._make_pid_dropdown(self._main_pid)
         self._val1_dd.set_sensitive(False)
-        self._val1_dd.set_tooltip_text("Wert 1 ist fest auf den geöffneten Sensor gesetzt")
-        self._val1_row.add_suffix(self._val1_dd)
+        self._val1_dd.set_hexpand(True)
+        self._val1_dd.set_halign(Gtk.Align.FILL)
+        self._val1_dd.set_tooltip_text("Fest auf den geöffneten Sensor gesetzt")
+        self._val1_row.add_prefix(self._val1_dd)
         self._val1_add_btn = Gtk.Button.new_from_icon_name("list-add-symbolic")
         self._val1_add_btn.add_css_class("flat")
         self._val1_add_btn.add_css_class("circular")
@@ -477,12 +479,13 @@ class ScanChartContent(Gtk.Box):
         self._val1_row.add_suffix(self._val1_add_btn)
         self._values_list.append(self._val1_row)
 
-        # Wert 2 row (initial versteckt)
+        # Wert 2 row (initial versteckt) — gleicher Layout-Aufbau wie Wert 1.
         self._val2_row = Adw.ActionRow()
-        self._val2_row.set_title("Wert 2")
         self._val2_dd = self._make_pid_dropdown(None)
+        self._val2_dd.set_hexpand(True)
+        self._val2_dd.set_halign(Gtk.Align.FILL)
         self._val2_dd.connect("notify::selected", self._on_val2_changed)
-        self._val2_row.add_suffix(self._val2_dd)
+        self._val2_row.add_prefix(self._val2_dd)
         self._val2_remove_btn = Gtk.Button.new_from_icon_name("list-remove-symbolic")
         self._val2_remove_btn.add_css_class("flat")
         self._val2_remove_btn.add_css_class("circular")

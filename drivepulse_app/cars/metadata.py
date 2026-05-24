@@ -83,7 +83,6 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         (_SPECIAL_CVN,              "cars.pid.CVN"),
         (_SPECIAL_PROTO,            "cars.pid.PROTO"),
         ("011C",                    "cars.pid.011C"),
-        (_SPECIAL_SCAN_DATE,        "cars.pid.SCAN_DATE"),
     )),
     ("diagnostics", "cars.category.diagnostics", "dialog-warning-symbolic", (
         (_SPECIAL_DTC,        "cars.pid.DTC"),
