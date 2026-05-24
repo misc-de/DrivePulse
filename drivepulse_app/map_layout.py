@@ -1405,15 +1405,17 @@ class MapLayoutMixin:
 
     def _build_coord_overlay(self) -> Gtk.Widget:
         wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        wrap.set_halign(Gtk.Align.START)
+        wrap.set_halign(Gtk.Align.FILL)
         wrap.set_valign(Gtk.Align.END)
         wrap.set_margin_start(8)
+        wrap.set_margin_end(8)
         wrap.set_margin_bottom(36)
         wrap.set_can_target(False)
         wrap.set_visible(False)
 
         chip = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         chip.add_css_class("dp-coord-chip")
+        chip.set_hexpand(True)
 
         icon = Gtk.Image.new_from_icon_name("integral3-symbolic")
         icon.set_pixel_size(14)
