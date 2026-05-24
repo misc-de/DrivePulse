@@ -1,6 +1,7 @@
 """Scan history chart sub-page with multi-car / dual-value comparison."""
 from __future__ import annotations
 
+import json
 import math
 import threading
 
@@ -11,7 +12,29 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
 from .cars_metadata import _unit_display
+from .common import LOG_DIR
+from .diagnostics import atomic_write_text, get_logger
 from .draw_helpers import _txt
+
+_log = get_logger(__name__)
+_PREFS_FILE = LOG_DIR / "scan_chart_prefs.json"
+
+
+def _prefs_load() -> dict:
+    try:
+        return json.loads(_PREFS_FILE.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+    except (json.JSONDecodeError, OSError) as exc:
+        _log.warning("scan_chart_prefs unreadable: %s", exc)
+        return {}
+
+
+def _prefs_save(prefs: dict) -> None:
+    try:
+        atomic_write_text(_PREFS_FILE, json.dumps(prefs, indent=2))
+    except OSError as exc:
+        _log.warning("scan_chart_prefs save failed: %s", exc)
 
 _CHART_H = 260
 _PAD_L = 48
@@ -46,6 +69,20 @@ def _fmt_ts(ts: str) -> str:
 def _rgb_to_hex(rgb: tuple[float, float, float]) -> str:
     r, g, b = (max(0, min(255, int(round(c * 255)))) for c in rgb)
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _safe_pids_count(scan_meta) -> int:
+    try:
+        return int(scan_meta["pids_count"] or 0)
+    except (KeyError, TypeError, ValueError):
+        return 0
+
+
+def _fmt_scan_label(ts: str) -> str:
+    # ISO 8601 → "YYYY-MM-DD HH:MM"
+    if len(ts) >= 16:
+        return ts[:16].replace("T", " ")
+    return ts
 
 
 def _lookup_card_bg(widget) -> tuple[float, float, float] | None:
@@ -362,11 +399,12 @@ class ScanChartContent(Gtk.Box):
         self._values_list.add_css_class("boxed-list")
         self._values_list.set_valign(Gtk.Align.START)
 
-        # Wert 1 row
+        # Wert 1 row — auf den geöffneten PID fixiert (nicht änderbar)
         self._val1_row = Adw.ActionRow()
         self._val1_row.set_title("Wert 1")
         self._val1_dd = self._make_pid_dropdown(self._main_pid)
-        self._val1_dd.connect("notify::selected", self._on_val1_changed)
+        self._val1_dd.set_sensitive(False)
+        self._val1_dd.set_tooltip_text("Wert 1 ist fest auf den geöffneten Sensor gesetzt")
         self._val1_row.add_suffix(self._val1_dd)
         self._val1_add_btn = Gtk.Button.new_from_icon_name("list-add-symbolic")
         self._val1_add_btn.add_css_class("flat")
@@ -426,6 +464,10 @@ class ScanChartContent(Gtk.Box):
 
         wrap.append(self._cars_list)
         self.append(wrap)
+
+        # Gespeicherte Vergleichs-Konfiguration (Wert 2 + Vergleichs-Autos)
+        # für diesen (Auto, Sensor)-Kontext rekonstruieren.
+        self._restore_prefs()
 
     # ── Helpers: build ────────────────────────────────────────────────────
 
@@ -501,16 +543,6 @@ class ScanChartContent(Gtk.Box):
             return None
         return self._pid_options[sel - 1][0]
 
-    def _on_val1_changed(self, dd: Gtk.DropDown, _prop) -> None:
-        pid = self._selected_pid_from(dd)
-        if pid is None:
-            return  # Wert 1 darf nicht leer sein
-        if len(self._value_pids) >= 1:
-            self._value_pids[0] = pid
-        else:
-            self._value_pids.append(pid)
-        self._da.queue_draw()
-
     def _on_val2_changed(self, dd: Gtk.DropDown, _prop) -> None:
         pid = self._selected_pid_from(dd)
         if pid is None:
@@ -522,18 +554,20 @@ class ScanChartContent(Gtk.Box):
                 self._value_pids[1] = pid
             else:
                 self._value_pids.append(pid)
+        self._save_prefs()
         self._da.queue_draw()
 
     def _on_add_val2(self, _btn) -> None:
         self._val2_row.set_visible(True)
-        self._val1_add_btn.set_visible(False)
+        self._val1_add_btn.set_sensitive(False)
 
     def _on_remove_val2(self, _btn) -> None:
         self._val2_row.set_visible(False)
-        self._val1_add_btn.set_visible(True)
+        self._val1_add_btn.set_sensitive(True)
         self._val2_dd.set_selected(0)
         if len(self._value_pids) > 1:
             self._value_pids = self._value_pids[:1]
+        self._save_prefs()
         self._da.queue_draw()
 
     # ── Car handlers ──────────────────────────────────────────────────────
@@ -546,15 +580,24 @@ class ScanChartContent(Gtk.Box):
         self._add_compare_car(car_id)
         self._refresh_add_car_dropdown()
 
-    def _add_compare_car(self, car_id: int) -> None:
-        color = _DEFAULT_COMPARE_COLORS[self._next_color_idx % len(_DEFAULT_COMPARE_COLORS)]
-        self._next_color_idx += 1
+    def _add_compare_car(
+        self,
+        car_id: int,
+        restored_color: tuple[float, float, float] | None = None,
+        restored_scan_ts: str | None = None,
+    ) -> None:
+        if restored_color is not None:
+            color = restored_color
+        else:
+            color = _DEFAULT_COMPARE_COLORS[self._next_color_idx % len(_DEFAULT_COMPARE_COLORS)]
+            self._next_color_idx += 1
 
         entry: dict = {
             "car_id": car_id,
             "name": self._lookup_car_name(car_id),
             "color": color,
             "stats": None,
+            "_restored_scan_ts": restored_scan_ts,
         }
 
         row = Adw.ActionRow()
@@ -601,12 +644,47 @@ class ScanChartContent(Gtk.Box):
 
     def _on_compare_stats_loaded(self, entry: dict, stats: dict) -> bool:
         entry["stats"] = stats
-        # Spinner durch × ersetzen
+        # Scan-Liste laden (newest-first), nur mit Sensordaten
+        try:
+            scans_meta = list(self._db.list_scans_for_car(entry["car_id"])) if self._db else []
+        except Exception:
+            scans_meta = []
+        scans_meta = [s for s in scans_meta if _safe_pids_count(s) > 0]
+        entry["scans_meta"] = scans_meta
+        # Default: neuester Scan — sofern Persistenz einen gültigen Scan
+        # liefert, wird dieser stattdessen ausgewählt.
+        restored = entry.pop("_restored_scan_ts", None)
+        default_ts = str(scans_meta[0]["scanned_at"]) if scans_meta else None
+        if restored and any(str(s["scanned_at"]) == restored for s in scans_meta):
+            entry["scan_ts"] = restored
+        else:
+            entry["scan_ts"] = default_ts
+
         box = entry["suffix_box"]
         child = box.get_first_child()
         while child is not None:
             box.remove(child)
             child = box.get_first_child()
+
+        # Scan-Dropdown (neuester / wiederhergestellter Scan vorausgewählt)
+        if scans_meta:
+            scan_sl = Gtk.StringList()
+            for s in scans_meta:
+                scan_sl.append(_fmt_scan_label(str(s["scanned_at"])))
+            scan_dd = Gtk.DropDown(model=scan_sl)
+            scan_dd.set_valign(Gtk.Align.CENTER)
+            target_idx = 0
+            if entry.get("scan_ts"):
+                for i, s in enumerate(scans_meta):
+                    if str(s["scanned_at"]) == entry["scan_ts"]:
+                        target_idx = i
+                        break
+            scan_dd.set_selected(target_idx)
+            scan_dd.connect("notify::selected", self._on_compare_scan_changed, entry)
+            box.append(scan_dd)
+            entry["scan_dd"] = scan_dd
+
+        # Fahrzeug-Entfernen-Button
         remove_btn = Gtk.Button.new_from_icon_name("window-close-symbolic")
         remove_btn.add_css_class("flat")
         remove_btn.add_css_class("circular")
@@ -614,8 +692,19 @@ class ScanChartContent(Gtk.Box):
         remove_btn.set_tooltip_text("Fahrzeug entfernen")
         remove_btn.connect("clicked", self._on_remove_car, entry)
         box.append(remove_btn)
+        self._save_prefs()
         self._da.queue_draw()
         return False
+
+    def _on_compare_scan_changed(self, dd: Gtk.DropDown, _prop, entry: dict) -> None:
+        sel = dd.get_selected()
+        scans = entry.get("scans_meta") or []
+        if 0 <= sel < len(scans):
+            entry["scan_ts"] = str(scans[sel]["scanned_at"])
+        else:
+            entry["scan_ts"] = None
+        self._save_prefs()
+        self._da.queue_draw()
 
     def _on_remove_car(self, _btn, entry: dict) -> None:
         if entry not in self._compare_cars:
@@ -623,6 +712,7 @@ class ScanChartContent(Gtk.Box):
         self._compare_cars.remove(entry)
         self._cars_list.remove(entry["row"])
         self._refresh_add_car_dropdown()
+        self._save_prefs()
         self._da.queue_draw()
 
     def _on_color_clicked(self, _btn, entry: dict) -> None:
@@ -649,6 +739,7 @@ class ScanChartContent(Gtk.Box):
                 entry["color_lbl"].set_markup(
                     f'<span foreground="{_rgb_to_hex(entry["color"])}" size="large">⬤</span>'
                 )
+                self._save_prefs()
                 self._da.queue_draw()
 
             dialog.choose_rgba(parent, rgba, None, _done)
@@ -665,18 +756,98 @@ class ScanChartContent(Gtk.Box):
                     entry["color_lbl"].set_markup(
                         f'<span foreground="{_rgb_to_hex(entry["color"])}" size="large">⬤</span>'
                     )
+                    self._save_prefs()
                     self._da.queue_draw()
                 d.destroy()
 
             dlg.connect("response", _resp)
             dlg.present()
 
+    # ── Persistenz ────────────────────────────────────────────────────────
+
+    def _prefs_key(self) -> str | None:
+        if self._main_car_id is None or self._main_pid is None:
+            return None
+        return f"{self._main_car_id}:{self._main_pid}"
+
+    def _save_prefs(self) -> None:
+        key = self._prefs_key()
+        if key is None:
+            return
+        val2 = self._value_pids[1] if len(self._value_pids) > 1 else None
+        cars_data: list[dict] = []
+        for entry in self._compare_cars:
+            cars_data.append({
+                "car_id": entry["car_id"],
+                "color": [float(c) for c in entry["color"]],
+                "scan_ts": entry.get("scan_ts"),
+            })
+        prefs = _prefs_load()
+        prefs[key] = {
+            "value2": val2,
+            "cars": cars_data,
+        }
+        _prefs_save(prefs)
+
+    def _restore_prefs(self) -> None:
+        key = self._prefs_key()
+        if key is None:
+            return
+        prefs = _prefs_load()
+        saved = prefs.get(key)
+        if not saved:
+            return
+
+        # Wert 2 wiederherstellen
+        val2 = saved.get("value2")
+        if val2:
+            for i, (pid, _) in enumerate(self._pid_options):
+                if pid == val2:
+                    self._val2_dd.set_selected(i + 1)  # löst _on_val2_changed aus
+                    self._on_add_val2(None)
+                    break
+
+        # Vergleichs-Fahrzeuge wiederherstellen (nur die mit Sensordaten,
+        # gespeicherte Farbe und Scan-Auswahl rekonstruieren)
+        for car_pref in saved.get("cars", []):
+            cid = car_pref.get("car_id")
+            if cid is None or cid == self._main_car_id:
+                continue
+            if not any(p.get("car_id") == cid for p in self._profiles):
+                continue
+            if not self._car_has_sensor_data(cid):
+                continue
+            color_list = car_pref.get("color")
+            restored_color: tuple[float, float, float] | None = None
+            if isinstance(color_list, list) and len(color_list) >= 3:
+                try:
+                    restored_color = (
+                        float(color_list[0]),
+                        float(color_list[1]),
+                        float(color_list[2]),
+                    )
+                except (TypeError, ValueError):
+                    restored_color = None
+            self._add_compare_car(
+                cid,
+                restored_color=restored_color,
+                restored_scan_ts=car_pref.get("scan_ts"),
+            )
+        self._refresh_add_car_dropdown()
+
     # ── Drawing ───────────────────────────────────────────────────────────
 
-    def _series_for(self, stats: dict | None, pid: str | None) -> tuple[list[float], list[str], str]:
+    def _series_for(
+        self,
+        stats: dict | None,
+        pid: str | None,
+        scan_ts: str | None = None,
+    ) -> tuple[list[float], list[str], str]:
         if not stats or not pid or pid not in stats:
             return [], [], ""
         pairs = stats[pid].get("values") or []
+        if scan_ts is not None:
+            pairs = [(t, v) for t, v in pairs if t == scan_ts]
         vals = [v for _, v in pairs]
         ts = [t for t, _ in pairs]
         unit = _unit_display(stats[pid].get("unit", ""), self._language)
@@ -696,8 +867,9 @@ class ScanChartContent(Gtk.Box):
             stats = entry.get("stats")
             if not stats:
                 continue
-            v1, _ts1, u1 = self._series_for(stats, val1_pid)
-            v2, _ts2, u2 = self._series_for(stats, val2_pid)
+            scan_ts = entry.get("scan_ts")
+            v1, _ts1, u1 = self._series_for(stats, val1_pid, scan_ts)
+            v2, _ts2, u2 = self._series_for(stats, val2_pid, scan_ts)
             if not val1_unit and u1:
                 val1_unit = u1
             if not val2_unit and u2:
