@@ -1619,8 +1619,9 @@ class MapLayoutMixin:
     def _build_tour_controls(self) -> Gtk.Widget:
         # Grid layout:
         # Row 0, Col 0: start button
-        # Row 1, Col 0: horizontal box — [info toggle] [notepad restore btn] (identical style)
-        # Row 1, Col 1: info card (shown when a trip is loaded)
+        # Row 1, Col 0: icon_row — [info toggle] [notepad_slot]
+        #   notepad_slot holds notepad button AND info card (one visible at a time),
+        #   so the card opens exactly at the notepad button's position.
         grid = Gtk.Grid(column_spacing=8, row_spacing=8)
         grid.set_halign(Gtk.Align.START)
         grid.set_valign(Gtk.Align.START)
@@ -1640,7 +1641,6 @@ class MapLayoutMixin:
         self._tour_start_btn.connect("clicked", self._on_tour_start_clicked)
         grid.attach(self._tour_start_btn, 0, 0, 1, 1)
 
-        # Row with info icon + notepad restore button side by side
         icon_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         icon_row.set_valign(Gtk.Align.START)
 
@@ -1655,14 +1655,16 @@ class MapLayoutMixin:
         self._steps_toggle_btn.connect("toggled", self._on_steps_toggle)
         icon_row.append(self._steps_toggle_btn)
 
-        icon_row.append(self._build_replay_info_restore_btn())
-        grid.attach(icon_row, 0, 1, 1, 1)
+        # notepad_slot: notepad button and info card share the same position.
+        # Clicking the notepad button swaps them — the card opens where the
+        # button was, and minimising the card brings the button back.
+        notepad_slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        notepad_slot.set_valign(Gtk.Align.START)
+        notepad_slot.append(self._build_replay_info_restore_btn())
+        notepad_slot.append(self._build_replay_info_overlay())
+        icon_row.append(notepad_slot)
 
-        # Info card sits in col 1, top-aligned next to the icon row
-        card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        card_box.set_valign(Gtk.Align.START)
-        card_box.append(self._build_replay_info_overlay())
-        grid.attach(card_box, 1, 1, 1, 1)
+        grid.attach(icon_row, 0, 1, 1, 1)
 
         grid.set_visible(False)
         return grid
