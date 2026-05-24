@@ -328,6 +328,17 @@ class ScanChartContent(Gtk.Box):
         self._main_car_id = main_car_id
         self._on_navigate_pid = on_navigate_pid
 
+        # Vergleichs-Kandidaten: nur Autos mit mindestens einem echten Datapoint
+        # (≠ None und ≠ 0) in irgendeinem Scan. Einmal beim Öffnen berechnet,
+        # damit das Dropdown später ohne DB-Roundtrip auskommt.
+        self._cars_with_data: set[int] = set()
+        for _p in profiles:
+            _cid = _p.get("car_id")
+            if _cid is None or _cid == main_car_id:
+                continue
+            if self._car_has_sensor_values(_cid):
+                self._cars_with_data.add(_cid)
+
         # PID-Auswahloptionen (Liste der bekannten PIDs aus Hauptauto)
         self._pid_options: list[tuple[str, str]] = []
         for pid, s in sorted(all_stats.items(), key=lambda kv: pid_labels.get(kv[0], kv[0])):
@@ -533,6 +544,28 @@ class ScanChartContent(Gtk.Box):
                 return disp
         return f"Fahrzeug {car_id}"
 
+    def _car_has_sensor_values(self, car_id: int) -> bool:
+        if self._db is None:
+            return False
+        try:
+            scans = self._db.list_scans_for_car(car_id)
+        except Exception:
+            return False
+        for scan_meta in scans:
+            try:
+                data = self._db.get_scan_data(int(scan_meta["id"]))
+            except Exception:
+                continue
+            for raw_val in (data.get("live_data") or {}).values():
+                v = raw_val.get("value") if isinstance(raw_val, dict) else raw_val
+                try:
+                    num = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if num != 0:
+                    return True
+        return False
+
     def _refresh_add_car_dropdown(self) -> None:
         used = {self._main_car_id} | {c["car_id"] for c in self._compare_cars}
         self._add_car_candidates: list[int] = []
@@ -540,7 +573,7 @@ class ScanChartContent(Gtk.Box):
         sl.append("—")
         for p in self._profiles:
             cid = p.get("car_id")
-            if cid is None or cid in used:
+            if cid is None or cid in used or cid not in self._cars_with_data:
                 continue
             sl.append(self._lookup_car_name(cid))
             self._add_car_candidates.append(cid)
@@ -866,6 +899,8 @@ class ScanChartContent(Gtk.Box):
             if cid is None or cid == self._main_car_id:
                 continue
             if not any(p.get("car_id") == cid for p in self._profiles):
+                continue
+            if cid not in self._cars_with_data:
                 continue
             color_list = car_pref.get("color")
             restored_color: tuple[float, float, float] | None = None
