@@ -244,12 +244,13 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self.gforce_box.append(self.maxes_label)
         self.gforce_box.append(self.gforce_canvas)
 
-        # Results table in a scroll window so it never overflows in landscape.
+        # Results table: always render at natural height so every row stays
+        # visible; other widgets adapt to whatever space is left.
         self.results_box.set_hexpand(True)
         self.results_box.set_vexpand(False)
         self.results_box.set_valign(Gtk.Align.START)
         self.results_scroll = Gtk.ScrolledWindow()
-        self.results_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.results_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.NEVER)
         self.results_scroll.set_propagate_natural_height(True)
         self.results_scroll.set_hexpand(True)
         self.results_scroll.set_vexpand(False)
@@ -309,10 +310,10 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             # left_col fills its half vertically so gforce_box aligns with the title
             self.left_col.set_vexpand(True)
             self.left_col.set_valign(Gtk.Align.FILL)
-            # results_scroll expands between intro and controls
-            self.results_scroll.set_vexpand(True)
-            self.results_scroll.set_valign(Gtk.Align.FILL)
-            self.results_scroll.set_propagate_natural_height(False)
+            # results_scroll always shows full table; remaining space goes to gforce/options
+            self.results_scroll.set_vexpand(False)
+            self.results_scroll.set_valign(Gtk.Align.START)
+            self.results_scroll.set_propagate_natural_height(True)
             self.maxes_label.set_margin_top(8)
             # Trigger row: checkbox and ± on one line
             self._trigger_row.set_orientation(Gtk.Orientation.HORIZONTAL)
