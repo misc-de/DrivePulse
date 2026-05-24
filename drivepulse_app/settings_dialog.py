@@ -921,20 +921,40 @@ class SettingsDialog(Adw.NavigationPage):
     # ── Camera mode helpers ───────────────────────────────────────────────────
 
     def _populate_modes(self, device: str) -> None:
-        """Query camera modes and fill resolution + fps combos."""
-        from .dashcam_recorder import FPS_OPTIONS, RESOLUTIONS, query_camera_modes
-        modes = query_camera_modes(device)
-        self._dc_cam_modes = modes
+        """Fill resolution + fps combos.
 
-        resolutions = list(modes.keys()) if modes else RESOLUTIONS
+        The real v4l2-ctl probe (`query_camera_modes`) can take up to four
+        seconds — running it inline blocks the settings dialog from rendering.
+        So we paint the fallback list first and refresh once the subprocess
+        returns from a background thread.
+        """
+        from .dashcam_recorder import RESOLUTIONS
+        # Synchronous fallback so the dialog opens immediately.
+        self._dc_cam_modes = {}
+        self._apply_resolution_list(RESOLUTIONS)
+        # Real query off the main loop.
+        def _worker() -> None:
+            from .dashcam_recorder import query_camera_modes
+            modes = query_camera_modes(device)
+            GLib.idle_add(self._on_camera_modes_ready, modes)
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _apply_resolution_list(self, resolutions: list[str]) -> None:
         res_model = Gtk.StringList()
         for r in resolutions:
             res_model.append(r)
         self._dc_res_row.set_model(res_model)
         idx = resolutions.index(self._dc_current_res) if self._dc_current_res in resolutions else 0
         self._dc_res_row.set_selected(idx)
-
         self._populate_fps_for_res(resolutions[idx] if resolutions else self._dc_current_res)
+
+    def _on_camera_modes_ready(self, modes: dict[str, list[int]]) -> bool:
+        if self._closing:
+            return False
+        self._dc_cam_modes = modes
+        if modes:
+            self._apply_resolution_list(list(modes.keys()))
+        return False  # one-shot
 
     def _populate_fps_for_res(self, resolution: str) -> None:
         """Fill the FPS combo for the given resolution."""
