@@ -1444,7 +1444,7 @@ class MapLayoutMixin:
         chip.set_can_target(False)
         chip.set_visible(False)  # shown for shumate in _apply_initial_overlay_state
 
-        icon = Gtk.Image.new_from_icon_name("integral3-symbolic")
+        icon = Gtk.Image.new_from_icon_name("kstars_satellites-symbolic")
         icon.set_pixel_size(14)
         chip.append(icon)
 
