@@ -486,7 +486,7 @@ class ScanChartContent(Gtk.Box):
         self._main_scan_dd: Gtk.DropDown | None = None
         if self._main_scans_meta:
             main_scan_sl = Gtk.StringList()
-            main_scan_sl.append("Neuester")
+            main_scan_sl.append("Alle Scans")
             for s in self._main_scans_meta:
                 main_scan_sl.append(_fmt_scan_label(str(s["scanned_at"])))
             self._main_scan_dd = Gtk.DropDown(model=main_scan_sl)
@@ -717,7 +717,7 @@ class ScanChartContent(Gtk.Box):
         # Scan-Dropdown: "Neuester" + alle Scans mit Sensordaten
         if scans_meta:
             scan_sl = Gtk.StringList()
-            scan_sl.append("Neuester")
+            scan_sl.append("Alle Scans")
             for s in scans_meta:
                 scan_sl.append(_fmt_scan_label(str(s["scanned_at"])))
             scan_dd = Gtk.DropDown(model=scan_sl)
@@ -933,11 +933,10 @@ class ScanChartContent(Gtk.Box):
         if not stats or not pid or pid not in stats:
             return [], [], ""
         pairs = stats[pid].get("values") or []
-        # scan_ts None → "Neuester": letzter Eintrag (Liste ist nach
-        # Timestamp aufsteigend sortiert). Konkreter Timestamp → exakter Filter.
-        if scan_ts is None:
-            pairs = pairs[-1:] if pairs else []
-        else:
+        # scan_ts None → "Alle Scans": komplette Verlaufslinie aus allen
+        # Datapoints (Liste ist nach Timestamp ASC sortiert).
+        # Konkreter Timestamp → exakter Filter auf nur diesen einen Scan.
+        if scan_ts is not None:
             pairs = [(t, v) for t, v in pairs if t == scan_ts]
         vals = [v for _, v in pairs]
         ts = [t for t, _ in pairs]
