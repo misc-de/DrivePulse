@@ -7,21 +7,20 @@ from typing import Any
 
 from gi.repository import GLib
 
-from drivepulse_app.common import _detect_language, _normalize_language, _translate
 from drivepulse_app.cars.profiles import _load_profiles
+from drivepulse_app.common import _detect_language, _normalize_language, _translate
 from drivepulse_app.dashboard.data import obd_sample_fields, scan_identity_from_payload, scan_profile_dashboard_data
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.obd.recorder import ObdRecorder
 from drivepulse_app.telemetry_utils import display_speed, has_obd_data, plain_number
-
 
 log = get_logger(__name__)
 
 
 class DashboardTelemetryMixin:
     _scan_is_new_car: bool = False
-    _pending_new_car_id: "int | None" = None
-    _obd_recorder: "ObdRecorder | None" = None
+    _pending_new_car_id: int | None = None
+    _obd_recorder: ObdRecorder | None = None
     def _known_car_id_for_vin(self, vin: str | None) -> int | None:
         if not vin:
             return None
@@ -258,7 +257,7 @@ class DashboardTelemetryMixin:
         self.stopwatch_page.update_payload(payload, self._plain_number)
         self.cars_page.update_live(payload)
 
-        canvas_speed = self._display_speed(speed_source_kmh)
+        self._display_speed(speed_source_kmh)
         fuel = self._plain_number(payload, "fuel_level") if active else None
         heading = self._plain_number(payload, "gps_heading") if active else None
         throttle = self._plain_number(payload, "throttle_pos") if active else None
@@ -343,10 +342,10 @@ class DashboardTelemetryMixin:
         coolant = fields.get("coolant_c")
         speed = fields.get("speed_kmh")
 
-        def _upd_min(cur: "float | None", v: float) -> float:
+        def _upd_min(cur: float | None, v: float) -> float:
             return v if cur is None else min(cur, v)
 
-        def _upd_max(cur: "float | None", v: float) -> float:
+        def _upd_max(cur: float | None, v: float) -> float:
             return v if cur is None else max(cur, v)
 
         changed = False
