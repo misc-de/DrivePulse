@@ -62,7 +62,7 @@ MAP_LABEL_KEYS = {
     "dark": "map.type.dark",
 }
 MAP_ICONS = {
-    "map": "map-symbolic",
+    "map": "dialog-layers-symbolic",
     "satellite": "image-x-generic-symbolic",
     "dark": "night-light-symbolic",
 }

@@ -60,14 +60,18 @@ class MapShumateMixin:
                 self._shumate_map.set_property("show-zoom-buttons", False)
             except Exception:
                 pass
-        # Scale ruler lives in the bottom-right corner, below the FAB column.
+        # Scale ruler sits horizontally to the left of the TTS (speaker) button
+        # — the bottom-most FAB entry. FAB margin_bottom=36, button ~40 px tall,
+        # so the TTS button's vertical centre is at ~56 px; scale (~14 px tall)
+        # gets margin_bottom=49 to share that midline. margin_end=60 clears the
+        # 40 px FAB column (margin_end 12 + width 40) with an 8 px gap.
         # Hidden while the coord chip expands to full width (would cover it).
         scale = self._shumate_map.get_scale()
         if scale is not None:
             scale.set_halign(Gtk.Align.END)
             scale.set_valign(Gtk.Align.END)
-            scale.set_margin_end(8)
-            scale.set_margin_bottom(8)
+            scale.set_margin_end(60)
+            scale.set_margin_bottom(49)
         # Initial scale unit follows the user's settings choice.
         self._shumate_apply_scale_unit(getattr(self, "units", "metric"))
 
