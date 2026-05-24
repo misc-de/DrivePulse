@@ -37,5 +37,6 @@
     <file alias="library-symbolic.svg">icons/hicolor/symbolic/actions/library-symbolic.svg</file>
     <file alias="integral3-symbolic.svg">icons/hicolor/symbolic/actions/integral3-symbolic.svg</file>
     <file alias="distance-symbolic.svg">icons/hicolor/symbolic/actions/distance-symbolic.svg</file>
+    <file alias="notepad-symbolic.svg">icons/hicolor/symbolic/actions/notepad-symbolic.svg</file>
   </gresource>
 </gresources>
