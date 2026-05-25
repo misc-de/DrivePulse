@@ -84,6 +84,18 @@ _MANEUVER_CSS = b"""
   background-color: transparent;
 }
 .dp-coord-chip image { color: rgba(255, 255, 255, 0.80); }
+/* Route info card (duration + distance) - dark grey box matching OSD buttons */
+.dp-route-info {
+  background-color: rgba(20, 24, 32, 0.82);
+  border-radius: 12px;
+  padding: 6px 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.dp-route-info label {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 500;
+}
 /* Speed-limit sign - classic European round white/red circle */
 .dp-speed-sign {
   background-color: #ffffff;

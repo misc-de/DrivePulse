@@ -236,16 +236,11 @@ class MapLayoutMixin:
         wrap.set_halign(Gtk.Align.CENTER)
         wrap.set_valign(Gtk.Align.START)
         wrap.set_margin_top(8)
-        wrap.add_css_class("osd")
-        wrap.add_css_class("card")
+        wrap.add_css_class("dp-route-info")
         wrap.set_can_target(False)
         wrap.set_visible(False)
 
         lbl = Gtk.Label(label="")
-        lbl.set_margin_start(10)
-        lbl.set_margin_end(10)
-        lbl.set_margin_top(4)
-        lbl.set_margin_bottom(4)
         lbl.set_xalign(0.5)
         wrap.append(lbl)
 
