@@ -417,15 +417,22 @@ def _build_chart_widget(
     motion_ctl.connect("leave", _on_pointer_leave)
     area.add_controller(motion_ctl)
 
-    # GestureClick exists solely to claim the touch sequence so a parent
-    # ScrolledWindow's kinetic-scroll gesture can't steal the drag. All
-    # press/release/cursor-tracking happens via the legacy controller below.
+    # GestureClick claims the sequence (so a parent ScrolledWindow's
+    # kinetic-scroll gesture can't steal the drag) AND drops an immediate
+    # cursor mark — using widget-local x from the signal — so the user sees
+    # feedback even if the claim prevents the legacy controller from seeing
+    # the corresponding TOUCH_BEGIN / BUTTON_PRESS in the same delivery.
+    # _pressed itself stays driven by legacy so GestureClick's tap-vs-drag
+    # heuristic can't flip it to False mid-drag via "released".
     tap_ctl = Gtk.GestureClick()
     tap_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-    tap_ctl.connect(
-        "pressed",
-        lambda g, *_a: g.set_state(Gtk.EventSequenceState.CLAIMED),
-    )
+
+    def _on_chart_tap_pressed(g: Any, _n: int, x: float, _y: float) -> None:
+        g.set_state(Gtk.EventSequenceState.CLAIMED)
+        _pressed[0] = True
+        _set_cursor(x, area.get_width())
+
+    tap_ctl.connect("pressed", _on_chart_tap_pressed)
     area.add_controller(tap_ctl)
 
     # Single legacy controller drives the whole press+drag lifecycle for both
