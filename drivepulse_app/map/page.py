@@ -207,7 +207,15 @@ class MapPage(
         # suspect is plausible), it is accepted retroactively; otherwise it is
         # silently discarded as GPS noise.
         self._gps_filt_suspect: tuple | None = None  # (lat, lon, hdg, spd, t)
+        # Latest OBD vehicle speed — used to cross-validate GPS position fixes.
+        self._obd_speed_kmh: float | None = None
+        self._obd_speed_time: float = 0.0
         self._dnd_src_idx: int = -1
+        # Speed-limit warning beep
+        self._speed_warn_enabled: bool = True
+        self._speed_warn_btn: Gtk.Button | None = None
+        self._speed_warn_fired: bool = False       # reset on each maneuver step
+        self._speed_zones_from_overpass: bool = False  # only warn on Overpass data
         # TTS state
         self._tts_enabled: bool = False
         self._tts_language: str = "auto"
@@ -292,6 +300,7 @@ class MapPage(
         self._tour_plan_active: bool = False
         self._tour_listbox: Gtk.ListBox | None = None
         self._loaded_tour_id: int | None = None
+        self._loaded_tour_name: str | None = None
 
         # NavigationView wraps all map content — enables sub-page push/pop
         self._nav_view: Adw.NavigationView = Adw.NavigationView()
@@ -442,6 +451,11 @@ class MapPage(
             self._update_maneuver_overlay()
             self._check_waypoint_proximity()
 
+    def update_obd_speed(self, speed_kmh: float) -> None:
+        """Store the latest OBD vehicle speed for GPS cross-validation."""
+        self._obd_speed_kmh = speed_kmh
+        self._obd_speed_time = time.monotonic()
+
     # ── GPS kinematic sanity filter ───────────────────────────────────────────
 
     # Maximum plausible acceleration: ~10 m/s² ≈ 36 km/h per second (sports car).
@@ -455,6 +469,10 @@ class MapPage(
     # After this many seconds without an accepted fix, stop filtering and accept
     # whatever arrives (GPS receiver recovered / tunnel exit / etc.).
     _GPS_MAX_STALE_S: float = 10.0
+    # OBD speed cross-validation: how long OBD data stays valid, and how large a
+    # discrepancy between GPS speed and OBD speed triggers position rejection.
+    _OBD_SPEED_STALE_S: float = 5.0
+    _OBD_GPS_SPEED_DIFF_KMH: float = 30.0
 
     def _gps_filter(
         self,
@@ -490,6 +508,29 @@ class MapPage(
         max_ok_kmh = (
             self._gps_filt_speed_kmh + self._GPS_MAX_ACCEL_KMH_S * dt
         ) * self._GPS_SPEED_TOL
+
+        # ── OBD speed cross-validation ────────────────────────────────────────
+        # If a fresh OBD speed reading is available and the GPS-reported speed
+        # (or position-implied speed as fallback) differs from it by more than
+        # _OBD_GPS_SPEED_DIFF_KMH, the GPS position fix is unreliable — hold
+        # the last valid position regardless of kinematic plausibility.
+        obd_kmh = self._obd_speed_kmh
+        if (
+            obd_kmh is not None
+            and (now - self._obd_speed_time) < self._OBD_SPEED_STALE_S
+        ):
+            gps_speed = speed_kmh if speed_kmh is not None else implied_kmh
+            if abs(gps_speed - obd_kmh) > self._OBD_GPS_SPEED_DIFF_KMH:
+                log.debug(
+                    "GPS speed %.0f km/h contradicts OBD %.0f km/h — position held",
+                    gps_speed, obd_kmh,
+                )
+                return (
+                    self._gps_filt_lat,
+                    self._gps_filt_lon,
+                    self._gps_filt_heading,
+                    self._gps_filt_speed_kmh,
+                )
 
         if implied_kmh <= max_ok_kmh:
             # ── Speed is kinematically plausible ──────────────────────────────
@@ -766,6 +807,7 @@ class MapPage(
         self._tour_step_idx = 0
         self._tour_coords = []
         self._loaded_tour_id = None
+        self._loaded_tour_name = None
         self._abort_tour()
         self._set_tour_controls_visible(False)
         if self._tour_save_btn is not None:
@@ -839,6 +881,27 @@ class MapPage(
             self._tts_btn.set_active(self._tts_enabled)
             self._tts_btn.handler_unblock_by_func(self._on_tts_btn_toggled)
         self._refresh_tts_btn()
+
+    def set_speed_warn_enabled(self, enabled: bool) -> None:
+        self._speed_warn_enabled = bool(enabled)
+        if self._speed_warn_btn is not None:
+            self._speed_warn_btn.handler_block_by_func(self._on_speed_warn_toggled)
+            self._speed_warn_btn.set_active(self._speed_warn_enabled)
+            self._speed_warn_btn.handler_unblock_by_func(self._on_speed_warn_toggled)
+        self._refresh_speed_warn_btn()
+
+    def _refresh_speed_warn_btn(self) -> None:
+        if self._speed_warn_btn is None:
+            return
+        tip = _translate(self.language, "map.speed_warn.on" if self._speed_warn_enabled else "map.speed_warn.off")
+        self._speed_warn_btn.set_tooltip_text(tip)
+
+    def _on_speed_warn_toggled(self, btn: Gtk.ToggleButton) -> None:
+        self._speed_warn_enabled = btn.get_active()
+        self._refresh_speed_warn_btn()
+        cb = getattr(self, "_on_speed_warn_changed", None)
+        if callable(cb):
+            cb(self._speed_warn_enabled)
 
     def set_tts_language(self, language: str) -> None:
         self._tts_language = language if language in {"auto", "en", "de"} else "auto"
@@ -997,7 +1060,9 @@ class MapPage(
         self._show_route_info(duration_s, distance_m)
         self._set_tour_controls_visible(True)
         if self._tour_save_btn is not None:
-            self._tour_save_btn.set_visible(True)
+            self._tour_save_btn.set_visible(
+                getattr(self, "_loaded_tour_id", None) is None
+            )
         if self._steps_toggle_btn is not None and self._steps_toggle_btn.get_active():
             self._rebuild_steps_list()
             if self._steps_panel is not None:

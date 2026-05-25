@@ -71,6 +71,8 @@ _MANEUVER_CSS = b"""
   background-color: rgba(30, 136, 229, 0.55);
 }
 .dp-lane-valid image { color: #ffffff; }
+/* Green icon for the currently-loaded tour entry in Recent/Load-Tour lists */
+.dp-tour-loaded-icon { color: #3db065; }
 /* GPS coordinate chip - transparent icon, box background shows through */
 .dp-coord-chip {
   background-color: rgba(20, 24, 32, 0.72);
@@ -101,14 +103,15 @@ _MANEUVER_CSS = b"""
   background-color: #ffffff;
   border: 6px solid #cc0000;
   border-radius: 9999px;
-  min-width: 88px;
-  min-height: 88px;
+  min-width: 130px;
+  min-height: 130px;
   box-shadow: 0 3px 10px rgba(0,0,0,0.45);
 }
 .dp-speed-sign label {
   color: #111111;
-  font-size: 27px;
+  font-size: 54px;
   font-weight: 900;
+  padding-top: 8px;
 }
 """
 _maneuver_css_installed = False

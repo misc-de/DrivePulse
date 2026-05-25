@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
-from drivepulse_app.http_client import http_get
+from drivepulse_app.http_client import http_get, http_post
 
 log = get_logger(__name__)
 
@@ -20,6 +20,22 @@ GeocodeFn = Callable[[str], tuple[float, float] | None]
 ROUTING_BACKENDS = ["osrm", "valhalla"]
 
 _VALHALLA_URL = "https://valhalla.openstreetmap.de/route"
+_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+
+# Named maxspeed tags used by OSM / Valhalla (→ km/h)
+_MAXSPEED_NAMED: dict[str, float] = {
+    "de:living_street": 7.0,
+    "de:pedestrian": 10.0,
+    "de:urban": 50.0,
+    "de:rural": 100.0,
+    "de:motorway": 130.0,
+    "at:living_street": 10.0,
+    "at:urban": 50.0,
+    "at:rural": 100.0,
+    "at:motorway": 130.0,
+    "walk": 7.0,
+    "none": 130.0,
+}
 
 # Valhalla integer maneuver type → (osrm_type, osrm_modifier)
 _VALHALLA_MANEUVER: dict[int, tuple[str, str]] = {
@@ -250,6 +266,140 @@ def mock_speed_kmh(ref: str) -> float:
     if first == "A" and (len(r) == 1 or not r[1].isalpha()):
         return 120.0
     return 70.0
+
+
+def _parse_maxspeed(raw: str) -> float | None:
+    """Parse an OSM maxspeed tag value to km/h, or return None if unparseable."""
+    v = raw.strip().lower()
+    if not v:
+        return None
+    if v in _MAXSPEED_NAMED:
+        return _MAXSPEED_NAMED[v]
+    if v.endswith(" mph"):
+        try:
+            return round(float(v[:-4].strip()) * 1.60934)
+        except ValueError:
+            return None
+    try:
+        val = float(v)
+        return val if val > 0 else None
+    except ValueError:
+        return None
+
+
+def _pt_seg_dist2_approx(
+    plat: float, plon: float,
+    alat: float, alon: float,
+    blat: float, blon: float,
+) -> float:
+    """Squared approximate distance (flat-earth) from point P to segment AB."""
+    cos_lat = math.cos(math.radians((alat + blat) * 0.5))
+    ax = (alon - plon) * cos_lat
+    ay = alat - plat
+    abx = (blon - alon) * cos_lat
+    aby = blat - alat
+    ab2 = abx * abx + aby * aby
+    if ab2 < 1e-18:
+        return ax * ax + ay * ay
+    t = max(0.0, min(1.0, ((-ax) * abx + (-ay) * aby) / ab2))
+    dx = ax + t * abx
+    dy = ay + t * aby
+    return dx * dx + dy * dy
+
+
+def fetch_overpass_speed_zones(
+    coords: list[list[float]],
+    sample_every_m: float = 200.0,
+    around_m: float = 30.0,
+    http_post_fn=http_post,
+) -> list[tuple[float, float]]:
+    """Pre-fetch speed limits for the entire route via Overpass API.
+
+    Samples the route polyline every *sample_every_m* metres, fetches all
+    highway ways with a maxspeed tag within *around_m* metres of those
+    points in one Overpass query, then assigns the nearest way's speed to
+    each sample and returns (cum_dist_m, speed_kmh) zone breakpoints —
+    the same format consumed by _update_speed_zone_overlay().
+
+    Runs in a background thread; returns [] on network or parse failure.
+    """
+    if len(coords) < 2:
+        return []
+
+    R = 6_371_000.0
+
+    # Cumulative distances along the route polyline.
+    cum: list[float] = [0.0]
+    for i in range(1, len(coords)):
+        a_lon, a_lat = coords[i - 1]
+        b_lon, b_lat = coords[i]
+        dlat = math.radians(b_lat - a_lat)
+        dlon = math.radians(b_lon - a_lon)
+        mlat = math.radians((a_lat + b_lat) * 0.5)
+        cum.append(cum[-1] + R * math.sqrt(dlat ** 2 + (math.cos(mlat) * dlon) ** 2))
+
+    # Sample the route at regular intervals.
+    samples: list[tuple[float, float, float]] = []  # (cum_m, lat, lon)
+    next_target = 0.0
+    for i, (c, coord) in enumerate(zip(cum, coords)):
+        if c >= next_target or i == 0:
+            lon, lat = coord
+            samples.append((c, lat, lon))
+            next_target = c + sample_every_m
+    last_lon, last_lat = coords[-1]
+    if not samples or samples[-1][0] < cum[-1] - 1.0:
+        samples.append((cum[-1], last_lat, last_lon))
+
+    # Build Overpass QL query — one around-buffer along all sample points.
+    pts = "".join(f",{lat},{lon}" for _, lat, lon in samples)
+    query = (
+        f"[out:json][timeout:60];\n"
+        f"way(around:{int(around_m)}{pts})[highway][maxspeed];\n"
+        f"out body geom;\n"
+    )
+
+    data = http_post_fn(_OVERPASS_URL, query)
+    if not data:
+        return []
+
+    # Parse returned ways into (speed_kmh, [(lat, lon), ...]).
+    ways: list[tuple[float, list[tuple[float, float]]]] = []
+    for el in data.get("elements") or []:
+        if el.get("type") != "way":
+            continue
+        speed = _parse_maxspeed(str((el.get("tags") or {}).get("maxspeed", "")))
+        if speed is None or speed <= 0:
+            continue
+        geometry = el.get("geometry") or []
+        nodes: list[tuple[float, float]] = [
+            (n["lat"], n["lon"]) for n in geometry if "lat" in n and "lon" in n
+        ]
+        if len(nodes) >= 2:
+            ways.append((speed, nodes))
+
+    if not ways:
+        return []
+
+    # Assign the nearest way's speed to each sample point.
+    zones: list[tuple[float, float]] = []
+    prev_speed: float | None = None
+
+    for cum_m, s_lat, s_lon in samples:
+        best_d2 = float("inf")
+        best_speed: float | None = None
+        for speed, nodes in ways:
+            for j in range(len(nodes) - 1):
+                a_lat, a_lon = nodes[j]
+                b_lat, b_lon = nodes[j + 1]
+                d2 = _pt_seg_dist2_approx(s_lat, s_lon, a_lat, a_lon, b_lat, b_lon)
+                if d2 < best_d2:
+                    best_d2 = d2
+                    best_speed = speed
+        if best_speed is not None and best_speed != prev_speed:
+            zones.append((cum_m, best_speed))
+            prev_speed = best_speed
+
+    return zones
 
 
 def _decode_polyline(encoded: str, precision: int = 6) -> list[list[float]]:

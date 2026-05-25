@@ -71,3 +71,21 @@ def http_get(url: str, timeout: int = _TIMEOUT) -> Any:
         except Exception as exc:
             log.warning("HTTP GET failed %s — %s", url, exc)
             return None
+
+
+def http_post(url: str, data: str, timeout: int = 45) -> Any:
+    """POST plain-text *data* to *url* and return parsed JSON, or None on error."""
+    sem = _host_sem(url)
+    with sem:
+        try:
+            resp = _session().post(
+                url,
+                data=data.encode(),
+                headers={"Content-Type": "text/plain; charset=utf-8"},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            log.warning("HTTP POST failed %s — %s", url, exc)
+            return None

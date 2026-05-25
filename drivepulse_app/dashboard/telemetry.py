@@ -211,6 +211,8 @@ class DashboardTelemetryMixin:
         rpm = self._plain_number(payload, "rpm") if active else None
         obd_speed_kmh = self._plain_number(payload, "speed") if active else None
         gps_speed_kmh = self._plain_number(payload, "gps_speed") if active else None
+        if source == "obd" and obd_speed_kmh is not None and hasattr(self, "map_page"):
+            self.map_page.update_obd_speed(obd_speed_kmh)
         speed_source_kmh = obd_speed_kmh if obd_speed_kmh is not None else gps_speed_kmh
         speed = self._display_speed(speed_source_kmh)
         temp = self._plain_number(payload, "coolant_temp") if active else None

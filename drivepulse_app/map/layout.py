@@ -148,11 +148,19 @@ class MapLayoutMixin:
         self._refresh_tts_btn()
         self._tts_btn.connect("toggled", self._on_tts_btn_toggled)
 
+        self._speed_warn_btn = Gtk.ToggleButton(icon_name="alarm-symbolic")
+        self._speed_warn_btn.add_css_class("circular")
+        self._speed_warn_btn.add_css_class("osd")
+        self._speed_warn_btn.set_active(self._speed_warn_enabled)
+        self._refresh_speed_warn_btn()
+        self._speed_warn_btn.connect("toggled", self._on_speed_warn_toggled)
+
         fab.append(self._poi_btn)
         fab.append(self._layer_btn)
         fab.append(self._heading_up_btn)
         fab.append(self._center_btn)
         fab.append(self._tts_btn)
+        fab.append(self._speed_warn_btn)
 
         # 3D/2D toggle — text label instead of icon so the current mode is
         # always readable at a glance.  WebKit-only (Shumate is flat).
@@ -374,11 +382,12 @@ class MapLayoutMixin:
         sign.add_css_class("dp-speed-sign")
         sign.set_halign(Gtk.Align.CENTER)
         sign.set_valign(Gtk.Align.CENTER)
-        sign.set_size_request(88, 88)
+        sign.set_size_request(130, 130)
 
         lbl = Gtk.Label(label="")
         lbl.set_halign(Gtk.Align.CENTER)
         lbl.set_valign(Gtk.Align.CENTER)
+        lbl.set_yalign(0.18)
         lbl.set_hexpand(True)
         lbl.set_vexpand(True)
         lbl.set_justify(Gtk.Justification.CENTER)

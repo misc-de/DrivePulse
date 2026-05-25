@@ -179,6 +179,8 @@
   "map.tour_resume": "Resume tour",
   "map.tour_abort": "Abort tour",
   "map.next_waypoint": "Next waypoint",
+  "map.speed_warn.on": "Speed warning active",
+  "map.speed_warn.off": "Speed warning disabled",
   "map.heading_up.on": "Map follows heading",
   "map.heading_up.off": "Map fixed to north (arrow rotates)",
   "map.steps.toggle": "Show navigation steps",
