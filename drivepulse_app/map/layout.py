@@ -225,7 +225,7 @@ class MapLayoutMixin:
         cr.line_to(0, 7)
         cr.line_to(-11, 13)
         cr.close_path()
-        cr.set_source_rgb(0.55, 0.58, 0.62)
+        cr.set_source_rgb(1.0, 1.0, 1.0)
         cr.fill()
         cr.restore()
 
@@ -258,7 +258,7 @@ class MapLayoutMixin:
 
         Hides the card when both values are missing.
         """
-        from drivepulse_app.common import format_distance, format_duration
+        from drivepulse_app.map.services import format_distance, format_duration
         if getattr(self, "_route_info_overlay", None) is None:
             return
         parts: list[str] = []
