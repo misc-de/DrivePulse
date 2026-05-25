@@ -12,6 +12,7 @@ from gi.repository import Gtk as _Gtk
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map.services import (
+    bearing,
     compute_route,
     format_distance,
     format_duration,
@@ -648,14 +649,36 @@ class MapTourMixin:
             return
         # Use the tracked remaining waypoints so already-visited intermediates
         # are not included in the recalculated route.
-        remaining = getattr(self, "_remaining_dest_wps", None)
+        remaining = list(getattr(self, "_remaining_dest_wps", None) or [])
         if not remaining:
-            remaining = getattr(self, "_tour_waypoints", None)
-            if not remaining:
-                return
-            remaining = remaining[1:]
+            wps = getattr(self, "_tour_waypoints", None) or []
+            remaining = list(wps[1:])
         if not remaining:
             return
+
+        # When the driver's heading is reliable, drop intermediate waypoints
+        # that are now clearly behind them (bearing > 110° off from heading).
+        # This prevents rerouting BACK to a waypoint the driver deliberately
+        # bypassed by taking a different road.  The final destination (last
+        # entry) is never skipped.
+        if getattr(self, "_gps_heading_valid", False) and len(remaining) > 1:
+            while len(remaining) > 1:
+                wp = remaining[0]
+                brng = bearing(self._gps_lat, self._gps_lon, wp[0], wp[1])
+                diff = abs(self._gps_heading - brng) % 360.0
+                if diff > 180.0:
+                    diff = 360.0 - diff
+                if diff > 110.0:
+                    log.info(
+                        "Reroute: skipping bypassed waypoint (%.5f, %.5f) "
+                        "— heading=%.0f°, wp_bearing=%.0f°",
+                        wp[0], wp[1], self._gps_heading, brng,
+                    )
+                    remaining.pop(0)
+                    self._remaining_dest_wps = list(remaining)
+                else:
+                    break
+
         new_points = [(self._gps_lat, self._gps_lon), *remaining]
         self._last_reroute_time = time.monotonic()
         self._off_route_since = 0.0
@@ -769,7 +792,9 @@ class MapTourMixin:
             self._on_waypoint_reached()
 
     def _on_waypoint_reached(self) -> None:
-        """Mark the current intermediate waypoint as done and advance the list."""
+        """Mark the current intermediate waypoint as done, advance the list, and
+        immediately recalculate the route so old segments are removed from the
+        display and the navigation points reflect only the remaining legs."""
         remaining = getattr(self, "_remaining_dest_wps", [])
         if len(remaining) < 2:
             return
@@ -779,10 +804,30 @@ class MapTourMixin:
         log.info(
             "Remaining destination waypoints: %d", len(self._remaining_dest_wps)
         )
+        # Trigger an immediate route recalculation from current GPS to the
+        # remaining waypoints.  This removes old route segments (the part
+        # leading to the now-completed intermediate goal) from both the map
+        # and the turn-by-turn step list.
+        if (
+            self._tour_active
+            and self._gps_lat is not None
+            and self._gps_lon is not None
+            and self._remaining_dest_wps
+        ):
+            new_points = [(self._gps_lat, self._gps_lon), *self._remaining_dest_wps]
+            self._last_reroute_time = time.monotonic()
+            self._off_route_since = 0.0
+            log.info("Recalculating route after waypoint reached")
+            threading.Thread(
+                target=self._fetch_reroute_bg,
+                args=(new_points,),
+                daemon=True,
+            ).start()
 
     def _on_next_wp_clicked(self, _btn: object) -> None:
         """User taps 'Next waypoint' to manually advance past the current
-        intermediate waypoint without waiting to leave the 200 m radius."""
+        intermediate waypoint; the route is recalculated inside
+        _on_waypoint_reached so old segments disappear immediately."""
         self._wp_in_radius = False
         self._set_next_wp_btn_visible(False)
         self._on_waypoint_reached()
