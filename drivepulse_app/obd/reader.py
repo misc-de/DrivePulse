@@ -42,6 +42,20 @@ from drivepulse_app.sensors.bluetooth import BluetoothPtyBridge
 log = get_logger(__name__)
 
 
+def _extract_speed_kmh(value: Any) -> float | None:
+    """Pull a km/h scalar out of the normalized OBD payload value.
+
+    ``response_to_plain_value`` returns either ``{"value": float, "unit": str}``
+    or a stringified value. Vehicle speed PIDs report km/h on every adapter we
+    care about, so a unit conversion isn't needed — we just need the number.
+    """
+    if isinstance(value, dict):
+        v = value.get("value")
+        if isinstance(v, int | float):
+            return float(v)
+    return None
+
+
 class ObdReader(GObject.Object):
     """Liest OBD-II-Werte in einem Hintergrund-Thread."""
 
@@ -54,6 +68,14 @@ class ObdReader(GObject.Object):
     # How often to probe for a real dongle while in mock fallback. Lower = faster
     # pickup when the car is started, at the cost of more failed connect attempts.
     _MOCK_RECONNECT_INTERVAL_S = float(os.environ.get("OBD_MOCK_RECONNECT_INTERVAL", "3"))
+    # Idle backoff: when the vehicle has been below _IDLE_MOTION_KMH for at
+    # least _IDLE_HOLD_S, raise the minimum polling interval for all PIDs to
+    # _IDLE_MIN_INTERVAL_S. Fast PIDs (rpm/speed/coolant) normally hit every
+    # 500 ms tick — at a standstill that's 2 Hz of Bluetooth traffic for
+    # values that aren't changing. The backoff drops it to ~0.5 Hz instead.
+    _IDLE_MOTION_KMH = 3.0
+    _IDLE_HOLD_S = 10.0
+    _IDLE_MIN_INTERVAL_S = float(os.environ.get("OBD_IDLE_MIN_INTERVAL", "2.0"))
 
     def __init__(self, on_update: Callable[[dict[str, Any]], None], force_mock: bool = False) -> None:
         super().__init__()
@@ -77,6 +99,11 @@ class ObdReader(GObject.Object):
         self._scan_thread: threading.Thread | None = None
         self._obd_value_cache: dict[str, Any] = {}
         self._obd_last_query: dict[str, float] = {}
+        # Tracks the last monotonic time the vehicle was observed in motion
+        # (speed >= _IDLE_MOTION_KMH). When the vehicle has been parked for
+        # longer than _IDLE_HOLD_S, fast-PID polling backs off from "every
+        # tick" to _IDLE_MIN_INTERVAL_S — quietens the BT radio while parked.
+        self._last_motion_monotonic: float = time.monotonic()
         self._obd_log_enabled: bool = True
         self._mock_simulator = MockObdSimulator()
         if obd is None:
@@ -531,10 +558,11 @@ class ObdReader(GObject.Object):
         command_count = 0
         read_error_count = 0
         now = time.monotonic()
+        idle_min = self._idle_min_interval(now)
         for key, command in commands.items():
             if command is None:
                 continue
-            if not self._should_query_obd_key(key, now):
+            if not self._should_query_obd_key(key, now, idle_min):
                 if key in self._obd_value_cache:
                     data[key] = self._obd_value_cache[key]
                 continue
@@ -546,6 +574,8 @@ class ObdReader(GObject.Object):
                 data[key] = value
                 self._obd_value_cache[key] = value
                 self._obd_last_query[key] = now
+                if key == "speed":
+                    self._note_speed_for_idle(value, now)
             except Exception as exc:
                 read_error_count += 1
                 data[f"{key}_error"] = str(exc)
@@ -553,8 +583,29 @@ class ObdReader(GObject.Object):
         data["_read_error_count"] = read_error_count
         return data
 
-    def _should_query_obd_key(self, key: str, now: float) -> bool:
-        return should_query_key(key, now, self._obd_last_query)
+    def _should_query_obd_key(self, key: str, now: float, min_interval: float = 0.0) -> bool:
+        return should_query_key(key, now, self._obd_last_query, min_interval)
+
+    def _idle_min_interval(self, now: float) -> float:
+        """Return the minimum polling interval to apply right now.
+
+        Zero while the vehicle is moving (or recently moved) — fast PIDs run
+        every tick as before. Raised to ``_IDLE_MIN_INTERVAL_S`` once the car
+        has been below ``_IDLE_MOTION_KMH`` for ``_IDLE_HOLD_S``.
+        """
+        if now - self._last_motion_monotonic < self._IDLE_HOLD_S:
+            return 0.0
+        return self._IDLE_MIN_INTERVAL_S
+
+    def _note_speed_for_idle(self, value: Any, now: float) -> None:
+        """Update the motion timestamp from a freshly-read speed value."""
+        speed_kmh = _extract_speed_kmh(value)
+        if speed_kmh is None:
+            # Unknown reading — treat conservatively as motion so we don't
+            # back off based on a single noisy sample.
+            self._last_motion_monotonic = now
+        elif speed_kmh >= self._IDLE_MOTION_KMH:
+            self._last_motion_monotonic = now
 
     def _response_to_plain_value(self, response: Any) -> Any:
         return response_to_plain_value(response)

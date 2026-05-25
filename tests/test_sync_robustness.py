@@ -530,6 +530,42 @@ def test_sync_poller_treats_403_as_reachable(monkeypatch):
     assert poller._ping("127.0.0.1", 8765) is True
 
 
+def test_sync_poller_stop_exits_wait_quickly(monkeypatch):
+    """Power-saving regression: the poller used to spin in a 0.5 s sleep
+    loop, waking the thread 60 times per 30 s window. The new Event.wait
+    implementation must (a) actually wait for POLL_INTERVAL_S between polls
+    instead of busy-looping, and (b) exit immediately when stop() fires
+    mid-wait — no second poll after stop, no multi-second join delay."""
+    import threading
+    import time
+
+    from drivepulse_app.sync import poller as poller_mod
+
+    monkeypatch.setattr(poller_mod, "POLL_INTERVAL_S", 30)
+    poll_calls = []
+    started = threading.Event()
+
+    def fake_poll(self):
+        poll_calls.append(time.monotonic())
+        started.set()
+
+    monkeypatch.setattr(poller_mod.SyncPoller, "_poll", fake_poll)
+
+    poller = poller_mod.SyncPoller(lambda _: None)
+    poller.start()
+    assert started.wait(1.0), "first poll did not run"
+
+    t0 = time.monotonic()
+    poller.stop()
+    poller._thread.join(timeout=2.0)
+    elapsed = time.monotonic() - t0
+
+    assert not poller._thread.is_alive(), "thread did not exit after stop()"
+    assert elapsed < 1.0, f"stop() took {elapsed:.2f}s — Event.wait not honoured"
+    # Exactly one poll (the initial one) — the 30 s wait was interrupted by stop.
+    assert len(poll_calls) == 1
+
+
 def test_sync_poller_treats_other_http_errors_as_offline(monkeypatch):
     import urllib.error
     import urllib.request
