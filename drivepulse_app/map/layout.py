@@ -230,23 +230,13 @@ class MapLayoutMixin:
         cr.restore()
 
     def _build_route_info_overlay(self) -> Gtk.Widget:
-        """Top-centered card that displays duration + distance for the active
-        route on the map itself instead of in the calculate-tour bar."""
-        wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        wrap.set_halign(Gtk.Align.CENTER)
-        wrap.set_valign(Gtk.Align.START)
-        wrap.set_margin_top(8)
-        wrap.add_css_class("dp-route-info")
-        wrap.set_can_target(False)
-        wrap.set_visible(False)
-
-        lbl = Gtk.Label(label="")
-        lbl.set_xalign(0.5)
-        wrap.append(lbl)
-
-        self._route_info_overlay = wrap
-        self._route_info_lbl = lbl
-        return wrap
+        """Route info is now embedded in the tour-controls icon row.
+        Return an invisible placeholder so _build_map's overlay.add_overlay()
+        call keeps working without any structural change there."""
+        dummy = Gtk.Box()
+        dummy.set_visible(False)
+        dummy.set_can_target(False)
+        return dummy
 
     def _show_route_info(self, duration_s: float | None, distance_m: float | None) -> None:
         """Render duration + distance into the top-centered route-info card.
@@ -574,7 +564,24 @@ class MapLayoutMixin:
         notepad_slot.append(self._build_replay_info_overlay())
         icon_row.append(notepad_slot)
 
-        grid.attach(icon_row, 0, 1, 1, 1)
+        # Route info (duration + distance) to the right of the notepad icon.
+        # Sitting in icon_row (row 1 of the grid) it never overlaps the
+        # row-0 buttons even when "Nächstes Ziel" is visible.
+        _install_maneuver_css()  # ensures dp-route-info CSS is available
+        route_info_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        route_info_box.add_css_class("dp-route-info")
+        route_info_box.set_valign(Gtk.Align.CENTER)
+        route_info_box.set_visible(False)
+        route_info_lbl = Gtk.Label(label="")
+        route_info_lbl.set_xalign(0.5)
+        route_info_box.append(route_info_lbl)
+        icon_row.append(route_info_box)
+        self._route_info_overlay = route_info_box
+        self._route_info_lbl = route_info_lbl
+
+        # Let icon_row span all 3 button columns so the route info can use the
+        # full available width without being clipped by column boundaries.
+        grid.attach(icon_row, 0, 1, 3, 1)
 
         grid.set_visible(False)
         return grid
