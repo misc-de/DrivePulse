@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import time as _time
+from typing import Any
 
 from gi.repository import Gdk, GLib, Gtk
 
@@ -121,8 +122,13 @@ class MapLayoutMixin:
 
         # Heading-up toggle: active = map rotates so the heading is always
         # at the top (arrow stays fixed); inactive = map stays north-up and
-        # the arrow rotates with GPS heading.
-        self._heading_up_btn = Gtk.ToggleButton(icon_name="go-up-symbolic")
+        # the arrow rotates with GPS heading. Icon mirrors the navigation
+        # marker (same chevron shape) rendered in grey, pointing up.
+        nav_arrow = Gtk.DrawingArea()
+        nav_arrow.set_size_request(24, 24)
+        nav_arrow.set_draw_func(self._draw_nav_arrow_icon, None)
+        self._heading_up_btn = Gtk.ToggleButton()
+        self._heading_up_btn.set_child(nav_arrow)
         self._heading_up_btn.add_css_class("circular")
         self._heading_up_btn.add_css_class("osd")
         self._heading_up_btn.set_active(bool(getattr(self, "_heading_up", True)))
@@ -202,6 +208,26 @@ class MapLayoutMixin:
         else:
             spinner.stop()
             overlay.set_visible(False)
+
+    def _draw_nav_arrow_icon(
+        self, _area: Gtk.DrawingArea, cr: Any, width: int, height: int, _data: Any
+    ) -> None:
+        """Render the navigation chevron as a grey, upward-pointing icon for
+        the heading-up FAB toggle. Shape matches _draw_car in shumate.py but
+        scaled down (24×24) and recoloured (mid-grey instead of blue)."""
+        cx, cy = width / 2.0, height / 2.0
+        scale = min(width, height) / 44.0  # arrow was tuned for a 44px canvas
+        cr.save()
+        cr.translate(cx, cy)
+        cr.scale(scale, scale)
+        cr.move_to(0, -16)
+        cr.line_to(11, 13)
+        cr.line_to(0, 7)
+        cr.line_to(-11, 13)
+        cr.close_path()
+        cr.set_source_rgb(0.55, 0.58, 0.62)
+        cr.fill()
+        cr.restore()
 
     def _build_route_info_overlay(self) -> Gtk.Widget:
         """Top-centered card that displays duration + distance for the active
