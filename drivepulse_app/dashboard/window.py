@@ -1128,7 +1128,7 @@ class DashboardWindow(
                 try:
                     incoming = _json.loads(c["incoming_json"])
                 except (ValueError, TypeError, _json.JSONDecodeError):
-                    log.debug("Conflict id=%s has unparseable incoming_json", c.get("id"), exc_info=True)
+                    log.debug("Conflict id=%s has unparseable incoming_json", c["id"], exc_info=True)
                     incoming = {}
                 typ = c["type"]
                 type_label = {

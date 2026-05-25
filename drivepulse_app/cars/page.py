@@ -551,7 +551,7 @@ class CarsPage(
             try:
                 data = self.db.get_scan_data(int(scan_meta["id"]))
             except (sqlite3.Error, json.JSONDecodeError, ValueError):
-                log.debug("Could not load scan_data for id=%s", scan_meta.get("id"), exc_info=True)
+                log.debug("Could not load scan_data for id=%s", scan_meta["id"], exc_info=True)
                 continue
             for raw_key, raw_val in (data.get("live_data") or {}).items():
                 pid = _parse_profile_pid_key(raw_key)
