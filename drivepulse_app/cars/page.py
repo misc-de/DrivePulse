@@ -101,6 +101,7 @@ class CarsPage(
         # Flipped to False once __init__ has finished applying initial state.
         self._restoring_state: bool = True
         self._autodev_api_key: str | None = None
+        self._nhtsa_enabled: bool = True
         self._vin_fetch_pending: set[int] = set()
         self._vin_review_queue: list[tuple[int, str, dict]] = []
         self._vin_review_open: bool = False
@@ -305,6 +306,7 @@ class CarsPage(
                 autodev_api_key=self._autodev_api_key,
                 vindecoder_api_key=self._vindecoder_api_key,
                 vindecoder_secret_key=self._vindecoder_secret_key,
+                nhtsa_enabled=self._nhtsa_enabled,
             )
         except Exception:
             log.warning("VIN lookup failed for car_id=%s", car_id, exc_info=True)

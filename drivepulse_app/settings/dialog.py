@@ -138,6 +138,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         on_log_obd_enabled_changed: Callable[[bool], None] | None = None,
         current_obd_auto_record: bool = True,
         on_obd_auto_record_changed: Callable[[bool], None] | None = None,
+        current_nhtsa_enabled: bool = True,
+        on_nhtsa_enabled_changed: Callable[[bool], None] | None = None,
         current_vindecoder_api_key: str = "",
         on_vindecoder_api_key_changed: Callable[[str], None] | None = None,
         current_vindecoder_secret_key: str = "",
@@ -184,6 +186,7 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self.on_log_app_enabled_changed = on_log_app_enabled_changed
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self.on_obd_auto_record_changed = on_obd_auto_record_changed
+        self.on_nhtsa_enabled_changed = on_nhtsa_enabled_changed
         self.on_vindecoder_api_key_changed = on_vindecoder_api_key_changed
         self.on_vindecoder_secret_key_changed = on_vindecoder_secret_key_changed
         self.on_autodev_api_key_changed = on_autodev_api_key_changed
@@ -521,12 +524,29 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         logging_group.add(self.obd_auto_record_row)
         app_page.add(logging_group)
 
-        # VIN decoder group
+        # VIN decoder — one group per provider so each option has its own
+        # description (per-option blurb instead of a collective intro).
+        self._nhtsa_row = Adw.SwitchRow(
+            title=_translate(self.language, "settings.vin_decoder.nhtsa_enable"),
+        )
+        self._nhtsa_row.set_active(bool(current_nhtsa_enabled))
+        self._nhtsa_row.connect("notify::active", self._on_nhtsa_enabled_toggled)
+        nhtsa_group = Adw.PreferencesGroup(
+            title=_translate(self.language, "settings.vin_decoder.nhtsa"),
+            description=_translate(self.language, "settings.vin_decoder.nhtsa.desc"),
+        )
+        nhtsa_group.add(self._nhtsa_row)
+
         self._autodev_row = Adw.EntryRow(
             title=_translate(self.language, "settings.vin_decoder.autodev_key"),
         )
         self._autodev_row.set_text(current_autodev_api_key or "")
         self._autodev_row.connect("changed", self._on_autodev_key_changed)
+        autodev_group = Adw.PreferencesGroup(
+            title=_translate(self.language, "settings.vin_decoder.autodev"),
+            description=_translate(self.language, "settings.vin_decoder.autodev.desc"),
+        )
+        autodev_group.add(self._autodev_row)
 
         self._vd_api_key_row = Adw.EntryRow(
             title=_translate(self.language, "settings.vin_decoder.api_key"),
@@ -540,13 +560,12 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self._vd_secret_row.set_text(current_vindecoder_secret_key or "")
         self._vd_secret_row.connect("changed", self._on_vd_secret_changed)
 
-        vd_group = Adw.PreferencesGroup(
-            title=_translate(self.language, "settings.vin_decoder"),
-            description=_translate(self.language, "settings.vin_decoder.desc"),
+        vindecoder_group = Adw.PreferencesGroup(
+            title=_translate(self.language, "settings.vin_decoder.vindecoder"),
+            description=_translate(self.language, "settings.vin_decoder.vindecoder.desc"),
         )
-        vd_group.add(self._autodev_row)
-        vd_group.add(self._vd_api_key_row)
-        vd_group.add(self._vd_secret_row)
+        vindecoder_group.add(self._vd_api_key_row)
+        vindecoder_group.add(self._vd_secret_row)
 
         # OBD group
         app_page.add(obd_group)
@@ -799,7 +818,9 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         accounts_page = Adw.PreferencesPage(
             title=_translate(self.language, "settings.page.accounts"),
         )
-        accounts_page.add(vd_group)
+        accounts_page.add(nhtsa_group)
+        accounts_page.add(autodev_group)
+        accounts_page.add(vindecoder_group)
         view_stack.add_titled_with_icon(
             accounts_page, "accounts",
             _translate(self.language, "settings.page.accounts"),
@@ -1015,6 +1036,10 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
     def _on_obd_auto_record_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_obd_auto_record_changed is not None:
             self.on_obd_auto_record_changed(row.get_active())
+
+    def _on_nhtsa_enabled_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
+        if self.on_nhtsa_enabled_changed is not None:
+            self.on_nhtsa_enabled_changed(row.get_active())
 
     def _on_autodev_key_changed(self, row: Adw.EntryRow) -> None:
         if self.on_autodev_api_key_changed is not None:
