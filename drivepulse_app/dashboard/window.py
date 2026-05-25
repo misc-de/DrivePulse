@@ -120,6 +120,7 @@ class DashboardWindow(
         self.log_app_enabled: bool = bool(self.settings.get("log_app_enabled", True))
         self.log_obd_enabled: bool = bool(self.settings.get("log_obd_enabled", True))
         self.obd_auto_record: bool = bool(self.settings.get("obd_auto_record", True))
+        self.nhtsa_enabled: bool = bool(self.settings.get("nhtsa_enabled", True))
         self.vindecoder_api_key: str = self.settings.get("vindecoder_api_key") or ""
         self.vindecoder_secret_key: str = self.settings.get("vindecoder_secret_key") or ""
         self.autodev_api_key: str = self.settings.get("autodev_api_key") or ""
@@ -288,6 +289,7 @@ class DashboardWindow(
             on_state_changed=self._on_cars_state_changed,
         )
         self.cars_page._autodev_api_key = self.autodev_api_key or None
+        self.cars_page._nhtsa_enabled = self.nhtsa_enabled
         self.cars_page.mock_mode = bool(self.mock_mode)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe

@@ -66,6 +66,7 @@ class DashboardSettingsMixin:
                 "tts_quality": getattr(self, "tts_quality", "high"),
                 "log_app_enabled": getattr(self, "log_app_enabled", True),
                 "log_obd_enabled": getattr(self, "log_obd_enabled", True),
+                "nhtsa_enabled": getattr(self, "nhtsa_enabled", True),
                 "vindecoder_api_key": getattr(self, "vindecoder_api_key", ""),
                 "vindecoder_secret_key": getattr(self, "vindecoder_secret_key", ""),
                 "autodev_api_key": getattr(self, "autodev_api_key", ""),
@@ -167,6 +168,8 @@ class DashboardSettingsMixin:
             on_log_obd_enabled_changed=self._set_log_obd_enabled,
             current_obd_auto_record=getattr(self, "obd_auto_record", True),
             on_obd_auto_record_changed=self._set_obd_auto_record,
+            current_nhtsa_enabled=getattr(self, "nhtsa_enabled", True),
+            on_nhtsa_enabled_changed=self._set_nhtsa_enabled,
             current_vindecoder_api_key=getattr(self, "vindecoder_api_key", ""),
             on_vindecoder_api_key_changed=self._set_vindecoder_api_key,
             current_vindecoder_secret_key=getattr(self, "vindecoder_secret_key", ""),
@@ -304,6 +307,11 @@ class DashboardSettingsMixin:
         self.obd_auto_record = enabled
         self.settings["obd_auto_record"] = enabled
         self._save_settings()
+
+    def _set_nhtsa_enabled(self, enabled: bool) -> None:
+        self.nhtsa_enabled = bool(enabled)
+        self._save_settings()
+        self.cars_page._nhtsa_enabled = bool(enabled)
 
     def _set_vindecoder_api_key(self, value: str) -> None:
         self.vindecoder_api_key = value

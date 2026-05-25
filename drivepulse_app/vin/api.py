@@ -154,6 +154,7 @@ def fetch_vin_data(
     autodev_api_key: str | None = None,
     vindecoder_api_key: str | None = None,
     vindecoder_secret_key: str | None = None,
+    nhtsa_enabled: bool = True,
 ) -> dict[str, dict[str, Any]]:
     """Fetch VIN data from each configured source independently.
 
@@ -174,9 +175,10 @@ def fetch_vin_data(
 
     sources: dict[str, dict[str, Any]] = {}
 
-    nhtsa = _fetch_nhtsa(vin)
-    if nhtsa:
-        sources["NHTSA"] = nhtsa
+    if nhtsa_enabled:
+        nhtsa = _fetch_nhtsa(vin)
+        if nhtsa:
+            sources["NHTSA"] = nhtsa
 
     if autodev_api_key:
         ad = _fetch_autodev(vin, autodev_api_key)
