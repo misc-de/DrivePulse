@@ -1,13 +1,17 @@
 """Map page tour-management actions — topnav (Load/Plan/Save/History) and saved-tour list."""
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC
 from typing import Any
 
 from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.common import _translate
+from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map.layout_css import _install_maneuver_css
+
+log = get_logger(__name__)
 
 
 class MapTourActionsMixin:
@@ -471,7 +475,8 @@ class MapTourActionsMixin:
                 db.rename_saved_tour(int(meta["id"]), new_name)
             else:
                 db.rename_trip(int(meta["id"]), new_name)
-        except Exception:
+        except sqlite3.Error:
+            log.warning("Could not rename %s id=%s", meta.get("kind"), meta.get("id"), exc_info=True)
             return
         meta["trip_label"] = new_name
         row._dp_history_meta = meta
@@ -550,7 +555,8 @@ class MapTourActionsMixin:
                     db.delete_saved_tour(eid)
                 else:
                     db.delete_trip(eid)
-            except Exception:
+            except sqlite3.Error:
+                log.warning("Could not delete %s id=%s", kind, eid, exc_info=True)
                 continue
             selected = getattr(self, "_tour_history_selected", None)
             if selected is not None:
@@ -675,8 +681,9 @@ class MapTourActionsMixin:
         try:
             dt = datetime.fromisoformat(tour["created_at"])
             date_str = dt.strftime("%d.%m.%Y %H:%M")
-        except Exception:
-            date_str = str(tour["created_at"])[:16]
+        except (ValueError, TypeError, KeyError):
+            log.debug("Unparseable tour.created_at=%r", tour.get("created_at"), exc_info=True)
+            date_str = str(tour.get("created_at", ""))[:16]
         row.set_title(GLib.markup_escape_text(str(tour["name"])))
         row.set_subtitle(GLib.markup_escape_text(date_str))
         row._dp_tour = tour
@@ -803,7 +810,8 @@ class MapTourActionsMixin:
                 if db is not None and new_name:
                     try:
                         db.rename_saved_tour(tour_id, new_name)
-                    except Exception:
+                    except sqlite3.Error:
+                        log.warning("Could not rename saved tour id=%s", tour_id, exc_info=True)
                         return
                     self._rebuild_tour_list()
             elif resp == "delete":
@@ -840,7 +848,8 @@ class MapTourActionsMixin:
                 for tid in ids:
                     try:
                         db.delete_saved_tour(int(tid))
-                    except Exception:
+                    except sqlite3.Error:
+                        log.warning("Could not delete saved tour id=%s", tid, exc_info=True)
                         continue
             self._exit_saved_tour_select_mode()
 
