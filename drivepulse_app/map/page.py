@@ -44,8 +44,6 @@ from drivepulse_app.map.services import (
     MAP_TYPES,
     bearing,
     compute_route,
-    format_distance,
-    format_duration,
     geocode,
     haversine,
     resolve_route_points,

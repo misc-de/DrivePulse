@@ -16,7 +16,6 @@ from drivepulse_app.map.services import (
     compute_route,
     fetch_overpass_speed_zones,
     format_distance,
-    format_duration,
     haversine,
     maneuver_icon,
     maneuver_text_key,

@@ -341,7 +341,7 @@ def fetch_overpass_speed_zones(
     # Sample the route at regular intervals.
     samples: list[tuple[float, float, float]] = []  # (cum_m, lat, lon)
     next_target = 0.0
-    for i, (c, coord) in enumerate(zip(cum, coords)):
+    for i, (c, coord) in enumerate(zip(cum, coords, strict=True)):
         if c >= next_target or i == 0:
             lon, lat = coord
             samples.append((c, lat, lon))

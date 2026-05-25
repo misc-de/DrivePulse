@@ -11,19 +11,19 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-_CHART_DEBUG = bool(os.environ.get("DRIVEPULSE_CHART_DEBUG"))
-
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.cars.metadata import _CHART_METRICS
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 
 log = get_logger(__name__)
+
+_CHART_DEBUG = bool(os.environ.get("DRIVEPULSE_CHART_DEBUG"))
 
 
 def lift_dropdown_popover(dropdown: Gtk.DropDown, y_offset_px: int = -10) -> None:
