@@ -96,7 +96,7 @@ class CarsTripsMixin:
             return None
         try:
             return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-        except Exception:
+        except (ValueError, TypeError):
             return None
 
     # ---------------------------------------------------- Fahrt-Detail-Page

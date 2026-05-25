@@ -235,5 +235,5 @@ def _safe_ts(raw: Any) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    except Exception:
+    except (ValueError, TypeError):
         return None

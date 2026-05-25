@@ -125,6 +125,7 @@ def _is_dark() -> bool:
     try:
         return Adw.StyleManager.get_default().get_dark()
     except Exception:
+        log.debug("Adw.StyleManager.get_dark failed, defaulting to dark", exc_info=True)
         return True
 
 

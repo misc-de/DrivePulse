@@ -78,4 +78,7 @@ class SyncPoller:
             # A 403 still proves the server is reachable and responding.
             return exc.code == 403
         except Exception:
+            # URLError, socket.timeout, ConnectionError, SSL handshake fail —
+            # all mean "peer unreachable". Log at debug so the poll loop doesn't flood.
+            log.debug("Sync poller could not reach %s:%s", host, port, exc_info=True)
             return False

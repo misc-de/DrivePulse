@@ -74,7 +74,7 @@ class GpsReader:
             try:
                 self._geoclue_client.call_sync("Start", None, Gio.DBusCallFlags.NONE, 1000, None)
             except Exception:
-                pass
+                log.debug("GeoClue Start call failed", exc_info=True)
 
     def stop(self) -> None:
         self.stop_event.set()

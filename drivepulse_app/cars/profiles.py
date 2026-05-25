@@ -86,8 +86,8 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
         if vin_data_raw is not None:
             try:
                 vin_data = json.loads(vin_data_raw)
-            except Exception:
-                pass
+            except (ValueError, TypeError, json.JSONDecodeError):
+                log.debug("Could not parse vin_data_json for car_id=%s", car_id, exc_info=True)
         data["vin_data"] = vin_data
 
         entries.append({
