@@ -21,6 +21,7 @@ class DashboardTelemetryMixin:
     _scan_is_new_car: bool = False
     _pending_new_car_id: int | None = None
     _obd_recorder: ObdRecorder | None = None
+    _session_scan_id: int | None = None  # Scan-ID der laufenden OBD-Session
     # Declared so the concrete DashboardWindow can initialize these as
     # Optional[...] without conflicting with the type mypy infers from the
     # first assignment inside this mixin's methods.
@@ -102,12 +103,18 @@ class DashboardTelemetryMixin:
         if car_id is None:
             return
         try:
-            scan_id = self.db.add_scan(car_id, profile)
+            if self._session_scan_id is not None:
+                # Rescan in laufender OBD-Session: Snapshot aktualisieren, scan_id beibehalten.
+                self.db.update_scan_data(self._session_scan_id, profile)
+                scan_id = self._session_scan_id
+            else:
+                scan_id = self.db.add_scan(car_id, profile)
+                self._session_scan_id = scan_id
         except Exception:
             log.exception("Could not save scan profile to database")
             return
         auto_record = getattr(self, "settings", {}).get("obd_auto_record", True)
-        if auto_record and self.db is not None:
+        if auto_record and self.db is not None and self._obd_recorder is None:
             self._start_obd_recorder(scan_id)
 
     def _start_obd_recorder(self, scan_id: int) -> None:
@@ -222,6 +229,7 @@ class DashboardTelemetryMixin:
         if was_obd_active and not obd_connected:
             self.cars_page.clear_live_session()
             self._stop_obd_recorder()
+            self._session_scan_id = None  # Session beendet, nächster Connect startet neue
         obd_connecting = bool(payload.get("obd_connecting"))
         gps_connected = self._gps_connected_with_holdover(gps_speed_kmh is not None if active else False)
         _prev_gps_connected = getattr(self, "_gps_was_connected", False)

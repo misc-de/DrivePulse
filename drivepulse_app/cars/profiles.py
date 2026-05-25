@@ -5,7 +5,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from drivepulse_app.cars.metadata import _wmi_to_brand
+from drivepulse_app.cars.metadata import _extract_inner_string, _wmi_to_brand
 from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger
 
@@ -59,6 +59,16 @@ def _load_profiles(db: DriveDB | None = None) -> list[dict[str, Any]]:
             except Exception:
                 data = {}
             label_str = _scan_label(latest["scanned_at"], latest_dtc_count)
+            # Supplement scan vehicle_info with the authoritative identity values
+            # from the cars table when the scan captured them as empty or missing.
+            vi = dict(data.get("vehicle_info") or {})
+            if vin and not _extract_inner_string(vi.get("VIN") or ""):
+                vi["VIN"] = vin
+            if row["cal_id"] and not _extract_inner_string(vi.get("CALIBRATION_ID") or ""):
+                vi["CALIBRATION_ID"] = row["cal_id"]
+            if row["cvn"] and not _extract_inner_string(vi.get("CVN") or ""):
+                vi["CVN"] = row["cvn"]
+            data = {**data, "vehicle_info": vi}
         else:
             data = {
                 "vehicle_info": {

@@ -193,7 +193,7 @@ def _extract_inner_string(raw: Any) -> str:
     if raw is None:
         return ""
     s = str(raw)
-    m = re.search(r"b['\"]([^'\"]+)['\"]", s)
+    m = re.search(r"b['\"]([^'\"]*)['\"]", s)
     if m:
         return m.group(1)
     return s.strip()
