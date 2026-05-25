@@ -198,11 +198,11 @@ class WebcamQRScanner:
             try:
                 self._bus.remove_signal_watch()
             except Exception:
-                pass
+                log.debug("Could not remove Gst bus signal watch", exc_info=True)
             self._bus = None
         if self._pipeline is not None:
             try:
                 self._pipeline.set_state(self._Gst.State.NULL)
             except Exception:
-                pass
+                log.debug("Could not reset Gst pipeline to NULL", exc_info=True)
             self._pipeline = None
