@@ -221,27 +221,37 @@ def fetch_vin_data(
         if nhtsa:
             sources["NHTSA"] = nhtsa
 
+    _AUTODEV_VALID_LENGTHS = {10, 11, 13, 17}
     if autodev_api_key:
-        try:
-            ad = _fetch_autodev(vin, autodev_api_key, on_request=on_autodev_call)
-            if ad:
-                raw = ad.pop("_raw", None)
-                if raw:
-                    sources["auto.dev_raw"] = raw
+        if len(vin) not in _AUTODEV_VALID_LENGTHS:
+            if on_source_done:
+                on_source_done("auto.dev", False, "vin_format", 0)
+            sources["auto.dev_error"] = {
+                "_error": f"VIN length {len(vin)} not supported by auto.dev",
+                "_status": 0,
+                "_code": "INVALID_VIN_FORMAT",
+            }
+        else:
+            try:
+                ad = _fetch_autodev(vin, autodev_api_key, on_request=on_autodev_call)
                 if ad:
-                    sources["auto.dev"] = ad
-            if on_source_done:
-                on_source_done("auto.dev", True, "", len(sources.get("auto.dev", {})))
-        except AutodevError as exc:
-            if exc.status in (401, 403):
-                error_code = "auth"
-            elif exc.status == 404:
-                error_code = "not_found"
-            else:
-                error_code = "generic"
-            if on_source_done:
-                on_source_done("auto.dev", False, error_code, 0)
-            sources["auto.dev_error"] = {"_error": str(exc), "_status": exc.status}
+                    raw = ad.pop("_raw", None)
+                    if raw:
+                        sources["auto.dev_raw"] = raw
+                    if ad:
+                        sources["auto.dev"] = ad
+                if on_source_done:
+                    on_source_done("auto.dev", True, "", len(sources.get("auto.dev", {})))
+            except AutodevError as exc:
+                if exc.status in (401, 403):
+                    error_code = "auth"
+                elif exc.status == 404:
+                    error_code = "not_found"
+                else:
+                    error_code = "generic"
+                if on_source_done:
+                    on_source_done("auto.dev", False, error_code, 0)
+                sources["auto.dev_error"] = {"_error": str(exc), "_status": exc.status}
 
     if vindecoder_api_key and vindecoder_secret_key:
         vd = _fetch_vindecoder(vin, vindecoder_api_key, vindecoder_secret_key)
