@@ -439,15 +439,83 @@ class DriveDB:
             self._conn.commit()
 
     def delete_car(self, car_id: int) -> None:
+        """Delete a car and all its dependent rows (trips, samples, scans,
+        scan_samples, acceleration_runs, car_photos, share_conflicts).
+
+        Wrapped in an explicit transaction so a mid-way failure rolls back
+        completely rather than leaving the car visible but half-stripped.
+        Raises ``RuntimeError`` if the cars row is still present afterwards
+        — callers used to silently swallow exceptions and rely on the UI
+        list refresh, which let phantom rows accumulate.
+        """
         with self._lock:
-            self._conn.execute("DELETE FROM samples WHERE trip_id IN (SELECT id FROM trips WHERE car_id=?)", (car_id,))
-            self._conn.execute("DELETE FROM trips WHERE car_id=?", (car_id,))
-            self._conn.execute("DELETE FROM scan_samples WHERE scan_id IN (SELECT id FROM scans WHERE car_id=?)", (car_id,))
-            self._conn.execute("DELETE FROM scans WHERE car_id=?", (car_id,))
-            self._conn.execute("DELETE FROM acceleration_runs WHERE car_id=?", (car_id,))
-            self._conn.execute("DELETE FROM car_photos WHERE car_id=?", (car_id,))
-            self._conn.execute("DELETE FROM cars WHERE id=?", (car_id,))
-            self._conn.commit()
+            try:
+                self._conn.execute("BEGIN")
+                self._conn.execute("DELETE FROM samples WHERE trip_id IN (SELECT id FROM trips WHERE car_id=?)", (car_id,))
+                self._conn.execute("DELETE FROM trips WHERE car_id=?", (car_id,))
+                self._conn.execute("DELETE FROM scan_samples WHERE scan_id IN (SELECT id FROM scans WHERE car_id=?)", (car_id,))
+                self._conn.execute("DELETE FROM scans WHERE car_id=?", (car_id,))
+                self._conn.execute("DELETE FROM acceleration_runs WHERE car_id=?", (car_id,))
+                self._conn.execute("DELETE FROM car_photos WHERE car_id=?", (car_id,))
+                self._conn.execute("DELETE FROM share_conflicts WHERE car_id=?", (car_id,))
+                self._conn.execute("DELETE FROM cars WHERE id=?", (car_id,))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            still_there = self._conn.execute(
+                "SELECT 1 FROM cars WHERE id=?", (car_id,)
+            ).fetchone()
+            if still_there is not None:
+                raise RuntimeError(f"delete_car failed: cars row {car_id} still present")
+
+    def car_has_data(self, car_id: int) -> bool:
+        """True if the car has any trips, scans, acceleration_runs, or photos."""
+        with self._lock:
+            for table, col in (
+                ("trips", "car_id"),
+                ("scans", "car_id"),
+                ("acceleration_runs", "car_id"),
+                ("car_photos", "car_id"),
+            ):
+                row = self._conn.execute(
+                    f"SELECT 1 FROM {table} WHERE {col}=? LIMIT 1", (car_id,)
+                ).fetchone()
+                if row is not None:
+                    return True
+        return False
+
+    def recover_stale_live_cars(self) -> dict[str, list[int]]:
+        """Reconcile is_live=1 cars left over from a previous run.
+
+        Live cars are normally throwaway: the dongle creates them on connect,
+        and the user promotes the real one via the "+" button. Anything not
+        promoted by the next app start used to be wiped unconditionally —
+        which silently destroyed data when a live car had already accumulated
+        trips/scans/runs but never got promoted (e.g. app crash, dongle
+        disconnect at the wrong moment). It also left these cars invisible to
+        the user because ``list_cars`` hides ``is_live=1`` rows.
+
+        New policy:
+          - Live car *with* attached data → promote to ``is_live=0`` so the
+            user can see it in the list and decide (rename, share, delete).
+          - Live car *without* any data → safe to purge, same as before.
+
+        Returns ``{"promoted": [...], "purged": [...]}`` for logging.
+        """
+        promoted: list[int] = []
+        purged: list[int] = []
+        for car_id in self.list_live_car_ids():
+            if self.car_has_data(car_id):
+                self.promote_live_car(car_id)
+                promoted.append(car_id)
+            else:
+                try:
+                    self.delete_car(car_id)
+                    purged.append(car_id)
+                except Exception:
+                    log.exception("Could not purge empty live car id=%s", car_id)
+        return {"promoted": promoted, "purged": purged}
 
     def delete_scan(self, scan_id: int) -> None:
         with self._lock:

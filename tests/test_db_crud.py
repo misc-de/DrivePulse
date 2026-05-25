@@ -129,6 +129,67 @@ def test_delete_car_cascades_to_trips_scans_runs_photos(db):
     assert db.list_photos_for_car(cid) == []
 
 
+# ─── recover_stale_live_cars ─────────────────────────────────────────────────
+# Reconcile is_live=1 carryovers from a previous run. Live cars with data
+# get promoted (made visible) rather than blindly purged; empty ones are
+# still deleted.
+
+def test_recover_stale_live_cars_purges_empty_live_car(db):
+    cid = db.upsert_car(vin="VIN-LIVE-EMPTY", is_live=True)
+    assert cid in db.list_live_car_ids()
+
+    result = db.recover_stale_live_cars()
+
+    assert result == {"promoted": [], "purged": [cid]}
+    assert db.get_car(cid) is None
+
+
+def test_recover_stale_live_cars_promotes_live_car_with_trips(db):
+    # User had a live car with real trip data when the app crashed.
+    # The old purge would have destroyed it; the new reconcile must
+    # surface it in the regular list.
+    cid = db.upsert_car(vin="VIN-LIVE-WITHTRIP", is_live=True)
+    tid = db.start_trip(cid)
+    db.add_sample(tid, ts=1.0, speed_kmh=30.0)
+    db.end_trip(tid)
+
+    result = db.recover_stale_live_cars()
+
+    assert result == {"promoted": [cid], "purged": []}
+    assert db.get_car(cid) is not None
+    assert cid not in db.list_live_car_ids()  # promoted → is_live=0
+    assert any(c["id"] == cid for c in db.list_cars())  # visible in regular list
+
+
+def test_recover_stale_live_cars_handles_scans_runs_photos(db):
+    cid_scan = db.upsert_car(vin="VIN-LIVE-SCAN", is_live=True)
+    db.add_scan(cid_scan, {"scanned_at": "2026-01-01T00:00:00+00:00", "dtcs": []})
+
+    cid_run = db.upsert_car(vin="VIN-LIVE-RUN", is_live=True)
+    db.add_stopwatch_run(cid_run, {"target_kmh": 100, "elapsed_s": 8.5}, samples=[])
+
+    cid_photo = db.upsert_car(vin="VIN-LIVE-PHOTO", is_live=True)
+    db.add_car_photo(cid_photo, "x.jpg")
+
+    cid_empty = db.upsert_car(vin="VIN-LIVE-NOTHING", is_live=True)
+
+    result = db.recover_stale_live_cars()
+
+    assert sorted(result["promoted"]) == sorted([cid_scan, cid_run, cid_photo])
+    assert result["purged"] == [cid_empty]
+
+
+def test_car_has_data_false_for_fresh_car(db):
+    cid = db.upsert_car(vin="VIN-NEW")
+    assert db.car_has_data(cid) is False
+
+
+def test_car_has_data_true_after_trip(db):
+    cid = db.upsert_car(vin="VIN-TRIP")
+    db.start_trip(cid)
+    assert db.car_has_data(cid) is True
+
+
 # ─── start_trip / end_trip / list / delete / rename ──────────────────────────
 
 def test_start_trip_returns_new_id(db):
