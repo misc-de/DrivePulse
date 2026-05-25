@@ -24,7 +24,7 @@ from drivepulse_app.diagnostics import get_logger
 
 log = get_logger(__name__)
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 def _is_duplicate_column_error(exc: sqlite3.OperationalError) -> bool:
@@ -57,6 +57,10 @@ _MIGRATION_STATEMENTS_V1 = (
 
 _MIGRATION_STATEMENTS_V2 = (
     "ALTER TABLE cars ADD COLUMN is_live INTEGER NOT NULL DEFAULT 0",
+)
+
+_MIGRATION_STATEMENTS_V3 = (
+    "ALTER TABLE cars ADD COLUMN autodev_raw_json TEXT",
 )
 
 
@@ -220,6 +224,8 @@ class DriveDB:
             self._apply_migration(_MIGRATION_STATEMENTS_V1)
         if version < 2:
             self._apply_migration(_MIGRATION_STATEMENTS_V2)
+        if version < 3:
+            self._apply_migration(_MIGRATION_STATEMENTS_V3)
         if version < _SCHEMA_VERSION:
             self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
             self._conn.commit()
@@ -342,6 +348,27 @@ class DriveDB:
                 (vin_data_json, car_id),
             )
             self._conn.commit()
+
+    def save_autodev_raw(self, car_id: int, raw: dict) -> None:
+        blob = json.dumps(raw, ensure_ascii=False, default=str)
+        with self._lock:
+            self._conn.execute(
+                "UPDATE cars SET autodev_raw_json=? WHERE id=?",
+                (blob, car_id),
+            )
+            self._conn.commit()
+
+    def get_autodev_raw(self, car_id: int) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT autodev_raw_json FROM cars WHERE id=?", (car_id,)
+            ).fetchone()
+        if row is None or row[0] is None:
+            return None
+        try:
+            return json.loads(row[0])
+        except Exception:
+            return None
 
     def reset_car_vin_data(self, car_id: int) -> None:
         with self._lock:
