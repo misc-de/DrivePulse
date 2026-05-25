@@ -31,6 +31,8 @@ class CarsLayoutMixin:
 
         # Scroll-Bereich nur für die Auto-Liste
         scroll_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        scroll_inner.set_vexpand(True)
+        scroll_inner.set_hexpand(True)
 
         self._list_box = Gtk.ListBox()
         self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -38,9 +40,15 @@ class CarsLayoutMixin:
         self._list_box.set_valign(Gtk.Align.START)
         scroll_inner.append(self._list_box)
 
-        self._empty_label = Gtk.Label(xalign=0.0)
+        self._empty_label = Gtk.Label(xalign=0.5, yalign=0.5)
         self._empty_label.add_css_class("dim-label")
+        self._empty_label.add_css_class("title-1")
         self._empty_label.set_wrap(True)
+        self._empty_label.set_justify(Gtk.Justification.CENTER)
+        self._empty_label.set_halign(Gtk.Align.CENTER)
+        self._empty_label.set_valign(Gtk.Align.CENTER)
+        self._empty_label.set_hexpand(True)
+        self._empty_label.set_vexpand(True)
         self._empty_label.set_visible(False)
         scroll_inner.append(self._empty_label)
 
