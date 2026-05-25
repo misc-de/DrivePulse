@@ -137,7 +137,7 @@ class MapReplayMixin:
     def _build_replay_chart_restore_btn(self) -> Gtk.Widget:
         """Icon to restore a minimised chart overlay — same shape as the info
         and notepad buttons in the top-left, placed directly under the info."""
-        icon = Gtk.Image.new_from_icon_name("utilities-system-monitor-symbolic")
+        icon = Gtk.Image.new_from_icon_name("integral3-symbolic")
         icon.set_pixel_size(20)
         btn = Gtk.Button()
         btn.set_child(icon)
