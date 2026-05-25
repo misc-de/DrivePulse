@@ -16,7 +16,7 @@ def plain_number(data: dict[str, Any], key: str) -> float | None:
         return None
     try:
         return float(value)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 

@@ -11,7 +11,10 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango
 
 from drivepulse_app.common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language, _translate
+from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.stopwatch.canvas import GForceCanvas
+
+log = get_logger(__name__)
 from drivepulse_app.stopwatch.processing import StopWatchProcessingMixin
 from drivepulse_app.stopwatch.replay import StopWatchReplayMixin
 
@@ -840,6 +843,7 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         try:
             ok = self.on_run_complete(combined, samples_list)
         except Exception:
+            log.warning("on_run_complete callback raised — run not persisted", exc_info=True)
             return
         if ok is False:
             self.status_label.set_text(_translate(self.language, "stopwatch.save.no_car"))

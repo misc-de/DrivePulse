@@ -1,6 +1,7 @@
 """Detail data and value rendering for the Cars page."""
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable
 from typing import Any
 
@@ -28,6 +29,9 @@ from drivepulse_app.cars.metadata import (
     _wmi_to_brand,
 )
 from drivepulse_app.common import _translate
+from drivepulse_app.diagnostics import get_logger
+
+log = get_logger(__name__)
 
 _PID_TO_LIVE_KEY: dict[str, str] = {pid: key for key, pid in LIVE_KEY_TO_PID.items()}
 
@@ -126,8 +130,8 @@ class CarsDetailRenderMixin:
                     ts = self._parse_ts(scan_meta["scanned_at"])
                     label = ts.strftime("%d.%m.%Y  %H:%M") if ts else str(self._selected_scan_id)
                     return self._flatten_profile(data), label
-            except Exception:
-                pass
+            except (sqlite3.Error, KeyError, ValueError, TypeError):
+                log.debug("Could not render selected scan_id=%s in detail view", self._selected_scan_id, exc_info=True)
         for entry in self._profiles:
             if str(entry["path"]) == self._selected_source:
                 raw_ts = entry.get("latest_scan_at")

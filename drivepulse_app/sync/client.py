@@ -224,8 +224,8 @@ class SyncClient:
                     if share_pending and not self._pending_share:
                         self._pending_share = True
                         self._pending_share_scheduled = False
-                except Exception:
-                    pass
+                except (ValueError, TypeError, AttributeError, json.JSONDecodeError):
+                    log.debug("Could not parse ping response body", exc_info=True)
                 self.last_ping = time.time()
                 self.last_contact = self.last_ping
                 return True
