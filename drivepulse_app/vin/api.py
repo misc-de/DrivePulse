@@ -92,6 +92,7 @@ class AutodevError(Exception):
 
 def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
     url = _AUTODEV_URL.format(urllib.parse.quote(vin.upper(), safe=""))
+    print(f"[VIN] auto.dev GET {url} key=...{api_key[-6:]}", flush=True)
     req = urllib.request.Request(
         url,
         headers={
@@ -102,14 +103,17 @@ def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
+        print(f"[VIN] auto.dev OK fields={[k for k in data if not k.startswith('_') and k not in ('api','links','examples','photos','discover','actions','user')]}", flush=True)
     except urllib.error.HTTPError as exc:
         try:
             body = exc.read().decode("utf-8", errors="replace")
         except Exception:
             body = ""
+        print(f"[VIN] auto.dev HTTP {exc.code} for {vin}: {body[:200]}", flush=True)
         log.warning("auto.dev HTTP %s for VIN %s: %s", exc.code, vin, body[:200])
         raise AutodevError(exc.code, f"HTTP {exc.code}") from exc
     except Exception as exc:
+        print(f"[VIN] auto.dev exception for {vin}: {exc}", flush=True)
         log.warning("auto.dev fetch failed for VIN %s: %s", vin, exc)
         raise AutodevError(0, str(exc)) from exc
 
