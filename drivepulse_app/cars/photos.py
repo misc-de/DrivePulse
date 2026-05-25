@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import tempfile
 import threading
 from collections.abc import Callable
@@ -220,6 +221,7 @@ class CarsPhotosMixin:
         try:
             files = fd.open_multiple_finish(result)
         except Exception:
+            log.debug("FileDialog cancelled or failed", exc_info=True)
             return
         if files is None:
             return
@@ -298,7 +300,8 @@ class CarsPhotosMixin:
         try:
             photos = self.db.list_photos_for_car(self._selected_car_id)
             photo = next((p for p in photos if int(p["id"]) == photo_id), None)
-        except Exception:
+        except sqlite3.Error:
+            log.warning("Could not load photo list for car_id=%s", self._selected_car_id, exc_info=True)
             return
         if photo is None:
             return
@@ -605,6 +608,7 @@ class CameraPhotoDialog:
                 self._pipeline = pipe
                 break
             except Exception:
+                log.debug("Gst source %r unavailable, trying next", src_name, exc_info=True)
                 continue
 
         if self._pipeline is None:
@@ -681,6 +685,7 @@ class CameraPhotoDialog:
                     captured = True
                     break
             except Exception:
+                log.debug("Gst capture src %r failed, trying next", src_name, exc_info=True)
                 continue
 
         if captured:
@@ -728,13 +733,13 @@ class CameraPhotoDialog:
         if self._temp_path and self._temp_path.exists():
             try:
                 self._temp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError:
+                log.debug("Could not unlink temp photo %s", self._temp_path, exc_info=True)
 
     def _stop_pipeline(self) -> None:
         if self._pipeline is not None:
             try:
                 self._pipeline.set_state(self._Gst.State.NULL)
             except Exception:
-                pass
+                log.debug("Gst pipeline state-reset failed", exc_info=True)
             self._pipeline = None
