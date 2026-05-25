@@ -363,6 +363,7 @@ class ScanChartContent(Gtk.Box):
         pid_labels: dict,
         language: str = "de",
         main_car_id: int | None = None,
+        main_scan_id: int | None = None,
         on_navigate_pid=None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -524,10 +525,11 @@ class ScanChartContent(Gtk.Box):
         main_dot.set_valign(Gtk.Align.CENTER)
         self._main_car_row.add_prefix(main_dot)
 
-        # Scan-Auswahl fürs Hauptauto: "Neuester"-Sentinel + alle Scans mit
-        # Sensordaten, neuester zuerst.
+        # Scan-Auswahl fürs Hauptauto: alle Scans mit Sensordaten, neuester
+        # zuerst. Default ist der aktuell ausgewählte Scan (falls bekannt),
+        # sonst der neueste.
         self._main_scans_meta: list = []
-        self._main_scan_ts: str | None = None  # None = "Neuester"
+        self._main_scan_ts: str | None = None
         if self._db is not None and main_car_id is not None:
             try:
                 _ms = list(self._db.list_scans_for_car(main_car_id))
@@ -535,9 +537,19 @@ class ScanChartContent(Gtk.Box):
             except sqlite3.Error:
                 _log.warning("Could not list scans for main car_id=%s", main_car_id, exc_info=True)
                 self._main_scans_meta = []
+        if self._main_scans_meta:
+            preselect_ts: str | None = None
+            if main_scan_id is not None:
+                for s in self._main_scans_meta:
+                    if int(s["id"]) == int(main_scan_id):
+                        preselect_ts = str(s["scanned_at"])
+                        break
+            if preselect_ts is None:
+                preselect_ts = str(self._main_scans_meta[0]["scanned_at"])
+            self._main_scan_ts = preselect_ts
         self._main_scan_dd: Gtk.DropDown | None = None
         if self._main_scans_meta:
-            self._main_scan_dd = self._make_scan_dd(self._main_scans_meta, None, set())
+            self._main_scan_dd = self._make_scan_dd(self._main_scans_meta, self._main_scan_ts, set())
             self._main_scan_dd.connect("notify::selected", self._on_main_scan_changed)
             self._main_car_row.add_suffix(self._main_scan_dd)
 
@@ -630,12 +642,11 @@ class ScanChartContent(Gtk.Box):
     ) -> Gtk.DropDown:
         """Scan-DropDown mit optionaler Grün-Markierung geladener Scans."""
         sl = Gtk.StringList()
-        sl.append("Alle Scans")
         for s in scans_meta:
             sl.append(_fmt_scan_label(str(s["scanned_at"])))
 
         _green = frozenset(
-            i + 1
+            i
             for i, s in enumerate(scans_meta)
             if str(s["scanned_at"]) in green_ts
         )
@@ -666,7 +677,7 @@ class ScanChartContent(Gtk.Box):
         if preselect_ts:
             for i, s in enumerate(scans_meta):
                 if str(s["scanned_at"]) == preselect_ts:
-                    target_idx = i + 1
+                    target_idx = i
                     break
         dd.set_selected(target_idx)
         return dd
@@ -855,11 +866,13 @@ class ScanChartContent(Gtk.Box):
         scans_meta = [s for s in scans_meta if str(s["scanned_at"]) not in loaded_ts]
 
         entry["scans_meta"] = scans_meta
-        # Default: "Neuester"-Sentinel (None). Wenn Persistenz einen konkreten
+        # Default: neuester verfügbarer Scan. Wenn Persistenz einen konkreten
         # Scan kennt und dieser noch existiert, wird er stattdessen gewählt.
         restored = entry.pop("_restored_scan_ts", None)
         if restored and any(str(s["scanned_at"]) == restored for s in scans_meta):
             entry["scan_ts"] = restored
+        elif scans_meta:
+            entry["scan_ts"] = str(scans_meta[0]["scanned_at"])
         else:
             entry["scan_ts"] = None
 
@@ -897,11 +910,8 @@ class ScanChartContent(Gtk.Box):
         sel = dd.get_selected()
         scans = entry.get("scans_meta") or []
         entry.pop("scan_id_resolved", None)
-        if sel == 0:
-            entry["scan_ts"] = None
-        else:
-            idx = sel - 1
-            entry["scan_ts"] = str(scans[idx]["scanned_at"]) if 0 <= idx < len(scans) else None
+        idx = sel
+        entry["scan_ts"] = str(scans[idx]["scanned_at"]) if 0 <= idx < len(scans) else None
         if self._main_car_id == entry.get("car_id"):
             self._rebuild_main_scan_dd()
         self._save_prefs()
@@ -909,14 +919,10 @@ class ScanChartContent(Gtk.Box):
 
     def _on_main_scan_changed(self, dd: Gtk.DropDown, _prop) -> None:
         sel = dd.get_selected()
-        if sel == 0:
-            self._main_scan_ts = None  # "Neuester"
+        if 0 <= sel < len(self._main_scans_meta):
+            self._main_scan_ts = str(self._main_scans_meta[sel]["scanned_at"])
         else:
-            idx = sel - 1
-            if 0 <= idx < len(self._main_scans_meta):
-                self._main_scan_ts = str(self._main_scans_meta[idx]["scanned_at"])
-            else:
-                self._main_scan_ts = None
+            self._main_scan_ts = None
         self._save_prefs()
         self._da.queue_draw()
 
@@ -1047,7 +1053,7 @@ class ScanChartContent(Gtk.Box):
         if saved_main_scan and self._main_scan_dd is not None:
             for i, s in enumerate(self._main_scans_meta):
                 if str(s["scanned_at"]) == saved_main_scan:
-                    self._main_scan_dd.set_selected(i + 1)
+                    self._main_scan_dd.set_selected(i)
                     break
 
         # Vergleichs-Fahrzeuge wiederherstellen (nur die mit Sensordaten,
@@ -1107,8 +1113,8 @@ class ScanChartContent(Gtk.Box):
                 return vals, ts_labels, unit
 
         pairs = stats[pid].get("values") or []
-        # scan_ts None → "Alle Scans": komplette Verlaufslinie.
-        # Konkreter Timestamp → Snapshot dieses Scans (ein Punkt).
+        # Concrete timestamp → snapshot of this scan (single point).
+        # None is treated as full history (fallback for unselected states).
         if scan_ts is not None:
             pairs = [(t, v) for t, v in pairs if t == scan_ts]
         vals = [v for _, v in pairs]
