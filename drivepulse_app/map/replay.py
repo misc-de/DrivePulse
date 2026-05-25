@@ -325,6 +325,8 @@ class MapReplayMixin:
                 (i for i, m in enumerate(avail) if m[0] == def_key), 0
             )
             dropdown.set_selected(init_sel)
+            from drivepulse_app.cars.trip_visuals import lift_dropdown_popover
+            lift_dropdown_popover(dropdown)
             # Park the metric selector in the header next to the minimize
             # button so they share a single row.
             if slot is not None:

@@ -24,6 +24,20 @@ from drivepulse_app.diagnostics import get_logger
 log = get_logger(__name__)
 
 
+def lift_dropdown_popover(dropdown: Gtk.DropDown, y_offset_px: int = -10) -> None:
+    """Shift a Gtk.DropDown's popover by y_offset_px when it opens.
+
+    Negative values move the popover up; default -10 lifts it 10 px so the
+    options sit a little above their default position.
+    """
+    child = dropdown.get_first_child()
+    while child is not None:
+        if isinstance(child, Gtk.Popover):
+            child.set_offset(0, y_offset_px)
+            return
+        child = child.get_next_sibling()
+
+
 def speed_to_rgb(spd: float | None, vmax: float) -> tuple[float, float, float]:
     """Map a sample speed to (r, g, b) on the blue→green→red speed gradient.
 

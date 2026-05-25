@@ -316,6 +316,7 @@ class MapPage(
             coord_overlay = getattr(self, "_coord_overlay", None)
             if coord_overlay is not None:
                 coord_overlay.set_visible(True)
+            self._shumate_apply_attribution()
         if self._traffic_visible and not self._traffic_loaded:
             self._traffic_loaded = True
             self._status_lbl.set_text(_translate(self.language, "map.traffic.loading"))
@@ -455,6 +456,7 @@ class MapPage(
             self._js(f"mapSetStyle('{layer}')")
         elif self._shumate_map is not None:
             self._shumate_map.set_map_source(self._sources[layer])
+            self._shumate_apply_attribution()
         if self._layer_btn is not None:
             self._layer_btn.set_icon_name(MAP_ICONS.get(layer, "map-symbolic"))
             self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS[layer]))

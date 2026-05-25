@@ -12,7 +12,12 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.cars.metadata import _CHART_METRICS
-from drivepulse_app.cars.trip_visuals import _build_chart_widget, _build_osm_map_widget, _draw_gps_track
+from drivepulse_app.cars.trip_visuals import (
+    _build_chart_widget,
+    _build_osm_map_widget,
+    _draw_gps_track,
+    lift_dropdown_popover,
+)
 from drivepulse_app.common import _translate
 
 
@@ -201,6 +206,7 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
                         map_widget_ref[0].queue_draw()
 
             _dropdown.connect("notify::selected", _on_metric_selected)
+            lift_dropdown_popover(_dropdown)
             outer.append(_dropdown)
 
         sp_area = _build_chart_widget(chart_state, cursor_state, _on_cursor_change)
