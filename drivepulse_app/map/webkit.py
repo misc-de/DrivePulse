@@ -66,7 +66,13 @@ class MapWebKitMixin:
         try:
             with open(HTML_PATH, encoding="utf-8") as fh:
                 html = fh.read()
-            self._webview.load_html(html, "file:///")
+            # The base URI points at the directory holding map.html so that
+            # relative href/src paths (e.g. vendor/maplibre-gl-*.js) resolve
+            # to local files. Without this, MapLibre would be fetched from
+            # the network on every startup and a missing internet connection
+            # would block the entire app for the system DNS timeout.
+            base_uri = "file://" + os.path.dirname(HTML_PATH) + "/"
+            self._webview.load_html(html, base_uri)
         except OSError as exc:
             log.error("Could not load map.html: %s", exc)
 

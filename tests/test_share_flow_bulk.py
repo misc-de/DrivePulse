@@ -112,3 +112,100 @@ def test_share_tours_without_client_skips_send(monkeypatch, drivepulse_module):
     sf.share_tours([{"name": "X", "created_at": "2026-01-01", "waypoints_json": "[]"}])
     _wait_for_bg_threads()
     assert len(toasts) == 1
+
+
+# ── Unknown-vehicle anonymize choice (UX regression) ─────────────────────────
+
+def test_unknown_vehicle_dialog_honours_anon_checkbox_false(monkeypatch, drivepulse_module):
+    """Unknown-vehicle path must let the user opt OUT of anonymization so they
+    can *introduce* the vehicle (full VIN/brand) to a fresh peer. The dialog
+    previously hardcoded anon=True with a single 'Send anonymously' button —
+    no way to send with identity. Now anon is driven by a checkbox."""
+    from drivepulse_app.share.flow import ShareFlow
+
+    fake_client = object()
+    sf = ShareFlow(parent_widget=None, db=None, language="en", get_client_fn=lambda: fake_client)
+
+    # Capture what _proceed was called with — that's the contract between the
+    # dialog and the next step. Faking the dialog itself is brittle; the
+    # easier route is to patch _show_unknown_vehicle_dialog to immediately
+    # invoke its embedded _on_response with a stub that simulates the user
+    # un-checking anon. We do that by replacing the dialog presentation.
+    captured: dict = {}
+
+    def fake_proceed(self, *args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(ShareFlow, "_proceed", fake_proceed)
+
+    # Stand-in Adw.AlertDialog that fires the response handler synchronously
+    # with whatever values we put on the checkboxes.
+    class _FakeDialog:
+        def __init__(self, *_, **__):
+            self._handlers: list = []
+            self._extra = None
+        def set_extra_child(self, w): self._extra = w
+        def add_response(self, *_): pass
+        def set_response_appearance(self, *_): pass
+        def set_default_response(self, *_): pass
+        def set_close_response(self, *_): pass
+        def connect(self, _signal, handler): self._handlers.append(handler)
+        def present(self, _parent):
+            # Walk the extra child for the two CheckButtons we expect.
+            checks = list(getattr(self._extra, "children", []))
+            checks[0].set_active(False)  # anon = False
+            checks[1].set_active(True)   # include_obd = True
+            for h in self._handlers:
+                h(self, "send")
+
+    from drivepulse_app.share import flow as flow_mod
+    monkeypatch.setattr(flow_mod.Adw, "AlertDialog", _FakeDialog)
+
+    car = {"id": 1, "vin_hash": "abc"}
+    sf._show_unknown_vehicle_dialog(
+        client=object(), car=car, mode="vehicle",
+        trip_ids=None, run_ids=None, scan_ids=None,
+    )
+    assert captured.get("anon") is False
+    assert captured.get("include_obd") is True
+    assert captured.get("vehicle_known") is False
+
+
+def test_unknown_vehicle_dialog_defaults_to_anonymized(monkeypatch, drivepulse_module):
+    """Safe default: if the user just hits Send without touching the
+    checkboxes, the vehicle goes anonymized — this preserves the old
+    privacy-by-default behaviour for first-time pairings."""
+    from drivepulse_app.share import flow as flow_mod
+    from drivepulse_app.share.flow import ShareFlow
+
+    fake_client = object()
+    sf = ShareFlow(parent_widget=None, db=None, language="en", get_client_fn=lambda: fake_client)
+    captured: dict = {}
+
+    def fake_proceed(self, *args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(ShareFlow, "_proceed", fake_proceed)
+
+    class _PassThroughDialog:
+        def __init__(self, *_, **__):
+            self._handlers: list = []
+        def set_extra_child(self, _w): pass
+        def add_response(self, *_): pass
+        def set_response_appearance(self, *_): pass
+        def set_default_response(self, *_): pass
+        def set_close_response(self, *_): pass
+        def connect(self, _signal, handler): self._handlers.append(handler)
+        def present(self, _parent):
+            # Don't touch the checkboxes — they keep their constructor defaults.
+            for h in self._handlers:
+                h(self, "send")
+
+    monkeypatch.setattr(flow_mod.Adw, "AlertDialog", _PassThroughDialog)
+
+    sf._show_unknown_vehicle_dialog(
+        client=object(), car={"id": 1, "vin_hash": "abc"}, mode="vehicle",
+        trip_ids=None, run_ids=None, scan_ids=None,
+    )
+    assert captured.get("anon") is True
+    assert captured.get("include_obd") is False
