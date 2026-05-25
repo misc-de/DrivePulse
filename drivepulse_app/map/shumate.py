@@ -10,7 +10,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gtk
 
 from drivepulse_app.diagnostics import get_logger
-from drivepulse_app.map.services import TILE_ATTRIBUTION, TILE_URLS, zoom_for_bbox
+from drivepulse_app.map.services import TILE_URLS, zoom_for_bbox
 
 log = get_logger(__name__)
 
@@ -47,20 +47,11 @@ class MapShumateMixin:
                 if not url:
                     continue
                 try:
-                    source = Shumate.RasterRenderer.new(Shumate.TileDownloader.new(url))
+                    self._sources[key] = Shumate.RasterRenderer.new(
+                        Shumate.TileDownloader.new(url)
+                    )
                 except Exception:
                     log.warning("Could not create tile source for %s - using OSM fallback", key)
-                    continue
-                attribution = TILE_ATTRIBUTION.get(key)
-                if attribution:
-                    try:
-                        source.set_license(attribution)
-                    except (AttributeError, TypeError):
-                        try:
-                            source.set_property("license", attribution)
-                        except Exception:
-                            pass
-                self._sources[key] = source
 
         self._shumate_map.set_map_source(self._sources["map"])
         # SimpleMap renders its own square zoom buttons in the top-right
