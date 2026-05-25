@@ -337,9 +337,9 @@ class DashboardSettingsMixin:
         self.cars_page._vindecoder_secret_key = value or None
 
     def _set_autodev_api_key(self, value: str) -> None:
-        self.autodev_api_key = value
+        self.autodev_api_key = value.strip()
         self._save_settings()
-        self.cars_page._autodev_api_key = value or None
+        self.cars_page._autodev_api_key = self.autodev_api_key or None
 
     def _open_sync(self, *_args: Any) -> None:
         if getattr(self, "_sync_is_online", False):

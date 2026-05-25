@@ -92,7 +92,7 @@ class AutodevError(Exception):
 
 def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
     url = _AUTODEV_URL.format(urllib.parse.quote(vin.upper(), safe=""))
-    print(f"[VIN] auto.dev GET {url} key=...{api_key[-6:]}", flush=True)
+    print(f"[VIN] auto.dev GET {url} key_len={len(api_key)} key_repr={repr(api_key[-10:])}", flush=True)
     req = urllib.request.Request(
         url,
         headers={
