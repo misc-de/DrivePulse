@@ -218,3 +218,5 @@ class CarsActionsMixin:
                 log.exception("Could not delete profile file %s", entry["path"])
         if self._detail_pushed:
             self.nav_view.pop()
+        self._selected_car_id = None
+        self.refresh_profiles()
