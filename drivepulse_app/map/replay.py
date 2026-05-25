@@ -511,6 +511,8 @@ class MapReplayMixin:
         self._replay_chart_minimized = False
         self._refresh_fab_visibility()
         self._map_clear_replay_marker()
+        if hasattr(self, "_hide_route_info"):
+            self._hide_route_info()
         if self._backend == "webkit":
             self._js("mapClearColoredTrack()")
             self._js("mapClearRoute()")

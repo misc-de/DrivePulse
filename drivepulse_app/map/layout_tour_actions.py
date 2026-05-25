@@ -80,15 +80,23 @@ class MapTourActionsMixin:
         self._tour_plan_active = btn.get_active()
         if self._search_bar is not None:
             self._search_bar.set_visible(self._tour_plan_active)
-        if self._tour_plan_active:
-            # Drop any trip-replay polyline / overlays so the planning UI starts clean.
-            self._clear_replay_overlays()
+        # Keep an already-loaded tour visible on the map while the user edits
+        # waypoints; the route is only cleared once "Calculate route" runs
+        # (see _on_route_clicked, which clears overlays before re-routing).
         GLib.idle_add(self._nudge_map_resize)
 
     def _on_tour_load_clicked(self, _btn: object) -> None:
         nav_view = getattr(self, "_nav_view", None)
         if nav_view is None:
             return
+
+        # Mirrors the history list: per-row icon + edit button by default;
+        # long-press enters select mode with checkbox prefixes + a header
+        # trash button for bulk delete.
+        self._saved_tour_select_mode: bool = False
+        self._saved_tour_selected: set[int] = set()
+        self._saved_tour_metas: list[dict] = []
+
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         page_box.set_hexpand(True)
         page_box.set_vexpand(True)
@@ -99,14 +107,33 @@ class MapTourActionsMixin:
 
         listbox = Gtk.ListBox()
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        listbox.add_css_class("navigation-sidebar")
+        listbox.add_css_class("boxed-list")
+        listbox.set_valign(Gtk.Align.START)
         scrolled.set_child(listbox)
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        inner.set_margin_top(12)
+        inner.set_margin_bottom(12)
+        inner.set_margin_start(12)
+        inner.set_margin_end(12)
+        inner.append(listbox)
+        scrolled.set_child(inner)
         page_box.append(scrolled)
 
         self._tour_listbox = listbox
 
+        header = Adw.HeaderBar()
+        trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        trash_btn.add_css_class("destructive-action")
+        trash_btn.set_tooltip_text(
+            _translate(self.language, "map.history.delete_selected_tooltip")
+        )
+        trash_btn.set_visible(False)
+        trash_btn.connect("clicked", self._on_saved_tour_trash_clicked)
+        self._saved_tour_trash_btn = trash_btn
+        header.pack_end(trash_btn)
+
         toolbar_view = Adw.ToolbarView()
-        toolbar_view.add_top_bar(Adw.HeaderBar())
+        toolbar_view.add_top_bar(header)
         toolbar_view.set_content(page_box)
 
         page = Adw.NavigationPage(title=_translate(self.language, "map.topnav.load"))
@@ -616,6 +643,7 @@ class MapTourActionsMixin:
 
         db = getattr(self, "_map_db", None)
         tours = db.list_saved_tours() if db is not None else []
+        self._saved_tour_metas = [dict(t) for t in tours]
 
         if not tours:
             row = Gtk.ListBoxRow()
@@ -629,68 +657,182 @@ class MapTourActionsMixin:
             self._tour_listbox.append(row)
             return
 
-        for tour in tours:
-            tour_id = int(tour["id"])
-            try:
-                from datetime import datetime
-                dt = datetime.fromisoformat(tour["created_at"])
-                date_str = dt.strftime("%d.%m.%Y %H:%M")
-            except Exception:
-                date_str = str(tour["created_at"])[:16]
+        for tour in self._saved_tour_metas:
+            self._tour_listbox.append(self._make_saved_tour_row(tour))
 
-            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            row_box.set_margin_start(4)
-            row_box.set_margin_end(4)
-            row_box.set_margin_top(2)
-            row_box.set_margin_bottom(2)
+    def _make_saved_tour_row(self, tour: dict) -> Adw.ActionRow:
+        from datetime import datetime
+        row = Adw.ActionRow()
+        try:
+            dt = datetime.fromisoformat(tour["created_at"])
+            date_str = dt.strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            date_str = str(tour["created_at"])[:16]
+        row.set_title(GLib.markup_escape_text(str(tour["name"])))
+        row.set_subtitle(GLib.markup_escape_text(date_str))
+        row._dp_tour = tour
+        tour_id = int(tour["id"])
 
-            text_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            text_col.set_hexpand(True)
-            text_col.set_valign(Gtk.Align.CENTER)
-            name_lbl = Gtk.Label(label=str(tour["name"]), xalign=0.0)
-            name_lbl.add_css_class("dp-steps-instr")
-            name_lbl.set_max_width_chars(24)
-            name_lbl.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
-            date_lbl = Gtk.Label(label=date_str, xalign=0.0)
-            date_lbl.add_css_class("dim-label")
-            date_lbl.add_css_class("caption")
-            text_col.append(name_lbl)
-            text_col.append(date_lbl)
-
-            load_btn = Gtk.Button()
-            load_btn.add_css_class("flat")
-            load_btn.set_hexpand(True)
-            load_btn.set_child(text_col)
-            tour_data = dict(tour)
-            load_btn.connect("clicked", lambda _b, td=tour_data: self._load_saved_tour(td))
-
-            sync_getter = getattr(self, "get_sync_client", None)
-            sync_active = callable(sync_getter) and sync_getter() is not None
-            if sync_active:
-                share_btn = Gtk.Button(icon_name="share-alt-symbolic")
-                share_btn.add_css_class("flat")
-                share_btn.add_css_class("circular")
-                share_btn.set_valign(Gtk.Align.CENTER)
-                share_btn.connect("clicked", lambda _b, td=tour_data: self._share_saved_tour(td))
-            else:
-                share_btn = None
-
-            del_btn = Gtk.Button(icon_name="user-trash-symbolic")
-            del_btn.add_css_class("flat")
-            del_btn.add_css_class("circular")
-            del_btn.set_valign(Gtk.Align.CENTER)
-            del_btn.connect("clicked", lambda _b, tid=tour_id: self._delete_saved_tour(tid))
-
-            row_box.append(load_btn)
-            if share_btn is not None:
-                row_box.append(share_btn)
-            row_box.append(del_btn)
-
-            row = Gtk.ListBoxRow()
+        if getattr(self, "_saved_tour_select_mode", False):
+            check = Gtk.CheckButton()
+            check.set_active(tour_id in self._saved_tour_selected)
+            check.set_valign(Gtk.Align.CENTER)
+            check.connect("toggled", self._on_saved_tour_check_toggled, tour_id)
+            row.add_prefix(check)
             row.set_activatable(False)
-            row.set_selectable(False)
-            row.set_child(row_box)
-            self._tour_listbox.append(row)
+            return row
+
+        icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
+        row.add_prefix(icon)
+
+        sync_getter = getattr(self, "get_sync_client", None)
+        sync_active = callable(sync_getter) and sync_getter() is not None
+        if sync_active:
+            share_btn = Gtk.Button(icon_name="share-alt-symbolic")
+            share_btn.add_css_class("flat")
+            share_btn.add_css_class("circular")
+            share_btn.set_valign(Gtk.Align.CENTER)
+            share_btn.connect(
+                "clicked", lambda _b, td=tour: self._share_saved_tour(td)
+            )
+            row.add_suffix(share_btn)
+
+        edit_btn = Gtk.Button(icon_name="document-edit-symbolic")
+        edit_btn.add_css_class("flat")
+        edit_btn.add_css_class("circular")
+        edit_btn.set_valign(Gtk.Align.CENTER)
+        edit_btn.set_tooltip_text(_translate(self.language, "map.history.edit"))
+        edit_btn.connect("clicked", self._on_saved_tour_edit_clicked, row)
+        row.add_suffix(edit_btn)
+
+        row.set_activatable(True)
+        row.connect(
+            "activated", lambda _r, td=tour: self._load_saved_tour(td)
+        )
+
+        lp = Gtk.GestureLongPress()
+        lp.set_touch_only(False)
+        lp.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        lp.connect(
+            "pressed",
+            lambda _g, _x, _y, tid=tour_id: self._enter_saved_tour_select_mode(tid),
+        )
+        row.add_controller(lp)
+        return row
+
+    def _enter_saved_tour_select_mode(self, initial_id: int) -> None:
+        if self._saved_tour_select_mode:
+            return
+        self._saved_tour_select_mode = True
+        self._saved_tour_selected = {initial_id}
+        self._rebuild_tour_list()
+        trash_btn = getattr(self, "_saved_tour_trash_btn", None)
+        if trash_btn is not None:
+            trash_btn.set_visible(True)
+
+    def _exit_saved_tour_select_mode(self) -> None:
+        if not self._saved_tour_select_mode:
+            return
+        self._saved_tour_select_mode = False
+        self._saved_tour_selected = set()
+        self._rebuild_tour_list()
+        trash_btn = getattr(self, "_saved_tour_trash_btn", None)
+        if trash_btn is not None:
+            trash_btn.set_visible(False)
+
+    def _on_saved_tour_check_toggled(
+        self, check: Gtk.CheckButton, tour_id: int
+    ) -> None:
+        if check.get_active():
+            self._saved_tour_selected.add(tour_id)
+        else:
+            self._saved_tour_selected.discard(tour_id)
+        if not self._saved_tour_selected:
+            self._exit_saved_tour_select_mode()
+
+    def _on_saved_tour_edit_clicked(
+        self, _btn: Gtk.Button, row: Adw.ActionRow
+    ) -> None:
+        tour = getattr(row, "_dp_tour", None)
+        if not tour:
+            return
+        tour_id = int(tour["id"])
+        current_name = str(tour.get("name") or "")
+
+        entry = Gtk.Entry()
+        entry.set_text(current_name)
+        entry.set_activates_default(True)
+        entry.set_placeholder_text(
+            _translate(self.language, "map.history.rename_placeholder")
+        )
+
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content_box.set_margin_top(6)
+        content_box.set_margin_bottom(6)
+        content_box.append(entry)
+
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "map.history.rename_title")
+        )
+        dialog.set_extra_child(content_box)
+        dialog.add_response("cancel", _translate(self.language, "map.tours.cancel"))
+        dialog.add_response("delete", _translate(self.language, "map.tours.delete_confirm"))
+        dialog.add_response("save", _translate(self.language, "map.tours.do_save"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp == "save":
+                new_name = entry.get_text().strip()
+                db = getattr(self, "_map_db", None)
+                if db is not None and new_name:
+                    try:
+                        db.rename_saved_tour(tour_id, new_name)
+                    except Exception:
+                        return
+                    self._rebuild_tour_list()
+            elif resp == "delete":
+                # _delete_saved_tour already shows its own confirm dialog.
+                self._delete_saved_tour(tour_id)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
+
+    def _on_saved_tour_trash_clicked(self, _btn: Gtk.Button) -> None:
+        ids = list(getattr(self, "_saved_tour_selected", []))
+        if not ids:
+            return
+        body = _translate(
+            self.language,
+            "map.history.delete_selected_body",
+            count=str(len(ids)),
+        )
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "map.history.delete_selected_heading"),
+            body=body,
+        )
+        dialog.add_response("cancel", _translate(self.language, "map.tours.cancel"))
+        dialog.add_response("delete", _translate(self.language, "map.tours.delete_confirm"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "delete":
+                return
+            db = getattr(self, "_map_db", None)
+            if db is not None:
+                for tid in ids:
+                    try:
+                        db.delete_saved_tour(int(tid))
+                    except Exception:
+                        continue
+            self._exit_saved_tour_select_mode()
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
 
     def _load_saved_tour(self, tour: dict) -> None:
         import json as _json
