@@ -531,6 +531,21 @@ class MapLayoutMixin:
         self._tour_abort_btn.connect("clicked", lambda _b: self._abort_tour())
         grid.attach(self._tour_abort_btn, 1, 0, 1, 1)
 
+        # "Nächstes Ziel" button — visible only during active navigation when
+        # the car is within 200 m of an intermediate waypoint.  Shown to the
+        # right of the pause button; abort and next-wp are mutually exclusive
+        # (abort = paused, next-wp = active) so they never overlap.
+        next_wp_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        next_wp_inner.append(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+        next_wp_inner.append(Gtk.Label(label=_translate(self.language, "map.next_waypoint")))
+        self._next_wp_btn = Gtk.Button()
+        self._next_wp_btn.set_child(next_wp_inner)
+        self._next_wp_btn.add_css_class("osd")
+        self._next_wp_btn.set_halign(Gtk.Align.END)
+        self._next_wp_btn.set_visible(False)
+        self._next_wp_btn.connect("clicked", self._on_next_wp_clicked)
+        grid.attach(self._next_wp_btn, 2, 0, 1, 1)
+
         icon_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         icon_row.set_halign(Gtk.Align.START)
         icon_row.set_valign(Gtk.Align.START)
