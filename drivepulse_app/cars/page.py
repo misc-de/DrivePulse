@@ -333,6 +333,61 @@ class CarsPage(
         print(f"[VIN] thread done car_id={car_id} sources={list(data.keys())}", flush=True)
         GLib.idle_add(self._on_vin_data_ready, car_id, vin, data)
 
+    def _start_refetch_with_dialog(self, car_id: int, vin: str, dialog: Any) -> None:
+        threading.Thread(
+            target=self._refetch_vin_with_dialog_thread,
+            args=(car_id, vin, dialog),
+            daemon=True,
+        ).start()
+
+    def _refetch_vin_with_dialog_thread(self, car_id: int, vin: str, dialog: Any) -> None:
+        def _on_source_done(source: str, ok: bool, error_code: str, field_count: int) -> None:
+            if not ok:
+                if error_code == "auth":
+                    msg = _translate(self.language, "vin.autodev.error.auth")
+                elif error_code == "not_found":
+                    msg = _translate(self.language, "vin.autodev.error.not_found")
+                else:
+                    msg = _translate(self.language, "vin.autodev.error.generic")
+            else:
+                msg = ""
+            GLib.idle_add(dialog.set_source_result, source, ok, msg, field_count)
+
+        try:
+            data = fetch_vin_data(
+                vin,
+                autodev_api_key=self._autodev_api_key,
+                vindecoder_api_key=self._vindecoder_api_key,
+                vindecoder_secret_key=self._vindecoder_secret_key,
+                nhtsa_enabled=self._nhtsa_enabled,
+                on_autodev_call=self._on_autodev_call,
+                on_source_done=_on_source_done,
+            )
+        except Exception:
+            log.warning("VIN refetch failed for car_id=%s", car_id, exc_info=True)
+            data = {}
+        GLib.idle_add(self._on_vin_refetch_dialog_done, car_id, vin, data, dialog)
+
+    def _on_vin_refetch_dialog_done(
+        self, car_id: int, vin: str, sources: dict, dialog: Any
+    ) -> bool:
+        self._vin_fetch_pending.discard(car_id)
+        raw = sources.pop("auto.dev_raw", None)
+        if raw and self.db is not None:
+            try:
+                self.db.save_autodev_raw(car_id, raw)
+            except Exception:
+                log.warning("Could not save autodev raw for car_id=%s", car_id, exc_info=True)
+        sources.pop("auto.dev_error", None)  # already shown in dialog row
+        if not sources:
+            if self.db is not None:
+                try:
+                    self.db.update_car_vin_data(car_id, "{}")
+                except sqlite3.Error:
+                    log.warning("Could not persist empty VIN data for car_id=%s", car_id, exc_info=True)
+        dialog.set_all_done(sources)
+        return False
+
     def _on_vin_data_ready(self, car_id: int, vin: str, sources: dict) -> bool:
         print(f"[VIN] data ready car_id={car_id} raw_sources={list(sources.keys())}", flush=True)
         self._vin_fetch_pending.discard(car_id)

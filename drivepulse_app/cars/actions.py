@@ -195,13 +195,46 @@ class CarsActionsMixin:
         car_id = self._selected_car_id
         if car_id is None or self.db is None:
             return
+
+        # Determine active sources for the dialog
+        active_sources: list[str] = []
+        if self._nhtsa_enabled:
+            active_sources.append("NHTSA")
+        if self._autodev_api_key:
+            active_sources.append("auto.dev")
+        if self._vindecoder_api_key and self._vindecoder_secret_key:
+            active_sources.append("vindecoder.eu")
+
+        # Get VIN before resetting so the dialog can display it
+        profile = next((p for p in self._profiles if p.get("car_id") == car_id), None)
+        vin = str((profile or {}).get("vin") or "")
+
         try:
             self.db.reset_car_vin_data(car_id)
         except Exception:
             log.exception("Could not reset vin_data for car id=%s", car_id)
             return
+
+        # Block the scheduler from starting a silent background fetch for this car
+        self._vin_fetch_pending.add(car_id)
         self.refresh_profiles()
-        self._show_toast(_translate(self.language, "vin.refetch.started"))
+
+        from drivepulse_app.vin.fetch_dialog import VinFetchDialog
+        dialog = VinFetchDialog(vin=vin, active_sources=active_sources, language=self.language)
+
+        def _on_dialog_response(d: VinFetchDialog, response: str) -> None:
+            if response == "proceed":
+                sources = d.get_result_sources()
+                if sources:
+                    self._vin_review_queue.append((car_id, vin, sources))
+                    self._maybe_show_next_review()
+
+        dialog.connect("response", _on_dialog_response)
+        root = self.get_root()
+        if root:
+            dialog.present(root)
+
+        self._start_refetch_with_dialog(car_id, vin, dialog)
 
     def _delete_vehicle(self) -> None:
         if self.db and self._selected_car_id:
