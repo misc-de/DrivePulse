@@ -40,7 +40,7 @@ def _format_scan_date(raw: Any) -> str:
     try:
         dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
         return dt.strftime("%d.%m.%Y %H:%M")
-    except Exception:
+    except (ValueError, TypeError):
         return str(raw)
 
 
@@ -56,7 +56,7 @@ def _format_scan_date_stack(raw: Any, language: str = "en") -> str | None:
         return None
     try:
         dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    except Exception:
+    except (ValueError, TypeError):
         return None
     # en → MM.DD (US default); any other language → DD.MM (European).
     md_fmt = "%m.%d" if (language or "").lower().startswith("en") else "%d.%m"
@@ -72,7 +72,7 @@ def _safe_scan_ts(raw: Any) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 

@@ -5,6 +5,9 @@ import subprocess
 from pathlib import Path
 
 from drivepulse_app.common import OBD_BT_ADDR, OBD_PORT, OBD_SOCKET_URL
+from drivepulse_app.diagnostics import get_logger
+
+log = get_logger(__name__)
 
 
 def candidate_bt_addresses() -> list[tuple[str, int]]:
@@ -100,8 +103,8 @@ def scan_bt_nearby_devices(
                     scan_names[addr] = " ".join(parts[dev_idx + 2:])
             except (ValueError, IndexError, StopIteration):
                 pass
-    except Exception:
-        pass
+    except (OSError, subprocess.SubprocessError):
+        log.debug("bluetoothctl scan probe failed", exc_info=True)
     try:
         result = subprocess.run(
             ["bluetoothctl", "devices"],
@@ -172,8 +175,8 @@ def bind_bt_to_rfcomm(addr: str, channel: int = 1) -> tuple[str, str] | tuple[No
     try:
         subprocess.run(["rfcomm", "release", str(slot)],
                        capture_output=True, timeout=3, check=False)
-    except Exception:
-        pass
+    except (OSError, subprocess.SubprocessError):
+        log.debug("Pre-release of rfcomm slot %s failed (ok if first bind)", slot, exc_info=True)
 
     # Try without sudo, then escalate via pkexec.
     for cmd in (bind_cmd, ["pkexec", *bind_cmd]):

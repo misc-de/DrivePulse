@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -717,8 +718,8 @@ def seed_mock_data(db: DriveDB) -> int:
         )
         try:
             db.update_car_vin_data(car_id, json.dumps(car["vin_data"]))
-        except Exception:
-            pass
+        except sqlite3.Error:
+            log.debug("Could not persist mock VIN data for car_id=%s", car_id, exc_info=True)
 
         # --- Three trips per car ---------------------------------------
         for trip_idx, route in enumerate(_ROUTES):
@@ -734,8 +735,8 @@ def seed_mock_data(db: DriveDB) -> int:
             db.add_samples(trip_id, samples)
             try:
                 db.rename_trip(trip_id, route["label"])
-            except Exception:
-                pass
+            except sqlite3.Error:
+                log.debug("Could not rename mock trip_id=%s", trip_id, exc_info=True)
             db.end_trip(trip_id)
 
         # --- Three scans per car (oldest first; second carries one DTC) -

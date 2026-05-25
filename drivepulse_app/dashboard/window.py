@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import atexit
 import math
+import sqlite3
 import time
 from typing import Any, cast
 
@@ -1079,7 +1080,8 @@ class DashboardWindow(
     def _update_conflict_badge(self) -> None:
         try:
             n = self.db.count_share_conflicts()
-        except Exception:
+        except sqlite3.Error:
+            log.debug("Could not count share conflicts", exc_info=True)
             n = 0
         btn = getattr(self, "_conflict_btn", None)
         if btn is not None:
@@ -1118,13 +1120,15 @@ class DashboardWindow(
                 list_box.remove(child)
             try:
                 conflicts = self.db.list_share_conflicts()
-            except Exception:
+            except sqlite3.Error:
+                log.warning("Could not list share conflicts", exc_info=True)
                 conflicts = []
             for c in conflicts:
                 import json as _json
                 try:
                     incoming = _json.loads(c["incoming_json"])
-                except Exception:
+                except (ValueError, TypeError, _json.JSONDecodeError):
+                    log.debug("Conflict id=%s has unparseable incoming_json", c.get("id"), exc_info=True)
                     incoming = {}
                 typ = c["type"]
                 type_label = {
@@ -1153,8 +1157,8 @@ class DashboardWindow(
                 def _discard(_btn: Gtk.Button, conflict_id: int = cid) -> None:
                     try:
                         self.db.discard_conflict(conflict_id)
-                    except Exception:
-                        pass
+                    except sqlite3.Error:
+                        log.warning("Could not discard conflict id=%s", conflict_id, exc_info=True)
                     _refresh()
                     self._update_conflict_badge()
 
@@ -1168,8 +1172,8 @@ class DashboardWindow(
                 def _apply(_btn: Gtk.Button, conflict_id: int = cid) -> None:
                     try:
                         self.db.resolve_conflict(conflict_id)
-                    except Exception:
-                        pass
+                    except sqlite3.Error:
+                        log.warning("Could not resolve conflict id=%s", conflict_id, exc_info=True)
                     _refresh()
                     self._update_conflict_badge()
                     self.cars_page.refresh_profiles()
