@@ -42,6 +42,7 @@ from drivepulse_app.map.services import (
     MAP_ICONS,
     MAP_LABEL_KEYS,
     MAP_TYPES,
+    bearing,
     compute_route,
     format_distance,
     format_duration,
@@ -194,6 +195,18 @@ class MapPage(
         self._wp_in_radius: bool = False
         # "Nächstes Ziel" button reference (built in layout.py, controlled by tour.py).
         self._next_wp_btn: Gtk.Button | None = None
+        # GPS kinematic sanity filter — last accepted fix + one pending "suspect" slot.
+        self._gps_filt_lat: float | None = None
+        self._gps_filt_lon: float | None = None
+        self._gps_filt_heading: float = 0.0
+        self._gps_filt_speed_kmh: float = 0.0
+        self._gps_filt_time: float = 0.0
+        # A "suspect" is a point whose implied speed was too high but whose
+        # direction was consistent with the current heading.  It is held for
+        # one GPS cycle: if the next point validates it (progression from the
+        # suspect is plausible), it is accepted retroactively; otherwise it is
+        # silently discarded as GPS noise.
+        self._gps_filt_suspect: tuple | None = None  # (lat, lon, hdg, spd, t)
         self._dnd_src_idx: int = -1
         # TTS state
         self._tts_enabled: bool = False
@@ -368,6 +381,9 @@ class MapPage(
     ) -> None:
         if lat is None or lon is None:
             return
+        now = time.monotonic()
+        lat, lon, heading, speed_kmh = self._gps_filter(lat, lon, heading, speed_kmh, now)
+
         self._gps_lat = lat
         self._gps_lon = lon
         self._gps_heading = heading or 0.0
@@ -389,7 +405,7 @@ class MapPage(
             self._snapped_cum_m = scum
             if self._tour_active:
                 off_dist_m = haversine(lat, lon, slat, slon)
-                self._check_off_route(off_dist_m, time.monotonic())
+                self._check_off_route(off_dist_m, now)
         else:
             self._snapped_lat = None
             self._snapped_lon = None
@@ -423,6 +439,152 @@ class MapPage(
         if self._tour_active or self._tour_paused:
             self._update_maneuver_overlay()
             self._check_waypoint_proximity()
+
+    # ── GPS kinematic sanity filter ───────────────────────────────────────────
+
+    # Maximum plausible acceleration: ~10 m/s² ≈ 36 km/h per second (sports car).
+    # GPS noise typically implies thousands of km/h, so this threshold is generous.
+    _GPS_MAX_ACCEL_KMH_S: float = 36.0
+    # Extra headroom applied on top of the kinematic maximum (20 %).
+    _GPS_SPEED_TOL: float = 1.2
+    # Bearing-vs-heading tolerance for classifying an implausible jump as a
+    # "possible rapid acceleration" rather than an outright GPS error.
+    _GPS_DIR_TOL_DEG: float = 45.0
+    # After this many seconds without an accepted fix, stop filtering and accept
+    # whatever arrives (GPS receiver recovered / tunnel exit / etc.).
+    _GPS_MAX_STALE_S: float = 10.0
+
+    def _gps_filter(
+        self,
+        lat: float,
+        lon: float,
+        heading: float | None,
+        speed_kmh: float | None,
+        now: float,
+    ) -> tuple[float, float, float | None, float | None]:
+        """Kinematic GPS sanity filter.
+
+        Rejects position jumps that cannot be explained by physical acceleration.
+        A jump that is direction-consistent with the current heading is held as a
+        "suspect" for one GPS cycle: if the following point validates it (movement
+        from the suspect is also plausible) it is accepted retroactively; otherwise
+        it is discarded as noise and the last valid position is kept.
+
+        Returns (filtered_lat, filtered_lon, heading, speed_kmh).
+        """
+        # ── First fix: accept unconditionally ─────────────────────────────────
+        if self._gps_filt_lat is None:
+            self._gps_filter_accept(lat, lon, heading, speed_kmh, now)
+            return lat, lon, heading, speed_kmh
+
+        dt = now - self._gps_filt_time
+        # Too long since last fix — stop filtering (tunnel exit, GPS recovery).
+        if dt >= self._GPS_MAX_STALE_S or dt <= 0:
+            self._gps_filter_accept(lat, lon, heading, speed_kmh, now)
+            return lat, lon, heading, speed_kmh
+
+        dist_m = haversine(self._gps_filt_lat, self._gps_filt_lon, lat, lon)
+        implied_kmh = (dist_m / dt) * 3.6
+        max_ok_kmh = (
+            self._gps_filt_speed_kmh + self._GPS_MAX_ACCEL_KMH_S * dt
+        ) * self._GPS_SPEED_TOL
+
+        if implied_kmh <= max_ok_kmh:
+            # ── Speed is kinematically plausible ──────────────────────────────
+            if self._gps_filt_suspect is not None:
+                # The new point is consistent with the *last valid* fix (not the
+                # suspect), so the suspect was GPS noise — discard it silently.
+                slat, slon, _shdg, sspd, _st = self._gps_filt_suspect
+                log.debug(
+                    "GPS filter: suspect (%.0f km/h jump from valid) discarded — "
+                    "next point consistent with last valid",
+                    haversine(self._gps_filt_lat, self._gps_filt_lon, slat, slon) / dt * 3.6,
+                )
+                self._gps_filt_suspect = None
+            self._gps_filter_accept(lat, lon, heading, speed_kmh, now)
+            return lat, lon, heading, speed_kmh
+
+        # ── Speed is implausible ──────────────────────────────────────────────
+        if self._gps_filt_suspect is not None:
+            # We already hold one suspect.  Check if the *new* point is plausible
+            # as a continuation of the suspect (i.e., the jump was a real
+            # rapid acceleration and both points are consistent).
+            slat, slon, shdg, sspd, st = self._gps_filt_suspect
+            dt_susp = now - st
+            if dt_susp > 0:
+                dist_from_susp = haversine(slat, slon, lat, lon)
+                impl_from_susp = (dist_from_susp / dt_susp) * 3.6
+                max_from_susp = (
+                    (sspd or self._gps_filt_speed_kmh) + self._GPS_MAX_ACCEL_KMH_S * dt_susp
+                ) * self._GPS_SPEED_TOL
+                if impl_from_susp <= max_from_susp:
+                    # Confirmed: the original jump was a real rapid acceleration.
+                    log.debug(
+                        "GPS filter: suspect confirmed as real acceleration "
+                        "(%.0f → %.0f km/h) — accepted retroactively",
+                        self._gps_filt_speed_kmh, sspd or 0,
+                    )
+                    self._gps_filter_accept(slat, slon, shdg, sspd, st)
+                    self._gps_filt_suspect = None
+                    self._gps_filter_accept(lat, lon, heading, speed_kmh, now)
+                    return lat, lon, heading, speed_kmh
+            # New point is also inconsistent with the suspect → discard both.
+            log.debug(
+                "GPS filter: suspect and new point both implausible — discarding both"
+            )
+            self._gps_filt_suspect = None
+            # Fall through: return last valid position.
+
+        else:
+            # No pending suspect yet.  Check if movement direction is consistent
+            # with the current heading — if so, the jump might be a rapid
+            # acceleration; hold it for one cycle.
+            move_bearing = (
+                bearing(self._gps_filt_lat, self._gps_filt_lon, lat, lon)
+                if dist_m > 5.0 else self._gps_filt_heading
+            )
+            diff = abs(self._gps_filt_heading - move_bearing) % 360.0
+            if diff > 180.0:
+                diff = 360.0 - diff
+
+            if diff <= self._GPS_DIR_TOL_DEG:
+                log.debug(
+                    "GPS filter: suspect — %.0f km/h implied (max %.0f), "
+                    "dir OK (%.0f° off) — holding one cycle",
+                    implied_kmh, max_ok_kmh, diff,
+                )
+                self._gps_filt_suspect = (lat, lon, heading, speed_kmh, now)
+            else:
+                log.debug(
+                    "GPS filter: discarding implausible jump — %.0f km/h implied "
+                    "(max %.0f), dir mismatch (%.0f°)",
+                    implied_kmh, max_ok_kmh, diff,
+                )
+
+        # Return last accepted position for this cycle.
+        return (
+            self._gps_filt_lat,
+            self._gps_filt_lon,
+            self._gps_filt_heading,
+            self._gps_filt_speed_kmh,
+        )
+
+    def _gps_filter_accept(
+        self,
+        lat: float,
+        lon: float,
+        heading: float | None,
+        speed_kmh: float | None,
+        t: float,
+    ) -> None:
+        """Commit a GPS fix as the new last-valid reference."""
+        self._gps_filt_lat = lat
+        self._gps_filt_lon = lon
+        self._gps_filt_heading = heading or 0.0
+        self._gps_filt_speed_kmh = speed_kmh if speed_kmh is not None else self._gps_filt_speed_kmh
+        self._gps_filt_time = t
+
+    # ── Follow / viewport ─────────────────────────────────────────────────────
 
     def _goto(self, lat: float, lon: float) -> None:
         if self._backend == "webkit":
