@@ -254,11 +254,15 @@ def fetch_vin_data(
                 sources["auto.dev_error"] = {"_error": str(exc), "_status": exc.status}
 
     if vindecoder_api_key and vindecoder_secret_key:
-        vd = _fetch_vindecoder(vin, vindecoder_api_key, vindecoder_secret_key)
-        if on_source_done:
-            on_source_done("vindecoder.eu", True, "", len(vd))
-        if vd:
-            sources["vindecoder.eu"] = vd
+        if len(vin) != 17:
+            if on_source_done:
+                on_source_done("vindecoder.eu", False, "vin_format", 0)
+        else:
+            vd = _fetch_vindecoder(vin, vindecoder_api_key, vindecoder_secret_key)
+            if on_source_done:
+                on_source_done("vindecoder.eu", True, "", len(vd))
+            if vd:
+                sources["vindecoder.eu"] = vd
 
     return sources
 

@@ -617,7 +617,7 @@
   "vin.nhtsa.disabled.no_source": "NHTSA deaktiviert – keine VIN-Quelle mehr aktiv",
   "vin.autodev.error.auth": "auto.dev: Ungültiger API-Schlüssel (401/403)",
   "vin.autodev.error.not_found": "auto.dev: VIN nicht gefunden",
-  "vin.autodev.error.vin_format": "auto.dev: VIN-Länge nicht unterstützt (nur 10/11/13/17 Stellen)",
+  "vin.autodev.error.vin_format": "VIN-Länge nicht unterstützt",
   "vin.autodev.error.generic": "auto.dev: Abfrage fehlgeschlagen",
   "vin.refetch.started": "VIN-Abfrage gestartet …"
 }
