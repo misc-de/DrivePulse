@@ -86,9 +86,11 @@ class MapPage(
         traffic_bundesweit: bool = True,
         traffic_nrw: bool = False,
         map_3d_view: bool = True,
+        map_layer: str = "map",
         on_poi_visible_changed: Callable[[bool], None] | None = None,
         on_traffic_visible_changed: Callable[[bool], None] | None = None,
         on_3d_view_changed: Callable[[bool], None] | None = None,
+        on_map_layer_changed: Callable[[str], None] | None = None,
         on_tour_started: Callable[[list[list[float]], list[tuple[float, float]], list[float]], None] | None = None,
         on_tour_stopped: Callable[[], None] | None = None,
         on_tour_resumed: Callable[[], None] | None = None,
@@ -118,6 +120,7 @@ class MapPage(
         self._on_poi_visible_changed = on_poi_visible_changed
         self._on_traffic_visible_changed = on_traffic_visible_changed
         self._on_3d_view_changed = on_3d_view_changed
+        self._on_map_layer_changed = on_map_layer_changed
         self._map_3d_view: bool = bool(map_3d_view)
         self._3d_btn: Gtk.ToggleButton | None = None
         self._on_tour_started = on_tour_started
@@ -137,7 +140,11 @@ class MapPage(
         self._last_map_js: float = 0.0   # throttle: last time mapSetCar was sent
         # Route coords [[lon, lat], ...] — kept for traffic proximity filtering
         self._route_coords: list[list[float]] = []
-        self._map_type_idx: int = 0
+        # Restore the remembered layer; fall back to "map" (index 0) if invalid.
+        try:
+            self._map_type_idx: int = MAP_TYPES.index(map_layer)
+        except ValueError:
+            self._map_type_idx = 0
         self._start_coord: tuple[float, float] | None = None
         self._end_coord: tuple[float, float] | None = None
         self._tour_active: bool = False
@@ -297,6 +304,12 @@ class MapPage(
             self._js(f"mapSetTrafficVisible({traffic})")
             self._js(f"mapSet3DView({view3d})")
             self._js(f"mapSetTrafficLanguage('{self.language}')")
+            initial_layer = (
+                MAP_TYPES[self._map_type_idx]
+                if 0 <= self._map_type_idx < len(MAP_TYPES) else "map"
+            )
+            if initial_layer != "map":
+                self._js(f"mapSetStyle('{initial_layer}')")
         elif self._backend == "shumate":
             self._shumate_set_poi_visible(self._poi_visible)
             self._shumate_set_traffic_visible(self._traffic_visible)
@@ -445,6 +458,11 @@ class MapPage(
         if self._layer_btn is not None:
             self._layer_btn.set_icon_name(MAP_ICONS.get(layer, "map-symbolic"))
             self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS[layer]))
+        if self._on_map_layer_changed is not None:
+            try:
+                self._on_map_layer_changed(layer)
+            except Exception:
+                log.exception("map_layer_changed callback failed")
 
     # ── POI layer (Overpass API) ──────────────────────────────────────────────
 

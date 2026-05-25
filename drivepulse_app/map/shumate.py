@@ -53,7 +53,10 @@ class MapShumateMixin:
                 except Exception:
                     log.warning("Could not create tile source for %s - using OSM fallback", key)
 
-        self._shumate_map.set_map_source(self._sources["map"])
+        # Start with the remembered layer (index set by MapPage constructor).
+        from drivepulse_app.map.services import MAP_TYPES as _MT
+        _ik = _MT[self._map_type_idx] if 0 <= self._map_type_idx < len(_MT) else "map"
+        self._shumate_map.set_map_source(self._sources.get(_ik, self._sources["map"]))
         # SimpleMap renders its own square zoom buttons in the top-right
         # corner — hide them so only our circular OSD zoom controls remain.
         try:
