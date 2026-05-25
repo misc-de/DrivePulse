@@ -377,7 +377,7 @@ class ScanChartContent(Gtk.Box):
         self._cars_with_data: set[int] = set()
         for _p in profiles:
             _cid = _p.get("car_id")
-            if _cid is None or _cid == main_car_id:
+            if _cid is None:
                 continue
             if self._car_has_pid_values(_cid, main_pid):
                 self._cars_with_data.add(_cid)
@@ -625,7 +625,10 @@ class ScanChartContent(Gtk.Box):
         return False
 
     def _refresh_add_car_dropdown(self) -> None:
-        used = {self._main_car_id} | {c["car_id"] for c in self._compare_cars}
+        # The main car is intentionally NOT excluded here — adding it as a
+        # comparison entry lets the user overlay an older scan of the same
+        # vehicle against the currently displayed one.
+        used = {c["car_id"] for c in self._compare_cars}
         self._add_car_candidates: list[int] = []
         sl = Gtk.StringList()
         sl.append("—")
@@ -954,7 +957,7 @@ class ScanChartContent(Gtk.Box):
         # gespeicherte Farbe und Scan-Auswahl rekonstruieren)
         for car_pref in saved.get("cars", []):
             cid = car_pref.get("car_id")
-            if cid is None or cid == self._main_car_id:
+            if cid is None:
                 continue
             if not any(p.get("car_id") == cid for p in self._profiles):
                 continue
