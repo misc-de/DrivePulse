@@ -15,8 +15,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-gi.require_version("Graphene", "1.0")
-from gi.repository import Adw, Gdk, GLib, Graphene, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from drivepulse_app.cars.metadata import _CHART_METRICS
 from drivepulse_app.common import _translate
@@ -376,97 +375,54 @@ def _build_chart_widget(
 
     area.set_draw_func(draw_cb)
 
-    # Press flag managed solely from raw GDK events (legacy controller) so
-    # GestureClick's tap-vs-drag heuristics can't prematurely flip it to False
-    # mid-drag.
-    _pressed = [False]
-
-    def _widget_x_from_event(event: Any) -> float | None:
-        """Convert surface-relative event position to widget-local x."""
-        ok, sx, sy = event.get_position()
-        if not ok:
-            return None
-        root = area.get_root()
-        if root is None:
-            return sx
-        try:
-            src_point = Graphene.Point.alloc()
-            src_point.init(sx, sy)
-            ok2, p = root.compute_point(area, src_point)
-        except Exception:
-            return sx
-        return p.x if ok2 else sx
-
-    # Pointer hover — only updates the cursor when no button is held;
-    # pressed-pointer drag flows through the legacy controller below so we
-    # don't depend on whether EventControllerMotion fires during a claimed
-    # button-pressed sequence.
+    # Pointer hover (mouse / stylus). Touch and pressed-pointer drag go
+    # through the scrub gesture below — EventControllerMotion only reliably
+    # fires for non-pressed pointer motion (hover).
+    _hovering = [False]
     motion_ctl = Gtk.EventControllerMotion()
-    motion_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+    def _on_pointer_enter(_c: Any, _x: float, _y: float) -> None:
+        _hovering[0] = True
 
     def _on_pointer_motion(_c: Any, x: float, _y: float) -> None:
-        if _pressed[0]:
-            return
         _set_cursor(x, area.get_width())
 
     def _on_pointer_leave(_c: Any) -> None:
-        if not _pressed[0]:
-            _clear_cursor()
+        _hovering[0] = False
+        _clear_cursor()
 
+    motion_ctl.connect("enter", _on_pointer_enter)
     motion_ctl.connect("motion", _on_pointer_motion)
     motion_ctl.connect("leave", _on_pointer_leave)
     area.add_controller(motion_ctl)
 
-    # Legacy controller is attached BEFORE GestureClick so it runs first in
-    # the CAPTURE phase — otherwise GestureClick's claim consumes the event
-    # and the legacy controller never sees TOUCH_UPDATE / MOTION_NOTIFY for
-    # subsequent drag motion. Drives the whole press+drag lifecycle for both
-    # touch (TOUCH_*) and pointer / pointer-emulated touch (BUTTON_PRESS +
-    # MOTION_NOTIFY + BUTTON_RELEASE). Widget-local x is computed via
-    # Graphene since GdkEvent.get_position() is surface-relative.
-    legacy = Gtk.EventControllerLegacy()
-    legacy.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+    # Scrub gesture for tap + drag, touch + pointer. Using the base
+    # Gtk.GestureSingle directly gives us begin/update/end signals from
+    # Gtk.Gesture that fire for EVERY event of the sequence with NO
+    # threshold — unlike Gtk.GestureDrag (8 px) or Gtk.GestureClick (may
+    # self-cancel on drag). Claiming the sequence in begin keeps a parent
+    # ScrolledWindow's kinetic-scroll gesture from stealing horizontal or
+    # vertical drag motion.
+    scrub_ctl = Gtk.GestureSingle()
+    scrub_ctl.set_button(0)  # any pointer button + touch
+    scrub_ctl.set_touch_only(False)
+    scrub_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
 
-    def _on_legacy(_c: Any, event: Any) -> bool:
-        if event is None:
-            return False
-        et = event.get_event_type()
-        if et in (Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.BUTTON_PRESS):
-            x = _widget_x_from_event(event)
-            if x is not None:
-                _pressed[0] = True
-                _set_cursor(x, area.get_width())
-        elif et in (Gdk.EventType.TOUCH_UPDATE, Gdk.EventType.MOTION_NOTIFY):
-            if _pressed[0]:
-                x = _widget_x_from_event(event)
-                if x is not None:
-                    _set_cursor(x, area.get_width())
-        elif et in (
-            Gdk.EventType.TOUCH_END,
-            Gdk.EventType.TOUCH_CANCEL,
-            Gdk.EventType.BUTTON_RELEASE,
-        ):
-            _pressed[0] = False
-        return False
+    def _track(gesture: Any, sequence: Any) -> None:
+        ok, x, _y = gesture.get_point(sequence)
+        if ok:
+            _set_cursor(x, area.get_width())
 
-    legacy.connect("event", _on_legacy)
-    area.add_controller(legacy)
+    def _on_scrub_begin(gesture: Any, sequence: Any) -> None:
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        _track(gesture, sequence)
 
-    # GestureClick comes AFTER legacy in the CAPTURE chain so legacy gets
-    # the first look at each event. The click gesture claims the sequence
-    # to keep a parent ScrolledWindow's kinetic-scroll gesture from stealing
-    # the drag, and also seeds the cursor with the widget-local x supplied
-    # by the "pressed" signal as a belt-and-braces fallback.
-    tap_ctl = Gtk.GestureClick()
-    tap_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+    def _on_scrub_update(gesture: Any, sequence: Any) -> None:
+        _track(gesture, sequence)
 
-    def _on_chart_tap_pressed(g: Any, _n: int, x: float, _y: float) -> None:
-        g.set_state(Gtk.EventSequenceState.CLAIMED)
-        _pressed[0] = True
-        _set_cursor(x, area.get_width())
-
-    tap_ctl.connect("pressed", _on_chart_tap_pressed)
-    area.add_controller(tap_ctl)
+    scrub_ctl.connect("begin", _on_scrub_begin)
+    scrub_ctl.connect("update", _on_scrub_update)
+    area.add_controller(scrub_ctl)
 
     return area
 

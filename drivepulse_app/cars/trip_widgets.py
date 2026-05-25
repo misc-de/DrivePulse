@@ -214,6 +214,10 @@ def _build_trip_detail_widget(language: str, trip: Any, samples: list[Any]) -> G
 
     scroll = Gtk.ScrolledWindow()
     scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    # Kinetic touch-scroll on the wrapper races with the chart's scrub
+    # gesture for the same touch sequence — disable it so the chart wins
+    # without needing to fight a parent claim race.
+    scroll.set_kinetic_scrolling(False)
     scroll.set_vexpand(True)
     scroll.set_hexpand(True)
     scroll.set_child(outer)
