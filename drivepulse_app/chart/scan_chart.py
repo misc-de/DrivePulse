@@ -396,6 +396,7 @@ class ScanChartContent(Gtk.Box):
         # Vergleichs-Autos (ohne Hauptauto), jeweils {car_id, name, color, stats, row, suffix_box, remove_btn}
         self._compare_cars: list[dict] = []
         self._next_color_idx = 0
+        self._refreshing_add_car_dd = False
 
         # ── Info-Strip ────────────────────────────────────────────────────
         main_pid_stats = all_stats.get(main_pid) or {}
@@ -528,13 +529,7 @@ class ScanChartContent(Gtk.Box):
                 self._main_scans_meta = []
         self._main_scan_dd: Gtk.DropDown | None = None
         if self._main_scans_meta:
-            main_scan_sl = Gtk.StringList()
-            main_scan_sl.append("Alle Scans")
-            for s in self._main_scans_meta:
-                main_scan_sl.append(_fmt_scan_label(str(s["scanned_at"])))
-            self._main_scan_dd = Gtk.DropDown(model=main_scan_sl)
-            self._main_scan_dd.set_valign(Gtk.Align.CENTER)
-            self._main_scan_dd.set_selected(0)
+            self._main_scan_dd = self._make_scan_dd(self._main_scans_meta, None, set())
             self._main_scan_dd.connect("notify::selected", self._on_main_scan_changed)
             self._main_car_row.add_suffix(self._main_scan_dd)
 
@@ -599,6 +594,80 @@ class ScanChartContent(Gtk.Box):
                 return disp
         return f"Fahrzeug {car_id}"
 
+    def _comparison_scan_ts_for_car(
+        self, car_id: int, exclude_entry: dict | None = None
+    ) -> set[str]:
+        """Konkrete scan_ts-Werte, die Vergleichseinträge des Fahrzeugs nutzen."""
+        result: set[str] = set()
+        for entry in self._compare_cars:
+            if entry is exclude_entry:
+                continue
+            if entry.get("car_id") == car_id:
+                ts = entry.get("scan_ts")
+                if ts:
+                    result.add(ts)
+        return result
+
+    def _make_scan_dd(
+        self,
+        scans_meta: list,
+        preselect_ts: str | None,
+        green_ts: set[str],
+    ) -> Gtk.DropDown:
+        """Scan-DropDown mit optionaler Grün-Markierung geladener Scans."""
+        sl = Gtk.StringList()
+        sl.append("Alle Scans")
+        for s in scans_meta:
+            sl.append(_fmt_scan_label(str(s["scanned_at"])))
+
+        _green = frozenset(
+            i + 1
+            for i, s in enumerate(scans_meta)
+            if str(s["scanned_at"]) in green_ts
+        )
+
+        fac = Gtk.SignalListItemFactory()
+
+        def _setup(_f, item):
+            item.set_child(Gtk.Label(xalign=0.0))
+
+        def _bind(_f, item, _sl=sl, _g=_green):
+            lbl = item.get_child()
+            pos = item.get_position()
+            text = _sl.get_string(pos)
+            if pos in _g:
+                lbl.set_markup(
+                    f'<span foreground="#33d17a">'
+                    f"{GLib.markup_escape_text(text)}</span>"
+                )
+            else:
+                lbl.set_text(text)
+
+        fac.connect("setup", _setup)
+        fac.connect("bind", _bind)
+
+        dd = Gtk.DropDown(model=sl, factory=fac)
+        dd.set_valign(Gtk.Align.CENTER)
+        target_idx = 0
+        if preselect_ts:
+            for i, s in enumerate(scans_meta):
+                if str(s["scanned_at"]) == preselect_ts:
+                    target_idx = i + 1
+                    break
+        dd.set_selected(target_idx)
+        return dd
+
+    def _rebuild_main_scan_dd(self) -> None:
+        """Haupt-Scan-Dropdown neu aufbauen, um Vergleichs-Scans grün zu markieren."""
+        if not self._main_scans_meta or self._main_scan_dd is None:
+            return
+        green_ts = self._comparison_scan_ts_for_car(self._main_car_id)
+        new_dd = self._make_scan_dd(self._main_scans_meta, self._main_scan_ts, green_ts)
+        new_dd.connect("notify::selected", self._on_main_scan_changed)
+        self._main_car_row.remove(self._main_scan_dd)
+        self._main_scan_dd = new_dd
+        self._main_car_row.add_suffix(new_dd)
+
     def _car_has_pid_values(self, car_id: int, pid: str) -> bool:
         if self._db is None:
             return False
@@ -625,23 +694,23 @@ class ScanChartContent(Gtk.Box):
         return False
 
     def _refresh_add_car_dropdown(self) -> None:
-        # The main car is intentionally NOT excluded here — adding it as a
-        # comparison entry lets the user overlay an older scan of the same
-        # vehicle against the currently displayed one.
-        used = {c["car_id"] for c in self._compare_cars}
+        # Das gleiche Fahrzeug darf mehrfach als Vergleichseintrag hinzugefügt
+        # werden (z. B. um verschiedene Scan-Historien zu vergleichen).
         self._add_car_candidates: list[int] = []
         sl = Gtk.StringList()
         sl.append("—")
         for p in self._profiles:
             cid = p.get("car_id")
-            if cid is None or cid in used or cid not in self._cars_with_data:
+            if cid is None or cid not in self._cars_with_data:
                 continue
             sl.append(self._lookup_car_name(cid))
             self._add_car_candidates.append(cid)
+        # Signal blockieren: set_model() löst notify::selected aus, bevor
+        # _add_car_candidates fertig ist – das würde zu einem Absturz führen.
+        self._refreshing_add_car_dd = True
         self._add_car_dd.set_model(sl)
         self._add_car_dd.set_selected(0)
-        # "Fahrzeug hinzufügen"-Zeile bleibt immer sichtbar; bei fehlenden
-        # Kandidaten enthält das Dropdown lediglich den "—"-Platzhalter.
+        self._refreshing_add_car_dd = False
 
     # ── Value handlers ────────────────────────────────────────────────────
 
@@ -680,8 +749,10 @@ class ScanChartContent(Gtk.Box):
     # ── Car handlers ──────────────────────────────────────────────────────
 
     def _on_add_car_selected(self, dd: Gtk.DropDown, _prop) -> None:
+        if self._refreshing_add_car_dd:
+            return
         sel = dd.get_selected()
-        if sel == 0:
+        if sel == 0 or sel > len(self._add_car_candidates):
             return
         car_id = self._add_car_candidates[sel - 1]
         self._add_compare_car(car_id)
@@ -757,6 +828,15 @@ class ScanChartContent(Gtk.Box):
         except Exception:
             scans_meta = []
         scans_meta = [s for s in scans_meta if _safe_pids_count(s) > 0]
+
+        # Bereits anderweitig geladene Scans des gleichen Fahrzeugs ausblenden.
+        loaded_ts: set[str] = self._comparison_scan_ts_for_car(
+            entry["car_id"], exclude_entry=entry
+        )
+        if self._main_car_id == entry["car_id"] and self._main_scan_ts:
+            loaded_ts.add(self._main_scan_ts)
+        scans_meta = [s for s in scans_meta if str(s["scanned_at"]) not in loaded_ts]
+
         entry["scans_meta"] = scans_meta
         # Default: "Neuester"-Sentinel (None). Wenn Persistenz einen konkreten
         # Scan kennt und dieser noch existiert, wird er stattdessen gewählt.
@@ -772,21 +852,9 @@ class ScanChartContent(Gtk.Box):
             box.remove(child)
             child = box.get_first_child()
 
-        # Scan-Dropdown: "Neuester" + alle Scans mit Sensordaten
+        # Scan-Dropdown mit gefilterten Scans
         if scans_meta:
-            scan_sl = Gtk.StringList()
-            scan_sl.append("Alle Scans")
-            for s in scans_meta:
-                scan_sl.append(_fmt_scan_label(str(s["scanned_at"])))
-            scan_dd = Gtk.DropDown(model=scan_sl)
-            scan_dd.set_valign(Gtk.Align.CENTER)
-            target_idx = 0  # "Neuester" (Sentinel = None)
-            if entry.get("scan_ts"):
-                for i, s in enumerate(scans_meta):
-                    if str(s["scanned_at"]) == entry["scan_ts"]:
-                        target_idx = i + 1
-                        break
-            scan_dd.set_selected(target_idx)
+            scan_dd = self._make_scan_dd(scans_meta, entry.get("scan_ts"), set())
             scan_dd.connect("notify::selected", self._on_compare_scan_changed, entry)
             box.append(scan_dd)
             entry["scan_dd"] = scan_dd
@@ -799,6 +867,11 @@ class ScanChartContent(Gtk.Box):
         remove_btn.set_tooltip_text("Fahrzeug entfernen")
         remove_btn.connect("clicked", self._on_remove_car, entry)
         box.append(remove_btn)
+
+        # Haupt-Dropdown neu aufbauen, um aktive Vergleichs-Scans grün zu zeigen.
+        if self._main_car_id == entry["car_id"]:
+            self._rebuild_main_scan_dd()
+
         self._save_prefs()
         self._da.queue_draw()
         return False
@@ -812,6 +885,8 @@ class ScanChartContent(Gtk.Box):
         else:
             idx = sel - 1
             entry["scan_ts"] = str(scans[idx]["scanned_at"]) if 0 <= idx < len(scans) else None
+        if self._main_car_id == entry.get("car_id"):
+            self._rebuild_main_scan_dd()
         self._save_prefs()
         self._da.queue_draw()
 
@@ -831,9 +906,12 @@ class ScanChartContent(Gtk.Box):
     def _on_remove_car(self, _btn, entry: dict) -> None:
         if entry not in self._compare_cars:
             return
+        car_id = entry.get("car_id")
         self._compare_cars.remove(entry)
         self._cars_list.remove(entry["row"])
         self._refresh_add_car_dropdown()
+        if self._main_car_id == car_id:
+            self._rebuild_main_scan_dd()
         self._save_prefs()
         self._da.queue_draw()
 
