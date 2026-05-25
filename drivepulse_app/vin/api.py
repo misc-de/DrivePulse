@@ -193,6 +193,7 @@ def fetch_vin_data(
     vindecoder_secret_key: str | None = None,
     nhtsa_enabled: bool = True,
     on_autodev_call: Callable[[], None] | None = None,
+    on_source_done: Callable[[str, bool, str, int], None] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Fetch VIN data from each configured source independently.
 
@@ -215,6 +216,8 @@ def fetch_vin_data(
 
     if nhtsa_enabled:
         nhtsa = _fetch_nhtsa(vin)
+        if on_source_done:
+            on_source_done("NHTSA", True, "", len(nhtsa))
         if nhtsa:
             sources["NHTSA"] = nhtsa
 
@@ -227,11 +230,23 @@ def fetch_vin_data(
                     sources["auto.dev_raw"] = raw
                 if ad:
                     sources["auto.dev"] = ad
+            if on_source_done:
+                on_source_done("auto.dev", True, "", len(sources.get("auto.dev", {})))
         except AutodevError as exc:
+            if exc.status in (401, 403):
+                error_code = "auth"
+            elif exc.status == 404:
+                error_code = "not_found"
+            else:
+                error_code = "generic"
+            if on_source_done:
+                on_source_done("auto.dev", False, error_code, 0)
             sources["auto.dev_error"] = {"_error": str(exc), "_status": exc.status}
 
     if vindecoder_api_key and vindecoder_secret_key:
         vd = _fetch_vindecoder(vin, vindecoder_api_key, vindecoder_secret_key)
+        if on_source_done:
+            on_source_done("vindecoder.eu", True, "", len(vd))
         if vd:
             sources["vindecoder.eu"] = vd
 
