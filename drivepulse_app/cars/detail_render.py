@@ -12,6 +12,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Pango
 
 from drivepulse_app.cars.metadata import (
+    _SPECIAL_BRAND,
     _SPECIAL_CAL,
     _SPECIAL_CVN,
     _SPECIAL_DTC,
@@ -182,9 +183,9 @@ class CarsDetailRenderMixin:
 
     def _format_entry(self, pid_key: str, raw: Any) -> tuple[str, bool]:
         if pid_key == _SPECIAL_VIN and raw:
-            vin = _extract_inner_string(raw)
-            brand = _wmi_to_brand(vin)
-            return (f"{vin}  ({brand})" if brand else vin, False)
+            return (_extract_inner_string(raw), False)
+        if pid_key == _SPECIAL_BRAND and raw:
+            return (str(raw), False)
         if pid_key.startswith("__"):
             if raw is None or raw == "":
                 return ("—", True)
@@ -286,6 +287,21 @@ class CarsDetailRenderMixin:
             for pk, lk in _items
             if not pk.startswith("__")
         }
+
+        # Inject car-level VIN and brand from DB profile into data dict
+        _car_entry: dict[str, Any] | None = None
+        if cat_key == "vehicle" and not is_live and self._selected_car_id is not None:
+            _car_entry = next(
+                (e for e in self._profiles if e.get("car_id") == self._selected_car_id),
+                None,
+            )
+            if _car_entry:
+                data = dict(data)
+                if _car_entry.get("vin"):
+                    data[_SPECIAL_VIN] = _car_entry["vin"]
+                if _car_entry.get("brand"):
+                    data[_SPECIAL_BRAND] = _car_entry["brand"]
+
         for pid_key, label_key in items:
             raw = data.get(pid_key)
             value_text, is_unknown = self._format_entry(pid_key, raw)
@@ -300,6 +316,10 @@ class CarsDetailRenderMixin:
                 if not _scan_stats or not (_scan_stats.get("values") or []):
                     continue
             label = _translate(self.language, label_key)
+            if pid_key in (_SPECIAL_VIN, _SPECIAL_BRAND) and not is_live and self._selected_car_id is not None:
+                row = self._make_editable_field_row(pid_key, label, value_text, is_unknown)
+                self.value_list.append(row)
+                continue
             if not pid_key.startswith("__"):
                 if is_live:
                     live_key = _PID_TO_LIVE_KEY.get(pid_key)
@@ -434,6 +454,101 @@ class CarsDetailRenderMixin:
 
         row.set_child(box)
         return row
+
+    def _make_editable_field_row(
+        self, pid_key: str, label: str, value_text: str, is_unknown: bool
+    ) -> Gtk.ListBoxRow:
+        """Stacked row with a pencil icon; long-press opens the edit dialog."""
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(14)
+        box.set_margin_end(14)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        title_lbl = Gtk.Label(label=label, xalign=0.0)
+        title_lbl.set_halign(Gtk.Align.START)
+        title_lbl.set_hexpand(True)
+        title_lbl.add_css_class("caption-heading")
+        header.append(title_lbl)
+
+        edit_icon = Gtk.Image.new_from_icon_name("document-edit-symbolic")
+        edit_icon.set_opacity(0.3)
+        edit_icon.set_pixel_size(14)
+        header.append(edit_icon)
+        box.append(header)
+
+        value_lbl = Gtk.Label(label=value_text if not is_unknown else "—", xalign=1.0)
+        value_lbl.set_halign(Gtk.Align.END)
+        value_lbl.set_hexpand(True)
+        value_lbl.set_wrap(True)
+        value_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        value_lbl.set_selectable(True)
+        if is_unknown:
+            value_lbl.add_css_class("dim-label")
+        box.append(value_lbl)
+        row.set_child(box)
+
+        gesture = Gtk.GestureLongPress()
+        gesture.set_touch_only(False)
+        gesture.connect(
+            "pressed",
+            lambda _g, _x, _y, _pk=pid_key, _v=value_text, _iu=is_unknown:
+                self._show_field_edit_dialog(_pk, "" if _iu else _v),
+        )
+        row.add_controller(gesture)
+        return row
+
+    def _show_field_edit_dialog(self, pid_key: str, current_value: str) -> None:
+        car_id = self._selected_car_id
+        if car_id is None or self.db is None:
+            return
+        if pid_key == _SPECIAL_VIN:
+            heading = _translate(self.language, "cars.field.edit_vin")
+            entry_title = _translate(self.language, "cars.pid.VIN")
+        else:
+            heading = _translate(self.language, "cars.field.edit_brand")
+            entry_title = _translate(self.language, "cars.pid.BRAND")
+
+        dialog = Adw.AlertDialog()
+        dialog.set_heading(heading)
+
+        entry = Adw.EntryRow(title=entry_title)
+        entry.set_text(current_value)
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        lb.set_margin_top(8)
+        lb.append(entry)
+        dialog.set_extra_child(lb)
+
+        dialog.add_response("cancel", _translate(self.language, "cars.trip.delete_cancel"))
+        dialog.add_response("save", _translate(self.language, "cars.field.save"))
+        dialog.set_default_response("save")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+
+        def _on_response(d: Adw.AlertDialog, response: str) -> None:
+            if response != "save":
+                return
+            value = entry.get_text().strip()
+            try:
+                if pid_key == _SPECIAL_VIN:
+                    self.db.update_car_vin(car_id, value)
+                else:
+                    self.db.update_car_brand(car_id, value)
+            except Exception:
+                log.exception("Could not update field %s for car_id=%s", pid_key, car_id)
+                self._show_toast(_translate(self.language, "cars.field.save_error"))
+                return
+            self.refresh_profiles()
+
+        dialog.connect("response", _on_response)
+        root = self.get_root()
+        if root:
+            dialog.present(root)
 
     def _make_live_stats_row(
         self,

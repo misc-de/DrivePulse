@@ -378,6 +378,24 @@ class DriveDB:
             )
             self._conn.commit()
 
+    def update_car_vin(self, car_id: int, new_vin: str) -> None:
+        new_vin = new_vin.strip().upper()
+        h = _hashlib.sha256(new_vin.encode()).hexdigest() if new_vin else None
+        with self._lock:
+            self._conn.execute(
+                "UPDATE cars SET vin=?, vin_hash=?, vin_data_json=NULL WHERE id=?",
+                (new_vin or None, h, car_id),
+            )
+            self._conn.commit()
+
+    def update_car_brand(self, car_id: int, brand: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE cars SET brand=? WHERE id=?",
+                (brand.strip() or None, car_id),
+            )
+            self._conn.commit()
+
     # ----------------------------------------------------------------- Trips
 
     def start_trip(self, car_id: int, started_at: datetime | None = None) -> int:
