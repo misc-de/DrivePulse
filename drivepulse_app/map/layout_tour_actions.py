@@ -123,6 +123,8 @@ class MapTourActionsMixin:
         self._tour_history_loading = False
         self._tour_history_exhausted = False
         self._tour_history_empty_row: Gtk.ListBoxRow | None = None
+        # Selection state: set of (kind, id) tuples currently checked.
+        self._tour_history_selected: set[tuple[str, int]] = set()
 
         listbox = Gtk.ListBox()
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -144,8 +146,19 @@ class MapTourActionsMixin:
         scrolled.set_child(inner)
         scrolled.connect("edge-reached", self._on_tour_history_edge_reached)
 
+        header = Adw.HeaderBar()
+        trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        trash_btn.add_css_class("destructive-action")
+        trash_btn.set_tooltip_text(
+            _translate(self.language, "map.history.delete_selected_tooltip")
+        )
+        trash_btn.set_visible(False)
+        trash_btn.connect("clicked", self._on_history_trash_clicked)
+        self._tour_history_trash_btn = trash_btn
+        header.pack_end(trash_btn)
+
         toolbar_view = Adw.ToolbarView()
-        toolbar_view.add_top_bar(Adw.HeaderBar())
+        toolbar_view.add_top_bar(header)
         toolbar_view.set_content(scrolled)
 
         page = Adw.NavigationPage(title=_translate(self.language, "map.topnav.history"))
@@ -252,16 +265,8 @@ class MapTourActionsMixin:
         action_row = Adw.ActionRow()
         action_row.set_title(GLib.markup_escape_text(self._format_history_title(data)))
         action_row.set_subtitle(GLib.markup_escape_text(self._format_history_subtitle(data)))
-        icon_name = (
-            "dp-tour-plan-symbolic" if data["kind"] == "tour" else "driving-symbolic"
-        )
-        icon = Gtk.Image.new_from_icon_name(icon_name)
-        action_row.add_prefix(icon)
-        chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
-        action_row.add_suffix(chev)
-        action_row.set_activatable(True)
-        # Snapshot the metadata so the click handler doesn't need to re-query.
-        action_row._dp_history_meta = {
+
+        meta = {
             "kind": data["kind"],
             "id": int(data["id"]),
             "ts": data["ts"],
@@ -272,8 +277,194 @@ class MapTourActionsMixin:
             "car_label": data["car_label"],
             "car_vin": data["car_vin"],
         }
+        action_row._dp_history_meta = meta
+        key = (meta["kind"], meta["id"])
+
+        # Selection checkbox — leftmost prefix.
+        check = Gtk.CheckButton()
+        check.set_valign(Gtk.Align.CENTER)
+        check.connect("toggled", self._on_history_row_check_toggled, key)
+        action_row._dp_check = check
+        action_row.add_prefix(check)
+
+        icon_name = (
+            "dp-tour-plan-symbolic" if data["kind"] == "tour" else "driving-symbolic"
+        )
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        action_row.add_prefix(icon)
+
+        # Edit (pencil) button replaces the old chevron suffix.
+        edit_btn = Gtk.Button(icon_name="document-edit-symbolic")
+        edit_btn.add_css_class("flat")
+        edit_btn.add_css_class("circular")
+        edit_btn.set_valign(Gtk.Align.CENTER)
+        edit_btn.set_tooltip_text(_translate(self.language, "map.history.edit"))
+        edit_btn.connect("clicked", self._on_history_row_edit_clicked, action_row)
+        action_row.add_suffix(edit_btn)
+
+        action_row.set_activatable(True)
         action_row.connect("activated", self._on_history_row_activated)
         listbox.append(action_row)
+
+    def _on_history_row_check_toggled(
+        self, check: Gtk.CheckButton, key: tuple[str, int]
+    ) -> None:
+        selected = getattr(self, "_tour_history_selected", None)
+        if selected is None:
+            return
+        if check.get_active():
+            selected.add(key)
+        else:
+            selected.discard(key)
+        trash_btn = getattr(self, "_tour_history_trash_btn", None)
+        if trash_btn is not None:
+            trash_btn.set_visible(bool(selected))
+
+    def _on_history_row_edit_clicked(
+        self, _btn: Gtk.Button, row: Adw.ActionRow
+    ) -> None:
+        meta = getattr(row, "_dp_history_meta", None)
+        if not meta:
+            return
+        current_name = (
+            meta.get("trip_label")
+            or self._format_history_title(meta)
+            or ""
+        )
+
+        entry = Gtk.Entry()
+        entry.set_text(current_name)
+        entry.set_activates_default(True)
+        entry.set_placeholder_text(
+            _translate(self.language, "map.history.rename_placeholder")
+        )
+
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content_box.set_margin_top(6)
+        content_box.set_margin_bottom(6)
+        content_box.append(entry)
+
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "map.history.rename_title")
+        )
+        dialog.set_extra_child(content_box)
+        dialog.add_response("cancel", _translate(self.language, "map.tours.cancel"))
+        dialog.add_response("delete", _translate(self.language, "map.tours.delete_confirm"))
+        dialog.add_response("save", _translate(self.language, "map.tours.do_save"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp == "save":
+                new_name = entry.get_text().strip()
+                self._rename_history_entry(meta, new_name, row)
+            elif resp == "delete":
+                self._confirm_delete_history_entry(meta, row)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
+
+    def _rename_history_entry(
+        self, meta: dict, new_name: str, row: Adw.ActionRow
+    ) -> None:
+        db = getattr(self, "_map_db", None)
+        if db is None:
+            return
+        try:
+            if meta["kind"] == "tour":
+                db.rename_saved_tour(int(meta["id"]), new_name)
+            else:
+                db.rename_trip(int(meta["id"]), new_name)
+        except Exception:
+            return
+        meta["trip_label"] = new_name
+        row._dp_history_meta = meta
+        row.set_title(GLib.markup_escape_text(self._format_history_title(meta)))
+
+    def _confirm_delete_history_entry(
+        self, meta: dict, row: Adw.ActionRow
+    ) -> None:
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "map.history.delete_entry_heading"),
+            body=_translate(self.language, "map.history.delete_entry_body"),
+        )
+        dialog.add_response("cancel", _translate(self.language, "map.tours.cancel"))
+        dialog.add_response("delete", _translate(self.language, "map.tours.delete_confirm"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "delete":
+                return
+            self._delete_history_entries([(meta["kind"], int(meta["id"]))])
+            listbox = getattr(self, "_tour_history_listbox", None)
+            if listbox is not None:
+                listbox.remove(row)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
+
+    def _on_history_trash_clicked(self, _btn: Gtk.Button) -> None:
+        selected = getattr(self, "_tour_history_selected", None)
+        if not selected:
+            return
+        keys = list(selected)
+        body = _translate(
+            self.language,
+            "map.history.delete_selected_body",
+            count=str(len(keys)),
+        )
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "map.history.delete_selected_heading"),
+            body=body,
+        )
+        dialog.add_response("cancel", _translate(self.language, "map.tours.cancel"))
+        dialog.add_response("delete", _translate(self.language, "map.tours.delete_confirm"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp != "delete":
+                return
+            self._delete_history_entries(keys)
+            listbox = getattr(self, "_tour_history_listbox", None)
+            if listbox is None:
+                return
+            child = listbox.get_first_child()
+            while child is not None:
+                nxt = child.get_next_sibling()
+                if isinstance(child, Adw.ActionRow):
+                    m = getattr(child, "_dp_history_meta", None)
+                    if m and (m["kind"], int(m["id"])) in set(keys):
+                        listbox.remove(child)
+                child = nxt
+            selected.clear()
+            trash_btn = getattr(self, "_tour_history_trash_btn", None)
+            if trash_btn is not None:
+                trash_btn.set_visible(False)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
+
+    def _delete_history_entries(self, keys: list[tuple[str, int]]) -> None:
+        db = getattr(self, "_map_db", None)
+        if db is None:
+            return
+        for kind, eid in keys:
+            try:
+                if kind == "tour":
+                    db.delete_saved_tour(eid)
+                else:
+                    db.delete_trip(eid)
+            except Exception:
+                continue
+            selected = getattr(self, "_tour_history_selected", None)
+            if selected is not None:
+                selected.discard((kind, eid))
 
     def _on_history_row_activated(self, row: Adw.ActionRow) -> None:
         meta = getattr(row, "_dp_history_meta", None)
