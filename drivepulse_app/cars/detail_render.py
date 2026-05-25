@@ -382,6 +382,7 @@ class CarsDetailRenderMixin:
             getattr(self, "db", None),
             pid_labels, language,
             main_car_id=getattr(self, "_selected_car_id", None),
+            main_scan_id=getattr(self, "_selected_scan_id", None),
             on_navigate_pid=_navigate,
         )
         scroll = Gtk.ScrolledWindow()
