@@ -578,6 +578,14 @@ class DashboardSettingsMixin:
                     self.cars_page.refresh()
             except Exception:
                 log.exception("Could not seed mock vehicle data")
+        else:
+            try:
+                from drivepulse_app.mock.seed import remove_mock_data
+                removed = remove_mock_data(self.db)
+                if removed and hasattr(self, "cars_page"):
+                    self.cars_page.refresh()
+            except Exception:
+                log.exception("Could not remove mock vehicle data")
 
     def _set_sidebar_side(self, side: str) -> None:
         if side == self.sidebar_side:

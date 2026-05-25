@@ -655,6 +655,33 @@ def _make_rng(salt: int) -> random.Random:
     return random.Random(_SEED_BASE ^ salt)
 
 
+MOCK_VINS: tuple[str, ...] = tuple(c["vin"] for c in _MOCK_CARS)
+
+
+def remove_mock_data(db: DriveDB) -> int:
+    """Drop the seeded mock cars (and cascading trips/scans/samples).
+
+    Returns the number of cars removed. Safe to call when no mock data
+    is present — it's idempotent.
+    """
+    removed = 0
+    try:
+        cars = db.list_cars()
+    except Exception:
+        log.exception("Could not list cars while removing mock data")
+        return 0
+    for row in cars:
+        vin = row["vin"] or ""
+        if vin not in MOCK_VINS:
+            continue
+        try:
+            db.delete_car(int(row["id"]))
+            removed += 1
+        except Exception:
+            log.exception("Could not delete mock car id=%s", row["id"])
+    return removed
+
+
 def seed_mock_data(db: DriveDB) -> int:
     """Populate three mock vehicles plus trips, scans, and stopwatch runs.
 

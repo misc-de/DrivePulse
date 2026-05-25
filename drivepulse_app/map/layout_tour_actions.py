@@ -109,7 +109,6 @@ class MapTourActionsMixin:
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         listbox.add_css_class("boxed-list")
         listbox.set_valign(Gtk.Align.START)
-        scrolled.set_child(listbox)
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         inner.set_margin_top(12)
         inner.set_margin_bottom(12)
@@ -348,12 +347,11 @@ class MapTourActionsMixin:
 
         # Long-press enters multi-select mode with this row pre-checked —
         # matches the gesture used on the cars trips/scans/photos lists.
-        # CAPTURE phase + touch_only=False keeps the press from being eaten
-        # by inner widgets (e.g. the edit-button suffix) before the gesture
-        # has a chance to recognise the long hold.
+        # Keep the default BUBBLE propagation phase so a normal tap still
+        # reaches the row's "activated" signal (which loads the tour /
+        # opens the replay).
         lp = Gtk.GestureLongPress()
         lp.set_touch_only(False)
-        lp.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         lp.connect(
             "pressed",
             lambda _g, _x, _y, k=key: self._enter_history_select_mode(k),
@@ -712,7 +710,6 @@ class MapTourActionsMixin:
 
         lp = Gtk.GestureLongPress()
         lp.set_touch_only(False)
-        lp.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         lp.connect(
             "pressed",
             lambda _g, _x, _y, tid=tour_id: self._enter_saved_tour_select_mode(tid),
