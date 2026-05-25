@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import sqlite3
 import threading
 
 import gi
@@ -97,6 +98,7 @@ def _lookup_card_bg(widget) -> tuple[float, float, float] | None:
     try:
         ok, rgba = widget.get_style_context().lookup_color("card_bg_color")
     except Exception:
+        _log.debug("Could not look up card_bg_color", exc_info=True)
         return None
     if not ok:
         return None
@@ -114,12 +116,15 @@ def _compute_stats_for_car(db, car_id: int) -> dict:
     try:
         scans = db.list_scans_for_car(car_id)
     except Exception:
+        # Aggregator must never raise — empty stats is the documented fallback.
+        _log.warning("Could not list scans for car_id=%s", car_id, exc_info=True)
         return {}
     for scan_meta in scans:
         ts_str = str(scan_meta["scanned_at"] or "")
         try:
             data = db.get_scan_data(int(scan_meta["id"]))
-        except Exception:
+        except (sqlite3.Error, json.JSONDecodeError, ValueError):
+            _log.debug("Could not load scan_data for id=%s", scan_meta.get("id"), exc_info=True)
             continue
         for raw_key, raw_val in (data.get("live_data") or {}).items():
             pid = _parse_profile_pid_key(raw_key)
@@ -159,8 +164,8 @@ def _compute_stats_for_car(db, car_id: int) -> dict:
                 scan_start_ts = _dt.fromisoformat(
                     str(scan_meta["scanned_at"]).replace("Z", "+00:00")
                 ).timestamp()
-            except Exception:
-                pass
+            except (ValueError, TypeError):
+                _log.debug("Unparseable scanned_at for scan_id=%s", scan_id, exc_info=True)
             rows = db.get_scan_samples(scan_id)
             pid_pts: dict[str, list[tuple[float, float]]] = {}
             for row in rows:
@@ -174,7 +179,8 @@ def _compute_stats_for_car(db, car_id: int) -> dict:
                                    "intra_series": {}}
                 stats[_pid]["intra_series"][scan_id] = sorted(pts, key=lambda t: t[0])
         except Exception:
-            pass
+            # Optional enrichment — never let a broken intra-series block the stats result.
+            _log.debug("Could not load intra-scan samples for scan_id=%s", scan_id, exc_info=True)
 
     return stats
 
@@ -210,6 +216,7 @@ def _draw_chart(
     try:
         dark = Adw.StyleManager.get_default().get_dark()
     except Exception:
+        _log.debug("StyleManager.get_dark failed, defaulting to dark", exc_info=True)
         dark = True
     fg = (1.0, 1.0, 1.0) if dark else (0.0, 0.0, 0.0)
     axis_rgba = (*fg, 0.55)
@@ -525,7 +532,8 @@ class ScanChartContent(Gtk.Box):
             try:
                 _ms = list(self._db.list_scans_for_car(main_car_id))
                 self._main_scans_meta = [s for s in _ms if _safe_pids_count(s) > 0]
-            except Exception:
+            except sqlite3.Error:
+                _log.warning("Could not list scans for main car_id=%s", main_car_id, exc_info=True)
                 self._main_scans_meta = []
         self._main_scan_dd: Gtk.DropDown | None = None
         if self._main_scans_meta:
@@ -673,12 +681,14 @@ class ScanChartContent(Gtk.Box):
             return False
         try:
             scans = self._db.list_scans_for_car(car_id)
-        except Exception:
+        except sqlite3.Error:
+            _log.debug("Could not list scans for car_id=%s in _car_has_pid_values", car_id, exc_info=True)
             return False
         for scan_meta in scans:
             try:
                 data = self._db.get_scan_data(int(scan_meta["id"]))
-            except Exception:
+            except (sqlite3.Error, json.JSONDecodeError, ValueError):
+                _log.debug("Could not load scan_data for id=%s in _car_has_pid_values", scan_meta.get("id"), exc_info=True)
                 continue
             for raw_key, raw_val in (data.get("live_data") or {}).items():
                 if _parse_profile_pid_key(raw_key) != pid:
@@ -825,7 +835,8 @@ class ScanChartContent(Gtk.Box):
         # Scan-Liste laden (newest-first), nur mit Sensordaten
         try:
             scans_meta = list(self._db.list_scans_for_car(entry["car_id"])) if self._db else []
-        except Exception:
+        except sqlite3.Error:
+            _log.warning("Could not list scans for compare car_id=%s", entry.get("car_id"), exc_info=True)
             scans_meta = []
         scans_meta = [s for s in scans_meta if _safe_pids_count(s) > 0]
 
@@ -932,6 +943,7 @@ class ScanChartContent(Gtk.Box):
                 try:
                     picked = d.choose_rgba_finish(result)
                 except Exception:
+                    _log.debug("ColorDialog choose_rgba_finish failed (likely user cancel)", exc_info=True)
                     return
                 if picked is None:
                     return
@@ -944,6 +956,7 @@ class ScanChartContent(Gtk.Box):
 
             dialog.choose_rgba(parent, rgba, None, _done)
         except Exception:
+            _log.debug("Gtk.ColorDialog unavailable, falling back to ColorChooserDialog", exc_info=True)
             # Fallback für ältere GTK4-Versionen
             dlg = Gtk.ColorChooserDialog(title="Farbe wählen", transient_for=parent)
             dlg.set_rgba(rgba)
