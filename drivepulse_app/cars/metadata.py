@@ -18,6 +18,7 @@ LIVE_KEY_TO_PID: dict[str, str] = {
 }
 
 _SPECIAL_VIN = "__VIN__"
+_SPECIAL_BRAND = "__BRAND__"
 _SPECIAL_CAL = "__CAL__"
 _SPECIAL_CVN = "__CVN__"
 _SPECIAL_PROTO = "__PROTO__"
@@ -68,6 +69,7 @@ _CHART_METRICS: tuple[tuple, ...] = (
 CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
     ("vehicle", "cars.category.vehicle", "info-symbolic", (
         (_SPECIAL_VIN,              "cars.pid.VIN"),
+        (_SPECIAL_BRAND,            "cars.pid.BRAND"),
         (_SPECIAL_VIN_MANUFACTURER, "cars.pid.VIN_MANUFACTURER"),
         (_SPECIAL_VIN_MAKE,         "cars.pid.VIN_MAKE"),
         (_SPECIAL_VIN_MODEL,        "cars.pid.VIN_MODEL"),
