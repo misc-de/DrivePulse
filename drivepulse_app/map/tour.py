@@ -66,10 +66,11 @@ class MapTourMixin:
     # from the GPS to the snapped route position exceeds this threshold for a
     # sustained period. Speed gate prevents rerouting while nearly stationary
     # (GPS drift, waiting at traffic lights).
-    _OFF_ROUTE_M = 50.0          # metres off-route to start the timer
-    _OFF_ROUTE_CONFIRM_S = 8.0   # seconds off-route before rerouting fires
+    _OFF_ROUTE_M = 30.0          # metres off-route to start the timer
+    _OFF_ROUTE_CONFIRM_S = 4.0   # seconds off-route before rerouting fires
     _REROUTE_COOLDOWN_S = 30.0   # minimum gap between successive auto-reroutes
     _REROUTE_MIN_SPEED_KMH = 10.0  # don't reroute below this speed
+    _BYPASS_MAX_DIST_M = 250.0   # only drop a behind-heading WP when within this radius
 
     _off_route_since: float = 0.0
     _last_reroute_time: float = 0.0
@@ -756,23 +757,28 @@ class MapTourMixin:
         if not remaining:
             return
 
-        # When the driver's heading is reliable, drop intermediate waypoints
-        # that are now clearly behind them (bearing > 110° off from heading).
-        # This prevents rerouting BACK to a waypoint the driver deliberately
-        # bypassed by taking a different road.  The final destination (last
-        # entry) is never skipped.
+        # Only drop an intermediate waypoint when the driver has clearly
+        # *passed* it: WP must be both behind (bearing > 110° off heading) AND
+        # geographically close (≤ _BYPASS_MAX_DIST_M). A far-ahead WP that is
+        # momentarily off-heading (e.g. mid-turn or on a parallel street) must
+        # stay in the route so the rerouter brings us back to it instead of
+        # cutting straight to the final destination. The final destination
+        # (last entry) is never skipped.
         if getattr(self, "_gps_heading_valid", False) and len(remaining) > 1:
             while len(remaining) > 1:
                 wp = remaining[0]
+                wp_dist = haversine(self._gps_lat, self._gps_lon, wp[0], wp[1])
+                if wp_dist > self._BYPASS_MAX_DIST_M:
+                    break
                 brng = bearing(self._gps_lat, self._gps_lon, wp[0], wp[1])
                 diff = abs(self._gps_heading - brng) % 360.0
                 if diff > 180.0:
                     diff = 360.0 - diff
                 if diff > 110.0:
                     log.info(
-                        "Reroute: skipping bypassed waypoint (%.5f, %.5f) "
-                        "— heading=%.0f°, wp_bearing=%.0f°",
-                        wp[0], wp[1], self._gps_heading, brng,
+                        "Reroute: skipping passed waypoint (%.5f, %.5f) "
+                        "— dist=%.0fm, heading=%.0f°, wp_bearing=%.0f°",
+                        wp[0], wp[1], wp_dist, self._gps_heading, brng,
                     )
                     remaining.pop(0)
                     self._remaining_dest_wps = list(remaining)
