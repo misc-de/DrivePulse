@@ -100,6 +100,8 @@ class MapTourMixin:
         self._snapped_cum_m = 0.0
         self._off_route_since = 0.0
         self._last_reroute_time = 0.0
+        self._remaining_dest_wps = list(self._tour_waypoints[1:]) if self._tour_waypoints else []
+        self._wp_in_radius = False
         self._speed_zones = self._build_speed_zones()
         self._prerender_upcoming_steps(0, 5)
         self._set_nav_chrome_visible(False)
@@ -169,6 +171,9 @@ class MapTourMixin:
         self._snapped_cum_m = 0.0
         self._off_route_since = 0.0
         self._last_reroute_time = 0.0
+        self._remaining_dest_wps = []
+        self._wp_in_radius = False
+        self._set_next_wp_btn_visible(False)
         self._tts_last_step_idx = -1
         self._tts_spoken_thresholds = set()
         self._tts_prerender_step_idx = -1
@@ -641,11 +646,17 @@ class MapTourMixin:
     def _trigger_reroute(self) -> None:
         if self._gps_lat is None or self._gps_lon is None:
             return
-        waypoints = getattr(self, "_tour_waypoints", None)
-        if not waypoints:
+        # Use the tracked remaining waypoints so already-visited intermediates
+        # are not included in the recalculated route.
+        remaining = getattr(self, "_remaining_dest_wps", None)
+        if not remaining:
+            remaining = getattr(self, "_tour_waypoints", None)
+            if not remaining:
+                return
+            remaining = remaining[1:]
+        if not remaining:
             return
-        # Current GPS position → all remaining original waypoints (skip old start)
-        new_points = [(self._gps_lat, self._gps_lon), *waypoints[1:]]
+        new_points = [(self._gps_lat, self._gps_lon), *remaining]
         self._last_reroute_time = time.monotonic()
         self._off_route_since = 0.0
         log.info("Off-route: recalculating route from current GPS position")
@@ -727,6 +738,61 @@ class MapTourMixin:
 
         log.info("Route recalculated: %.1f km, %d steps", distance_m / 1000, len(steps))
         return False
+
+    # ── Intermediate waypoint tracking ───────────────────────────────────────
+
+    def _check_waypoint_proximity(self) -> None:
+        """Called every GPS tick — shows/hides the 'Next waypoint' button and
+        automatically marks a waypoint as reached when the driver departs the
+        200 m approach radius after having entered it."""
+        if not self._tour_active:
+            return
+        remaining = getattr(self, "_remaining_dest_wps", [])
+        # len >= 2 means there is at least one intermediate waypoint before the
+        # final destination.  len == 1 means we're heading straight to the end.
+        if len(remaining) < 2:
+            self._set_next_wp_btn_visible(False)
+            return
+        next_wp = remaining[0]
+        pos_lat = self._snapped_lat if self._snapped_lat is not None else self._gps_lat
+        pos_lon = self._snapped_lon if self._snapped_lon is not None else self._gps_lon
+        if pos_lat is None or pos_lon is None:
+            return
+        dist = haversine(pos_lat, pos_lon, next_wp[0], next_wp[1])
+        if dist <= 200.0:
+            self._wp_in_radius = True
+            self._set_next_wp_btn_visible(True)
+        elif self._wp_in_radius:
+            # Driver has left the 200 m radius → waypoint considered reached.
+            self._wp_in_radius = False
+            self._set_next_wp_btn_visible(False)
+            self._on_waypoint_reached()
+
+    def _on_waypoint_reached(self) -> None:
+        """Mark the current intermediate waypoint as done and advance the list."""
+        remaining = getattr(self, "_remaining_dest_wps", [])
+        if len(remaining) < 2:
+            return
+        wp = remaining[0]
+        log.info("Intermediate waypoint reached: (%.5f, %.5f)", wp[0], wp[1])
+        self._remaining_dest_wps = remaining[1:]
+        log.info(
+            "Remaining destination waypoints: %d", len(self._remaining_dest_wps)
+        )
+
+    def _on_next_wp_clicked(self, _btn: object) -> None:
+        """User taps 'Next waypoint' to manually advance past the current
+        intermediate waypoint without waiting to leave the 200 m radius."""
+        self._wp_in_radius = False
+        self._set_next_wp_btn_visible(False)
+        self._on_waypoint_reached()
+
+    def _set_next_wp_btn_visible(self, visible: bool) -> None:
+        btn = getattr(self, "_next_wp_btn", None)
+        if btn is not None:
+            btn.set_visible(visible)
+
+    # ── TTS ──────────────────────────────────────────────────────────────────
 
     def _tts_announce(self, step: dict, distance_m: float) -> None:
         if not self._tts_enabled:

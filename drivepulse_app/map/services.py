@@ -519,11 +519,16 @@ def snap_to_route(
     cum_m: list[float],
     start_idx: int = 0,
     window: int = 200,
+    heading: float | None = None,
 ) -> tuple[float, float, int, float]:
     """Project (lat, lon) onto the nearest forward route segment.
 
     Only searches from *start_idx* up to *window* segments ahead so the
     result advances monotonically — no GPS jitter can snap backward.
+
+    When *heading* (degrees, 0=N, 90=E) is provided, segments that run
+    more than 90° opposite to the vehicle's heading are penalised by 20×
+    so the same road traversed in both directions snaps to the correct leg.
 
     Returns (snapped_lat, snapped_lon, seg_idx, cum_m_to_snap).
     Falls back to the raw position when no valid segment exists.
@@ -560,6 +565,21 @@ def snap_to_route(
         dx = px - (ax + t * abx)
         dy = py - (ay + t * aby)
         d2 = dx * dx + dy * dy
+
+        # Direction-aware penalty: when the vehicle heading is known and the
+        # segment runs more than 90° against the direction of travel, penalise
+        # it strongly so the same road traversed in both directions (outgoing
+        # vs. return leg) always snaps to the correct leg.
+        # max(d2, 1e-18) ensures the penalty is nonzero even when the car is
+        # exactly on the segment (d2 == 0.0), so the tiebreak is always resolved
+        # by heading rather than by arbitrary float ordering.
+        if heading is not None and ab2 > 0.0:
+            seg_bearing = math.degrees(math.atan2(abx, aby)) % 360.0
+            diff = abs(heading - seg_bearing) % 360.0
+            if diff > 180.0:
+                diff = 360.0 - diff
+            if diff > 90.0:
+                d2 = max(d2, 1e-18) * 20.0
 
         if d2 < best_dist2:
             best_dist2 = d2

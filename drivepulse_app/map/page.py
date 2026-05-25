@@ -140,6 +140,7 @@ class MapPage(
         self._coord_overlay: Gtk.Box | None = None
         self._coord_lbl: Gtk.Label | None = None
         self._gps_heading: float = 0.0
+        self._gps_heading_valid: bool = False
         self._gps_speed_mps: float = 0.0
         self._follow_gps: bool = True
         self._last_map_js: float = 0.0   # throttle: last time mapSetCar was sent
@@ -184,6 +185,15 @@ class MapPage(
         # Original waypoints for the current tour — used by auto-rerouting to
         # preserve the destination when the driver deviates from the route.
         self._tour_waypoints: list[tuple[float, float]] = []
+        # Remaining waypoints to visit (everything after the current position).
+        # Index 0 = next intermediate goal, last = final destination.
+        # Used by auto-rerouting and intermediate-waypoint proximity checks.
+        self._remaining_dest_wps: list[tuple[float, float]] = []
+        # True while the car is inside the 200 m approach radius of the next
+        # intermediate waypoint — used to detect the departure that signals arrival.
+        self._wp_in_radius: bool = False
+        # "Nächstes Ziel" button reference (built in layout.py, controlled by tour.py).
+        self._next_wp_btn: Gtk.Button | None = None
         self._dnd_src_idx: int = -1
         # TTS state
         self._tts_enabled: bool = False
@@ -361,12 +371,17 @@ class MapPage(
         self._gps_lat = lat
         self._gps_lon = lon
         self._gps_heading = heading or 0.0
+        # Heading is only reliable when the vehicle is actually moving; below
+        # ~5 km/h GPS heading readings are too noisy to disambiguate direction.
+        self._gps_heading_valid = heading is not None and (speed_kmh or 0.0) >= 5.0
         self._gps_speed_mps = (speed_kmh / 3.6) if speed_kmh is not None else self._gps_speed_mps
 
         # Snap GPS onto the nearest route segment during active/paused navigation.
         if (self._tour_active or self._tour_paused) and len(self._tour_coords) >= 2 and self._route_cum_m:
+            heading_snap = self._gps_heading if self._gps_heading_valid else None
             slat, slon, seg_idx, scum = snap_to_route(
-                lat, lon, self._tour_coords, self._route_cum_m, self._gps_route_idx
+                lat, lon, self._tour_coords, self._route_cum_m, self._gps_route_idx,
+                heading=heading_snap,
             )
             self._snapped_lat = slat
             self._snapped_lon = slon
@@ -407,6 +422,7 @@ class MapPage(
 
         if self._tour_active or self._tour_paused:
             self._update_maneuver_overlay()
+            self._check_waypoint_proximity()
 
     def _goto(self, lat: float, lon: float) -> None:
         if self._backend == "webkit":

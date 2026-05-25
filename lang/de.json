@@ -178,6 +178,7 @@
   "map.tour_stop": "Tour stoppen",
   "map.tour_resume": "Tour fortfahren",
   "map.tour_abort": "Tour abbrechen",
+  "map.next_waypoint": "Nächstes Ziel",
   "map.heading_up.on": "Karte folgt Fahrtrichtung",
   "map.heading_up.off": "Karte Nord-fixiert (Pfeil dreht)",
   "map.steps.toggle": "Navigationspunkte anzeigen",
