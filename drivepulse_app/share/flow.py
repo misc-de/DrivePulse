@@ -216,7 +216,19 @@ class ShareFlow:
             if known is None:
                 self._show_toast(self._t("share.error_check"))
                 return False
-            if known:
+            # Vehicle mode merges the known/unknown question into the
+            # data-selection dialog: anonymize and OBD-extras are checkboxes
+            # there, plus an info hint about whether the peer already knows
+            # the car. Bulk-share modes (specific trips/runs/...) keep the
+            # separate intermediate dialog so they still get the choice too.
+            if mode == "vehicle":
+                self._show_vehicle_share_dialog(
+                    client, car,
+                    anon=not bool(known),
+                    include_obd=False,
+                    vehicle_known=bool(known),
+                )
+            elif known:
                 self._proceed(client, car, anon=False, include_obd=False,
                               mode=mode, trip_ids=trip_ids, run_ids=run_ids,
                               scan_ids=scan_ids, photo_ids=photo_ids, vehicle_known=True)
@@ -322,6 +334,23 @@ class ShareFlow:
             heading=self._t("share.what_to_send_title"),
         )
 
+        peer_hint = Gtk.Label(
+            label=self._t(
+                "share.peer_knows_vehicle"
+                if vehicle_known
+                else "share.peer_unknown_vehicle"
+            )
+        )
+        peer_hint.set_wrap(True)
+        peer_hint.set_xalign(0.0)
+        peer_hint.add_css_class("dim-label")
+
+        anon_check = Gtk.CheckButton(label=self._t("share.anonymize_toggle"))
+        anon_check.set_active(bool(anon))
+
+        obd_check = Gtk.CheckButton(label=self._t("share.include_obd"))
+        obd_check.set_active(bool(include_obd))
+
         group = Adw.PreferencesGroup()
 
         trips_check = Gtk.CheckButton()
@@ -360,7 +389,12 @@ class ShareFlow:
         photos_row.set_activatable_widget(photos_check)
         group.add(photos_row)
 
-        dialog.set_extra_child(group)
+        extra = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        extra.append(peer_hint)
+        extra.append(anon_check)
+        extra.append(obd_check)
+        extra.append(group)
+        dialog.set_extra_child(extra)
         dialog.add_response("cancel", self._t("share.cancel"))
         dialog.add_response("send", self._t("share.send"))
         dialog.set_response_appearance("send", Adw.ResponseAppearance.SUGGESTED)
@@ -372,8 +406,8 @@ class ShareFlow:
                 return
             self._send_payload(
                 client, car,
-                anon=anon,
-                include_obd=include_obd,
+                anon=anon_check.get_active(),
+                include_obd=obd_check.get_active(),
                 include_trips=trips_check.get_active(),
                 include_runs=runs_check.get_active(),
                 include_scans=scans_check.get_active(),

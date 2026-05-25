@@ -578,6 +578,8 @@
   "share.error_check": "Fahrzeugprüfung beim Peer fehlgeschlagen",
   "share.vehicle_unknown_title": "Fahrzeug unbekannt",
   "share.vehicle_unknown_body": "Das verknüpfte Gerät kennt dieses Fahrzeug noch nicht. Wie soll es übertragen werden?",
+  "share.peer_knows_vehicle": "Das verknüpfte Gerät kennt dieses Fahrzeug bereits — vorhandener Datensatz wird aktualisiert.",
+  "share.peer_unknown_vehicle": "Das verknüpfte Gerät kennt dieses Fahrzeug noch nicht — es wird neu angelegt.",
   "share.anonymize_toggle": "Anonym übertragen (ohne VIN, Marke, Bezeichnung)",
   "share.include_obd": "Erweiterte Daten (OBD-Scans, Kalibrierung)",
   "share.cancel": "Abbrechen",
