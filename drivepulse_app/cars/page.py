@@ -863,6 +863,17 @@ class CarsPage(
             self._rename_btn.set_visible(not self.mock_mode and self._detail_pushed)
         self.refresh()
 
+    def notify_sync_changed(self) -> None:
+        """Sync-Status hat sich geändert — Share-Buttons und Detail neu aufbauen."""
+        try:
+            active = self._is_sync_active()
+            if hasattr(self, "_detail_share_btn"):
+                self._detail_share_btn.set_visible(active and self._detail_pushed)
+            if hasattr(self, "_render_detail") and self._detail_pushed:
+                self._render_detail()
+        except Exception:
+            log.exception("Could not update share buttons after sync change")
+
     def refresh(self) -> None:
         """Reload profiles and the current detail; safe no-op if not built."""
         try:

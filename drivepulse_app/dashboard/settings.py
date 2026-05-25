@@ -355,6 +355,7 @@ class DashboardSettingsMixin:
         self._sync_connected_ip = ip
         self._sync_connected_at = time.time()
         self._set_sync_icon_online(True)
+        self._notify_pages_sync_changed()
 
     def _on_sync_disconnected(self) -> None:
         self._sync_is_online = False
@@ -362,6 +363,13 @@ class DashboardSettingsMixin:
         self._set_sync_icon_online(False)
         if self.nav_view.find_page("sync-status") is not None:
             self.nav_view.pop()
+        self._notify_pages_sync_changed()
+
+    def _notify_pages_sync_changed(self) -> None:
+        if hasattr(self, "cars_page"):
+            self.cars_page.notify_sync_changed()
+        if hasattr(self, "map_page"):
+            self.map_page.notify_sync_changed()
 
     def _push_sync_status_page(self) -> None:
         if self.nav_view.find_page("sync-status") is not None:
