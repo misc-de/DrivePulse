@@ -508,6 +508,10 @@ class MapPage(
         start_text = texts[0]
         wp_texts = texts[1:-1]
         end_text = texts[-1]
+        # Wipe any previously rendered route/polyline only now that the user
+        # explicitly asked for a new route — toggling "Plan tour" alone keeps
+        # the loaded tour visible while waypoints are being edited.
+        self._clear_replay_overlays()
         self._status_lbl.set_text(_translate(self.language, "map.routing.searching"))
         self._route_btn.set_sensitive(False)
         # Swap label → spinner so the user sees something happening during the
@@ -773,13 +777,11 @@ class MapPage(
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
         self._tour_waypoints = list(all_points)
-        prefix = _translate(self.language, "map.duration_prefix")
-        distance_prefix = _translate(self.language, "map.distance_prefix")
-        self._status_lbl.set_text(
-            f"{prefix}{format_duration(duration_s)}\n"
-            f"{distance_prefix}{format_distance(distance_m, self.units)}"
-        )
-        self._status_lbl.set_wrap(True)
+        # Duration/Distance now sits on the map as a top-centered osd card
+        # instead of in the calculate-tour bar; status label only conveys
+        # transient routing-state messages ("searching", "error").
+        self._status_lbl.set_text("")
+        self._show_route_info(duration_s, distance_m)
         self._set_tour_controls_visible(True)
         if self._tour_save_btn is not None:
             self._tour_save_btn.set_visible(True)

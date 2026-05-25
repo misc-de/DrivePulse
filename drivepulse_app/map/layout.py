@@ -63,6 +63,7 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_map_state_overlay())
             overlay.add_overlay(self._build_replay_chart_overlay())
             overlay.add_overlay(self._build_route_loading_overlay())
+            overlay.add_overlay(self._build_route_info_overlay())
 
         self._map_content_box.append(overlay)
 
@@ -190,6 +191,57 @@ class MapLayoutMixin:
         else:
             spinner.stop()
             overlay.set_visible(False)
+
+    def _build_route_info_overlay(self) -> Gtk.Widget:
+        """Top-centered card that displays duration + distance for the active
+        route on the map itself instead of in the calculate-tour bar."""
+        wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        wrap.set_halign(Gtk.Align.CENTER)
+        wrap.set_valign(Gtk.Align.START)
+        wrap.set_margin_top(8)
+        wrap.add_css_class("osd")
+        wrap.add_css_class("card")
+        wrap.set_can_target(False)
+        wrap.set_visible(False)
+
+        lbl = Gtk.Label(label="")
+        lbl.set_margin_start(10)
+        lbl.set_margin_end(10)
+        lbl.set_margin_top(4)
+        lbl.set_margin_bottom(4)
+        lbl.set_xalign(0.5)
+        wrap.append(lbl)
+
+        self._route_info_overlay = wrap
+        self._route_info_lbl = lbl
+        return wrap
+
+    def _show_route_info(self, duration_s: float | None, distance_m: float | None) -> None:
+        """Render duration + distance into the top-centered route-info card.
+
+        Hides the card when both values are missing.
+        """
+        from drivepulse_app.common import format_distance, format_duration
+        if getattr(self, "_route_info_overlay", None) is None:
+            return
+        parts: list[str] = []
+        if duration_s:
+            prefix = _translate(self.language, "map.duration_prefix")
+            parts.append(f"{prefix}{format_duration(duration_s)}")
+        if distance_m:
+            distance_prefix = _translate(self.language, "map.distance_prefix")
+            parts.append(f"{distance_prefix}{format_distance(distance_m, self.units)}")
+        if not parts:
+            self._hide_route_info()
+            return
+        self._route_info_lbl.set_text("  ·  ".join(parts))
+        self._route_info_overlay.set_visible(True)
+
+    def _hide_route_info(self) -> None:
+        if getattr(self, "_route_info_overlay", None) is not None:
+            self._route_info_overlay.set_visible(False)
+            if getattr(self, "_route_info_lbl", None) is not None:
+                self._route_info_lbl.set_text("")
 
     def _build_map_state_overlay(self) -> Gtk.Widget:
         wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
