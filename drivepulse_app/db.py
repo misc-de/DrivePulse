@@ -166,6 +166,7 @@ class DriveDB:
                 "ALTER TABLE cars ADD COLUMN vin_data_json TEXT",
                 "ALTER TABLE car_photos ADD COLUMN seen_at TEXT",
                 "ALTER TABLE car_photos ADD COLUMN shared_at TEXT",
+                "ALTER TABLE cars ADD COLUMN is_live INTEGER NOT NULL DEFAULT 0",
             ):
                 try:
                     self._conn.execute(stmt)
@@ -214,8 +215,13 @@ class DriveDB:
         label: str | None = None,
         protocol: str | None = None,
         profile_path: str | None = None,
+        is_live: bool | None = None,
     ) -> int:
-        """Legt einen Auto-Eintrag an oder aktualisiert ihn. Liefert ``car_id``."""
+        """Legt einen Auto-Eintrag an oder aktualisiert ihn. Liefert ``car_id``.
+
+        ``is_live`` markiert ein temporäres Live-Fahrzeug (Default False bei
+        INSERT, unverändert bei UPDATE wenn None).
+        """
         now = datetime.now(UTC).isoformat()
         with self._lock:
             cur = self._conn.cursor()
@@ -229,20 +235,34 @@ class DriveDB:
                 ).fetchone()
             if row is not None:
                 car_id = int(row["id"])
-                cur.execute(
-                    "UPDATE cars SET last_seen=?,"
-                    " brand=COALESCE(?,brand), cal_id=COALESCE(?,cal_id),"
-                    " cvn=COALESCE(?,cvn), label=COALESCE(?,label),"
-                    " protocol=COALESCE(?,protocol),"
-                    " profile_path=COALESCE(?,profile_path)"
-                    " WHERE id=?",
-                    (now, brand, cal_id, cvn, label, protocol, profile_path, car_id),
-                )
+                if is_live is None:
+                    cur.execute(
+                        "UPDATE cars SET last_seen=?,"
+                        " brand=COALESCE(?,brand), cal_id=COALESCE(?,cal_id),"
+                        " cvn=COALESCE(?,cvn), label=COALESCE(?,label),"
+                        " protocol=COALESCE(?,protocol),"
+                        " profile_path=COALESCE(?,profile_path)"
+                        " WHERE id=?",
+                        (now, brand, cal_id, cvn, label, protocol, profile_path, car_id),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE cars SET last_seen=?,"
+                        " brand=COALESCE(?,brand), cal_id=COALESCE(?,cal_id),"
+                        " cvn=COALESCE(?,cvn), label=COALESCE(?,label),"
+                        " protocol=COALESCE(?,protocol),"
+                        " profile_path=COALESCE(?,profile_path),"
+                        " is_live=?"
+                        " WHERE id=?",
+                        (now, brand, cal_id, cvn, label, protocol, profile_path,
+                         int(bool(is_live)), car_id),
+                    )
             else:
                 cur.execute(
-                    "INSERT INTO cars(vin,brand,cal_id,cvn,label,protocol,first_seen,last_seen,profile_path)"
-                    " VALUES(?,?,?,?,?,?,?,?,?)",
-                    (vin, brand, cal_id, cvn, label, protocol, now, now, profile_path),
+                    "INSERT INTO cars(vin,brand,cal_id,cvn,label,protocol,first_seen,last_seen,profile_path,is_live)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (vin, brand, cal_id, cvn, label, protocol, now, now, profile_path,
+                     int(bool(is_live)) if is_live is not None else 0),
                 )
                 car_id = int(cur.lastrowid or 0)
                 if vin:
@@ -252,14 +272,35 @@ class DriveDB:
             self._conn.commit()
             return car_id
 
-    def list_cars(self) -> list[sqlite3.Row]:
+    def list_cars(self, include_live: bool = False) -> list[sqlite3.Row]:
+        """Liefert alle Fahrzeuge. Temporäre Live-Fahrzeuge sind per Default
+        ausgeblendet — Aufrufer, die sie brauchen (Telemetry-Match, Cleanup),
+        setzen ``include_live=True`` explizit."""
+        sql = (
+            "SELECT c.*,"
+            " (SELECT COUNT(*) FROM trips WHERE car_id=c.id) AS trip_count,"
+            " (SELECT COALESCE(SUM(distance_km),0) FROM trips WHERE car_id=c.id) AS total_km"
+            " FROM cars c"
+        )
+        if not include_live:
+            sql += " WHERE COALESCE(c.is_live, 0) = 0"
+        sql += " ORDER BY last_seen DESC"
         with self._lock:
-            return list(self._conn.execute(
-                "SELECT c.*,"
-                " (SELECT COUNT(*) FROM trips WHERE car_id=c.id) AS trip_count,"
-                " (SELECT COALESCE(SUM(distance_km),0) FROM trips WHERE car_id=c.id) AS total_km"
-                " FROM cars c ORDER BY last_seen DESC"
-            ).fetchall())
+            return list(self._conn.execute(sql).fetchall())
+
+    def list_live_car_ids(self) -> list[int]:
+        """IDs aller als `is_live` markierten (temporären) Fahrzeuge."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id FROM cars WHERE COALESCE(is_live, 0) = 1"
+            ).fetchall()
+        return [int(r["id"]) for r in rows]
+
+    def promote_live_car(self, car_id: int) -> None:
+        """Permanentes Fahrzeug aus einem temporären Live-Auto machen."""
+        with self._lock:
+            self._conn.execute("UPDATE cars SET is_live=0 WHERE id=?", (car_id,))
+            self._conn.commit()
 
     def get_car(self, car_id: int) -> sqlite3.Row | None:
         with self._lock:

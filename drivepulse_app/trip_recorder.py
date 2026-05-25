@@ -52,11 +52,13 @@ class TripRecorder:
         label: str | None = None,
         protocol: str | None = None,
         profile_path: str | None = None,
+        is_live: bool | None = None,
     ) -> int:
         # Wechsel des Autos beendet eine laufende Fahrt
         new_id = self.db.upsert_car(
             vin=vin, brand=brand, cal_id=cal_id, cvn=cvn,
             label=label, protocol=protocol, profile_path=profile_path,
+            is_live=is_live,
         )
         if self.car_id is not None and self.car_id != new_id and self.trip_id is not None:
             self.end_trip()

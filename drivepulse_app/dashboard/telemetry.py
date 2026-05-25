@@ -18,8 +18,6 @@ log = get_logger(__name__)
 
 
 class DashboardTelemetryMixin:
-    _scan_is_new_car: bool = False
-    _pending_new_car_id: int | None = None
     _obd_recorder: ObdRecorder | None = None
     _session_scan_id: int | None = None  # Scan-ID der laufenden OBD-Session
     # Declared so the concrete DashboardWindow can initialize these as
@@ -34,14 +32,33 @@ class DashboardTelemetryMixin:
         if not vin:
             return None
         try:
-            for row in self.db.list_cars():
+            # Live-Autos zählen hier mit — ein bereits eingerichtetes Live-
+            # Fahrzeug derselben VIN soll bei erneutem Connect wiedergefunden,
+            # nicht ein zweites Mal angelegt werden.
+            for row in self.db.list_cars(include_live=True):
                 if (row["vin"] or "") == vin:
                     return int(row["id"])
         except Exception:
             log.exception("Could not look up car by VIN")
         return None
 
-    def _add_live_vehicle_from_identity(self, identity: dict[str, str]) -> int | None:
+    def _purge_stale_live_cars(self, keep_vin: str | None) -> None:
+        """Vorige, nicht promotete Live-Fahrzeuge mit anderer VIN verwerfen."""
+        try:
+            for row in self.db.list_cars(include_live=True):
+                if not row["id"]:
+                    continue
+                if int(row["is_live"] or 0) != 1:
+                    continue
+                if keep_vin and (row["vin"] or "") == keep_vin:
+                    continue
+                self.db.delete_car(int(row["id"]))
+        except Exception:
+            log.exception("Could not purge stale live cars")
+
+    def _add_live_vehicle_from_identity(
+        self, identity: dict[str, str], is_live: bool | None = None
+    ) -> int | None:
         vin = identity.get("VIN")
         if not vin:
             return None
@@ -53,6 +70,7 @@ class DashboardTelemetryMixin:
                 cvn=identity.get("CVN"),
                 protocol=identity.get("protocol"),
                 profile_path=identity.get("profile_path"),
+                is_live=is_live,
             )
             self.cars_page.refresh_profiles()
             self._refresh_last_trip_stats(car_id)
@@ -60,6 +78,11 @@ class DashboardTelemetryMixin:
         except Exception:
             log.exception("Could not add live vehicle from identity")
             return None
+
+    def _promote_live_vehicle_from_identity(self, identity: dict[str, str]) -> int | None:
+        """„+"-Button-Pfad: bestehendes Live-Auto promoten bzw. neu permanent
+        anlegen, dann Identität dem trip_recorder als nicht-live setzen."""
+        return self._add_live_vehicle_from_identity(identity, is_live=False)
 
     def _handle_scan_update(self, payload: dict[str, Any]) -> None:
         status = payload.get("scan_status", "")
@@ -85,11 +108,6 @@ class DashboardTelemetryMixin:
                 self._save_scan_to_db(profile)
                 self._update_dashboard_from_profile(profile)
             self.cars_page.refresh_profiles()
-            if self._scan_is_new_car and self._pending_new_car_id is not None:
-                new_car_id = self._pending_new_car_id
-                self._scan_is_new_car = False
-                self._pending_new_car_id = None
-                GLib.idle_add(self.cars_page.open_car, new_car_id)
             GLib.timeout_add(3000, self._hide_scan_bar)
             return
 
@@ -426,10 +444,14 @@ class DashboardTelemetryMixin:
         if identity:
             self.cars_page.set_live_identity(identity)
 
+        # Beim Wechsel auf eine andere VIN: vorheriges, nicht promotetes
+        # Live-Auto inkl. Scans/Trips/Samples verwerfen.
+        self._purge_stale_live_cars(keep_vin=scan_identity.get("vin"))
+
         car_id = self._known_car_id_for_vin(scan_identity["vin"])
         if car_id is not None:
-            self._scan_is_new_car = False
             try:
+                # Identität setzen, ohne is_live umzuschalten (None → unchanged).
                 self.trip_recorder.set_car(
                     vin=scan_identity["vin"],
                     brand=scan_identity["brand"],
@@ -441,11 +463,11 @@ class DashboardTelemetryMixin:
             except Exception:
                 log.exception("Could not set known trip recorder identity from scan payload")
         elif scan_identity.get("vin"):
-            # Neues, unbekanntes Fahrzeug → sofort in DB anlegen
-            new_id = self._add_live_vehicle_from_identity(identity)
+            # Neues, unbekanntes Fahrzeug → als temporäres Live-Auto anlegen
+            # (is_live=1). Wird beim nächsten App-Start oder VIN-Wechsel
+            # automatisch verworfen, falls der User es nicht via „+" promotet.
+            new_id = self._add_live_vehicle_from_identity(identity, is_live=True)
             if new_id is not None:
-                self._scan_is_new_car = True
-                self._pending_new_car_id = new_id
                 car_id = new_id
 
         # Letzten abgeschlossenen Trip laden und im Dashboard anzeigen,
