@@ -9,6 +9,8 @@ from drivepulse_app.diagnostics import get_logger
 
 log = get_logger(__name__)
 
+_GSTREAMER_ERRORS = (AttributeError, TypeError, RuntimeError)
+
 
 class QRScanError(RuntimeError):
     pass
@@ -21,8 +23,19 @@ def _import_gstreamer() -> Any:
         from gi.repository import Gst
     except (ImportError, ValueError) as exc:
         raise QRScanError("GStreamer Python bindings not found (python3-gst-1.0)") from exc
-    Gst.init(None)
+    try:
+        Gst.init(None)
+    except _GSTREAMER_ERRORS as exc:
+        raise QRScanError("GStreamer could not be initialised") from exc
     return Gst
+
+
+def _element_available(Gst: Any, name: str) -> bool:
+    try:
+        return Gst.ElementFactory.find(name) is not None
+    except _GSTREAMER_ERRORS:
+        log.debug("Could not query Gst element factory %s", name, exc_info=True)
+        return False
 
 
 def scan_supported() -> bool:
@@ -30,10 +43,7 @@ def scan_supported() -> bool:
         Gst = _import_gstreamer()
     except QRScanError:
         return False
-    return (
-        Gst.ElementFactory.find("autovideosrc") is not None
-        and Gst.ElementFactory.find("zxing") is not None
-    )
+    return _element_available(Gst, "autovideosrc") and _element_available(Gst, "zxing")
 
 
 class WebcamQRScanner:
@@ -54,7 +64,7 @@ class WebcamQRScanner:
         self._language = language
         self.on_success = on_success
         self.on_error = on_error
-        self.timeout_seconds = timeout_seconds
+        self.timeout_seconds = max(1, int(timeout_seconds))
         self._pipeline: Any = None
         self._bus: Any = None
         self._timeout_id: int | None = None
@@ -107,12 +117,12 @@ class WebcamQRScanner:
 
     def _build_pipeline(self) -> None:
         Gst = self._Gst
-        if Gst.ElementFactory.find("autovideosrc") is None:
+        if not _element_available(Gst, "autovideosrc"):
             raise QRScanError(self._t("sync.scanner.no_camera"))
-        if Gst.ElementFactory.find("zxing") is None:
+        if not _element_available(Gst, "zxing"):
             raise QRScanError(self._t("sync.scanner.no_zxing"))
 
-        has_preview = Gst.ElementFactory.find("gtk4paintablesink") is not None
+        has_preview = _element_available(Gst, "gtk4paintablesink")
         if has_preview:
             desc = (
                 "autovideosrc ! videoconvert ! tee name=t "
@@ -126,7 +136,7 @@ class WebcamQRScanner:
 
         try:
             self._pipeline = Gst.parse_launch(desc)
-        except Exception as exc:
+        except _GSTREAMER_ERRORS as exc:
             raise QRScanError(self._t("sync.scanner.pipeline_failed", error=str(exc))) from exc
 
         self._bus = self._pipeline.get_bus()
@@ -144,7 +154,7 @@ class WebcamQRScanner:
                         self._status.set_text(self._t("sync.scanner.hold_qr"))
                     else:
                         self._status.set_text(self._t("sync.scanner.active_no_preview"))
-                except Exception:
+                except _GSTREAMER_ERRORS:
                     self._status.set_text(self._t("sync.scanner.active"))
         else:
             self._status.set_text(self._t("sync.scanner.active"))
@@ -154,15 +164,28 @@ class WebcamQRScanner:
             return
         Gst = self._Gst
         if message.type == Gst.MessageType.ERROR:
-            err, debug = message.parse_error()
+            try:
+                err, debug = message.parse_error()
+            except _GSTREAMER_ERRORS as exc:
+                log.exception("Could not parse GStreamer webcam error")
+                self._fail(self._t("sync.scanner.camera_error", error=exc))
+                return
             log.error("GStreamer webcam error: %s — %s", err, debug)
             self._fail(self._t("sync.scanner.camera_error", error=err))
             return
         if message.type == Gst.MessageType.ELEMENT:
-            structure = message.get_structure()
+            try:
+                structure = message.get_structure()
+            except _GSTREAMER_ERRORS:
+                log.debug("Could not read GStreamer barcode message", exc_info=True)
+                return
             if structure is None or structure.get_name() != "barcode":
                 return
-            symbol = structure.get_value("symbol")
+            try:
+                symbol = structure.get_value("symbol")
+            except _GSTREAMER_ERRORS:
+                log.debug("Could not read barcode symbol from GStreamer structure", exc_info=True)
+                return
             if not symbol:
                 log.warning("barcode message without readable text: %s", structure.to_string())
                 return
@@ -197,12 +220,12 @@ class WebcamQRScanner:
         if self._bus is not None:
             try:
                 self._bus.remove_signal_watch()
-            except Exception:
+            except _GSTREAMER_ERRORS:
                 log.debug("Could not remove Gst bus signal watch", exc_info=True)
             self._bus = None
         if self._pipeline is not None:
             try:
                 self._pipeline.set_state(self._Gst.State.NULL)
-            except Exception:
+            except _GSTREAMER_ERRORS:
                 log.debug("Could not reset Gst pipeline to NULL", exc_info=True)
             self._pipeline = None

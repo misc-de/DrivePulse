@@ -255,6 +255,19 @@ def test_load_paired_devices_ignores_invalid_json(paired_file):
     assert load_paired_devices() == []
 
 
+def test_load_paired_devices_ignores_non_list_root(paired_file):
+    paired_file.write_text('{"device_id": "abc"}', encoding="utf-8")
+    assert load_paired_devices() == []
+
+
+def test_load_paired_devices_filters_malformed_entries(paired_file):
+    paired_file.write_text(
+        '[{"device_id": "abc"}, "bad", 42, {"device_id": "xyz"}]',
+        encoding="utf-8",
+    )
+    assert load_paired_devices() == [{"device_id": "abc"}, {"device_id": "xyz"}]
+
+
 def test_save_then_load_paired_devices_roundtrip(paired_file):
     payload = [
         {"device_id": "abc", "name": "Phone", "spki_fingerprint": "fp1",

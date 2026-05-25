@@ -14,6 +14,18 @@ from drivepulse_app.sync.crypto import verify_spki_fingerprint
 
 log = get_logger(__name__)
 
+_REQUEST_ERRORS = (
+    TimeoutError,
+    OSError,
+    ssl.SSLError,
+    urllib.error.URLError,
+    urllib.error.HTTPError,
+)
+
+
+def _decode_json_response(resp: Any) -> Any:
+    return json.loads(resp.read())
+
 
 class SyncClient:
     def __init__(self, host: str, port: int, spki_fingerprint: str, device_id: str) -> None:
@@ -82,7 +94,7 @@ class SyncClient:
             else:
                 self._pinned_cert_pem = None
             return self._fingerprint_verified
-        except Exception:
+        except _REQUEST_ERRORS:
             log.exception("Could not verify sync peer fingerprint for %s:%s", self._host, self._port)
             self._fingerprint_verified = False
             self._pinned_cert_pem = None
@@ -106,14 +118,17 @@ class SyncClient:
             )
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-                data: dict[str, Any] = json.loads(resp.read())
+                data = _decode_json_response(resp)
+            if not isinstance(data, dict):
+                log.warning("Pairing response from %s:%s was not a JSON object", self._host, self._port)
+                return False
             if data.get("ok"):
                 self._session_token = data.get("session_token")
                 self.server_hostname = data.get("hostname", "")
                 self.last_contact = time.time()
                 return True
             return False
-        except Exception:
+        except (*_REQUEST_ERRORS, json.JSONDecodeError, UnicodeDecodeError):
             log.exception("Could not pair with sync peer %s:%s", self._host, self._port)
             return False
 
@@ -131,10 +146,13 @@ class SyncClient:
             )
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-                result = json.loads(resp.read())
+                result = _decode_json_response(resp)
+            if not isinstance(result, dict):
+                log.warning("Export response from %s:%s was not a JSON object", self._host, self._port)
+                return None
             self.last_contact = time.time()
             return result
-        except Exception:
+        except (*_REQUEST_ERRORS, json.JSONDecodeError, UnicodeDecodeError):
             log.exception("Could not export data from sync peer %s:%s", self._host, self._port)
             return None
 
@@ -153,11 +171,14 @@ class SyncClient:
             )
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-                result: dict[str, Any] = json.loads(resp.read())
+                result = _decode_json_response(resp)
+            if not isinstance(result, dict):
+                log.warning("Import response from %s:%s was not a JSON object", self._host, self._port)
+                return False
             if result.get("ok"):
                 self.last_contact = time.time()
             return bool(result.get("ok"))
-        except Exception:
+        except (*_REQUEST_ERRORS, json.JSONDecodeError, UnicodeDecodeError):
             log.exception("Could not import data to sync peer %s:%s", self._host, self._port)
             return False
 
@@ -173,10 +194,13 @@ class SyncClient:
             )
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-                data: dict[str, Any] = json.loads(resp.read())
+                data = _decode_json_response(resp)
+            if not isinstance(data, dict):
+                log.warning("Vehicle check response from %s:%s was not a JSON object", self._host, self._port)
+                return None
             self.last_contact = time.time()
             return bool(data.get("known"))
-        except Exception:
+        except (*_REQUEST_ERRORS, json.JSONDecodeError, UnicodeDecodeError):
             log.exception("Could not check vehicle with sync peer %s:%s", self._host, self._port)
             return None
 
@@ -195,10 +219,13 @@ class SyncClient:
             )
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
-                result: dict[str, Any] = json.loads(resp.read())
+                result = _decode_json_response(resp)
+            if not isinstance(result, dict):
+                log.warning("Share import response from %s:%s was not a JSON object", self._host, self._port)
+                return None
             self.last_contact = time.time()
             return result
-        except Exception:
+        except (*_REQUEST_ERRORS, json.JSONDecodeError, UnicodeDecodeError):
             log.exception("Could not share import to sync peer %s:%s", self._host, self._port)
             return None
 
@@ -238,7 +265,7 @@ class SyncClient:
                 return False
             log.warning("Ping transient error %s:%s: %s", self._host, self._port, exc)
             return None
-        except Exception as exc:
+        except _REQUEST_ERRORS as exc:
             log.warning("Ping failed %s:%s: %s", self._host, self._port, exc)
             return None
 
@@ -269,12 +296,16 @@ class SyncClient:
             )
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-                result: dict[str, Any] = json.loads(resp.read())
+                result = _decode_json_response(resp)
+            if not isinstance(result, dict):
+                log.warning("Pending share response from %s:%s was not a JSON object", self._host, self._port)
+                return None
             self.last_contact = time.time()
             if result.get("empty"):
                 return None
-            return result.get("payload")
-        except Exception:
+            payload = result.get("payload")
+            return payload if isinstance(payload, dict) else None
+        except (*_REQUEST_ERRORS, json.JSONDecodeError, UnicodeDecodeError):
             log.exception("Could not pull pending share from %s:%s", self._host, self._port)
             return None
 
@@ -292,5 +323,5 @@ class SyncClient:
             ctx = self._make_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=5) as _resp:
                 pass
-        except Exception:
+        except _REQUEST_ERRORS:
             log.debug("Could not notify server of disconnect (may already be gone)")

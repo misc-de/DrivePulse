@@ -14,6 +14,7 @@ pytest.importorskip("cryptography")
 from drivepulse_app.sync.crypto import (
     generate_device_id,
     generate_token,
+    verify_spki_fingerprint,
 )
 
 
@@ -60,3 +61,7 @@ def test_generate_device_id_fixed_16_byte_payload():
 
 def test_generate_device_id_is_random():
     assert generate_device_id() != generate_device_id()
+
+
+def test_verify_spki_fingerprint_rejects_invalid_der():
+    assert verify_spki_fingerprint(b"not a certificate", "expected") is False

@@ -57,6 +57,27 @@ def test_share_import_rejects_missing_vin_hash(db):
     assert "vin_hash" in out["error"]
 
 
+def test_share_import_rejects_non_dict_vehicle(db):
+    out = share_import(db, {"version": 1, "type": "share", "vehicle": "bad"})
+    assert out == {"ok": False, "error": "invalid vehicle"}
+
+
+def test_share_import_ignores_non_list_content_fields(db):
+    payload = _share("VIN-BAD-LISTS")
+    payload["trips"] = {"started_at": "2026-05-24T10:00:00+00:00"}
+    payload["stopwatch_runs"] = {"run_at": "2026-05-24T11:00:00+00:00"}
+    payload["scans"] = {"scanned_at": "2026-05-24T12:00:00+00:00"}
+    payload["photos"] = {"taken_at": "2026-05-24T13:00:00+00:00"}
+
+    out = share_import(db, payload)
+
+    assert out["ok"] is True
+    assert out["trips_added"] == 0
+    assert out["runs_added"] == 0
+    assert out["scans_added"] == 0
+    assert out["photos_added"] == 0
+
+
 # ─── share-tours sub-protocol ───────────────────────────────────────────────
 
 def test_share_import_tours_adds_new_tours(db):
@@ -270,6 +291,17 @@ def test_share_import_inserts_scan(db):
     assert scans[0]["dtc_count"] == 1
 
 
+def test_share_import_skips_scan_with_non_string_data_json(db):
+    payload = _share("VIN-SCANBAD", scans=[{
+        "scanned_at": "2026-05-24T12:00:00+00:00",
+        "data_json": {"dtcs": ["P0420"]},
+    }])
+
+    out = share_import(db, payload)
+
+    assert out["scans_added"] == 0
+
+
 def test_share_import_records_scan_conflict_when_data_differs(db):
     base = {
         "scanned_at": "2026-05-24T12:00:00+00:00",
@@ -329,6 +361,18 @@ def test_share_import_skips_photo_with_invalid_base64(db, photos_dir):
     cid = db.get_car_by_vin_hash(_vin_hash("VIN-PBAD"))["id"]
     car_photo_dir = photos_dir / str(cid)
     assert not car_photo_dir.exists() or list(car_photo_dir.iterdir()) == []
+
+
+def test_share_import_rejects_whitespace_tolerant_base64(db, photos_dir):
+    payload = _share("VIN-PSTRICT", photos=[{
+        "taken_at": "2026-05-24T13:00:00+00:00",
+        "filename": "x.jpg",
+        "data_b64": "YW Jj",
+    }])
+
+    out = share_import(db, payload, photos_dir=photos_dir)
+
+    assert out["photos_added"] == 0
 
 
 def test_share_import_skips_photo_without_taken_at_or_data(db, photos_dir):
