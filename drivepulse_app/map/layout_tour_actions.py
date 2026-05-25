@@ -125,6 +125,12 @@ class MapTourActionsMixin:
         self._tour_history_empty_row: Gtk.ListBoxRow | None = None
         # Selection state: set of (kind, id) tuples currently checked.
         self._tour_history_selected: set[tuple[str, int]] = set()
+        # Select-mode flag: long-press on a row switches the list into
+        # multi-select with checkbox prefixes; mirrors trips.py / scans.py.
+        self._tour_history_select_mode: bool = False
+        # All loaded row metas so we can re-render the list when toggling
+        # in/out of select mode without re-querying the database.
+        self._tour_history_metas: list[dict] = []
 
         listbox = Gtk.ListBox()
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -262,10 +268,6 @@ class MapTourActionsMixin:
         listbox = getattr(self, "_tour_history_listbox", None)
         if listbox is None:
             return
-        action_row = Adw.ActionRow()
-        action_row.set_title(GLib.markup_escape_text(self._format_history_title(data)))
-        action_row.set_subtitle(GLib.markup_escape_text(self._format_history_subtitle(data)))
-
         meta = {
             "kind": data["kind"],
             "id": int(data["id"]),
@@ -277,23 +279,35 @@ class MapTourActionsMixin:
             "car_label": data["car_label"],
             "car_vin": data["car_vin"],
         }
+        self._tour_history_metas.append(meta)
+        listbox.append(self._make_tour_history_row(meta))
+
+    def _make_tour_history_row(self, meta: dict) -> Adw.ActionRow:
+        action_row = Adw.ActionRow()
+        action_row.set_title(GLib.markup_escape_text(self._format_history_title(meta)))
+        action_row.set_subtitle(GLib.markup_escape_text(self._format_history_subtitle(meta)))
         action_row._dp_history_meta = meta
         key = (meta["kind"], meta["id"])
 
-        # Selection checkbox — leftmost prefix.
-        check = Gtk.CheckButton()
-        check.set_valign(Gtk.Align.CENTER)
-        check.connect("toggled", self._on_history_row_check_toggled, key)
-        action_row._dp_check = check
-        action_row.add_prefix(check)
+        if getattr(self, "_tour_history_select_mode", False):
+            # In select mode the row is non-activatable; checkbox prefix
+            # toggles selection. No edit button — that lives in normal mode.
+            check = Gtk.CheckButton()
+            check.set_active(key in self._tour_history_selected)
+            check.set_valign(Gtk.Align.CENTER)
+            check.connect("toggled", self._on_history_row_check_toggled, key)
+            action_row.add_prefix(check)
+            action_row.set_activatable(False)
+            return action_row
 
         icon_name = (
-            "dp-tour-plan-symbolic" if data["kind"] == "tour" else "driving-symbolic"
+            "dp-tour-plan-symbolic"
+            if meta["kind"] == "tour"
+            else "distance-symbolic"
         )
         icon = Gtk.Image.new_from_icon_name(icon_name)
         action_row.add_prefix(icon)
 
-        # Edit (pencil) button replaces the old chevron suffix.
         edit_btn = Gtk.Button(icon_name="document-edit-symbolic")
         edit_btn.add_css_class("flat")
         edit_btn.add_css_class("circular")
@@ -304,7 +318,51 @@ class MapTourActionsMixin:
 
         action_row.set_activatable(True)
         action_row.connect("activated", self._on_history_row_activated)
-        listbox.append(action_row)
+
+        # Long-press enters multi-select mode with this row pre-checked —
+        # matches the gesture used on the cars trips/scans/photos lists.
+        lp = Gtk.GestureLongPress()
+        lp.connect(
+            "pressed",
+            lambda _g, _x, _y, k=key: self._enter_history_select_mode(k),
+        )
+        action_row.add_controller(lp)
+        return action_row
+
+    def _enter_history_select_mode(self, initial_key: tuple[str, int]) -> None:
+        if self._tour_history_select_mode:
+            return
+        self._tour_history_select_mode = True
+        self._tour_history_selected = {initial_key}
+        self._rebuild_tour_history_rows()
+        trash_btn = getattr(self, "_tour_history_trash_btn", None)
+        if trash_btn is not None:
+            trash_btn.set_visible(True)
+
+    def _exit_history_select_mode(self) -> None:
+        if not self._tour_history_select_mode:
+            return
+        self._tour_history_select_mode = False
+        self._tour_history_selected = set()
+        self._rebuild_tour_history_rows()
+        trash_btn = getattr(self, "_tour_history_trash_btn", None)
+        if trash_btn is not None:
+            trash_btn.set_visible(False)
+
+    def _rebuild_tour_history_rows(self) -> None:
+        listbox = getattr(self, "_tour_history_listbox", None)
+        if listbox is None:
+            return
+        child = listbox.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            listbox.remove(child)
+            child = nxt
+        self._tour_history_empty_row = None
+        for meta in self._tour_history_metas:
+            listbox.append(self._make_tour_history_row(meta))
+        if not self._tour_history_metas:
+            self._show_tour_history_empty()
 
     def _on_history_row_check_toggled(
         self, check: Gtk.CheckButton, key: tuple[str, int]
@@ -316,9 +374,8 @@ class MapTourActionsMixin:
             selected.add(key)
         else:
             selected.discard(key)
-        trash_btn = getattr(self, "_tour_history_trash_btn", None)
-        if trash_btn is not None:
-            trash_btn.set_visible(bool(selected))
+        if not selected:
+            self._exit_history_select_mode()
 
     def _on_history_row_edit_clicked(
         self, _btn: Gtk.Button, row: Adw.ActionRow
@@ -399,7 +456,12 @@ class MapTourActionsMixin:
         def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
             if resp != "delete":
                 return
-            self._delete_history_entries([(meta["kind"], int(meta["id"]))])
+            key = (meta["kind"], int(meta["id"]))
+            self._delete_history_entries([key])
+            self._tour_history_metas = [
+                m for m in self._tour_history_metas
+                if (m["kind"], int(m["id"])) != key
+            ]
             listbox = getattr(self, "_tour_history_listbox", None)
             if listbox is not None:
                 listbox.remove(row)
@@ -431,21 +493,12 @@ class MapTourActionsMixin:
             if resp != "delete":
                 return
             self._delete_history_entries(keys)
-            listbox = getattr(self, "_tour_history_listbox", None)
-            if listbox is None:
-                return
-            child = listbox.get_first_child()
-            while child is not None:
-                nxt = child.get_next_sibling()
-                if isinstance(child, Adw.ActionRow):
-                    m = getattr(child, "_dp_history_meta", None)
-                    if m and (m["kind"], int(m["id"])) in set(keys):
-                        listbox.remove(child)
-                child = nxt
-            selected.clear()
-            trash_btn = getattr(self, "_tour_history_trash_btn", None)
-            if trash_btn is not None:
-                trash_btn.set_visible(False)
+            key_set = set(keys)
+            self._tour_history_metas = [
+                m for m in self._tour_history_metas
+                if (m["kind"], int(m["id"])) not in key_set
+            ]
+            self._exit_history_select_mode()
 
         dialog.connect("response", _on_response)
         dialog.present(self.get_root())
