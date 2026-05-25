@@ -96,6 +96,7 @@ class MapShumateMixin:
             "coord_chip": 36,
             "map_state": 36,
             "speed_zone": 36,
+            "replay_chart": 36,
         }
         # Pixels saved by hiding the empty license banner.
         self._shumate_attr_compact_delta = 27
@@ -233,6 +234,7 @@ class MapShumateMixin:
             (getattr(self, "_coord_chip", None), defaults.get("coord_chip", 36)),
             (getattr(self, "_map_state_overlay", None), defaults.get("map_state", 36)),
             (getattr(self, "_speed_zone_overlay", None), defaults.get("speed_zone", 36)),
+            (getattr(self, "_replay_chart_overlay", None), defaults.get("replay_chart", 36)),
         ]
         for widget, default in adjustments:
             if widget is None:

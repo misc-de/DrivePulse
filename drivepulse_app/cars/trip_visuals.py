@@ -204,7 +204,7 @@ def _build_chart_widget(
     pts = list of (ts, value|None, lat|None, lon|None).
     cursor_state['idx'] = active index into pts (-1 = none).
     """
-    PAD_L, PAD_R, PAD_T, PAD_B = 40, 12, 10, 24
+    PAD_L, PAD_R, PAD_T, PAD_B = 40, 12, 30, 24
     area = Gtk.DrawingArea()
     area.set_content_height(height)
     area.set_hexpand(True)

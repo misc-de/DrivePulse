@@ -816,4 +816,12 @@ class DriveDB:
             )
             self._conn.commit()
 
+    def rename_saved_tour(self, tour_id: int, name: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE saved_tours SET name=? WHERE id=?",
+                (name, tour_id),
+            )
+            self._conn.commit()
+
 
