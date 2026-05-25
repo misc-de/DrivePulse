@@ -728,7 +728,7 @@ class MapPage(
                 try:
                     viewport.set_rotation(0.0)
                 except Exception:
-                    pass
+                    log.debug("Shumate viewport.set_rotation(0) failed", exc_info=True)
             if self._car_marker is not None:
                 child = self._car_marker.get_child()
                 if child is not None:
@@ -940,7 +940,7 @@ class MapPage(
                 self._map_pitch = None
                 self._map_bearing = None
             except Exception:
-                pass
+                log.debug("Could not read Shumate viewport zoom", exc_info=True)
         # WebKit: query via evaluate_javascript — the script-message-handler
         # bridge proved unreliable in our deployment, so we just RPC the values
         # out directly. The callback updates the cached fields.
@@ -982,7 +982,8 @@ class MapPage(
             import json as _json
             try:
                 z, p, b = _json.loads(raw)
-            except Exception:
+            except (ValueError, TypeError, _json.JSONDecodeError):
+                log.debug("WebKit returned unparseable map-state: %r", raw, exc_info=True)
                 return
             self._map_zoom = float(z)
             self._map_pitch = float(p)
