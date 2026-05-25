@@ -50,7 +50,7 @@ class MapWebKitMixin:
             try:
                 settings.set_property(prop, val)
             except Exception:
-                pass
+                log.debug("WebKit setting %s not supported on this version", prop, exc_info=True)
 
         ucm = self._webview.get_user_content_manager()
         try:
@@ -59,7 +59,7 @@ class MapWebKitMixin:
             try:
                 ucm.register_script_message_handler("drivepulse", None)
             except Exception:
-                pass
+                log.warning("Could not register WebKit JS-bridge — map JS messages will not arrive", exc_info=True)
         ucm.connect("script-message-received::drivepulse", self._on_js_message)
         self._webview.connect("load-changed", self._on_webview_load_changed)
 
