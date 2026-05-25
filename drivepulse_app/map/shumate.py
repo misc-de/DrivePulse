@@ -65,7 +65,7 @@ class MapShumateMixin:
             try:
                 self._shumate_map.set_property("show-zoom-buttons", False)
             except Exception:
-                pass
+                log.debug("Shumate show-zoom-buttons toggle unsupported", exc_info=True)
         # Scale ruler sits on the left with its bottom edge aligned to the
         # bottom edge of the TTS (speaker) button on the right FAB column —
         # FAB margin_bottom=36. Hidden while the replay chart is open.
@@ -176,7 +176,7 @@ class MapShumateMixin:
                 try:
                     viewport.set_rotation(-math.radians(getattr(self, "_gps_heading", 0.0)))
                 except Exception:
-                    pass
+                    log.debug("Shumate viewport.set_rotation failed", exc_info=True)
 
     def _draw_car(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
         cx, cy = width / 2.0, height / 2.0
@@ -236,6 +236,7 @@ class MapShumateMixin:
                 try:
                     text = source.get_property("license") or ""
                 except Exception:
+                    log.debug("Shumate map source has no license metadata", exc_info=True)
                     text = ""
             has_license = bool(text and text.strip())
 
@@ -264,7 +265,7 @@ class MapShumateMixin:
             try:
                 widget.set_margin_bottom(default + delta)
             except Exception:
-                pass
+                log.debug("Could not adjust margin_bottom on attribution-coupled widget", exc_info=True)
 
     def _shumate_max_zoom(self) -> float:
         """Maximum zoom level supported by the current Shumate tile source."""
@@ -275,7 +276,7 @@ class MapShumateMixin:
             try:
                 return float(source.get_max_zoom_level())
             except Exception:
-                pass
+                log.debug("Shumate source.get_max_zoom_level failed; defaulting to 19", exc_info=True)
         return 19.0
 
     def _shumate_set_path(self, layer: Any, coords: list[list[float]]) -> None:
@@ -405,12 +406,17 @@ class MapShumateMixin:
             vmax = max(speeds) if speeds else 0.0
 
             proj: list[tuple[float, float] | None] = []
+            projection_failures = 0
             for lat, lon, _spd in points:
                 try:
                     x, y = viewport.location_to_widget_coords(area, lat, lon)
                     proj.append((x, y))
                 except Exception:
+                    projection_failures += 1
                     proj.append(None)
+            if projection_failures:
+                log.debug("Shumate viewport projection failed for %d/%d track points",
+                          projection_failures, len(points))
 
             cr.set_line_cap(1)   # ROUND
             cr.set_line_join(1)  # ROUND
@@ -449,6 +455,7 @@ class MapShumateMixin:
                     area, marker_pos[0], marker_pos[1]
                 )
             except Exception:
+                log.debug("Replay marker projection failed", exc_info=True)
                 return
             # White halo for contrast against any colour.
             cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
@@ -518,8 +525,8 @@ class MapShumateMixin:
             try:
                 scale.set_unit(target)
             except Exception:
-                # Older Shumate APIs may not support set_unit — silently skip.
-                pass
+                # Older Shumate APIs may not support set_unit — skip with a trace.
+                log.debug("Shumate scale.set_unit unsupported on this version", exc_info=True)
 
     def _shumate_set_scale_offset(self, offset_px: int) -> None:
         """Push the bottom-left scale ruler to the right of the replay chart.
