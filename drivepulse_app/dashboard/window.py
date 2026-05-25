@@ -153,6 +153,13 @@ class DashboardWindow(
         # Persistente Fahrten-Datenbank (cars/trips/samples) — vor allen Pages,
         # weil CarsPage sie injiziert bekommt.
         self.db = DriveDB(DB_FILE)
+        # Beim App-Start: nicht promotete Live-Fahrzeuge aus vorigem Lauf
+        # verwerfen (inkl. ihrer Scans, Trips, Samples — Kaskade via delete_car).
+        try:
+            for _live_id in self.db.list_live_car_ids():
+                self.db.delete_car(_live_id)
+        except Exception:
+            log.exception("Could not purge stale live cars on startup")
         if self.mock_mode:
             try:
                 from drivepulse_app.mock.seed import seed_mock_data
@@ -284,7 +291,7 @@ class DashboardWindow(
         self.cars_page.mock_mode = bool(self.mock_mode)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
-        self.cars_page.on_live_vehicle_add = self._add_live_vehicle_from_identity
+        self.cars_page.on_live_vehicle_add = self._promote_live_vehicle_from_identity
         self.cars_page.get_sync_client = self._get_active_sync_client
         self.cars_page.on_load_stopwatch_run = self._load_persisted_run_into_stopwatch
         self.cars_page.on_open_trip_as_route = self._open_trip_as_route_on_map

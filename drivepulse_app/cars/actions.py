@@ -116,6 +116,7 @@ class CarsActionsMixin:
                     cvn=self._live_identity.get("CVN"),
                     protocol=self._live_identity.get("protocol"),
                     profile_path=self._live_identity.get("profile_path"),
+                    is_live=False,
                 )
             except Exception:
                 log.exception("Could not add live vehicle")
