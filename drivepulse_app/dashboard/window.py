@@ -157,6 +157,14 @@ class DashboardWindow(
                 seed_mock_data(self.db)
             except Exception:
                 log.exception("Could not seed mock vehicle data")
+        else:
+            # Mock mode was switched off (or never enabled) — strip any
+            # previously seeded mock cars so they don't linger across restarts.
+            try:
+                from drivepulse_app.mock.seed import remove_mock_data
+                remove_mock_data(self.db)
+            except Exception:
+                log.exception("Could not remove mock vehicle data on startup")
         self.trip_recorder = TripRecorder(self.db)
         atexit.register(self._shutdown_db)
 
