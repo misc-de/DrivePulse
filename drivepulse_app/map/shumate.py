@@ -95,7 +95,7 @@ class MapShumateMixin:
             "scale": 36,
             "coord_chip": 36,
             "map_state": 36,
-            "speed_zone": 36,
+            "speed_zone": 86,
             "replay_chart": 36,
         }
         # Pixels saved by hiding the empty license banner.
@@ -162,6 +162,21 @@ class MapShumateMixin:
             child = self._car_marker.get_child()
             if child is not None:
                 child.queue_draw()
+        # Heading-up: rotate the Shumate viewport so the direction of travel
+        # always points to the top of the screen while a tour is running.
+        # When the heading-up toggle is off, leave the map north-aligned and
+        # let _draw_car spin the arrow with the GPS heading instead.
+        if (
+            getattr(self, "_tour_active", False)
+            and getattr(self, "_heading_up", True)
+            and self._shumate_map is not None
+        ):
+            viewport = self._shumate_map.get_viewport()
+            if viewport is not None and hasattr(viewport, "set_rotation"):
+                try:
+                    viewport.set_rotation(-math.radians(getattr(self, "_gps_heading", 0.0)))
+                except Exception:
+                    pass
 
     def _draw_car(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
         cx, cy = width / 2.0, height / 2.0
@@ -171,7 +186,14 @@ class MapShumateMixin:
 
         cr.save()
         cr.translate(cx, cy)
-        cr.rotate(math.radians(getattr(self, "_gps_heading", 0.0)))
+        # In heading-up mode the viewport itself is rotated, so the arrow
+        # stays fixed pointing to the top of the screen. Otherwise rotate
+        # the arrow by the current GPS heading so it still indicates the
+        # direction of travel on a north-aligned map.
+        tour_active = getattr(self, "_tour_active", False)
+        heading_up = getattr(self, "_heading_up", True)
+        if not (tour_active and heading_up):
+            cr.rotate(math.radians(getattr(self, "_gps_heading", 0.0)))
         cr.move_to(0, -18)
         cr.line_to(12, 14)
         cr.line_to(0, 8)
