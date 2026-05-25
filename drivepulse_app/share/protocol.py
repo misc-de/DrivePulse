@@ -5,9 +5,14 @@ import base64
 import binascii
 import hashlib
 import json
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+# Standard VIN alphabet (ISO 3779) — excludes I, O, Q to avoid confusion
+# with 1 and 0. Used when fabricating an anonymous VIN.
+_VIN_ALPHABET = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789"
 
 from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger
@@ -19,28 +24,73 @@ def make_vin_hash(vin: str) -> str:
     return hashlib.sha256(vin.encode("utf-8")).hexdigest()
 
 
-def make_anon_vin(vin: str) -> str:
-    if len(vin) < 8:
-        return vin
-    return vin[:4] + "0" * (len(vin) - 8) + vin[-4:]
+def make_fake_vin() -> str:
+    """Fabricate a 17-char VIN-shaped string with random characters from the
+    standard VIN alphabet. The peer treats it as a fresh, unrelated vehicle."""
+    return "".join(secrets.choice(_VIN_ALPHABET) for _ in range(17))
 
 
-def build_vehicle_block(car: Any, anon: bool, include_obd: bool) -> dict:
-    block: dict = {
+def make_fake_serial(reference: str | None) -> str:
+    """Fabricate a hex serial number (cal_id / CVN) matching the length of
+    the real value when present, so the peer can't tell from the length
+    whether the field was anonymized."""
+    target_len = len(reference) if reference else 16
+    nbytes = max(1, (target_len + 1) // 2)
+    return secrets.token_hex(nbytes).upper()[:target_len]
+
+
+def _car_field(car: Any, key: str) -> Any:
+    try:
+        keys = car.keys()
+    except AttributeError:
+        return car.get(key) if isinstance(car, dict) else None
+    if key in keys:
+        return car[key]
+    return None
+
+
+def build_vehicle_block(car: Any, anon: bool) -> dict:
+    """Build the vehicle metadata for the share payload.
+
+    anon=False: send the real VIN, vin_hash, cal_id, CVN, brand, label, protocol.
+    anon=True : replace VIN and serial-style fields (vin_hash, cal_id, CVN)
+                with fabricated values; brand, label, and protocol stay real
+                because the user wants the make/model recognisable on the peer.
+    """
+    real_vin = (car["vin"] or "") if car["vin"] else ""
+    brand = car["brand"] or ""
+    label = car["label"] or ""
+    protocol = _car_field(car, "protocol") or ""
+
+    if anon:
+        fake_vin = make_fake_vin()
+        block: dict = {
+            "vin": fake_vin,
+            "vin_hash": make_vin_hash(fake_vin),
+            "brand": brand,
+            "label": label,
+        }
+        real_cal = _car_field(car, "cal_id")
+        if real_cal:
+            block["cal_id"] = make_fake_serial(str(real_cal))
+        real_cvn = _car_field(car, "cvn")
+        if real_cvn:
+            block["cvn"] = make_fake_serial(str(real_cvn))
+        if protocol:
+            block["protocol"] = protocol
+        return block
+
+    block = {
         "vin_hash": car["vin_hash"],
-        "label": car["label"] or "",
+        "brand": brand,
+        "label": label,
     }
-    vin = car["vin"] or "" if car["vin"] else ""
-    if vin:
-        block["vin_anon"] = make_anon_vin(vin)
-    if not anon and vin:
-        block["vin"] = vin
-        block["brand"] = car["brand"] or ""
-    if not anon and include_obd:
-        for key in ("cal_id", "cvn", "protocol"):
-            val = car[key] if key in car.keys() else None  # noqa: SIM118
-            if val:
-                block[key] = val
+    if real_vin:
+        block["vin"] = real_vin
+    for key in ("cal_id", "cvn", "protocol"):
+        val = _car_field(car, key)
+        if val:
+            block[key] = val
     return block
 
 
