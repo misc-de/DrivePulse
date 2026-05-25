@@ -8,6 +8,16 @@ from gi.repository import Gtk
 
 class DashboardLayoutMixin:
 
+    # Last (width, height, form_factor) tuple _on_size_changed applied a layout
+    # for. The tick callback fires every frame; skip the relayout work when
+    # nothing changed since last frame. Without this guard, 60 Hz × full gauge
+    # layout (set_size_request + cars_page.set_narrow + stopwatch._apply_layout
+    # + landscape/portrait switch) burns CPU continuously even on a static
+    # dash. Form-factor is in the key because _apply_gauge_sizes branches on it
+    # (desktop side cap), so a mobile↔desktop transition without size change
+    # still needs a relayout.
+    _last_layout_key: tuple[int, int, str] = (-1, -1, "")
+
     def _layout_tick(self, *_args: Any) -> bool:
         self._on_size_changed()
         return True
@@ -17,6 +27,10 @@ class DashboardLayoutMixin:
         height = self.dashboard_page.get_height() or self.view_stack.get_height() or self.get_height()
         if width <= 0 or height <= 0:
             return False
+        key = (width, height, getattr(self, "form_factor", ""))
+        if key == self._last_layout_key:
+            return False
+        self._last_layout_key = key
 
         if hasattr(self, "cars_page"):
             # Phones always render the cars sidebar narrow regardless of
