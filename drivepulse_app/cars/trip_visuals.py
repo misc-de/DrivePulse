@@ -417,25 +417,10 @@ def _build_chart_widget(
     motion_ctl.connect("leave", _on_pointer_leave)
     area.add_controller(motion_ctl)
 
-    # GestureClick claims the sequence (so a parent ScrolledWindow's
-    # kinetic-scroll gesture can't steal the drag) AND drops an immediate
-    # cursor mark — using widget-local x from the signal — so the user sees
-    # feedback even if the claim prevents the legacy controller from seeing
-    # the corresponding TOUCH_BEGIN / BUTTON_PRESS in the same delivery.
-    # _pressed itself stays driven by legacy so GestureClick's tap-vs-drag
-    # heuristic can't flip it to False mid-drag via "released".
-    tap_ctl = Gtk.GestureClick()
-    tap_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-
-    def _on_chart_tap_pressed(g: Any, _n: int, x: float, _y: float) -> None:
-        g.set_state(Gtk.EventSequenceState.CLAIMED)
-        _pressed[0] = True
-        _set_cursor(x, area.get_width())
-
-    tap_ctl.connect("pressed", _on_chart_tap_pressed)
-    area.add_controller(tap_ctl)
-
-    # Single legacy controller drives the whole press+drag lifecycle for both
+    # Legacy controller is attached BEFORE GestureClick so it runs first in
+    # the CAPTURE phase — otherwise GestureClick's claim consumes the event
+    # and the legacy controller never sees TOUCH_UPDATE / MOTION_NOTIFY for
+    # subsequent drag motion. Drives the whole press+drag lifecycle for both
     # touch (TOUCH_*) and pointer / pointer-emulated touch (BUTTON_PRESS +
     # MOTION_NOTIFY + BUTTON_RELEASE). Widget-local x is computed via
     # Graphene since GdkEvent.get_position() is surface-relative.
@@ -466,6 +451,22 @@ def _build_chart_widget(
 
     legacy.connect("event", _on_legacy)
     area.add_controller(legacy)
+
+    # GestureClick comes AFTER legacy in the CAPTURE chain so legacy gets
+    # the first look at each event. The click gesture claims the sequence
+    # to keep a parent ScrolledWindow's kinetic-scroll gesture from stealing
+    # the drag, and also seeds the cursor with the widget-local x supplied
+    # by the "pressed" signal as a belt-and-braces fallback.
+    tap_ctl = Gtk.GestureClick()
+    tap_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+    def _on_chart_tap_pressed(g: Any, _n: int, x: float, _y: float) -> None:
+        g.set_state(Gtk.EventSequenceState.CLAIMED)
+        _pressed[0] = True
+        _set_cursor(x, area.get_width())
+
+    tap_ctl.connect("pressed", _on_chart_tap_pressed)
+    area.add_controller(tap_ctl)
 
     return area
 
