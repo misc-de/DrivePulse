@@ -534,6 +534,8 @@
   "settings.vin_decoder.autodev": "auto.dev",
   "settings.vin_decoder.autodev.desc": "1.000 Anfragen/Monat kostenlos. Guter Allrounder mit Modell- und Karosseriedaten. API-Schlüssel auf auto.dev registrieren.",
   "settings.vin_decoder.autodev_key": "auto.dev API-Schlüssel",
+  "settings.vin_decoder.autodev.requests": "Monatliche Anfragen",
+  "settings.vin_decoder.autodev.no_requests": "Noch keine Anfragen",
   "settings.vin_decoder.vindecoder": "vindecoder.eu",
   "settings.vin_decoder.vindecoder.desc": "Beste Datenqualität für EU-Fahrzeuge, kostenpflichtig. Benötigt API- und Secret-Schlüssel von vindecoder.eu.",
   "settings.vin_decoder.api_key": "vindecoder.eu API-Schlüssel",

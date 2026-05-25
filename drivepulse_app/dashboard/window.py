@@ -124,6 +124,8 @@ class DashboardWindow(
         self.vindecoder_api_key: str = self.settings.get("vindecoder_api_key") or ""
         self.vindecoder_secret_key: str = self.settings.get("vindecoder_secret_key") or ""
         self.autodev_api_key: str = self.settings.get("autodev_api_key") or ""
+        self.autodev_month: str = self.settings.get("autodev_month") or ""
+        self.autodev_month_count: int = max(0, int(self.settings.get("autodev_month_count") or 0))
         self.last_cars_source: str | None = self.settings.get("last_cars_source") or None
         self.last_cars_category: str | None = self.settings.get("last_cars_category") or None
         _raw_scan_id = self.settings.get("last_cars_scan_id")
@@ -295,6 +297,7 @@ class DashboardWindow(
             vindecoder_secret_key=self.vindecoder_secret_key or None,
             autodev_api_key=self.autodev_api_key or None,
             nhtsa_enabled=self.nhtsa_enabled,
+            on_autodev_call=self._increment_autodev_count,
             initial_source=self.last_cars_source,
             initial_category=self.last_cars_category,
             initial_scan_id=self.last_cars_scan_id,

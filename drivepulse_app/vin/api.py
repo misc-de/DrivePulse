@@ -6,6 +6,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
@@ -90,7 +91,11 @@ class AutodevError(Exception):
         self.status = status
 
 
-def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
+def _fetch_autodev(
+    vin: str,
+    api_key: str,
+    on_request: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     url = _AUTODEV_URL.format(urllib.parse.quote(vin.upper(), safe=""))
     print(f"[VIN] auto.dev GET {url} key_len={len(api_key)} key_repr={repr(api_key[-10:])}", flush=True)
     req = urllib.request.Request(
@@ -102,9 +107,13 @@ def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
+            if on_request:
+                on_request()
             data = json.loads(resp.read().decode("utf-8"))
         print(f"[VIN] auto.dev OK fields={[k for k in data if not k.startswith('_') and k not in ('api','links','examples','photos','discover','actions','user')]}", flush=True)
     except urllib.error.HTTPError as exc:
+        if on_request:
+            on_request()
         try:
             body = exc.read().decode("utf-8", errors="replace")
         except Exception:
@@ -183,6 +192,7 @@ def fetch_vin_data(
     vindecoder_api_key: str | None = None,
     vindecoder_secret_key: str | None = None,
     nhtsa_enabled: bool = True,
+    on_autodev_call: Callable[[], None] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Fetch VIN data from each configured source independently.
 
@@ -210,7 +220,7 @@ def fetch_vin_data(
 
     if autodev_api_key:
         try:
-            ad = _fetch_autodev(vin, autodev_api_key)
+            ad = _fetch_autodev(vin, autodev_api_key, on_request=on_autodev_call)
             if ad:
                 raw = ad.pop("_raw", None)
                 if raw:
