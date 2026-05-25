@@ -378,6 +378,12 @@ class DriveDB:
 
     def delete_car(self, car_id: int) -> None:
         with self._lock:
+            self._conn.execute("DELETE FROM samples WHERE trip_id IN (SELECT id FROM trips WHERE car_id=?)", (car_id,))
+            self._conn.execute("DELETE FROM trips WHERE car_id=?", (car_id,))
+            self._conn.execute("DELETE FROM scan_samples WHERE scan_id IN (SELECT id FROM scans WHERE car_id=?)", (car_id,))
+            self._conn.execute("DELETE FROM scans WHERE car_id=?", (car_id,))
+            self._conn.execute("DELETE FROM acceleration_runs WHERE car_id=?", (car_id,))
+            self._conn.execute("DELETE FROM car_photos WHERE car_id=?", (car_id,))
             self._conn.execute("DELETE FROM cars WHERE id=?", (car_id,))
             self._conn.commit()
 
@@ -407,6 +413,21 @@ class DriveDB:
             )
             self._conn.commit()
             return int(cur.lastrowid or 0)
+
+    def update_scan_data(self, scan_id: int, data: dict[str, Any]) -> None:
+        """Aktualisiert Snapshot-Daten eines bestehenden Scans (Rescan in gleicher Session)."""
+        import json as _json
+        dtc_count = len(data.get("dtcs") or [])
+        pending_count = len(data.get("pending_dtcs") or [])
+        pids_count = len(data.get("supported_pids") or [])
+        blob = _json.dumps(data, ensure_ascii=False, default=str)
+        with self._lock:
+            self._conn.execute(
+                "UPDATE scans SET dtc_count=?, pending_dtc_count=?, pids_count=?, data_json=?"
+                " WHERE id=?",
+                (dtc_count, pending_count, pids_count, blob, scan_id),
+            )
+            self._conn.commit()
 
     def list_scans_for_car(self, car_id: int) -> list[sqlite3.Row]:
         with self._lock:
