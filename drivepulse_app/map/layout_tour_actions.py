@@ -968,6 +968,14 @@ class MapTourActionsMixin:
         sync_getter = getattr(self, "get_sync_client", None)
         return callable(sync_getter) and sync_getter() is not None
 
+    def notify_sync_changed(self) -> None:
+        """Sync-Status hat sich geändert — Tour-Listen und Share-Buttons neu aufbauen."""
+        try:
+            self._rebuild_tour_list()
+            self._rebuild_tour_history_rows()
+        except Exception:
+            pass
+
     def _make_share_flow(self) -> Any:
         from drivepulse_app.share.flow import ShareFlow
         return ShareFlow(
