@@ -286,11 +286,10 @@ function initMap(lat, lon) {
   map.on('rotateend', _pushCamState);
   map.on('moveend', _pushCamState);
   // Initial push once the map has its first frame, so values show up
-  // before the user does anything.
+  // before the user does anything. The 'idle' event already covers the
+  // "tour fly-in / continuous animation finished" case, so no polling
+  // interval is needed — saves a wakeup per second on phone batteries.
   map.once('load', _pushCamState);
-  // Safety net — fire on a 1 s interval too, in case the *end events
-  // don't trigger (e.g. continuous animation, tour fly-in).
-  setInterval(_pushCamState, 1000);
 
   map.on('dragstart', () => {
     // While a tour is active the map must stay oriented to the driving

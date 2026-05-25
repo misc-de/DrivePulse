@@ -82,6 +82,22 @@ def test_should_query_key_respects_slow_poll_intervals(drivepulse_module):
     assert should_query_key("fuel_level", 106.0, {"fuel_level": 95.0}) is True
 
 
+def test_should_query_key_min_interval_floors_fast_pids(drivepulse_module):
+    """Idle backoff: passing ``min_interval`` must raise the floor even for
+    PIDs whose table value is 0 (rpm/speed/coolant). Slow PIDs must stay at
+    their own (higher) interval when min_interval is smaller."""
+    from drivepulse_app.obd.polling import should_query_key
+
+    # speed is normally interval=0 → always True. With min_interval=2.0 it
+    # behaves like a 2 s-interval PID.
+    assert should_query_key("speed", 100.0, {"speed": 99.0}, min_interval=2.0) is False
+    assert should_query_key("speed", 102.0, {"speed": 99.0}, min_interval=2.0) is True
+    # fuel_level (interval=10) must not be lowered by a smaller min_interval.
+    assert should_query_key(
+        "fuel_level", 105.0, {"fuel_level": 100.0}, min_interval=2.0
+    ) is False
+
+
 def test_candidate_ports_prefers_explicit_port(monkeypatch, drivepulse_module):
     from drivepulse_app.obd import reader as obd_reader
 
@@ -172,7 +188,9 @@ def test_read_obd_reuses_cached_slow_values_between_fast_polls(monkeypatch, driv
 
     fake_obd = _fake_obd_module([])
     monkeypatch.setattr(obd_reader, "obd", fake_obd)
-    times = iter([100.0, 100.5])
+    # Values consumed by: ObdReader.__init__ (_last_motion_monotonic),
+    # then one per _read_obd call.
+    times = iter([100.0, 100.5, 101.0])
     monkeypatch.setattr(obd_reader.time, "monotonic", lambda: next(times))
 
     reader = drivepulse_module.ObdReader(lambda payload: None)
@@ -185,6 +203,43 @@ def test_read_obd_reuses_cached_slow_values_between_fast_polls(monkeypatch, driv
     assert second["_command_count"] == 3
     assert second["throttle_pos"] == first["throttle_pos"]
     assert second["engine_load"] == first["engine_load"]
+
+
+def test_idle_min_interval_zero_while_recently_moving(drivepulse_module):
+    """Within the IDLE_HOLD window after the last motion sample, the floor
+    must stay at 0 so fast PIDs continue to poll at full rate."""
+    reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader._last_motion_monotonic = 100.0
+    # 5 s after motion: hold window (10 s) not yet expired.
+    assert reader._idle_min_interval(105.0) == 0.0
+
+
+def test_idle_min_interval_raises_floor_after_hold(drivepulse_module):
+    """Once the vehicle has been parked past IDLE_HOLD_S, the floor must
+    rise to IDLE_MIN_INTERVAL_S so fast PIDs back off."""
+    reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader._last_motion_monotonic = 100.0
+    assert reader._idle_min_interval(120.0) == reader._IDLE_MIN_INTERVAL_S
+
+
+def test_note_speed_for_idle_only_advances_on_real_motion(drivepulse_module):
+    """A speed sample above the motion threshold must refresh the timestamp;
+    a slow/stationary reading must NOT — otherwise the backoff would never
+    engage. A bad/None reading is treated conservatively as motion."""
+    reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader._last_motion_monotonic = 50.0
+
+    reader._note_speed_for_idle({"value": 0.0, "unit": "kph"}, 200.0)
+    assert reader._last_motion_monotonic == 50.0  # parked → no advance
+
+    reader._note_speed_for_idle({"value": 1.5, "unit": "kph"}, 201.0)
+    assert reader._last_motion_monotonic == 50.0  # below threshold (3 km/h)
+
+    reader._note_speed_for_idle({"value": 12.0, "unit": "kph"}, 202.0)
+    assert reader._last_motion_monotonic == 202.0  # moving → advance
+
+    reader._note_speed_for_idle(None, 250.0)
+    assert reader._last_motion_monotonic == 250.0  # unknown → treat as motion
 
 
 def test_close_connection_clears_obd_value_cache(drivepulse_module):

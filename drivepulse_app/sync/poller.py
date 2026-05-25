@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import ssl
 import threading
-import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -25,29 +24,28 @@ class SyncPoller:
 
     def __init__(self, on_status: Callable[[bool], None]) -> None:
         self._on_status = on_status
-        self._stopped = False
+        # Event-based wake replaces a tight 0.5 s sleep loop — the kernel can
+        # actually suspend the thread for the full 30 s window instead of
+        # waking it 60 times per cycle, which matters on phone batteries.
+        self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        self._stopped = False
+        self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run, daemon=True, name="sync-poller"
         )
         self._thread.start()
 
     def stop(self) -> None:
-        self._stopped = True
+        self._stop_event.set()
 
     def _run(self) -> None:
-        # Erster Poll direkt beim Start, danach alle 30s
+        # Erster Poll direkt beim Start, danach alle POLL_INTERVAL_S Sekunden.
+        # stop() setzt das Event, wait() kehrt dann sofort True zurück → Schleife endet.
         self._poll()
-        elapsed = 0.0
-        while not self._stopped:
-            time.sleep(0.5)
-            elapsed += 0.5
-            if elapsed >= POLL_INTERVAL_S:
-                elapsed = 0.0
-                self._poll()
+        while not self._stop_event.wait(POLL_INTERVAL_S):
+            self._poll()
 
     def _poll(self) -> None:
         devices = load_paired_devices()

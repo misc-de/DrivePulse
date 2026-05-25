@@ -143,6 +143,12 @@ class MapPage(
         self._gps_speed_mps: float = 0.0
         self._follow_gps: bool = True
         self._last_map_js: float = 0.0   # throttle: last time mapSetCar was sent
+        # Delta gate so identical positions don't trigger a JS eval + repaint
+        # every 180 ms while standing still. Heartbeat after _MAP_JS_HEARTBEAT_S
+        # keeps the JS side from believing the GPS feed has stalled.
+        self._last_map_js_lat: float | None = None
+        self._last_map_js_lon: float | None = None
+        self._last_map_js_heading: float = 0.0
         # Route coords [[lon, lat], ...] — kept for traffic proximity filtering
         self._route_coords: list[list[float]] = []
         # Restore the remembered layer; fall back to "map" (index 0) if invalid.
@@ -380,6 +386,15 @@ class MapPage(
     # tour's 250 ms tick so a tick that arrives a few ms early isn't dropped —
     # dropped ticks were the main source of the arrow's "step-pause-step" feel.
     _MAP_JS_INTERVAL = 0.18  # ≈ 5.5 Hz cap
+    # Delta thresholds: skip the JS push entirely when neither the position
+    # nor the heading have meaningfully changed. ~3 m and 2° are below GPS
+    # noise on phones but above true-rest jitter, so we only push when the
+    # vehicle has actually moved.
+    _MAP_JS_MIN_DEG = 3e-5   # ~3.3 m at the equator
+    _MAP_JS_MIN_HEADING = 2.0  # degrees
+    # Heartbeat so the JS side gets at least one update per second even when
+    # parked — guards against any client-side timeout assuming a stalled feed.
+    _MAP_JS_HEARTBEAT_S = 1.0
 
     def update_gps(
         self,
@@ -429,8 +444,22 @@ class MapPage(
         if self._backend == "webkit":
             now = time.monotonic()
             if now - self._last_map_js >= self._MAP_JS_INTERVAL:
-                self._last_map_js = now
-                self._js(f"mapSetCar({display_lat}, {display_lon}, {self._gps_heading})")
+                heading_delta = abs(self._gps_heading - self._last_map_js_heading)
+                if heading_delta > 180.0:
+                    heading_delta = 360.0 - heading_delta
+                moved = (
+                    self._last_map_js_lat is None
+                    or abs(display_lat - self._last_map_js_lat) >= self._MAP_JS_MIN_DEG
+                    or abs(display_lon - self._last_map_js_lon) >= self._MAP_JS_MIN_DEG
+                    or heading_delta >= self._MAP_JS_MIN_HEADING
+                )
+                stale = now - self._last_map_js >= self._MAP_JS_HEARTBEAT_S
+                if moved or stale:
+                    self._last_map_js = now
+                    self._last_map_js_lat = display_lat
+                    self._last_map_js_lon = display_lon
+                    self._last_map_js_heading = self._gps_heading
+                    self._js(f"mapSetCar({display_lat}, {display_lon}, {self._gps_heading})")
         elif self._backend == "shumate" and self._shumate_map is not None:
             self._update_shumate_gps(display_lat, display_lon)
             if self._follow_gps:

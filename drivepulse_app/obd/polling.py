@@ -39,9 +39,20 @@ def command_map(obd_module: Any) -> dict[str, Any]:
     }
 
 
-def should_query_key(key: str, now: float, last_query: dict[str, float]) -> bool:
-    """Poll fast-moving PIDs every tick and slower PIDs less often."""
-    interval = OBD_POLL_INTERVALS.get(key, 2.0)
+def should_query_key(
+    key: str,
+    now: float,
+    last_query: dict[str, float],
+    min_interval: float = 0.0,
+) -> bool:
+    """Poll fast-moving PIDs every tick and slower PIDs less often.
+
+    ``min_interval`` raises the floor for *all* PIDs — used by the reader to
+    apply an idle backoff when the vehicle is parked: fast PIDs (interval 0)
+    are then queried at e.g. min_interval instead of every 500 ms tick, which
+    keeps the Bluetooth radio quieter and saves significant phone battery.
+    """
+    interval = max(OBD_POLL_INTERVALS.get(key, 2.0), float(min_interval))
     if interval <= 0:
         return True
     last = last_query.get(key)
