@@ -5,7 +5,8 @@ from __future__ import annotations
 from drivepulse_app.share.protocol import (
     _round2,
     _trips_identical,
-    make_anon_vin,
+    make_fake_serial,
+    make_fake_vin,
     make_vin_hash,
 )
 
@@ -28,23 +29,41 @@ def test_make_vin_hash_is_64_char_sha256_hex():
     int(h, 16)  # raises if not hex
 
 
-# ─── make_anon_vin ────────────────────────────────────────────────────────────
+# ─── make_fake_vin ────────────────────────────────────────────────────────────
 
-def test_make_anon_vin_keeps_prefix_and_suffix():
-    # First 4 (WMI + first digit) and last 4 (serial tail) survive; the
-    # rest is masked with "0" so the brand region is recognisable but the
-    # specific vehicle is not.
-    out = make_anon_vin("WAUZZZ8KZBA000099")
-    assert out.startswith("WAUZ")
-    assert out.endswith("0099")
-    assert len(out) == len("WAUZZZ8KZBA000099")
+def test_make_fake_vin_has_vin_shape():
+    # 17 chars from the standard VIN alphabet (no I, O, Q).
+    out = make_fake_vin()
+    assert len(out) == 17
+    forbidden = {"I", "O", "Q"}
+    assert not (set(out) & forbidden)
+    assert set(out) <= set("ABCDEFGHJKLMNPRSTUVWXYZ0123456789")
 
 
-def test_make_anon_vin_short_input_passes_through():
-    # Strings under 8 chars don't have enough fixed-region info to anonymise
-    # — return as-is rather than mangling.
-    assert make_anon_vin("ABC") == "ABC"
-    assert make_anon_vin("1234567") == "1234567"
+def test_make_fake_vin_changes_each_call():
+    # Anonymization must produce a fresh identity each time so two
+    # anonymized shares of the same car don't collide on the peer.
+    assert make_fake_vin() != make_fake_vin()
+
+
+# ─── make_fake_serial ────────────────────────────────────────────────────────
+
+def test_make_fake_serial_matches_length_of_reference():
+    # Same length as the real cal_id/CVN so length can't be used to guess
+    # whether the field was anonymized.
+    assert len(make_fake_serial("ABCDEF1234")) == 10
+    assert len(make_fake_serial("DEADBEEF")) == 8
+
+
+def test_make_fake_serial_uppercase_hex():
+    out = make_fake_serial("1234567890ABCDEF")
+    assert out == out.upper()
+    int(out, 16)  # raises if not hex
+
+
+def test_make_fake_serial_default_length_when_no_reference():
+    assert len(make_fake_serial(None)) == 16
+    assert len(make_fake_serial("")) == 16
 
 
 # ─── _round2 ─────────────────────────────────────────────────────────────────
