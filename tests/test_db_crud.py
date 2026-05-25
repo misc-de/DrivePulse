@@ -467,3 +467,10 @@ def test_list_tour_history_merges_trips_and_tours_chronologically(db):
     kinds = [r["kind"] for r in history]
     assert kinds[0] == "tour"
     assert kinds[1] == "trip"
+    # Bulk-share regression: trip rows must expose the owning car_id so the
+    # share-selected button can group selected trips by car and call
+    # ShareFlow.share_trips(car_id, …) once per car. Saved tours don't have
+    # an owning car and must surface NULL.
+    by_kind = {r["kind"]: r for r in history}
+    assert by_kind["trip"]["car_id"] == cid
+    assert by_kind["tour"]["car_id"] is None

@@ -122,9 +122,14 @@ class ShareFlow:
         self._check_and_proceed_vehicle(client, car, mode="scan", scan_ids=scan_ids)
 
     def share_tour(self, tour: dict) -> None:
+        self.share_tours([tour])
+
+    def share_tours(self, tours: list[dict]) -> None:
         client = self._get_client()
         if client is None:
             self._show_toast(self._t("share.no_sync"))
+            return
+        if not tours:
             return
 
         def _bg() -> None:
@@ -133,7 +138,7 @@ class ShareFlow:
                 payload = {
                     "version": 1,
                     "type": "share_tours",
-                    "tours": [build_tour_payload(tour)],
+                    "tours": [build_tour_payload(t) for t in tours],
                 }
                 result = client.share_import(payload)
                 GLib.idle_add(_on_result, result)
@@ -151,7 +156,7 @@ class ShareFlow:
                 return False
             n = result.get("tours_added", 0)
             if n:
-                self._show_toast("Tour übertragen")
+                self._show_toast(self._t_fmt("share.tours_sent", count=str(n)))
             else:
                 self._show_toast(self._t("share.nothing_new"))
             return False

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC
 from typing import Any
 
@@ -139,6 +140,16 @@ class MapTourActionsMixin:
         self._saved_tour_trash_btn = trash_btn
         header.pack_end(trash_btn)
 
+        share_btn = Gtk.Button(icon_name="share-alt-symbolic")
+        share_btn.add_css_class("flat")
+        share_btn.set_tooltip_text(
+            _translate(self.language, "map.history.share_selected_tooltip")
+        )
+        share_btn.set_visible(False)
+        share_btn.connect("clicked", self._on_saved_tour_share_clicked)
+        self._saved_tour_share_btn = share_btn
+        header.pack_end(share_btn)
+
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(header)
         toolbar_view.set_content(page_box)
@@ -196,6 +207,16 @@ class MapTourActionsMixin:
         trash_btn.connect("clicked", self._on_history_trash_clicked)
         self._tour_history_trash_btn = trash_btn
         header.pack_end(trash_btn)
+
+        share_btn = Gtk.Button(icon_name="share-alt-symbolic")
+        share_btn.add_css_class("flat")
+        share_btn.set_tooltip_text(
+            _translate(self.language, "map.history.share_selected_tooltip")
+        )
+        share_btn.set_visible(False)
+        share_btn.connect("clicked", self._on_history_share_clicked)
+        self._tour_history_share_btn = share_btn
+        header.pack_end(share_btn)
 
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(header)
@@ -312,6 +333,7 @@ class MapTourActionsMixin:
             "car_brand": data["car_brand"],
             "car_label": data["car_label"],
             "car_vin": data["car_vin"],
+            "car_id": data["car_id"],
         }
         self._tour_history_metas.append(meta)
         listbox.append(self._make_tour_history_row(meta))
@@ -383,6 +405,9 @@ class MapTourActionsMixin:
         trash_btn = getattr(self, "_tour_history_trash_btn", None)
         if trash_btn is not None:
             trash_btn.set_visible(True)
+        share_btn = getattr(self, "_tour_history_share_btn", None)
+        if share_btn is not None:
+            share_btn.set_visible(self._sync_active())
 
     def _exit_history_select_mode(self) -> None:
         if not self._tour_history_select_mode:
@@ -393,6 +418,9 @@ class MapTourActionsMixin:
         trash_btn = getattr(self, "_tour_history_trash_btn", None)
         if trash_btn is not None:
             trash_btn.set_visible(False)
+        share_btn = getattr(self, "_tour_history_share_btn", None)
+        if share_btn is not None:
+            share_btn.set_visible(False)
 
     def _rebuild_tour_history_rows(self) -> None:
         listbox = getattr(self, "_tour_history_listbox", None)
@@ -753,6 +781,9 @@ class MapTourActionsMixin:
         trash_btn = getattr(self, "_saved_tour_trash_btn", None)
         if trash_btn is not None:
             trash_btn.set_visible(True)
+        share_btn = getattr(self, "_saved_tour_share_btn", None)
+        if share_btn is not None:
+            share_btn.set_visible(self._sync_active())
 
     def _exit_saved_tour_select_mode(self) -> None:
         if not self._saved_tour_select_mode:
@@ -763,6 +794,9 @@ class MapTourActionsMixin:
         trash_btn = getattr(self, "_saved_tour_trash_btn", None)
         if trash_btn is not None:
             trash_btn.set_visible(False)
+        share_btn = getattr(self, "_saved_tour_share_btn", None)
+        if share_btn is not None:
+            share_btn.set_visible(False)
 
     def _on_saved_tour_check_toggled(
         self, check: Gtk.CheckButton, tour_id: int
@@ -921,8 +955,107 @@ class MapTourActionsMixin:
         def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
             if resp != "send":
                 return
-            from drivepulse_app.share.flow import ShareFlow
-            ShareFlow(self, self._map_db, self.language, getattr(self, "get_sync_client", None)).share_tour(tour)
+            self._make_share_flow().share_tour(tour)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
+
+    # ── Bulk share from select mode ──────────────────────────────────────────
+
+    def _sync_active(self) -> bool:
+        """True when the sync client is configured and available — gates the
+        bulk share-button. Mirrors the per-row gate in _make_saved_tour_row."""
+        sync_getter = getattr(self, "get_sync_client", None)
+        return callable(sync_getter) and sync_getter() is not None
+
+    def _make_share_flow(self) -> Any:
+        from drivepulse_app.share.flow import ShareFlow
+        return ShareFlow(
+            self, self._map_db, self.language, getattr(self, "get_sync_client", None)
+        )
+
+    def _on_saved_tour_share_clicked(self, _btn: Gtk.Button) -> None:
+        ids = list(getattr(self, "_saved_tour_selected", []))
+        if not ids:
+            return
+        # Resolve full tour rows from the list of metas built in _rebuild_tour_list.
+        id_set = set(ids)
+        tours = [t for t in self._saved_tour_metas if int(t["id"]) in id_set]
+        if not tours:
+            return
+        self._confirm_and_bulk_share(
+            count=len(tours),
+            on_send=lambda: (
+                self._make_share_flow().share_tours(tours),
+                self._exit_saved_tour_select_mode(),
+            ),
+        )
+
+    def _on_history_share_clicked(self, _btn: Gtk.Button) -> None:
+        selected = getattr(self, "_tour_history_selected", None)
+        if not selected:
+            return
+        key_set = set(selected)
+        metas = [
+            m for m in self._tour_history_metas
+            if (m["kind"], int(m["id"])) in key_set
+        ]
+        if not metas:
+            return
+
+        # Split into saved-tours (one batched payload) and trips (one batch
+        # per owning car_id, since share_trips runs the per-vehicle handshake).
+        tour_ids = [int(m["id"]) for m in metas if m["kind"] == "tour"]
+        trips_by_car: dict[int, list[int]] = {}
+        for m in metas:
+            if m["kind"] != "trip":
+                continue
+            cid = m.get("car_id")
+            if cid is None:
+                continue
+            trips_by_car.setdefault(int(cid), []).append(int(m["id"]))
+
+        if not tour_ids and not trips_by_car:
+            return
+
+        def _do_send() -> None:
+            flow = self._make_share_flow()
+            if tour_ids:
+                db = getattr(self, "_map_db", None)
+                tour_rows: list[dict] = []
+                if db is not None:
+                    for tid in tour_ids:
+                        row = db.get_saved_tour(tid)
+                        if row is None:
+                            continue
+                        tour_rows.append({
+                            "id": row["id"],
+                            "name": row["name"],
+                            "created_at": row["created_at"],
+                            "waypoints_json": row["waypoints_json"],
+                        })
+                if tour_rows:
+                    flow.share_tours(tour_rows)
+            for car_id, trip_ids in trips_by_car.items():
+                flow.share_trips(car_id, trip_ids)
+            self._exit_history_select_mode()
+
+        self._confirm_and_bulk_share(count=len(metas), on_send=_do_send)
+
+    def _confirm_and_bulk_share(self, count: int, on_send: Callable[[], object]) -> None:
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "share.selected_confirm_heading"),
+            body=_translate(self.language, "share.selected_confirm_body", count=str(count)),
+        )
+        dialog.add_response("cancel", _translate(self.language, "share.cancel"))
+        dialog.add_response("send", _translate(self.language, "share.send"))
+        dialog.set_response_appearance("send", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("send")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
+            if resp == "send":
+                on_send()
 
         dialog.connect("response", _on_response)
         dialog.present(self.get_root())
