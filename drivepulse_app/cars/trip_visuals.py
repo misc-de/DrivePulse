@@ -376,8 +376,9 @@ def _build_chart_widget(
 
     area.set_draw_func(draw_cb)
 
-    # Shared press flag for all controllers — keeps the cursor "live" between
-    # press and release across touch + pointer + emulated-touch input sources.
+    # Press flag managed solely from raw GDK events (legacy controller) so
+    # GestureClick's tap-vs-drag heuristics can't prematurely flip it to False
+    # mid-drag.
     _pressed = [False]
 
     def _widget_x_from_event(event: Any) -> float | None:
@@ -389,43 +390,48 @@ def _build_chart_widget(
         if root is None:
             return sx
         try:
-            ok2, p = root.compute_point(area, Graphene.Point().init(sx, sy))
+            src_point = Graphene.Point.alloc()
+            src_point.init(sx, sy)
+            ok2, p = root.compute_point(area, src_point)
         except Exception:
             return sx
         return p.x if ok2 else sx
 
-    # Pointer hover + drag (mouse / stylus / pointer-emulated touch).
-    # CAPTURE phase so motion is delivered before any sequence claim.
+    # Pointer hover — only updates the cursor when no button is held;
+    # pressed-pointer drag flows through the legacy controller below so we
+    # don't depend on whether EventControllerMotion fires during a claimed
+    # button-pressed sequence.
     motion_ctl = Gtk.EventControllerMotion()
     motion_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-    motion_ctl.connect("motion", lambda _c, x, _y: _set_cursor(x, area.get_width()))
-    motion_ctl.connect(
-        "leave",
-        lambda _c: None if _pressed[0] else _clear_cursor(),
-    )
-    area.add_controller(motion_ctl)
 
-    # Tap + press tracking. Claim the sequence so a parent ScrolledWindow's
-    # kinetic-scroll gesture can't steal the drag.
-    tap_ctl = Gtk.GestureClick()
-    tap_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-
-    def _on_chart_tap_pressed(g: Any, _n: int, x: float, _y: float) -> None:
-        g.set_state(Gtk.EventSequenceState.CLAIMED)
-        _pressed[0] = True
+    def _on_pointer_motion(_c: Any, x: float, _y: float) -> None:
+        if _pressed[0]:
+            return
         _set_cursor(x, area.get_width())
 
-    def _on_chart_tap_released(_g: Any, _n: int, _x: float, _y: float) -> None:
-        _pressed[0] = False
+    def _on_pointer_leave(_c: Any) -> None:
+        if not _pressed[0]:
+            _clear_cursor()
 
-    tap_ctl.connect("pressed", _on_chart_tap_pressed)
-    tap_ctl.connect("released", _on_chart_tap_released)
+    motion_ctl.connect("motion", _on_pointer_motion)
+    motion_ctl.connect("leave", _on_pointer_leave)
+    area.add_controller(motion_ctl)
+
+    # GestureClick exists solely to claim the touch sequence so a parent
+    # ScrolledWindow's kinetic-scroll gesture can't steal the drag. All
+    # press/release/cursor-tracking happens via the legacy controller below.
+    tap_ctl = Gtk.GestureClick()
+    tap_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+    tap_ctl.connect(
+        "pressed",
+        lambda g, *_a: g.set_state(Gtk.EventSequenceState.CLAIMED),
+    )
     area.add_controller(tap_ctl)
 
-    # Raw touch fallback — keeps the cursor in lockstep with TOUCH_UPDATE
-    # events on devices that emit real touch events (not pointer emulation).
-    # Uses widget-local x conversion since GdkEvent.get_position() is
-    # surface-relative.
+    # Single legacy controller drives the whole press+drag lifecycle for both
+    # touch (TOUCH_*) and pointer / pointer-emulated touch (BUTTON_PRESS +
+    # MOTION_NOTIFY + BUTTON_RELEASE). Widget-local x is computed via
+    # Graphene since GdkEvent.get_position() is surface-relative.
     legacy = Gtk.EventControllerLegacy()
     legacy.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
 
@@ -433,17 +439,21 @@ def _build_chart_widget(
         if event is None:
             return False
         et = event.get_event_type()
-        if et == Gdk.EventType.TOUCH_BEGIN:
+        if et in (Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.BUTTON_PRESS):
             x = _widget_x_from_event(event)
             if x is not None:
                 _pressed[0] = True
                 _set_cursor(x, area.get_width())
-        elif et == Gdk.EventType.TOUCH_UPDATE:
+        elif et in (Gdk.EventType.TOUCH_UPDATE, Gdk.EventType.MOTION_NOTIFY):
             if _pressed[0]:
                 x = _widget_x_from_event(event)
                 if x is not None:
                     _set_cursor(x, area.get_width())
-        elif et in (Gdk.EventType.TOUCH_END, Gdk.EventType.TOUCH_CANCEL):
+        elif et in (
+            Gdk.EventType.TOUCH_END,
+            Gdk.EventType.TOUCH_CANCEL,
+            Gdk.EventType.BUTTON_RELEASE,
+        ):
             _pressed[0] = False
         return False
 
