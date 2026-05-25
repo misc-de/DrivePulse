@@ -414,31 +414,35 @@ def _build_chart_widget(
     drag_ctl.group(tap_ctl)
     area.add_controller(drag_ctl)
 
-    # Touch-swipe scrub: GestureDrag waits for an 8 px threshold before
-    # firing drag-begin, so a fast swipe that ends before the threshold
-    # leaves the cursor pinned at the press location. A legacy controller
-    # in CAPTURE phase reads every TOUCH_UPDATE directly and moves the
-    # cursor in lockstep, so even quick wipes mark the chart correctly.
+    # Press-and-drag scrub for both touch and pointer (incl. pointer-emulated
+    # touch on devices that send BUTTON_PRESS/MOTION_NOTIFY instead of TOUCH
+    # events). GestureDrag's 8 px threshold means slow drags don't fire
+    # drag-update until 8 px are crossed, so we capture every raw motion event
+    # while a press is active and move the cursor in lockstep.
     legacy = Gtk.EventControllerLegacy()
     legacy.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-    _touching = [False]
+    _pressed = [False]
 
     def _on_legacy(_c: Any, event: Any) -> bool:
         if event is None:
             return False
         et = event.get_event_type()
-        if et == Gdk.EventType.TOUCH_BEGIN:
+        if et in (Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.BUTTON_PRESS):
             ok, x, _y = event.get_position()
             if ok:
-                _touching[0] = True
+                _pressed[0] = True
                 _set_cursor(x, area.get_width())
-        elif et == Gdk.EventType.TOUCH_UPDATE:
-            if _touching[0]:
+        elif et in (Gdk.EventType.TOUCH_UPDATE, Gdk.EventType.MOTION_NOTIFY):
+            if _pressed[0]:
                 ok, x, _y = event.get_position()
                 if ok:
                     _set_cursor(x, area.get_width())
-        elif et in (Gdk.EventType.TOUCH_END, Gdk.EventType.TOUCH_CANCEL):
-            _touching[0] = False
+        elif et in (
+            Gdk.EventType.TOUCH_END,
+            Gdk.EventType.TOUCH_CANCEL,
+            Gdk.EventType.BUTTON_RELEASE,
+        ):
+            _pressed[0] = False
         return False
 
     legacy.connect("event", _on_legacy)
