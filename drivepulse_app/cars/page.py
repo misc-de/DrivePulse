@@ -291,9 +291,17 @@ class CarsPage(
             if not car_id or not vin or len(vin) < 11:
                 continue
             if entry.get("vin_data_fetched"):
+                print(f"[VIN] car_id={car_id} already fetched, skipping", flush=True)
                 continue
             if car_id in self._vin_fetch_pending:
+                print(f"[VIN] car_id={car_id} fetch already pending, skipping", flush=True)
                 continue
+            print(
+                f"[VIN] scheduling fetch car_id={car_id} vin=...{vin[-6:]} "
+                f"nhtsa={self._nhtsa_enabled} autodev={bool(self._autodev_api_key)} "
+                f"vindecoder={bool(self._vindecoder_api_key)}",
+                flush=True,
+            )
             self._vin_fetch_pending.add(car_id)
             threading.Thread(
                 target=self._fetch_vin_data_thread,
@@ -302,10 +310,10 @@ class CarsPage(
             ).start()
 
     def _fetch_vin_data_thread(self, car_id: int, vin: str) -> None:
-        log.info(
-            "VIN fetch start car_id=%s vin=%s nhtsa=%s autodev=%s vindecoder=%s",
-            car_id, vin, self._nhtsa_enabled,
-            bool(self._autodev_api_key), bool(self._vindecoder_api_key),
+        print(
+            f"[VIN] thread start car_id={car_id} nhtsa={self._nhtsa_enabled} "
+            f"autodev={bool(self._autodev_api_key)} vindecoder={bool(self._vindecoder_api_key)}",
+            flush=True,
         )
         try:
             data = fetch_vin_data(
@@ -317,15 +325,18 @@ class CarsPage(
             )
         except Exception:
             log.warning("VIN lookup failed for car_id=%s", car_id, exc_info=True)
+            print(f"[VIN] thread exception car_id={car_id}", flush=True)
             data = {}
-        log.info("VIN fetch done car_id=%s sources=%s", car_id, list(data.keys()))
+        print(f"[VIN] thread done car_id={car_id} sources={list(data.keys())}", flush=True)
         GLib.idle_add(self._on_vin_data_ready, car_id, vin, data)
 
     def _on_vin_data_ready(self, car_id: int, vin: str, sources: dict) -> bool:
+        print(f"[VIN] data ready car_id={car_id} raw_sources={list(sources.keys())}", flush=True)
         self._vin_fetch_pending.discard(car_id)
         error_entry = sources.pop("auto.dev_error", None)
         if error_entry:
             status = error_entry.get("_status", 0)
+            print(f"[VIN] auto.dev error status={status} msg={error_entry.get('_error')}", flush=True)
             if status in (401, 403):
                 msg = _translate(self.language, "vin.autodev.error.auth")
             elif status == 404:
@@ -334,13 +345,14 @@ class CarsPage(
                 msg = _translate(self.language, "vin.autodev.error.generic")
             self._show_toast(msg)
         if not sources:
-            log.info("VIN fetch car_id=%s: no data from any source", car_id)
+            print(f"[VIN] car_id={car_id}: no data from any source → storing empty", flush=True)
             if self.db is not None:
                 try:
                     self.db.update_car_vin_data(car_id, "{}")
                 except sqlite3.Error:
                     log.warning("Could not persist empty VIN data for car_id=%s", car_id, exc_info=True)
             return False
+        print(f"[VIN] car_id={car_id}: sources with data={list(sources.keys())}", flush=True)
         self._vin_review_queue.append((car_id, vin, sources))
         self._maybe_show_next_review()
         return False
