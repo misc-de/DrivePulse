@@ -347,6 +347,8 @@ class CarsPage(
                     msg = _translate(self.language, "vin.autodev.error.auth")
                 elif error_code == "not_found":
                     msg = _translate(self.language, "vin.autodev.error.not_found")
+                elif error_code == "vin_format":
+                    msg = _translate(self.language, "vin.autodev.error.vin_format")
                 else:
                     msg = _translate(self.language, "vin.autodev.error.generic")
             else:
@@ -402,10 +404,13 @@ class CarsPage(
         if error_entry:
             status = error_entry.get("_status", 0)
             print(f"[VIN] auto.dev error status={status} msg={error_entry.get('_error')}", flush=True)
+            code = error_entry.get("_code", "")
             if status in (401, 403):
                 msg = _translate(self.language, "vin.autodev.error.auth")
             elif status == 404:
                 msg = _translate(self.language, "vin.autodev.error.not_found")
+            elif code == "INVALID_VIN_FORMAT":
+                msg = _translate(self.language, "vin.autodev.error.vin_format")
             else:
                 msg = _translate(self.language, "vin.autodev.error.generic")
             self._show_toast(msg)
