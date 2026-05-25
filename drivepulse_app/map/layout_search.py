@@ -177,6 +177,5 @@ class MapSearchBarMixin:
             rem_btn.set_sensitive(True)
 
     def _on_entry_text_changed(self, _entry: object) -> None:
-        if not getattr(self, "_loading_tour", False):
-            if getattr(self, "_loaded_tour_id", None) is not None:
-                self._loaded_tour_id = None
+        if not getattr(self, "_loading_tour", False) and getattr(self, "_loaded_tour_id", None) is not None:
+            self._loaded_tour_id = None
