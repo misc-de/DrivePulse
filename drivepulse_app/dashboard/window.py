@@ -293,13 +293,13 @@ class DashboardWindow(
             sidebar_side=self.sidebar_side,
             vindecoder_api_key=self.vindecoder_api_key or None,
             vindecoder_secret_key=self.vindecoder_secret_key or None,
+            autodev_api_key=self.autodev_api_key or None,
+            nhtsa_enabled=self.nhtsa_enabled,
             initial_source=self.last_cars_source,
             initial_category=self.last_cars_category,
             initial_scan_id=self.last_cars_scan_id,
             on_state_changed=self._on_cars_state_changed,
         )
-        self.cars_page._autodev_api_key = self.autodev_api_key or None
-        self.cars_page._nhtsa_enabled = self.nhtsa_enabled
         self.cars_page.mock_mode = bool(self.mock_mode)
         self.cars_page.on_back_swipe = self._on_cars_back_swipe
         self.cars_page.on_forward_swipe = self._on_cars_forward_swipe
