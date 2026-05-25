@@ -208,6 +208,7 @@
   "map.type.map": "Street map",
   "map.type.satellite": "Satellite",
   "map.type.dark": "Night mode",
+  "map.type.grayscale": "Grayscale",
   "map.routing.searching": "Searching route…",
   "map.routing.error": "Route not found",
   "map.traffic": "Traffic (Autobahn)",
