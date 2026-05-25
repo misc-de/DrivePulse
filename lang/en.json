@@ -525,7 +525,7 @@
   "settings.vin_decoder.autodev.requests": "Monthly Requests",
   "settings.vin_decoder.autodev.no_requests": "No requests yet",
   "settings.vin_decoder.vindecoder": "vindecoder.eu",
-  "settings.vin_decoder.vindecoder.desc": "Best data quality for EU vehicles, paid. Requires API key and secret key from vindecoder.eu.",
+  "settings.vin_decoder.vindecoder.desc": "Best data quality for EU vehicles, paid. Requires exactly 17 digits — older vehicles with shorter VINs are not supported. Requires API key and secret key from vindecoder.eu.",
   "settings.vin_decoder.api_key": "vindecoder.eu API Key",
   "settings.vin_decoder.secret_key": "vindecoder.eu Secret Key",
   "cars.vin_refresh.tooltip": "Re-fetch vehicle data",
