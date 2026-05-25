@@ -871,14 +871,16 @@ class DriveDB:
                 SELECT 'trip' AS kind, t.id AS id, t.started_at AS ts,
                        t.distance_km AS distance_km, t.duration_s AS duration_s,
                        t.label AS trip_label,
-                       c.brand AS car_brand, c.label AS car_label, c.vin AS car_vin
+                       c.brand AS car_brand, c.label AS car_label, c.vin AS car_vin,
+                       t.car_id AS car_id
                 FROM trips t
                 JOIN cars c ON c.id = t.car_id
                 UNION ALL
                 SELECT 'tour' AS kind, st.id AS id, st.created_at AS ts,
                        NULL AS distance_km, NULL AS duration_s,
                        st.name AS trip_label,
-                       NULL AS car_brand, NULL AS car_label, NULL AS car_vin
+                       NULL AS car_brand, NULL AS car_label, NULL AS car_vin,
+                       NULL AS car_id
                 FROM saved_tours st
                 ORDER BY ts DESC
                 LIMIT ? OFFSET ?
