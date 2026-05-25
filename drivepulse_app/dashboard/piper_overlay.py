@@ -10,6 +10,10 @@ from __future__ import annotations
 
 from gi.repository import Adw, Gtk
 
+from drivepulse_app.diagnostics import get_logger
+
+log = get_logger(__name__)
+
 
 class DashboardPiperOverlayMixin:
     """Build + drive the Piper download-progress overlay."""
@@ -62,7 +66,8 @@ class DashboardPiperOverlayMixin:
             # Re-wire cancel button to current model
             try:
                 self._piper_dl_cancel_btn.disconnect_by_func(self._piper_dl_cancel_clicked)
-            except Exception:
+            except TypeError:
+                # No previous connection — first progress event for this model.
                 pass
             self._piper_dl_cancel_btn.connect("clicked", self._piper_dl_cancel_clicked)
             self._piper_dl_overlay.set_visible(True)
@@ -77,7 +82,7 @@ class DashboardPiperOverlayMixin:
                     )
                     self._piper_dl_css_installed = True
                 except Exception:
-                    pass
+                    log.debug("Could not install Piper-overlay CSS provider", exc_info=True)
         elif fraction == -1.0:
             # Cancelled or error
             self._piper_dl_overlay.set_visible(False)
@@ -89,7 +94,7 @@ class DashboardPiperOverlayMixin:
             try:
                 self.add_toast(Adw.Toast(title="Piper bereit ✓"))
             except Exception:
-                pass
+                log.debug("Could not show Piper-ready toast", exc_info=True)
         return False
 
     def _piper_dl_cancel_clicked(self, _btn: Gtk.Button) -> None:

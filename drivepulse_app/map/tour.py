@@ -203,7 +203,7 @@ class MapTourMixin:
                     try:
                         viewport.set_rotation(0.0)
                     except Exception:
-                        pass
+                        log.debug("Shumate viewport.set_rotation(0) on tour-stop failed", exc_info=True)
         if self._maneuver_overlay is not None:
             self._maneuver_overlay.set_visible(False)
         if self._lane_row is not None:
@@ -643,8 +643,8 @@ class MapTourMixin:
                     stderr=subprocess.DEVNULL,
                 )
                 proc.communicate(input=buf.getvalue(), timeout=3)
-            except Exception:
-                pass
+            except (OSError, subprocess.SubprocessError):
+                log.debug("aplay maneuver beep failed", exc_info=True)
 
         threading.Thread(target=_do, daemon=True).start()
 
