@@ -603,10 +603,16 @@ class ScanChartContent(Gtk.Box):
         return f"Fahrzeug {car_id}"
 
     def _comparison_scan_ts_for_car(
-        self, car_id: int, exclude_entry: dict | None = None
+        self, car_id: int | None, exclude_entry: dict | None = None
     ) -> set[str]:
-        """Konkrete scan_ts-Werte, die Vergleichseinträge des Fahrzeugs nutzen."""
+        """Konkrete scan_ts-Werte, die Vergleichseinträge des Fahrzeugs nutzen.
+
+        car_id=None gibt ein leeres Set zurück (kein Hauptfahrzeug → kein
+        Vergleichsfilter).
+        """
         result: set[str] = set()
+        if car_id is None:
+            return result
         for entry in self._compare_cars:
             if entry is exclude_entry:
                 continue

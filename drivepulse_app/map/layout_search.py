@@ -9,6 +9,11 @@ from drivepulse_app.common import _translate
 class MapSearchBarMixin:
     """Multi-waypoint route entry rows: start + end + optional intermediate stops."""
 
+    # Declared here so mypy knows the optional-int type before the mixin clears
+    # the attribute on user actions. Owning class (MapPage) initialises the
+    # concrete value in __init__.
+    _loaded_tour_id: int | None
+
     def _build_search_bar(self) -> None:
         bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._search_bar = bar

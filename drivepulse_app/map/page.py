@@ -493,9 +493,14 @@ class MapPage(
         Returns (filtered_lat, filtered_lon, heading, speed_kmh).
         """
         # ── First fix: accept unconditionally ─────────────────────────────────
-        if self._gps_filt_lat is None:
+        if self._gps_filt_lat is None or self._gps_filt_lon is None:
             self._gps_filter_accept(lat, lon, heading, speed_kmh, now)
             return lat, lon, heading, speed_kmh
+
+        # Past the first-fix guard both lat and lon are concrete floats;
+        # bind locally so mypy can narrow across the haversine/bearing calls.
+        filt_lat: float = self._gps_filt_lat
+        filt_lon: float = self._gps_filt_lon
 
         dt = now - self._gps_filt_time
         # Too long since last fix — stop filtering (tunnel exit, GPS recovery).
@@ -503,7 +508,7 @@ class MapPage(
             self._gps_filter_accept(lat, lon, heading, speed_kmh, now)
             return lat, lon, heading, speed_kmh
 
-        dist_m = haversine(self._gps_filt_lat, self._gps_filt_lon, lat, lon)
+        dist_m = haversine(filt_lat, filt_lon, lat, lon)
         implied_kmh = (dist_m / dt) * 3.6
         max_ok_kmh = (
             self._gps_filt_speed_kmh + self._GPS_MAX_ACCEL_KMH_S * dt
@@ -526,8 +531,8 @@ class MapPage(
                     gps_speed, obd_kmh,
                 )
                 return (
-                    self._gps_filt_lat,
-                    self._gps_filt_lon,
+                    filt_lat,
+                    filt_lon,
                     self._gps_filt_heading,
                     self._gps_filt_speed_kmh,
                 )
@@ -541,7 +546,7 @@ class MapPage(
                 log.debug(
                     "GPS filter: suspect (%.0f km/h jump from valid) discarded — "
                     "next point consistent with last valid",
-                    haversine(self._gps_filt_lat, self._gps_filt_lon, slat, slon) / dt * 3.6,
+                    haversine(filt_lat, filt_lon, slat, slon) / dt * 3.6,
                 )
                 self._gps_filt_suspect = None
             self._gps_filter_accept(lat, lon, heading, speed_kmh, now)
@@ -583,7 +588,7 @@ class MapPage(
             # with the current heading — if so, the jump might be a rapid
             # acceleration; hold it for one cycle.
             move_bearing = (
-                bearing(self._gps_filt_lat, self._gps_filt_lon, lat, lon)
+                bearing(filt_lat, filt_lon, lat, lon)
                 if dist_m > 5.0 else self._gps_filt_heading
             )
             diff = abs(self._gps_filt_heading - move_bearing) % 360.0
@@ -606,8 +611,8 @@ class MapPage(
 
         # Return last accepted position for this cycle.
         return (
-            self._gps_filt_lat,
-            self._gps_filt_lon,
+            filt_lat,
+            filt_lon,
             self._gps_filt_heading,
             self._gps_filt_speed_kmh,
         )

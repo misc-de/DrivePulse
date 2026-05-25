@@ -23,6 +23,10 @@ class MapTourActionsMixin:
     # tiny scroll.
     _TOUR_HISTORY_PAGE_SIZE = 30
 
+    # Declared here so mypy widens the inferred attribute type across the mixin
+    # chain. Owning class (MapPage) initialises the concrete value in __init__.
+    _loaded_tour_name: str | None
+
     def _build_tour_topnav(self) -> None:
         _install_maneuver_css()
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
