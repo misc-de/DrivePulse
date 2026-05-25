@@ -184,6 +184,14 @@ class MapTourMixin:
             self._js("mapClearGuideToStart()")
         elif self._guide_path_layer is not None:
             self._guide_path_layer.remove_all()
+            # Reset the heading-up rotation that was applied during the tour.
+            if self._shumate_map is not None:
+                viewport = self._shumate_map.get_viewport()
+                if viewport is not None and hasattr(viewport, "set_rotation"):
+                    try:
+                        viewport.set_rotation(0.0)
+                    except Exception:
+                        pass
         if self._maneuver_overlay is not None:
             self._maneuver_overlay.set_visible(False)
         if self._lane_row is not None:
@@ -206,12 +214,37 @@ class MapTourMixin:
             self._tour_start_lbl.set_label(_translate(self.language, label_key))
         if self._tour_btn_icon is not None:
             self._tour_btn_icon.set_from_icon_name(icon_name)
+        # Abort button is only meaningful while the tour is paused — i.e.
+        # the start button currently reads "Resume tour".
+        abort_btn = getattr(self, "_tour_abort_btn", None)
+        if abort_btn is not None:
+            abort_btn.set_visible(mode == "resume")
 
     def _set_nav_chrome_visible(self, visible: bool) -> None:
         """Show/hide UI chrome that clutters the screen during active navigation."""
         for btn in (self._zoom_in_btn, self._zoom_out_btn, self._steps_toggle_btn):
             if btn is not None:
                 btn.set_visible(visible)
+        # Replay-info card + chart card and their restore icons + the coord
+        # chip have no role during turn-by-turn navigation. Hide them when
+        # a tour starts; when navigation ends only the coord chip pops back
+        # — the replay panels are tied to a trip-replay session and stay
+        # hidden until the user opens a replay again.
+        if not visible:
+            for w_name in (
+                "_replay_info_overlay",
+                "_replay_info_restore_btn",
+                "_replay_chart_overlay",
+                "_replay_chart_restore_btn",
+                "_coord_chip",
+            ):
+                w = getattr(self, w_name, None)
+                if w is not None:
+                    w.set_visible(False)
+        else:
+            chip = getattr(self, "_coord_chip", None)
+            if chip is not None and self._backend == "shumate":
+                chip.set_visible(True)
 
     def _set_tour_controls_visible(self, visible: bool) -> None:
         if self._tour_controls_box is not None:

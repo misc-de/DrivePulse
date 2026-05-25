@@ -87,10 +87,12 @@ class MapPage(
         traffic_nrw: bool = False,
         map_3d_view: bool = True,
         map_layer: str = "map",
+        map_heading_up: bool = True,
         on_poi_visible_changed: Callable[[bool], None] | None = None,
         on_traffic_visible_changed: Callable[[bool], None] | None = None,
         on_3d_view_changed: Callable[[bool], None] | None = None,
         on_map_layer_changed: Callable[[str], None] | None = None,
+        on_heading_up_changed: Callable[[bool], None] | None = None,
         on_tour_started: Callable[[list[list[float]], list[tuple[float, float]], list[float]], None] | None = None,
         on_tour_stopped: Callable[[], None] | None = None,
         on_tour_resumed: Callable[[], None] | None = None,
@@ -121,7 +123,10 @@ class MapPage(
         self._on_traffic_visible_changed = on_traffic_visible_changed
         self._on_3d_view_changed = on_3d_view_changed
         self._on_map_layer_changed = on_map_layer_changed
+        self._on_heading_up_changed = on_heading_up_changed
         self._map_3d_view: bool = bool(map_3d_view)
+        self._heading_up: bool = bool(map_heading_up)
+        self._heading_up_btn: Gtk.ToggleButton | None = None
         self._3d_btn: Gtk.ToggleButton | None = None
         self._on_tour_started = on_tour_started
         self._on_tour_stopped = on_tour_stopped
@@ -488,6 +493,32 @@ class MapPage(
             self._js("mapSet3DView(true)" if active else "mapSet3DView(false)")
         if self._on_3d_view_changed is not None:
             self._on_3d_view_changed(active)
+
+    def _on_heading_up_toggled(self, btn: Gtk.ToggleButton) -> None:
+        self._heading_up = btn.get_active()
+        self._refresh_heading_up_btn_tooltip()
+        # Reset Shumate's viewport rotation immediately when the user opts
+        # out of heading-up mode mid-tour so the map snaps back to north.
+        if not self._heading_up and self._shumate_map is not None:
+            viewport = self._shumate_map.get_viewport()
+            if viewport is not None and hasattr(viewport, "set_rotation"):
+                try:
+                    viewport.set_rotation(0.0)
+                except Exception:
+                    pass
+            if self._car_marker is not None:
+                child = self._car_marker.get_child()
+                if child is not None:
+                    child.queue_draw()
+        if self._on_heading_up_changed is not None:
+            self._on_heading_up_changed(self._heading_up)
+
+    def _refresh_heading_up_btn_tooltip(self) -> None:
+        btn = getattr(self, "_heading_up_btn", None)
+        if btn is None:
+            return
+        key = "map.heading_up.on" if btn.get_active() else "map.heading_up.off"
+        btn.set_tooltip_text(_translate(self.language, key))
 
     def _zoom_step(self, delta: int) -> None:
         if self._backend == "webkit":

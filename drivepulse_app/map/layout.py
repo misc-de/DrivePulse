@@ -119,6 +119,16 @@ class MapLayoutMixin:
         self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS[_initial_layer]))
         self._layer_btn.connect("clicked", self._on_layer_clicked)
 
+        # Heading-up toggle: active = map rotates so the heading is always
+        # at the top (arrow stays fixed); inactive = map stays north-up and
+        # the arrow rotates with GPS heading.
+        self._heading_up_btn = Gtk.ToggleButton(icon_name="go-up-symbolic")
+        self._heading_up_btn.add_css_class("circular")
+        self._heading_up_btn.add_css_class("osd")
+        self._heading_up_btn.set_active(bool(getattr(self, "_heading_up", True)))
+        self._refresh_heading_up_btn_tooltip()
+        self._heading_up_btn.connect("toggled", self._on_heading_up_toggled)
+
         self._center_btn = Gtk.Button(icon_name="find-location-symbolic")
         self._center_btn.add_css_class("circular")
         self._center_btn.add_css_class("osd")
@@ -134,6 +144,7 @@ class MapLayoutMixin:
 
         fab.append(self._poi_btn)
         fab.append(self._layer_btn)
+        fab.append(self._heading_up_btn)
         fab.append(self._center_btn)
         fab.append(self._tts_btn)
 
@@ -342,7 +353,9 @@ class MapLayoutMixin:
         wrap.set_halign(Gtk.Align.START)
         wrap.set_valign(Gtk.Align.END)
         wrap.set_margin_start(12)
-        wrap.set_margin_bottom(36)
+        # Shumate hosts a scale ruler + license banner in the bottom-left
+        # corner; lift the speed-limit sign 50 px higher so it clears them.
+        wrap.set_margin_bottom(86 if self._backend == "shumate" else 36)
         wrap.set_can_target(False)
         wrap.set_visible(False)
 
@@ -477,6 +490,20 @@ class MapLayoutMixin:
         self._tour_start_btn.set_halign(Gtk.Align.START)
         self._tour_start_btn.connect("clicked", self._on_tour_start_clicked)
         grid.attach(self._tour_start_btn, 0, 0, 1, 1)
+
+        # Abort button shows only while the tour is paused ("Resume tour"
+        # label on the left). Click fully resets the tour via _abort_tour.
+        abort_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        abort_inner.append(Gtk.Image.new_from_icon_name("window-close-symbolic"))
+        abort_inner.append(Gtk.Label(label=_translate(self.language, "map.tour_abort")))
+        self._tour_abort_btn = Gtk.Button()
+        self._tour_abort_btn.set_child(abort_inner)
+        self._tour_abort_btn.add_css_class("osd")
+        self._tour_abort_btn.add_css_class("destructive-action")
+        self._tour_abort_btn.set_halign(Gtk.Align.END)
+        self._tour_abort_btn.set_visible(False)
+        self._tour_abort_btn.connect("clicked", lambda _b: self._abort_tour())
+        grid.attach(self._tour_abort_btn, 1, 0, 1, 1)
 
         icon_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         icon_row.set_halign(Gtk.Align.START)
