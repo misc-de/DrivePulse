@@ -117,6 +117,10 @@ def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
         log.warning("auto.dev fetch failed for VIN %s: %s", vin, exc)
         raise AutodevError(0, str(exc)) from exc
 
+    # Fahrzeugspezifische Rohdaten — Metadaten (api, links, user, …) weglassen
+    _META_KEYS = {"api", "links", "examples", "photos", "discover", "actions", "user"}
+    raw: dict[str, Any] = {k: v for k, v in data.items() if k not in _META_KEYS}
+
     out: dict[str, Any] = {}
     for api_field, field in _AUTODEV_FIELDS.items():
         val = _clean(data.get(api_field) or "")
@@ -141,6 +145,7 @@ def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
             m = re.search(r"(\d+\.\d+)\s*L", engine)
             if m:
                 out["displacement"] = m.group(1)
+    out["_raw"] = raw
     return out
 
 
@@ -207,7 +212,11 @@ def fetch_vin_data(
         try:
             ad = _fetch_autodev(vin, autodev_api_key)
             if ad:
-                sources["auto.dev"] = ad
+                raw = ad.pop("_raw", None)
+                if raw:
+                    sources["auto.dev_raw"] = raw
+                if ad:
+                    sources["auto.dev"] = ad
         except AutodevError as exc:
             sources["auto.dev_error"] = {"_error": str(exc), "_status": exc.status}
 

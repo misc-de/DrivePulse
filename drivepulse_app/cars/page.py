@@ -333,6 +333,13 @@ class CarsPage(
     def _on_vin_data_ready(self, car_id: int, vin: str, sources: dict) -> bool:
         print(f"[VIN] data ready car_id={car_id} raw_sources={list(sources.keys())}", flush=True)
         self._vin_fetch_pending.discard(car_id)
+        raw = sources.pop("auto.dev_raw", None)
+        if raw and self.db is not None:
+            try:
+                self.db.save_autodev_raw(car_id, raw)
+                print(f"[VIN] auto.dev raw saved for car_id={car_id} keys={list(raw.keys())}", flush=True)
+            except Exception:
+                log.warning("Could not save autodev raw for car_id=%s", car_id, exc_info=True)
         error_entry = sources.pop("auto.dev_error", None)
         if error_entry:
             status = error_entry.get("_status", 0)
