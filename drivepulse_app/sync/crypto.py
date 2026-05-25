@@ -95,7 +95,7 @@ def verify_spki_fingerprint(cert_der: bytes, expected_fp: str) -> bool:
         digest = hashlib.sha256(spki_der).digest()
         actual = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
         return actual == expected_fp
-    except Exception:
+    except (TypeError, ValueError):
         log.exception("Could not verify sync certificate fingerprint")
         return False
 
@@ -114,6 +114,6 @@ def get_local_ip() -> str:
             sock.settimeout(1.0)
             sock.connect(("8.8.8.8", 80))
             return sock.getsockname()[0]
-    except Exception:
+    except OSError:
         log.exception("Could not determine local IP address")
         return "127.0.0.1"

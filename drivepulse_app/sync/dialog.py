@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+import ssl
 import threading
 import time
 from collections.abc import Callable
@@ -54,6 +56,9 @@ log = get_logger(__name__)
 
 # Server waits this many seconds for a client before auto-closing.
 _SERVER_TIMEOUT_S = 180  # 3 minutes
+_GTK_CALLBACK_ERRORS = (AttributeError, RuntimeError, TypeError)
+_SYNC_OPERATION_ERRORS = (OSError, RuntimeError, ValueError, sqlite3.DatabaseError)
+_SYNC_START_ERRORS = (*_SYNC_OPERATION_ERRORS, ssl.SSLError)
 
 
 class SyncDialog(Adw.NavigationPage):
@@ -114,7 +119,7 @@ class SyncDialog(Adw.NavigationPage):
             return
         try:
             server.stop()
-        except Exception:
+        except _SYNC_START_ERRORS:
             log.exception("Could not stop sync server")
 
     def _cancel_scanner(self) -> None:
@@ -124,7 +129,7 @@ class SyncDialog(Adw.NavigationPage):
             return
         try:
             scanner.cancel()
-        except Exception:
+        except _GTK_CALLBACK_ERRORS:
             log.exception("Could not cancel sync QR scanner")
 
     def _server_start_is_current(self, generation: int) -> bool:
@@ -321,7 +326,7 @@ class SyncDialog(Adw.NavigationPage):
                         self._stop_server()
                         return False
                     GLib.idle_add(_stop_and_remove)
-                except Exception as exc:
+                except _SYNC_OPERATION_ERRORS as exc:
                     log.exception("Could not import sync data on server side")
                     _err = str(exc)
                     GLib.idle_add(
@@ -398,14 +403,14 @@ class SyncDialog(Adw.NavigationPage):
                     self._server_instr_label.set_visible(True)
                     self._server_status_label.set_text(self._t("sync.server.waiting"))
 
-                except Exception as exc:
+                except _GTK_CALLBACK_ERRORS as exc:
                     log.exception("Could not display sync QR image")
                     self._server_status_label.set_text(self._t("sync.error", error=str(exc)))
                 return False
 
             GLib.idle_add(_show_qr)
 
-        except Exception as exc:
+        except _SYNC_START_ERRORS as exc:
             log.exception("Could not start sync server mode")
             _err = str(exc)
             GLib.idle_add(
@@ -525,7 +530,7 @@ class SyncDialog(Adw.NavigationPage):
                 GLib.idle_add(self._on_connected, _name, self._active_host)
             GLib.idle_add(self._push_paired_page)
 
-        except Exception as exc:
+        except _SYNC_START_ERRORS as exc:
             log.exception("Could not pair with sync URL")
             GLib.idle_add(_set, self._t("sync.error", error=str(exc)))
 
@@ -756,7 +761,7 @@ class SyncDialog(Adw.NavigationPage):
             if close_after:
                 GLib.timeout_add(1500, self._close_sync_dialog)
 
-        except Exception as exc:
+        except _SYNC_OPERATION_ERRORS as exc:
             log.exception("Sync operation failed")
             GLib.idle_add(_done, self._t("sync.error", error=str(exc)))
 
@@ -792,7 +797,7 @@ class SyncDialog(Adw.NavigationPage):
             )
             if self._on_sync_complete and added > 0:
                 GLib.idle_add(self._on_sync_complete)
-        except Exception:
+        except _SYNC_OPERATION_ERRORS:
             log.exception("Could not pull/import pending share from server")
 
     def _keepalive_loop(self, client: SyncClient) -> None:

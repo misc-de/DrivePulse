@@ -106,7 +106,7 @@ class SyncServer:
         def _run() -> None:
             try:
                 httpd.serve_forever()
-            except Exception:
+            except OSError:
                 log.exception("Sync server loop stopped unexpectedly")
 
         self._thread = threading.Thread(target=_run, name="sync-server", daemon=True)
@@ -172,7 +172,7 @@ class SyncServer:
             try:
                 self._server.shutdown()
                 self._server.server_close()
-            except Exception:
+            except OSError:
                 log.exception("Could not stop sync server")
             self._server = None
 
@@ -220,7 +220,10 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 return
             try:
                 data = json.loads(body)
-            except Exception:
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._send_json(400, {"ok": False, "error": "bad json"})
+                return
+            if not isinstance(data, dict):
                 self._send_json(400, {"ok": False, "error": "bad json"})
                 return
             token = data.get("token", "")
@@ -254,7 +257,10 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 return
             try:
                 data = json.loads(body)
-            except Exception:
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._send_json(400, {"ok": False, "error": "bad json"})
+                return
+            if not isinstance(data, dict):
                 self._send_json(400, {"ok": False, "error": "bad json"})
                 return
             self._srv.last_activity = time.time()
@@ -277,7 +283,10 @@ class _SyncHandler(BaseHTTPRequestHandler):
                 return
             try:
                 data = json.loads(body)
-            except Exception:
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._send_json(400, {"ok": False, "error": "bad json"})
+                return
+            if not isinstance(data, dict):
                 self._send_json(400, {"ok": False, "error": "bad json"})
                 return
             self._srv.last_activity = time.time()
