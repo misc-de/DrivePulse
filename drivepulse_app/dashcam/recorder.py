@@ -48,7 +48,10 @@ def list_cameras() -> list[str]:
             )
             if "Video Capture" in out.stdout:
                 cameras.append(str(dev))
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
+            # v4l2-ctl missing or hung — still surface the device so the user
+            # can try it; can't tell capture-capable from non-capture without it.
+            log.debug("v4l2-ctl probe failed for %s, including anyway", dev, exc_info=True)
             cameras.append(str(dev))
     return cameras
 
@@ -80,8 +83,8 @@ def query_camera_modes(device: str) -> dict[str, list[int]]:
                 fps = round(float(m.group(1)))
                 if fps not in modes[current_res]:
                     modes[current_res].append(fps)
-    except Exception:
-        pass
+    except (OSError, subprocess.SubprocessError):
+        log.debug("v4l2-ctl --list-formats-ext failed for %s", device, exc_info=True)
     # Sort: resolutions by pixel count desc, fps per resolution desc
     return {
         res: sorted(fps_list, reverse=True)
@@ -226,14 +229,16 @@ class DashcamRecorder:
     def rolling_size_mb(self) -> float:
         try:
             return sum(f.stat().st_size for f in self.rolling_dir.iterdir() if f.is_file()) / 1_048_576
-        except Exception:
+        except OSError:
+            log.debug("Could not stat rolling dir %s", self.rolling_dir, exc_info=True)
             return 0.0
 
     @property
     def protected_clips(self) -> list[Path]:
         try:
             return sorted(self.protected_dir.glob("*.mp4"))
-        except Exception:
+        except OSError:
+            log.debug("Could not list protected dir %s", self.protected_dir, exc_info=True)
             return []
 
     # ── Internal ──────────────────────────────────────────────────────────────
@@ -336,7 +341,7 @@ class DashcamRecorder:
                                 if self.on_preview_ready and paintable:
                                     self.on_preview_ready(paintable)
                             except Exception:
-                                pass
+                                log.debug("Could not wire dashcam preview paintable", exc_info=True)
                         p.set_state(_Gst.State.PLAYING)
                         r["pipeline"] = p
                     except Exception as exc:
@@ -579,8 +584,8 @@ class DashcamRecorder:
         text = "  ".join(parts)
         try:
             osd_txt.write_text(text, encoding="utf-8")
-        except Exception:
-            pass
+        except OSError:
+            log.debug("Could not write dashcam OSD text to %s", osd_txt, exc_info=True)
 
     def _prune(self) -> None:
         with self._lock:
@@ -589,5 +594,5 @@ class DashcamRecorder:
                 try:
                     oldest.unlink(missing_ok=True)
                     log.debug("Rolled: %s", oldest)
-                except Exception:
-                    pass
+                except OSError:
+                    log.debug("Could not unlink rolled segment %s", oldest, exc_info=True)
