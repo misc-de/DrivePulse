@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 import time
 from collections.abc import Callable
@@ -306,6 +307,7 @@ class CarsPage(
                 vindecoder_secret_key=self._vindecoder_secret_key,
             )
         except Exception:
+            log.warning("VIN lookup failed for car_id=%s", car_id, exc_info=True)
             data = {}
         GLib.idle_add(self._on_vin_data_ready, car_id, vin, data)
 
@@ -315,8 +317,8 @@ class CarsPage(
             if self.db is not None:
                 try:
                     self.db.update_car_vin_data(car_id, "{}")
-                except Exception:
-                    pass
+                except sqlite3.Error:
+                    log.warning("Could not persist empty VIN data for car_id=%s", car_id, exc_info=True)
             return False
         self._vin_review_queue.append((car_id, vin, sources))
         self._maybe_show_next_review()
@@ -339,8 +341,8 @@ class CarsPage(
             if self.db is not None:
                 try:
                     self.db.update_car_vin_data(car_id, json.dumps(accepted))
-                except Exception:
-                    pass
+                except sqlite3.Error:
+                    log.warning("Could not persist VIN data for car_id=%s", car_id, exc_info=True)
             self._profiles = _load_profiles(self.db)
             self._rebuild_list()
             if self._detail_pushed:
@@ -455,8 +457,8 @@ class CarsPage(
                     sub_parts.append(
                         f"{_translate(self.language, 'cars.list.scan')}: {scan_dt.strftime('%d.%m.%Y')}"
                     )
-                except Exception:
-                    pass
+                except ValueError:
+                    log.debug("Unparseable latest_scan_at=%r", latest_scan_at, exc_info=True)
             row.set_subtitle(GLib.markup_escape_text(" · ".join(sub_parts)) if sub_parts else "—")
             row.set_activatable(True)
             chev = Gtk.Image.new_from_icon_name("go-next-symbolic")
@@ -538,7 +540,8 @@ class CarsPage(
             return
         try:
             scans = self.db.list_scans_for_car(self._selected_car_id)
-        except Exception:
+        except sqlite3.Error:
+            log.warning("Could not list scans for car_id=%s", self._selected_car_id, exc_info=True)
             GLib.idle_add(self._apply_scan_pid_stats, stats)
             return
         from drivepulse_app.cars.metadata import _parse_profile_pid_key
@@ -547,7 +550,8 @@ class CarsPage(
             ts_str = str(scan_meta["scanned_at"] or "")
             try:
                 data = self.db.get_scan_data(int(scan_meta["id"]))
-            except Exception:
+            except (sqlite3.Error, json.JSONDecodeError, ValueError):
+                log.debug("Could not load scan_data for id=%s", scan_meta.get("id"), exc_info=True)
                 continue
             for raw_key, raw_val in (data.get("live_data") or {}).items():
                 pid = _parse_profile_pid_key(raw_key)
@@ -592,8 +596,8 @@ class CarsPage(
                     scan_start_ts = datetime.fromisoformat(
                         str(scan_meta["scanned_at"]).replace("Z", "+00:00")
                     ).timestamp()
-                except Exception:
-                    pass
+                except (ValueError, TypeError):
+                    log.debug("Unparseable scanned_at for scan_id=%s", scan_id, exc_info=True)
                 rows = self.db.get_scan_samples(scan_id)
                 pid_pts: dict[str, list[tuple[float, float]]] = {}
                 for row in rows:
@@ -606,8 +610,8 @@ class CarsPage(
                                       "count": 0, "unit": "", "values": [],
                                       "intra_series": {}}
                     stats[pid]["intra_series"][scan_id] = sorted(intra_pts, key=lambda t: t[0])
-            except Exception:
-                pass
+            except (sqlite3.Error, ValueError, TypeError, KeyError):
+                log.debug("Could not load intra-scan samples for scan_id=%s", scan_id, exc_info=True)
 
         GLib.idle_add(self._apply_scan_pid_stats, stats)
 
@@ -724,8 +728,8 @@ class CarsPage(
                         scans = self.db.list_scans_for_car(self._selected_car_id)
                         if scans:
                             self._selected_scan_id = int(scans[0]["id"])
-                except Exception:
-                    pass
+                except sqlite3.Error:
+                    log.debug("Could not pre-select latest scan", exc_info=True)
             cat = self._initial_category
             if cat:
                 for row in self._cat_rows:
@@ -756,7 +760,7 @@ class CarsPage(
         try:
             cb(self._selected_source, self._selected_category, self._selected_scan_id)
         except Exception:
-            pass
+            log.debug("on_state_changed callback raised", exc_info=True)
 
     def _reset_detail_state(self) -> None:
         """Drop transient detail-view state when leaving / re-entering detail."""
@@ -782,7 +786,7 @@ class CarsPage(
             try:
                 self.on_state_changed(None, None, None)
             except Exception:
-                pass
+                log.debug("on_state_changed reset callback raised", exc_info=True)
 
     def _on_detail_back(self) -> None:
         """Detail back-button: collapse-aware navigation back to the list."""
@@ -803,6 +807,7 @@ class CarsPage(
         try:
             self.nav_view.pop_to_page(self._detail_page)
         except Exception:
+            log.debug("pop_to_page failed; falling back to pop-until-empty", exc_info=True)
             while self.nav_view.pop():
                 pass
         self._reset_detail_state()
@@ -1031,8 +1036,8 @@ class CarsPage(
                 scans = self.db.list_scans_for_car(self._selected_car_id)
                 if scans:
                     self._selected_scan_id = int(scans[0]["id"])
-            except Exception:
-                pass
+            except sqlite3.Error:
+                log.debug("Could not pre-select latest scan on category switch", exc_info=True)
         self._update_photo_upload_btn_visibility()
         if self._detail_pushed:
             self._render_detail()

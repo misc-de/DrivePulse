@@ -153,7 +153,7 @@ def _emit_progress(model_name: str, fraction: float) -> None:
         try:
             cb(model_name, fraction)
         except Exception:
-            pass
+            log.debug("Progress callback raised", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -242,8 +242,8 @@ def _download_piper_model(model_name: str) -> None:
             if cancelled:
                 try:
                     tmp.unlink(missing_ok=True)
-                except Exception:
-                    pass
+                except OSError:
+                    log.debug("Could not unlink partial download %s", tmp, exc_info=True)
                 log.info("Piper download cancelled: %s", model_name)
                 _emit_progress(model_name, -1.0)
                 return
@@ -260,8 +260,8 @@ def _download_piper_model(model_name: str) -> None:
         if tmp is not None:
             try:
                 tmp.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError:
+                log.debug("Could not unlink partial download %s", tmp, exc_info=True)
         _emit_progress(model_name, -1.0)
     finally:
         _download_cancel_events.pop(model_name, None)
@@ -301,7 +301,8 @@ def _piper_sample_rate(model_path: Path) -> int:
     try:
         cfg = json.loads(Path(str(model_path) + ".json").read_text(encoding="utf-8"))
         return int(cfg["audio"]["sample_rate"])
-    except Exception:
+    except (OSError, KeyError, ValueError, json.JSONDecodeError):
+        log.debug("Could not read sample rate from %s.json, defaulting to 22050", model_path, exc_info=True)
         return 22050
 
 
@@ -324,8 +325,8 @@ def clear_audio_cache() -> None:
         for p, _sr in _audio_cache.values():
             try:
                 p.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError:
+                log.debug("Could not unlink cached PCM %s", p, exc_info=True)
         _audio_cache.clear()
 
 
@@ -390,8 +391,8 @@ def _prerender_sync(text: str, language: str, gender: VoiceGender, quality: str,
                         old_path, _ = _audio_cache.pop(oldest_key)
                         try:
                             old_path.unlink(missing_ok=True)
-                        except Exception:
-                            pass
+                        except OSError:
+                            log.debug("Could not unlink evicted PCM %s", old_path, exc_info=True)
                     _audio_cache[key] = (tmp, sample_rate)
                 log.debug("TTS pre-render cached (%d Hz): %.40s…", sample_rate, text)
                 return
@@ -399,8 +400,8 @@ def _prerender_sync(text: str, language: str, gender: VoiceGender, quality: str,
             log.debug("TTS pre-render subprocess error: %s", exc)
         try:
             tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except OSError:
+            log.debug("Could not unlink failed pre-render tmp %s", tmp, exc_info=True)
     except Exception as exc:
         log.debug("TTS pre-render error: %s", exc)
     finally:
@@ -474,8 +475,8 @@ def stop() -> None:
         if _current_proc is not None:
             try:
                 _current_proc.terminate()
-            except Exception:
-                pass
+            except (ProcessLookupError, OSError):
+                log.debug("Could not terminate TTS subprocess", exc_info=True)
             _current_proc = None
 
 
@@ -498,8 +499,8 @@ def _speak_sync(
         if _current_proc is not None:
             try:
                 _current_proc.terminate()
-            except Exception:
-                pass
+            except (ProcessLookupError, OSError):
+                log.debug("Could not terminate TTS subprocess", exc_info=True)
             _current_proc = None
 
     t0 = time.monotonic()
@@ -532,8 +533,8 @@ def _speak_sync(
         if cached_path is not None:
             try:
                 cached_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError:
+                log.debug("Could not unlink unused cached PCM %s", cached_path, exc_info=True)
         return
 
     with _lock:
@@ -552,8 +553,8 @@ def _speak_sync(
     if cached_path is not None:
         try:
             cached_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except OSError:
+            log.debug("Could not unlink played cached PCM %s", cached_path, exc_info=True)
 
 
 def _launch_espeak(
