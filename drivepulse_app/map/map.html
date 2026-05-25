@@ -129,6 +129,7 @@ let _rawHeading      = null;  // most recent GPS heading — used by the arrow s
 let _tourFlying     = false;  // suppresses GPS-driven easeTo while mapStartTour's flyTo is animating
 let _view3D         = true;   // false = top-down flat map; true = tilted 3D view
 let _followingGps   = false;  // while true, the marker tracks map.getCenter() every frame
+let _headingUp      = true;   // true = map rotates with GPS heading; false = north always up
 
 const DEFAULT_CENTER = { lat: 48.137, lon: 11.576 };
 
@@ -357,16 +358,17 @@ function mapSetCar(lat, lon, heading) {
   _gpsLat = lat; _gpsLon = lon;
   const targetBearing = Number(heading || 0);
   _rawHeading = targetBearing;  // arrow uses this — snaps to actual heading
-  // EMA-smooth the bearing the *map* will rotate to.  The arrow doesn't go
-  // through this filter, so the arrow leads into a turn while the map catches
-  // up — much closer to how real navigation arrows behave.
-  if (_smoothedBearing === null) {
-    _smoothedBearing = targetBearing;
-  } else {
-    const delta = ((targetBearing - _smoothedBearing + 540) % 360) - 180;
-    _smoothedBearing = (_smoothedBearing + delta * 0.30 + 360) % 360;
+  // EMA-smooth the bearing the *map* will rotate to — only in heading-up mode.
+  // In north-up mode the map stays at bearing 0 and the arrow rotates instead.
+  if (_headingUp) {
+    if (_smoothedBearing === null) {
+      _smoothedBearing = targetBearing;
+    } else {
+      const delta = ((targetBearing - _smoothedBearing + 540) % 360) - 180;
+      _smoothedBearing = (_smoothedBearing + delta * 0.30 + 360) % 360;
+    }
   }
-  const hdg = _smoothedBearing;
+  const hdg = _headingUp ? _smoothedBearing : 0;
   // When the camera follows the GPS, the marker is *not* set directly here —
   // instead the map.on('move', ...) listener (registered in initMap) keeps the
   // marker pinned to the camera center every animation frame, so the marker
@@ -435,6 +437,15 @@ function mapSetTourActive(active) {
     _smoothedBearing = null;
     _rawHeading = null;
     _tourFlying = false;
+  }
+}
+
+function mapSetHeadingUp(active) {
+  _headingUp = !!active;
+  if (!_headingUp && map) {
+    // Snap the map back to north immediately so the user sees a straight map.
+    _smoothedBearing = null;
+    map.easeTo({ bearing: 0, duration: 400 });
   }
 }
 

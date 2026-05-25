@@ -328,9 +328,11 @@ class MapPage(
             poi = "true" if self._poi_visible else "false"
             traffic = "true" if self._traffic_visible else "false"
             view3d = "true" if self._map_3d_view else "false"
+            heading_up = "true" if self._heading_up else "false"
             self._js(f"mapSetPoiVisible({poi})")
             self._js(f"mapSetTrafficVisible({traffic})")
             self._js(f"mapSet3DView({view3d})")
+            self._js(f"mapSetHeadingUp({heading_up})")
             self._js(f"mapSetTrafficLanguage('{self.language}')")
             initial_layer = (
                 MAP_TYPES[self._map_type_idx]
@@ -675,9 +677,11 @@ class MapPage(
     def _on_heading_up_toggled(self, btn: Gtk.ToggleButton) -> None:
         self._heading_up = btn.get_active()
         self._refresh_heading_up_btn_tooltip()
-        # Reset Shumate's viewport rotation immediately when the user opts
-        # out of heading-up mode mid-tour so the map snaps back to north.
-        if not self._heading_up and self._shumate_map is not None:
+        if self._backend == "webkit":
+            val = "true" if self._heading_up else "false"
+            self._js(f"mapSetHeadingUp({val})")
+        elif not self._heading_up and self._shumate_map is not None:
+            # Reset Shumate's viewport rotation so the map snaps back to north.
             viewport = self._shumate_map.get_viewport()
             if viewport is not None and hasattr(viewport, "set_rotation"):
                 try:
