@@ -514,6 +514,8 @@
   "settings.vin_decoder.autodev": "auto.dev",
   "settings.vin_decoder.autodev.desc": "1,000 requests/month free. Good all-rounder with model and body data. Register an API key at auto.dev.",
   "settings.vin_decoder.autodev_key": "auto.dev API Key",
+  "settings.vin_decoder.autodev.requests": "Monthly Requests",
+  "settings.vin_decoder.autodev.no_requests": "No requests yet",
   "settings.vin_decoder.vindecoder": "vindecoder.eu",
   "settings.vin_decoder.vindecoder.desc": "Best data quality for EU vehicles, paid. Requires API key and secret key from vindecoder.eu.",
   "settings.vin_decoder.api_key": "vindecoder.eu API Key",

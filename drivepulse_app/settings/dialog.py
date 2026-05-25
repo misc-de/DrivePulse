@@ -146,6 +146,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         on_vindecoder_secret_key_changed: Callable[[str], None] | None = None,
         current_autodev_api_key: str = "",
         on_autodev_api_key_changed: Callable[[str], None] | None = None,
+        current_autodev_month: str = "",
+        current_autodev_month_count: int = 0,
     ) -> None:
         super().__init__(tag="settings")
         self.language = _normalize_language(current_language)
@@ -190,6 +192,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self.on_vindecoder_api_key_changed = on_vindecoder_api_key_changed
         self.on_vindecoder_secret_key_changed = on_vindecoder_secret_key_changed
         self.on_autodev_api_key_changed = on_autodev_api_key_changed
+        self._autodev_month = current_autodev_month
+        self._autodev_month_count = current_autodev_month_count
         self._remote_version: str | None = None
         self._closing = False
         self.set_title(_translate(self.language, "settings.title"))
@@ -547,6 +551,7 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
             description=_translate(self.language, "settings.vin_decoder.autodev.desc"),
         )
         autodev_group.add(self._autodev_row)
+        autodev_group.add(self._build_autodev_counter_row())
 
         self._vd_api_key_row = Adw.EntryRow(
             title=_translate(self.language, "settings.vin_decoder.api_key"),
@@ -1040,6 +1045,35 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
     def _on_nhtsa_enabled_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_nhtsa_enabled_changed is not None:
             self.on_nhtsa_enabled_changed(row.get_active())
+
+    def _build_autodev_counter_row(self) -> Adw.ActionRow:
+        from datetime import datetime
+        count = self._autodev_month_count
+        month_key = self._autodev_month
+        if month_key:
+            try:
+                dt = datetime.strptime(month_key, "%Y-%m")
+                if self.language.startswith("de"):
+                    _MONTHS_DE = [
+                        "", "Januar", "Februar", "März", "April", "Mai", "Juni",
+                        "Juli", "August", "September", "Oktober", "November", "Dezember",
+                    ]
+                    month_label = f"{_MONTHS_DE[dt.month]} {dt.year}"
+                else:
+                    month_label = dt.strftime("%B %Y")
+            except ValueError:
+                month_label = month_key
+        else:
+            month_label = _translate(self.language, "settings.vin_decoder.autodev.no_requests")
+        if month_key:
+            subtitle = f"{count} / 1000 · {month_label}"
+        else:
+            subtitle = _translate(self.language, "settings.vin_decoder.autodev.no_requests")
+        row = Adw.ActionRow(
+            title=_translate(self.language, "settings.vin_decoder.autodev.requests"),
+            subtitle=subtitle,
+        )
+        return row
 
     def _on_autodev_key_changed(self, row: Adw.EntryRow) -> None:
         if self.on_autodev_api_key_changed is not None:

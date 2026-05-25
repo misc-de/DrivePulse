@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -70,6 +71,8 @@ class DashboardSettingsMixin:
                 "vindecoder_api_key": getattr(self, "vindecoder_api_key", ""),
                 "vindecoder_secret_key": getattr(self, "vindecoder_secret_key", ""),
                 "autodev_api_key": getattr(self, "autodev_api_key", ""),
+                "autodev_month": getattr(self, "autodev_month", ""),
+                "autodev_month_count": getattr(self, "autodev_month_count", 0),
                 "last_cars_source": getattr(self, "last_cars_source", None),
                 "last_cars_category": getattr(self, "last_cars_category", None),
                 "last_cars_scan_id": getattr(self, "last_cars_scan_id", None),
@@ -176,6 +179,8 @@ class DashboardSettingsMixin:
             on_vindecoder_secret_key_changed=self._set_vindecoder_secret_key,
             current_autodev_api_key=getattr(self, "autodev_api_key", ""),
             on_autodev_api_key_changed=self._set_autodev_api_key,
+            current_autodev_month=getattr(self, "autodev_month", ""),
+            current_autodev_month_count=getattr(self, "autodev_month_count", 0),
         )
 
         def _on_page_hidden(_p: object) -> None:
@@ -340,6 +345,16 @@ class DashboardSettingsMixin:
         self.autodev_api_key = value.strip()
         self._save_settings()
         self.cars_page._autodev_api_key = self.autodev_api_key or None
+
+    def _increment_autodev_count(self) -> None:
+        """Called from VIN fetch thread via callback; safe to call from any thread."""
+        current_month = datetime.now().strftime("%Y-%m")
+        if getattr(self, "autodev_month", "") != current_month:
+            self.autodev_month = current_month
+            self.autodev_month_count = 1
+        else:
+            self.autodev_month_count = getattr(self, "autodev_month_count", 0) + 1
+        self._save_settings()
 
     def _open_sync(self, *_args: Any) -> None:
         if getattr(self, "_sync_is_online", False):
