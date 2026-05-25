@@ -433,8 +433,14 @@ class _Toast(_Widget):
         self.props["title"] = title
 
 
-@pytest.fixture
-def drivepulse_module(monkeypatch):
+def _build_gi_stub_modules() -> tuple[types.ModuleType, types.ModuleType]:
+    """Construct the ``gi`` + ``gi.repository`` stub modules used in tests.
+
+    Extracted so the same stubs can be installed once at conftest import time
+    (module-level autoinstall) AND from any explicit fixture that wants to
+    re-affirm them. Returning the constructed modules lets callers decide
+    whether to patch into ``sys.modules`` permanently or via monkeypatch.
+    """
     gi = types.ModuleType("gi")
     gi.require_version = lambda *args: None
 
@@ -605,19 +611,41 @@ def drivepulse_module(monkeypatch):
     repository.Gsk = types.SimpleNamespace(Transform=types.SimpleNamespace(new=lambda: None))
     repository.Graphene = types.SimpleNamespace(Point=types.SimpleNamespace(alloc=lambda: types.SimpleNamespace(init=lambda x, y: None)))
 
-    monkeypatch.setitem(sys.modules, "gi", gi)
-    monkeypatch.setitem(sys.modules, "gi.repository", repository)
-    monkeypatch.setitem(sys.modules, "obd", None)
-    for _mod in list(sys.modules):
-        if _mod == "drivepulse" or _mod.startswith("drivepulse_app"):
-            sys.modules.pop(_mod, None)
+    return gi, repository
 
+
+# Install the stub modules once at conftest import time. Pytest imports
+# conftest before collecting any test files, so any test (whether it uses
+# the ``drivepulse_module`` fixture or imports ``drivepulse_app`` symbols at
+# module top level) sees a consistent ``gi``/``gi.repository`` from the
+# very first import. This replaces the older pattern of popping
+# ``drivepulse_app.*`` out of ``sys.modules`` around each fixture-using
+# test, which left stale top-level import references in unrelated test
+# files.
+_GI_STUB, _GI_REPOSITORY_STUB = _build_gi_stub_modules()
+sys.modules.setdefault("gi", _GI_STUB)
+sys.modules.setdefault("gi.repository", _GI_REPOSITORY_STUB)
+# When real gi is installed (dev machines), force-override so tests run
+# against the same stub set on every machine. CI without real gi installed
+# would otherwise crash on import; with this override the suite is portable.
+sys.modules["gi"] = _GI_STUB
+sys.modules["gi.repository"] = _GI_REPOSITORY_STUB
+sys.modules.setdefault("obd", None)
+
+
+@pytest.fixture
+def drivepulse_module():
+    """Return the ``drivepulse`` package module.
+
+    Historically this fixture also installed gi stubs and popped
+    ``drivepulse_app.*`` from ``sys.modules`` around each test. Stub install
+    is now session-wide at conftest import time (see ``_build_gi_stub_modules``);
+    the pop/reload cycle is no longer needed because every test sees the same
+    stub set from the very first import. Tests can patch module globals via
+    ``monkeypatch.setattr`` and rely on pytest to revert after the test.
+    """
     import drivepulse
-
     yield drivepulse
-    for _mod in list(sys.modules):
-        if _mod == "drivepulse" or _mod.startswith("drivepulse_app"):
-            sys.modules.pop(_mod, None)
 
 
 @pytest.fixture
