@@ -194,7 +194,6 @@ def _build_chart_widget(
     area = Gtk.DrawingArea()
     area.set_content_height(height)
     area.set_hexpand(True)
-    area.add_css_class("card")
 
     def _idx_from_px(px: float, w: float) -> int:
         pts = chart_state.get("pts") or []
@@ -234,14 +233,6 @@ def _build_chart_widget(
             return
 
         dark = _is_dark()
-        bg_rgb: tuple[float, float, float] | None = None
-        if not dark:
-            try:
-                ok, rgba = area.get_style_context().lookup_color("card_bg_color")
-                if ok:
-                    bg_rgb = (rgba.red, rgba.green, rgba.blue)
-            except Exception:
-                bg_rgb = None
         iw = max(1, w - PAD_L - PAD_R)
         ih = max(1, h - PAD_T - PAD_B)
         grid_rgba = (1.0, 1.0, 1.0, 0.45) if dark else (0.0, 0.0, 0.0, 0.45)
@@ -264,14 +255,6 @@ def _build_chart_widget(
 
         def _tx(ts: float) -> float:
             return PAD_L + ((ts - ts0) / t_span) * iw
-
-        # Light theme: paint the full chart canvas in the same card surface
-        # tone used by the boxed content below, so the chart sits on the same
-        # elevated card as the rest of the trip widgets.
-        if not dark and bg_rgb is not None:
-            cr.set_source_rgb(*bg_rgb)
-            cr.rectangle(0, 0, w, h)
-            cr.fill()
 
         # Grid lines
         cr.set_line_width(1.0)
