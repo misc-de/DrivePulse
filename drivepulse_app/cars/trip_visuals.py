@@ -11,6 +11,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+_CHART_DEBUG = bool(os.environ.get("DRIVEPULSE_CHART_DEBUG"))
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -405,20 +407,33 @@ def _build_chart_widget(
     scrub_ctl.set_touch_only(False)
     scrub_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
 
-    def _track(gesture: Any, sequence: Any) -> None:
-        ok, x, _y = gesture.get_point(sequence)
+    def _track(gesture: Any, sequence: Any, phase: str) -> None:
+        ok, x, y = gesture.get_point(sequence)
+        if _CHART_DEBUG:
+            log.info("chart-scrub %s ok=%s x=%.1f y=%.1f w=%d",
+                     phase, ok, x if ok else -1, y if ok else -1, area.get_width())
         if ok:
             _set_cursor(x, area.get_width())
 
     def _on_scrub_begin(gesture: Any, sequence: Any) -> None:
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        _track(gesture, sequence)
+        _track(gesture, sequence, "begin")
 
     def _on_scrub_update(gesture: Any, sequence: Any) -> None:
-        _track(gesture, sequence)
+        _track(gesture, sequence, "update")
+
+    def _on_scrub_end(gesture: Any, sequence: Any) -> None:
+        if _CHART_DEBUG:
+            log.info("chart-scrub end")
+
+    def _on_scrub_cancel(gesture: Any, sequence: Any) -> None:
+        if _CHART_DEBUG:
+            log.info("chart-scrub cancel (sequence stolen?)")
 
     scrub_ctl.connect("begin", _on_scrub_begin)
     scrub_ctl.connect("update", _on_scrub_update)
+    scrub_ctl.connect("end", _on_scrub_end)
+    scrub_ctl.connect("cancel", _on_scrub_cancel)
     area.add_controller(scrub_ctl)
 
     return area
