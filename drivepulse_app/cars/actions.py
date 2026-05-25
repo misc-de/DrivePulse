@@ -201,6 +201,7 @@ class CarsActionsMixin:
             log.exception("Could not reset vin_data for car id=%s", car_id)
             return
         self.refresh_profiles()
+        self._show_toast(_translate(self.language, "vin.refetch.started"))
 
     def _delete_vehicle(self) -> None:
         if self.db and self._selected_car_id:

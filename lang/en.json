@@ -581,5 +581,12 @@
   "share.conflict_type_trip": "Trip",
   "share.conflict_type_run": "Stopwatch run",
   "share.conflict_type_scan": "Scan",
-  "share.conflict_received": "Received: {ts}"
+  "share.conflict_received": "Received: {ts}",
+  "vin.nhtsa.enabled": "NHTSA enabled",
+  "vin.nhtsa.disabled.other_active": "NHTSA disabled – auto.dev/vindecoder.eu will be used",
+  "vin.nhtsa.disabled.no_source": "NHTSA disabled – no VIN source active",
+  "vin.autodev.error.auth": "auto.dev: Invalid API key (401/403)",
+  "vin.autodev.error.not_found": "auto.dev: VIN not found",
+  "vin.autodev.error.generic": "auto.dev: Request failed",
+  "vin.refetch.started": "VIN lookup started …"
 }

@@ -312,6 +312,19 @@ class DashboardSettingsMixin:
         self.nhtsa_enabled = bool(enabled)
         self._save_settings()
         self.cars_page._nhtsa_enabled = bool(enabled)
+        from gi.repository import Adw
+        has_other = bool(
+            getattr(self, "autodev_api_key", None)
+            or getattr(self, "vindecoder_api_key", None)
+        )
+        if enabled:
+            msg = _translate(self.language, "vin.nhtsa.enabled")
+        elif has_other:
+            msg = _translate(self.language, "vin.nhtsa.disabled.other_active")
+        else:
+            msg = _translate(self.language, "vin.nhtsa.disabled.no_source")
+        if hasattr(self, "add_toast"):
+            self.add_toast(Adw.Toast(title=msg))
 
     def _set_vindecoder_api_key(self, value: str) -> None:
         self.vindecoder_api_key = value

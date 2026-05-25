@@ -315,6 +315,16 @@ class CarsPage(
 
     def _on_vin_data_ready(self, car_id: int, vin: str, sources: dict) -> bool:
         self._vin_fetch_pending.discard(car_id)
+        error_entry = sources.pop("auto.dev_error", None)
+        if error_entry:
+            status = error_entry.get("_status", 0)
+            if status in (401, 403):
+                msg = _translate(self.language, "vin.autodev.error.auth")
+            elif status == 404:
+                msg = _translate(self.language, "vin.autodev.error.not_found")
+            else:
+                msg = _translate(self.language, "vin.autodev.error.generic")
+            self._show_toast(msg)
         if not sources:
             if self.db is not None:
                 try:
@@ -325,6 +335,12 @@ class CarsPage(
         self._vin_review_queue.append((car_id, vin, sources))
         self._maybe_show_next_review()
         return False
+
+    def _show_toast(self, msg: str) -> None:
+        from gi.repository import Adw
+        root = self.get_root()
+        if root and hasattr(root, "add_toast"):
+            root.add_toast(Adw.Toast(title=msg))
 
     def _maybe_show_next_review(self) -> None:
         if self._vin_review_open or not self._vin_review_queue:

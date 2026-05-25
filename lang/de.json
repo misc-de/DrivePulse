@@ -601,5 +601,12 @@
   "share.conflict_type_trip": "Fahrt",
   "share.conflict_type_run": "Stoppuhr-Lauf",
   "share.conflict_type_scan": "Scan",
-  "share.conflict_received": "Empfangen: {ts}"
+  "share.conflict_received": "Empfangen: {ts}",
+  "vin.nhtsa.enabled": "NHTSA aktiviert",
+  "vin.nhtsa.disabled.other_active": "NHTSA deaktiviert – auto.dev/vindecoder.eu wird verwendet",
+  "vin.nhtsa.disabled.no_source": "NHTSA deaktiviert – keine VIN-Quelle mehr aktiv",
+  "vin.autodev.error.auth": "auto.dev: Ungültiger API-Schlüssel (401/403)",
+  "vin.autodev.error.not_found": "auto.dev: VIN nicht gefunden",
+  "vin.autodev.error.generic": "auto.dev: Abfrage fehlgeschlagen",
+  "vin.refetch.started": "VIN-Abfrage gestartet …"
 }

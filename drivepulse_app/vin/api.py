@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -32,6 +33,8 @@ _NHTSA_FIELDS: dict[str, str] = {
 _AUTODEV_FIELDS: dict[str, str] = {
     "make":          "make",
     "model":         "model",
+    "trim":          "trim",
+    "style":         "style",
     "body":          "body",
     "drive":         "drive",
     "transmission":  "transmission",
@@ -80,45 +83,61 @@ def _fetch_nhtsa(vin: str) -> dict[str, Any]:
         return {}
 
 
+class AutodevError(Exception):
+    """Fehler bei der auto.dev API (HTTP-Fehler oder ungültige Antwort)."""
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 def _fetch_autodev(vin: str, api_key: str) -> dict[str, Any]:
+    url = _AUTODEV_URL.format(urllib.parse.quote(vin.upper(), safe=""))
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "DrivePulse/1.0",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
     try:
-        url = _AUTODEV_URL.format(urllib.parse.quote(vin.upper(), safe=""))
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "DrivePulse/1.0",
-                "Authorization": f"Bearer {api_key}",
-            },
-        )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        out: dict[str, Any] = {}
-        for api_field, field in _AUTODEV_FIELDS.items():
-            val = _clean(data.get(api_field) or "")
-            if val:
-                out[field] = val
-        vehicle = data.get("vehicle") or {}
-        if vehicle.get("year"):
-            out["year"] = str(int(vehicle["year"]))
-        if vehicle.get("manufacturer"):
-            val = _clean(vehicle["manufacturer"])
-            if val:
-                out["manufacturer"] = val
-        engine = _clean(data.get("engine") or "")
-        if engine:
-            import re
-            if not out.get("cylinders"):
-                m = re.search(r"V(\d+)|(\d+)-?[Cc]yl", engine)
-                if m:
-                    out["cylinders"] = m.group(1) or m.group(2)
-            if not out.get("displacement"):
-                m = re.search(r"(\d+\.\d+)\s*L", engine)
-                if m:
-                    out["displacement"] = m.group(1)
-        return out
-    except Exception:
-        log.warning("auto.dev fetch failed for VIN %s", vin)
-        return {}
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        log.warning("auto.dev HTTP %s for VIN %s: %s", exc.code, vin, body[:200])
+        raise AutodevError(exc.code, f"HTTP {exc.code}") from exc
+    except Exception as exc:
+        log.warning("auto.dev fetch failed for VIN %s: %s", vin, exc)
+        raise AutodevError(0, str(exc)) from exc
+
+    out: dict[str, Any] = {}
+    for api_field, field in _AUTODEV_FIELDS.items():
+        val = _clean(data.get(api_field) or "")
+        if val:
+            out[field] = val
+    vehicle = data.get("vehicle") or {}
+    if vehicle.get("year"):
+        out["year"] = str(int(vehicle["year"]))
+    if vehicle.get("manufacturer"):
+        val = _clean(vehicle["manufacturer"])
+        if val:
+            out["manufacturer"] = val
+    engine = _clean(data.get("engine") or "")
+    if engine:
+        out["engine"] = engine
+        import re
+        if not out.get("cylinders"):
+            m = re.search(r"V(\d+)|(\d+)-?[Cc]yl", engine)
+            if m:
+                out["cylinders"] = m.group(1) or m.group(2)
+        if not out.get("displacement"):
+            m = re.search(r"(\d+\.\d+)\s*L", engine)
+            if m:
+                out["displacement"] = m.group(1)
+    return out
 
 
 def _fetch_vindecoder(vin: str, api_key: str, secret_key: str) -> dict[str, Any]:
@@ -181,9 +200,12 @@ def fetch_vin_data(
             sources["NHTSA"] = nhtsa
 
     if autodev_api_key:
-        ad = _fetch_autodev(vin, autodev_api_key)
-        if ad:
-            sources["auto.dev"] = ad
+        try:
+            ad = _fetch_autodev(vin, autodev_api_key)
+            if ad:
+                sources["auto.dev"] = ad
+        except AutodevError as exc:
+            sources["auto.dev_error"] = {"_error": str(exc), "_status": exc.status}
 
     if vindecoder_api_key and vindecoder_secret_key:
         vd = _fetch_vindecoder(vin, vindecoder_api_key, vindecoder_secret_key)
