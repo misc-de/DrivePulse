@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="vendor/maplibre-gl-4.7.1/maplibre-gl.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
@@ -64,21 +64,17 @@
   <span style="font-size:0.85em;opacity:0.6">Internetverbindung prüfen.</span>
 </div>
 <script>
-  let _retryInterval = null;
+  // MapLibre is vendored locally — if the script tag still fails, the install
+  // is broken (missing vendor file) rather than a transient network glitch,
+  // so just surface the error overlay. No online retry: we deliberately
+  // don't want the map to hit the network on startup.
   window.addEventListener('error', (e) => {
     if (e.target && e.target.tagName === 'SCRIPT') {
       document.getElementById('error').classList.add('visible');
-      if (!_retryInterval) {
-        _retryInterval = setInterval(() => {
-          fetch('https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js', { method: 'HEAD', cache: 'no-store' })
-            .then(() => { clearInterval(_retryInterval); location.reload(); })
-            .catch(() => {});
-        }, 5000);
-      }
     }
   }, true);
 </script>
-<script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+<script src="vendor/maplibre-gl-4.7.1/maplibre-gl.js"></script>
 <script>
 'use strict';
 

@@ -31,6 +31,12 @@ py-modules = ["drivepulse"]
 [tool.setuptools.packages.find]
 include = ["drivepulse_app*", "themes*"]
 
+# map.html plus the vendored MapLibre runtime must ship with the wheel, or
+# the WebKit map backend would silently fall back to the network on first
+# launch — defeating the offline-startup guarantee.
+[tool.setuptools.package-data]
+"drivepulse_app.map" = ["map.html", "vendor/**/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

@@ -245,13 +245,24 @@ class ShareFlow:
             body=self._t("share.vehicle_unknown_body"),
         )
 
+        # Anonymize toggle defaults ON — safe default for unknown peers —
+        # but the user can opt out to *introduce* the vehicle (full VIN/
+        # brand/label) to the peer, which is the typical first-pairing case.
+        anon_check = Gtk.CheckButton(label=self._t("share.anonymize_toggle"))
+        anon_check.set_active(True)
+
         ext_check = Gtk.CheckButton(label=self._t("share.include_obd"))
         ext_check.set_active(False)
-        ext_check.set_margin_top(8)
+        ext_check.set_margin_top(4)
 
-        dialog.set_extra_child(ext_check)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(8)
+        box.append(anon_check)
+        box.append(ext_check)
+
+        dialog.set_extra_child(box)
         dialog.add_response("cancel", self._t("share.cancel"))
-        dialog.add_response("send", self._t("share.send_anon"))
+        dialog.add_response("send", self._t("share.send"))
         dialog.set_response_appearance("send", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("send")
         dialog.set_close_response("cancel")
@@ -259,9 +270,10 @@ class ShareFlow:
         def _on_response(_d: Adw.AlertDialog, resp: str) -> None:
             if resp != "send":
                 return
-            include_obd = ext_check.get_active()
             self._proceed(
-                client, car, anon=True, include_obd=include_obd,
+                client, car,
+                anon=anon_check.get_active(),
+                include_obd=ext_check.get_active(),
                 mode=mode, trip_ids=trip_ids, run_ids=run_ids,
                 scan_ids=scan_ids, photo_ids=photo_ids, vehicle_known=False,
             )

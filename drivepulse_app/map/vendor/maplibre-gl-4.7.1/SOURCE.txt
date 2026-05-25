@@ -1,0 +1,14 @@
+MapLibre GL JS 4.7.1
+====================
+
+Source:  https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.{js,css}
+License: BSD-3-Clause (https://github.com/maplibre/maplibre-gl-js/blob/v4.7.1/LICENSE.txt)
+
+These files are vendored so the app starts and renders the map UI without
+any network round-trip. Map *tiles* still need network; the bundled files
+only cover the renderer + CSS.
+
+To upgrade, replace both files with newer versions from unpkg (or the
+official MapLibre GitHub release), rename the parent directory to match
+the new version, and update vendor_dir in drivepulse_app/map/webkit.py
+plus the two paths in drivepulse_app/map/map.html.

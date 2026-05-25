@@ -8,6 +8,8 @@ a different street — even if that stop was still kilometres ahead.
 """
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from drivepulse_app.map import tour as tour_mod
@@ -17,7 +19,7 @@ from drivepulse_app.map.tour import MapTourMixin
 class _FakeThread:
     """Stand-in for threading.Thread that captures target+args without running."""
 
-    instances: list = []
+    instances: ClassVar[list] = []
 
     def __init__(self, target=None, args=(), daemon=False, **_):
         self.target = target
@@ -60,8 +62,8 @@ def _make_inst(
 
 def _captured_points() -> list[tuple[float, float]]:
     assert len(_FakeThread.instances) == 1, "exactly one reroute thread expected"
-    target, args = _FakeThread.instances[0].target, _FakeThread.instances[0].args
-    # target is the bound method _fetch_reroute_bg, args = (all_points,)
+    # The thread's target is the bound _fetch_reroute_bg; args = (all_points,)
+    args = _FakeThread.instances[0].args
     assert args and isinstance(args[0], list)
     return args[0]
 
