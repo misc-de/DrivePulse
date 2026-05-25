@@ -80,6 +80,8 @@ class CarsPage(
         sidebar_side: str = "left",
         vindecoder_api_key: str | None = None,
         vindecoder_secret_key: str | None = None,
+        autodev_api_key: str | None = None,
+        nhtsa_enabled: bool = True,
         initial_source: str | None = None,
         initial_category: str | None = None,
         initial_scan_id: int | None = None,
@@ -100,8 +102,8 @@ class CarsPage(
         # live/vehicle" entry just from default widget signals firing.
         # Flipped to False once __init__ has finished applying initial state.
         self._restoring_state: bool = True
-        self._autodev_api_key: str | None = None
-        self._nhtsa_enabled: bool = True
+        self._autodev_api_key: str | None = autodev_api_key
+        self._nhtsa_enabled: bool = nhtsa_enabled
         self._vin_fetch_pending: set[int] = set()
         self._vin_review_queue: list[tuple[int, str, dict]] = []
         self._vin_review_open: bool = False
@@ -300,6 +302,11 @@ class CarsPage(
             ).start()
 
     def _fetch_vin_data_thread(self, car_id: int, vin: str) -> None:
+        log.info(
+            "VIN fetch start car_id=%s vin=%s nhtsa=%s autodev=%s vindecoder=%s",
+            car_id, vin, self._nhtsa_enabled,
+            bool(self._autodev_api_key), bool(self._vindecoder_api_key),
+        )
         try:
             data = fetch_vin_data(
                 vin,
@@ -311,6 +318,7 @@ class CarsPage(
         except Exception:
             log.warning("VIN lookup failed for car_id=%s", car_id, exc_info=True)
             data = {}
+        log.info("VIN fetch done car_id=%s sources=%s", car_id, list(data.keys()))
         GLib.idle_add(self._on_vin_data_ready, car_id, vin, data)
 
     def _on_vin_data_ready(self, car_id: int, vin: str, sources: dict) -> bool:
@@ -326,6 +334,7 @@ class CarsPage(
                 msg = _translate(self.language, "vin.autodev.error.generic")
             self._show_toast(msg)
         if not sources:
+            log.info("VIN fetch car_id=%s: no data from any source", car_id)
             if self.db is not None:
                 try:
                     self.db.update_car_vin_data(car_id, "{}")
