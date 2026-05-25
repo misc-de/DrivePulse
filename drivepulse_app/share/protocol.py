@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -125,6 +126,22 @@ def _trips_identical(existing: Any, incoming: dict) -> bool:
     return True
 
 
+def _payload_list(value: Any, *, field: str) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    log.warning("Ignoring share payload field %s with non-list value", field)
+    return []
+
+
+def _optional_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def build_photos_payload(
     db: DriveDB,
     car_id: int,
@@ -173,7 +190,7 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
         now = datetime.now(UTC).isoformat()
         existing = {t["name"]: t for t in db.list_saved_tours()}
         tours_added = 0
-        for tour in payload.get("tours") or []:
+        for tour in _payload_list(payload.get("tours"), field="tours"):
             if not isinstance(tour, dict) or not tour.get("name"):
                 continue
             if tour["name"] in existing:
@@ -197,9 +214,11 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
     photos_added = 0
     conflicts = 0
 
-    vehicle = payload.get("vehicle") or {}
+    vehicle = payload.get("vehicle")
+    if not isinstance(vehicle, dict):
+        return {"ok": False, "error": "invalid vehicle"}
     vin_hash = vehicle.get("vin_hash")
-    if not vin_hash:
+    if not isinstance(vin_hash, str) or not vin_hash:
         return {"ok": False, "error": "missing vin_hash"}
 
     car = db.get_car_by_vin_hash(vin_hash)
@@ -235,11 +254,11 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
     existing_trips = db.list_trips_for_car(car_id)
     existing_by_started = {t["started_at"]: t for t in existing_trips}
 
-    for trip in payload.get("trips") or []:
+    for trip in _payload_list(payload.get("trips"), field="trips"):
         if not isinstance(trip, dict):
             continue
         started_at = trip.get("started_at")
-        if not started_at:
+        if not isinstance(started_at, str) or not started_at:
             continue
         if started_at in existing_by_started:
             existing_trip = existing_by_started[started_at]
@@ -270,7 +289,7 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
                     trip.get("duration_s"),
                     trip.get("max_speed_kmh"),
                     trip.get("avg_speed_kmh"),
-                    trip.get("samples_count") or 0,
+                    _optional_int(trip.get("samples_count")),
                     trip.get("label"),
                     now,
                 ),
@@ -279,7 +298,7 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
             db._conn.commit()
         trips_added += 1
         try:
-            db.add_samples(trip_id, trip.get("samples") or [])
+            db.add_samples(trip_id, _payload_list(trip.get("samples"), field="trip.samples"))
         except Exception:
             log.exception("Could not import samples for shared trip started_at=%s", started_at)
         with db._lock:
@@ -294,17 +313,22 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
     existing_runs = db.list_stopwatch_runs_for_car(car_id)
     existing_runs_by_at = {r["run_at"]: r for r in existing_runs}
 
-    for run in payload.get("stopwatch_runs") or []:
+    for run in _payload_list(payload.get("stopwatch_runs"), field="stopwatch_runs"):
         if not isinstance(run, dict):
             continue
         run_at = run.get("run_at")
-        if not run_at:
+        if not isinstance(run_at, str) or not run_at:
             continue
+        results = run.get("results")
+        samples = run.get("samples")
+        if not isinstance(results, dict):
+            results = {}
+        if not isinstance(samples, list):
+            samples = []
         if run_at in existing_runs_by_at:
             existing_run = existing_runs_by_at[run_at]
             existing_full = db.get_stopwatch_run(int(existing_run["id"]))
-            if (existing_full.get("results") == run.get("results", {})
-                    and existing_full.get("samples") == run.get("samples", [])):
+            if existing_full.get("results") == results and existing_full.get("samples") == samples:
                 continue  # identical, skip silently
             conflict_data = json.dumps(run, ensure_ascii=False)
             with db._lock:
@@ -327,8 +351,8 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
                     run_at,
                     run.get("lat"),
                     run.get("lon"),
-                    json.dumps(run.get("results", {})),
-                    json.dumps(run.get("samples", [])),
+                    json.dumps(results),
+                    json.dumps(samples),
                     now,
                 ),
             )
@@ -339,18 +363,22 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
     existing_scans = db.list_scans_for_car(car_id)
     existing_scans_by_at = {s["scanned_at"]: s for s in existing_scans}
 
-    for scan in payload.get("scans") or []:
+    for scan in _payload_list(payload.get("scans"), field="scans"):
         if not isinstance(scan, dict):
             continue
         scanned_at = scan.get("scanned_at")
-        if not scanned_at:
+        if not isinstance(scanned_at, str) or not scanned_at:
+            continue
+        data_json = scan.get("data_json", "{}")
+        if not isinstance(data_json, str):
+            log.warning("Skipping shared scan with non-string data_json at %s", scanned_at)
             continue
         if scanned_at in existing_scans_by_at:
             existing_scan = existing_scans_by_at[scanned_at]
             existing_data = db.get_scan_data(int(existing_scan["id"]))
             try:
-                incoming_data = json.loads(scan.get("data_json", "{}"))
-            except Exception:
+                incoming_data = json.loads(data_json)
+            except json.JSONDecodeError:
                 incoming_data = {}
             if existing_data == incoming_data:
                 continue  # identical, skip silently
@@ -374,10 +402,10 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
                     car_id,
                     scanned_at,
                     scan.get("protocol"),
-                    scan.get("dtc_count") or 0,
-                    scan.get("pending_dtc_count") or 0,
-                    scan.get("pids_count") or 0,
-                    scan.get("data_json", "{}"),
+                    _optional_int(scan.get("dtc_count")),
+                    _optional_int(scan.get("pending_dtc_count")),
+                    _optional_int(scan.get("pids_count")),
+                    data_json,
                     now,
                 ),
             )
@@ -388,20 +416,20 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
     existing_photos = db.list_photos_for_car(car_id)
     existing_photos_by_at = {p["taken_at"]: p for p in existing_photos}
 
-    for photo in payload.get("photos") or []:
+    for photo in _payload_list(payload.get("photos"), field="photos"):
         if not isinstance(photo, dict):
             continue
         taken_at = photo.get("taken_at")
         data_b64 = photo.get("data_b64")
         filename = photo.get("filename") or ""
-        if not taken_at or not data_b64:
+        if not isinstance(taken_at, str) or not taken_at or not isinstance(data_b64, str) or not data_b64:
             continue
         if taken_at in existing_photos_by_at:
             conflicts += 1
             continue
         try:
-            photo_bytes = base64.b64decode(data_b64)
-        except Exception:
+            photo_bytes = base64.b64decode(data_b64, validate=True)
+        except (ValueError, binascii.Error):
             log.exception("Could not decode photo data for taken_at=%s", taken_at)
             continue
         ext = Path(filename).suffix or ".jpg"

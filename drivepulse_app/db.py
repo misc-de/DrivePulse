@@ -24,6 +24,38 @@ from drivepulse_app.diagnostics import get_logger
 
 log = get_logger(__name__)
 
+_SCHEMA_VERSION = 1
+
+
+def _is_duplicate_column_error(exc: sqlite3.OperationalError) -> bool:
+    return "duplicate column name" in str(exc).lower()
+
+
+_MIGRATION_STATEMENTS_V1 = (
+    "ALTER TABLE trips ADD COLUMN label TEXT",
+    "ALTER TABLE cars ADD COLUMN vin_hash TEXT",
+    "ALTER TABLE cars ADD COLUMN vin_anon TEXT",
+    "ALTER TABLE trips ADD COLUMN seen_at TEXT",
+    "ALTER TABLE trips ADD COLUMN shared_at TEXT",
+    "ALTER TABLE scans ADD COLUMN seen_at TEXT",
+    "ALTER TABLE scans ADD COLUMN shared_at TEXT",
+    "ALTER TABLE acceleration_runs ADD COLUMN seen_at TEXT",
+    "ALTER TABLE acceleration_runs ADD COLUMN shared_at TEXT",
+    "ALTER TABLE cars ADD COLUMN vin_data_json TEXT",
+    "ALTER TABLE car_photos ADD COLUMN seen_at TEXT",
+    "ALTER TABLE car_photos ADD COLUMN shared_at TEXT",
+    "ALTER TABLE cars ADD COLUMN is_live INTEGER NOT NULL DEFAULT 0",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_cars_vin_hash ON cars(vin_hash) WHERE vin_hash IS NOT NULL",
+    "CREATE TABLE IF NOT EXISTS share_conflicts ("
+    "    id            INTEGER PRIMARY KEY AUTOINCREMENT,"
+    "    type          TEXT NOT NULL,"
+    "    car_id        INTEGER REFERENCES cars(id) ON DELETE CASCADE,"
+    "    local_id      INTEGER NOT NULL,"
+    "    incoming_json TEXT NOT NULL,"
+    "    received_at   TEXT NOT NULL"
+    ")",
+)
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS cars (
@@ -153,37 +185,7 @@ class DriveDB:
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(_SCHEMA)
-            for stmt in (
-                "ALTER TABLE trips ADD COLUMN label TEXT",
-                "ALTER TABLE cars ADD COLUMN vin_hash TEXT",
-                "ALTER TABLE cars ADD COLUMN vin_anon TEXT",
-                "ALTER TABLE trips ADD COLUMN seen_at TEXT",
-                "ALTER TABLE trips ADD COLUMN shared_at TEXT",
-                "ALTER TABLE scans ADD COLUMN seen_at TEXT",
-                "ALTER TABLE scans ADD COLUMN shared_at TEXT",
-                "ALTER TABLE acceleration_runs ADD COLUMN seen_at TEXT",
-                "ALTER TABLE acceleration_runs ADD COLUMN shared_at TEXT",
-                "ALTER TABLE cars ADD COLUMN vin_data_json TEXT",
-                "ALTER TABLE car_photos ADD COLUMN seen_at TEXT",
-                "ALTER TABLE car_photos ADD COLUMN shared_at TEXT",
-                "ALTER TABLE cars ADD COLUMN is_live INTEGER NOT NULL DEFAULT 0",
-            ):
-                try:
-                    self._conn.execute(stmt)
-                    self._conn.commit()
-                except Exception:
-                    pass  # column already exists in older databases
-            self._conn.executescript(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_cars_vin_hash ON cars(vin_hash) WHERE vin_hash IS NOT NULL;"
-                "CREATE TABLE IF NOT EXISTS share_conflicts ("
-                "    id            INTEGER PRIMARY KEY AUTOINCREMENT,"
-                "    type          TEXT NOT NULL,"
-                "    car_id        INTEGER REFERENCES cars(id) ON DELETE CASCADE,"
-                "    local_id      INTEGER NOT NULL,"
-                "    incoming_json TEXT NOT NULL,"
-                "    received_at   TEXT NOT NULL"
-                ");"
-            )
+            self._run_migrations()
             self._backfill_vin_hashes()
 
     @property
@@ -203,6 +205,25 @@ class DriveDB:
         with self._lock:
             self._conn.commit()
             self._conn.execute("PRAGMA optimize")
+
+    def _run_migrations(self) -> None:
+        row = self._conn.execute("PRAGMA user_version").fetchone()
+        version = int(row[0] if row is not None else 0)
+        if version > _SCHEMA_VERSION:
+            raise RuntimeError(
+                f"Database schema version {version} is newer than DrivePulse supports ({_SCHEMA_VERSION})"
+            )
+        if version >= 1:
+            return
+        for stmt in _MIGRATION_STATEMENTS_V1:
+            try:
+                self._conn.execute(stmt)
+            except sqlite3.OperationalError as exc:
+                if stmt.lstrip().upper().startswith("ALTER TABLE") and _is_duplicate_column_error(exc):
+                    continue
+                raise
+        self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
+        self._conn.commit()
 
     # ------------------------------------------------------------------ Cars
 
@@ -885,5 +906,3 @@ class DriveDB:
                 (name, tour_id),
             )
             self._conn.commit()
-
-

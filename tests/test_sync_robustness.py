@@ -53,6 +53,47 @@ def test_import_data_skips_malformed_entries(tmp_path):
         db.close()
 
 
+def test_import_data_skips_car_without_identity(tmp_path):
+    from drivepulse_app.db import DriveDB
+    from drivepulse_app.sync.data import import_data
+
+    db = DriveDB(tmp_path / "drivepulse.sqlite3")
+    try:
+        result = import_data(
+            db,
+            {
+                "version": 1,
+                "cars": [
+                    {"label": "No identity", "trips": [{"started_at": "2026-01-01T00:00:00+00:00"}]},
+                    {"vin": 123, "profile_path": None},
+                ],
+            },
+        )
+
+        assert result["cars_added"] == 0
+        assert db.list_cars() == []
+    finally:
+        db.close()
+
+
+def test_import_data_ignores_non_list_collections(tmp_path):
+    from drivepulse_app.db import DriveDB
+    from drivepulse_app.sync.data import import_data
+
+    db = DriveDB(tmp_path / "drivepulse.sqlite3")
+    try:
+        result = import_data(db, {"version": 1, "cars": {"vin": "NOT-A-LIST"}})
+
+        assert result == {
+            "cars_added": 0,
+            "cars_updated": 0,
+            "trips_added": 0,
+            "samples_added": 0,
+        }
+    finally:
+        db.close()
+
+
 def test_sync_preserves_profile_path_and_deduplicates_vinless_cars(tmp_path):
     from drivepulse_app.db import DriveDB
     from drivepulse_app.sync.data import export_all, import_data
@@ -171,6 +212,54 @@ def test_sync_client_refuses_pairing_before_fingerprint_verification():
     assert client.import_to_server({"version": 1, "cars": []}) is False
 
 
+def test_sync_client_rejects_non_object_export_response(monkeypatch):
+    import urllib.request
+
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync.client import SyncClient
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"[]"
+
+    client = SyncClient("127.0.0.1", 8765, "fingerprint", "device")
+    client._fingerprint_verified = True
+    client._session_token = "session"
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+
+    assert client.export_from_server() is None
+
+
+def test_sync_client_handles_invalid_json_response(monkeypatch):
+    import urllib.request
+
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync.client import SyncClient
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"{not json"
+
+    client = SyncClient("127.0.0.1", 8765, "fingerprint", "device")
+    client._fingerprint_verified = True
+    client._session_token = "session"
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+
+    assert client.import_to_server({"version": 1, "cars": []}) is False
+
+
 def test_get_local_ip_uses_timeout_and_fallback(monkeypatch):
     import socket
 
@@ -215,6 +304,23 @@ def test_sync_identity_replaces_empty_persisted_device_id(monkeypatch, tmp_path)
 
     assert sync_identity.get_or_create_device_id() == "new-device"
     assert device_file.read_text(encoding="utf-8") == "new-device"
+
+
+def test_sync_identity_falls_back_when_device_id_cannot_be_persisted(monkeypatch, tmp_path):
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync import identity as sync_identity
+
+    sync_dir = tmp_path / "sync"
+    monkeypatch.setattr(sync_identity, "SYNC_DIR", sync_dir)
+    monkeypatch.setattr(sync_identity, "DEVICE_ID_FILE", sync_dir / "device_id.txt")
+    monkeypatch.setattr(sync_identity, "generate_device_id", lambda: "fallback-device")
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("read-only")
+
+    monkeypatch.setattr(sync_identity, "atomic_write_text", fail_write)
+
+    assert sync_identity.get_or_create_device_id() == "fallback-device"
 
 
 def test_perform_sync_reports_server_import_failure(tmp_path):
@@ -328,6 +434,81 @@ def test_sync_handler_rejects_oversized_body(monkeypatch):
     handler._srv = SimpleNamespace(_session_token="secret", _session_expiry=0)
     handler.headers = {"Authorization": "Bearer secret"}
     assert _SyncHandler._check_bearer(handler) is True
+
+
+def test_sync_handler_rejects_non_object_pairing_json():
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from drivepulse_app.sync.server import _SyncHandler
+
+    handler = _SyncHandler.__new__(_SyncHandler)
+    handler.path = "/pair"
+    handler.headers = {"Content-Length": "2"}
+    handler.rfile = BytesIO(b"[]")
+    handler.client_address = ("127.0.0.1", 12345)
+    handler._srv = SimpleNamespace(_pairing_token="pair")
+    responses = []
+    handler._send_json = lambda code, data: responses.append((code, data))
+
+    _SyncHandler.do_POST(handler)
+
+    assert responses == [(400, {"ok": False, "error": "bad json"})]
+
+
+def test_qr_scanner_element_available_handles_factory_errors():
+    from drivepulse_app.sync import qr_scanner
+
+    class Factory:
+        @staticmethod
+        def find(_name):
+            raise RuntimeError("registry unavailable")
+
+    class Gst:
+        ElementFactory = Factory
+
+    assert qr_scanner._element_available(Gst, "zxing") is False
+
+
+def test_qr_scanner_scan_supported_requires_camera_and_zxing(monkeypatch):
+    from drivepulse_app.sync import qr_scanner
+
+    class Factory:
+        @staticmethod
+        def find(name):
+            return object() if name == "autovideosrc" else None
+
+    class Gst:
+        ElementFactory = Factory
+
+    monkeypatch.setattr(qr_scanner, "_import_gstreamer", lambda: Gst)
+
+    assert qr_scanner.scan_supported() is False
+
+
+def test_qr_scanner_stop_pipeline_tolerates_runtime_cleanup_errors():
+    from types import SimpleNamespace
+
+    from drivepulse_app.sync.qr_scanner import WebcamQRScanner
+
+    class Bus:
+        def remove_signal_watch(self):
+            raise RuntimeError("already removed")
+
+    class Pipeline:
+        def set_state(self, _state):
+            raise RuntimeError("already stopped")
+
+    scanner = WebcamQRScanner.__new__(WebcamQRScanner)
+    scanner._timeout_id = None
+    scanner._bus = Bus()
+    scanner._pipeline = Pipeline()
+    scanner._Gst = SimpleNamespace(State=SimpleNamespace(NULL="null"))
+
+    WebcamQRScanner._stop_pipeline(scanner)
+
+    assert scanner._bus is None
+    assert scanner._pipeline is None
 
 
 def test_sync_poller_treats_403_as_reachable(monkeypatch):
@@ -604,6 +785,45 @@ def test_sync_dialog_stop_invalidates_pending_server_start(drivepulse_module):
     assert dialog._server_start_requested is False
     assert dialog._server_start_generation == 11
     assert SyncDialog._server_start_is_current(dialog, 10) is False
+
+
+def test_sync_dialog_stop_handles_runtime_stop_error(drivepulse_module):
+    import threading
+
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync.dialog import SyncDialog
+
+    class BrokenServer:
+        def stop(self):
+            raise RuntimeError("already stopped")
+
+    dialog = SyncDialog.__new__(SyncDialog)
+    dialog._server_lock = threading.RLock()
+    dialog._server_start_generation = 2
+    dialog._server_start_requested = True
+    dialog._server = BrokenServer()
+
+    SyncDialog._stop_server(dialog)
+
+    assert dialog._server is None
+    assert dialog._server_start_requested is False
+    assert dialog._server_start_generation == 3
+
+
+def test_sync_dialog_cancel_scanner_handles_runtime_cancel_error(drivepulse_module):
+    pytest.importorskip("cryptography")
+    from drivepulse_app.sync.dialog import SyncDialog
+
+    class BrokenScanner:
+        def cancel(self):
+            raise RuntimeError("camera already closed")
+
+    dialog = SyncDialog.__new__(SyncDialog)
+    dialog._scanner = BrokenScanner()
+
+    SyncDialog._cancel_scanner(dialog)
+
+    assert dialog._scanner is None
 
 
 def test_sync_dialog_close_stops_server_and_invalidates_starts(drivepulse_module):
