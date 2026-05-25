@@ -55,16 +55,18 @@ _VALHALLA_MANEUVER: dict[int, tuple[str, str]] = {
     38: ("merge",        "left"),
 }
 
-MAP_TYPES = ["map", "satellite", "dark"]
+MAP_TYPES = ["map", "satellite", "dark", "grayscale"]
 MAP_LABEL_KEYS = {
     "map": "map.type.map",
     "satellite": "map.type.satellite",
     "dark": "map.type.dark",
+    "grayscale": "map.type.grayscale",
 }
 MAP_ICONS = {
     "map": "dialog-layers-symbolic",
     "satellite": "image-x-generic-symbolic",
     "dark": "night-light-symbolic",
+    "grayscale": "preferences-color-symbolic",
 }
 TILE_URLS = {
     "map": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -73,6 +75,13 @@ TILE_URLS = {
         "/World_Imagery/MapServer/tile/{z}/{y}/{x}"
     ),
     "dark": "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png",
+    "grayscale": "https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png",
+}
+TILE_ATTRIBUTION = {
+    "map": "© OpenStreetMap contributors",
+    "satellite": "© Esri, Maxar, Earthstar Geographics",
+    "dark": "© OpenStreetMap, © CARTO",
+    "grayscale": "© OpenStreetMap, © CARTO",
 }
 
 BAB_BASE = "https://verkehr.autobahn.de/o/autobahn"

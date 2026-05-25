@@ -95,11 +95,15 @@ const STYLES = {
   street: 'https://tiles.openfreemap.org/styles/liberty',
   dark: rasterStyle(
     ['https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png'],
-    '© CartoDB', 19
+    '© OpenStreetMap, © CARTO', 19
   ),
   satellite: rasterStyle(
     ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-    '© Esri', 18
+    '© Esri, Maxar, Earthstar Geographics', 18
+  ),
+  grayscale: rasterStyle(
+    ['https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png'],
+    '© OpenStreetMap, © CARTO', 19
   ),
 };
 
