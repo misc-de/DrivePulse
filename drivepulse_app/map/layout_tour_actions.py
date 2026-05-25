@@ -326,12 +326,19 @@ class MapTourActionsMixin:
             action_row.set_activatable(False)
             return action_row
 
-        icon_name = (
-            "dp-tour-plan-symbolic"
-            if meta["kind"] == "tour"
-            else "distance-symbolic"
+        loaded_id = getattr(self, "_loaded_tour_id", None)
+        is_loaded = (
+            meta["kind"] == "tour"
+            and loaded_id is not None
+            and int(meta["id"]) == loaded_id
         )
-        icon = Gtk.Image.new_from_icon_name(icon_name)
+        if is_loaded:
+            icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+            icon.add_css_class("dp-tour-loaded-icon")
+        elif meta["kind"] == "tour":
+            icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
+        else:
+            icon = Gtk.Image.new_from_icon_name("distance-symbolic")
         action_row.add_prefix(icon)
 
         edit_btn = Gtk.Button(icon_name="document-edit-symbolic")
@@ -573,13 +580,17 @@ class MapTourActionsMixin:
             return
 
         waypoints = [e.get_text().strip() for _, e, __ in self._entry_rows]
-        names = [w for w in waypoints if w]
-        if len(names) >= 2:
-            default_name = f"{names[0]} → {names[-1]}"
-        elif names:
-            default_name = names[0]
+        loaded_name = getattr(self, "_loaded_tour_name", None)
+        if loaded_name:
+            default_name = loaded_name
         else:
-            default_name = datetime.now().strftime("%d.%m.%Y")
+            names = [w for w in waypoints if w]
+            if len(names) >= 2:
+                default_name = f"{names[0]} → {names[-1]}"
+            elif names:
+                default_name = names[0]
+            else:
+                default_name = datetime.now().strftime("%d.%m.%Y")
 
         _raw_loaded_id: int | None = getattr(self, "_loaded_tour_id", None)
         loaded_id: int | None = (
@@ -680,7 +691,12 @@ class MapTourActionsMixin:
             row.set_activatable(False)
             return row
 
-        icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
+        loaded_id = getattr(self, "_loaded_tour_id", None)
+        if loaded_id is not None and int(tour["id"]) == loaded_id:
+            icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+            icon.add_css_class("dp-tour-loaded-icon")
+        else:
+            icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
         row.add_prefix(icon)
 
         sync_getter = getattr(self, "get_sync_client", None)
@@ -842,11 +858,14 @@ class MapTourActionsMixin:
         while len(self._entry_rows) > target:
             self._remove_entry(self._entry_rows[-1][0])
 
+        self._loading_tour = True
         for (_, entry, __), text in zip(self._entry_rows, waypoints, strict=False):
             entry.set_text(text)
+        self._loading_tour = False
         self._update_placeholders()
 
         self._loaded_tour_id = int(tour["id"])
+        self._loaded_tour_name = str(tour.get("name") or "")
         self._clear_replay_overlays()
         nav_view = getattr(self, "_nav_view", None)
         if nav_view is not None:

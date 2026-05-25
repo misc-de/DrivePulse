@@ -62,6 +62,7 @@ class MapSearchBarMixin:
         entry = Gtk.Entry()
         entry.set_hexpand(True)
         entry.connect("activate", self._on_route_clicked)
+        entry.connect("changed", self._on_entry_text_changed)
 
         add_btn = Gtk.Button(label="+")
         add_btn.add_css_class("flat")
@@ -118,6 +119,8 @@ class MapSearchBarMixin:
         return True
 
     def _reorder_row(self, src_idx: int, dst_idx: int) -> None:
+        if getattr(self, "_loaded_tour_id", None) is not None:
+            self._loaded_tour_id = None
         triple = self._entry_rows.pop(src_idx)
         self._entry_rows.insert(dst_idx, triple)
         row_widget = triple[0]
@@ -167,3 +170,8 @@ class MapSearchBarMixin:
     def _update_remove_sensitivity(self) -> None:
         for _, __, rem_btn in self._entry_rows:
             rem_btn.set_sensitive(True)
+
+    def _on_entry_text_changed(self, _entry: object) -> None:
+        if not getattr(self, "_loading_tour", False):
+            if getattr(self, "_loaded_tour_id", None) is not None:
+                self._loaded_tour_id = None

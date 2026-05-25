@@ -111,6 +111,7 @@ class DashboardWindow(
             RotationSource, self.settings.get("rotation_mode", "follow_sensor")
         )
         self.tts_enabled: bool = bool(self.settings.get("tts_enabled", True))
+        self.speed_limit_warn: bool = bool(self.settings.get("speed_limit_warn", True))
         self.tts_backend: str = self.settings.get("tts_backend", "espeak")
         self.tts_language: str = self.settings.get("tts_language", "auto")
         self.tts_voice: str = self.settings.get("tts_voice", "female")
@@ -324,6 +325,7 @@ class DashboardWindow(
         if self.tts_backend == "piper":
             _tts_svc.ensure_models(self.tts_language, self.tts_voice, self.tts_quality)
         self.map_page.set_tts_enabled(self.tts_enabled)
+        self.map_page.set_speed_warn_enabled(self.speed_limit_warn)
         self.map_page.set_tts_language(self.tts_language)
         self.map_page.set_tts_voice(self.tts_voice)
         self.map_page.set_tts_quality(self.tts_quality)

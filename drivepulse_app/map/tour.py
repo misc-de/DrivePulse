@@ -14,6 +14,7 @@ from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map.services import (
     bearing,
     compute_route,
+    fetch_overpass_speed_zones,
     format_distance,
     format_duration,
     haversine,
@@ -73,6 +74,7 @@ class MapTourMixin:
 
     _off_route_since: float = 0.0
     _last_reroute_time: float = 0.0
+    _route_gen: int = 0
 
     def _on_tour_start_clicked(self, _btn: object) -> None:
         if self._start_coord is None:
@@ -104,6 +106,10 @@ class MapTourMixin:
         self._remaining_dest_wps = list(self._tour_waypoints[1:]) if self._tour_waypoints else []
         self._wp_in_radius = False
         self._speed_zones = self._build_speed_zones()
+        self._speed_zones_from_overpass = False
+        self._speed_warn_fired = False
+        self._route_gen += 1
+        self._start_overpass_speed_fetch()
         self._prerender_upcoming_steps(0, 5)
         self._set_nav_chrome_visible(False)
         self._set_tour_button("stop")
@@ -342,6 +348,40 @@ class MapTourMixin:
                 prev_speed = speed
         return zones
 
+    def _start_overpass_speed_fetch(self) -> None:
+        """Kick off a background thread that pre-fetches per-segment speed limits."""
+        coords = list(self._tour_coords) if self._tour_coords else []
+        if not coords:
+            return
+        gen = self._route_gen
+        t = threading.Thread(
+            target=self._overpass_speed_bg,
+            args=(coords, gen),
+            daemon=True,
+        )
+        t.start()
+
+    def _overpass_speed_bg(
+        self, coords: list[list[float]], gen: int
+    ) -> None:
+        try:
+            zones = fetch_overpass_speed_zones(coords)
+        except Exception:
+            log.exception("Overpass speed fetch failed")
+            zones = []
+        GLib.idle_add(self._apply_overpass_speed_zones, zones, gen)
+
+    def _apply_overpass_speed_zones(
+        self, zones: list[tuple[float, float]], gen: int
+    ) -> bool:
+        if gen != self._route_gen or not self._tour_active:
+            return False
+        if zones:
+            self._speed_zones = zones
+            self._speed_zones_from_overpass = True
+            log.debug("Overpass speed zones: %d breakpoints loaded", len(zones))
+        return False
+
     def _build_maneuver_positions(self) -> list[float]:
         """Return cumulative distances (m) for each actionable turn maneuver."""
         skip = self._NON_ACTIONABLE_STEP_TYPES | {"depart", "arrive"}
@@ -431,23 +471,17 @@ class MapTourMixin:
                 and distance_m > self._step_min_dist + self._MANEUVER_PASS_GROWTH_M
             )
 
-            # Route-progress fallback: the maneuver is behind us when we've
-            # driven MANEUVER_CLOSEST_M past its own position on the route,
-            # OR past the next step's start + 5 m — whichever fires first.
-            # Anchoring on the *current* step's position (not just the next
-            # step's start) lets the multi-step loop skip cleanly over steps
-            # that were missed when the driver rejoins the route further ahead.
+            # Route-progress fallback: the maneuver is behind us when GPS
+            # progress is at least MANEUVER_CLOSEST_M past the step's own
+            # route position.  We deliberately do NOT anchor on the next
+            # step's start — doing so caused premature step advancement at
+            # close-together maneuvers (roundabouts, complex intersections),
+            # which desynced the visual overlay and TTS announcements.
             if not passed and self._step_cum_m:
                 curr_idx = self._tour_step_idx
-                next_idx = curr_idx + 1
                 if curr_idx < len(self._step_cum_m):
                     maneuver_behind_m = self._step_cum_m[curr_idx] + self._MANEUVER_CLOSEST_M
-                    step_end_m = (
-                        self._step_cum_m[next_idx] + 5.0
-                        if next_idx < len(self._step_cum_m)
-                        else float("inf")
-                    )
-                    if progress_m > min(maneuver_behind_m, step_end_m):
+                    if progress_m > maneuver_behind_m:
                         passed = True
 
             if not passed:
@@ -461,6 +495,7 @@ class MapTourMixin:
 
             self._tour_step_idx += 1
             self._step_min_dist = None
+            self._speed_warn_fired = False
             self._skip_non_actionable_steps()
             # Loop continues to check whether the newly active step is also passed.
 
@@ -546,6 +581,72 @@ class MapTourMixin:
             return
         self._speed_zone_lbl.set_text(str(int(speed)))
         self._speed_zone_overlay.set_visible(True)
+
+        # Speed-limit warning beep — only with Overpass data, only once per step.
+        if (
+            getattr(self, "_speed_warn_enabled", True)
+            and getattr(self, "_speed_zones_from_overpass", False)
+            and not getattr(self, "_speed_warn_fired", False)
+            and self._tour_active
+        ):
+            import time as _time
+            _now = _time.monotonic()
+            _gps_age = _now - getattr(self, "_gps_filt_time", 0.0)
+            if _gps_age < self._GPS_MAX_STALE_S:
+                vehicle_kmh = getattr(self, "_gps_filt_speed_kmh", 0.0) or 0.0
+            else:
+                _obd_age = _now - getattr(self, "_obd_speed_time", 0.0)
+                vehicle_kmh = (
+                    getattr(self, "_obd_speed_kmh", None) or 0.0
+                    if _obd_age < self._OBD_SPEED_STALE_S
+                    else 0.0
+                )
+            if vehicle_kmh >= speed * 1.30:
+                self._speed_warn_fired = True
+                self._play_speed_beep(long_double=True)
+            elif vehicle_kmh >= speed * 1.15:
+                self._speed_warn_fired = True
+                self._play_speed_beep(long_double=False)
+
+    def _play_speed_beep(self, long_double: bool) -> None:
+        import io
+        import math
+        import struct
+        import subprocess
+        import wave
+
+        def _do() -> None:
+            rate = 22050
+            freq = 880.0
+            volume = 0.65
+            # short: 160 ms single tone  |  long-double: 280 ms + 120 ms gap + 280 ms
+            segments = (
+                [(280, True), (120, False), (280, True)] if long_double else [(160, True)]
+            )
+            frames: list[bytes] = []
+            for ms, on in segments:
+                n = int(rate * ms / 1000)
+                for i in range(n):
+                    v = int(32767 * volume * math.sin(2 * math.pi * freq * i / rate)) if on else 0
+                    frames.append(struct.pack("<h", v))
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(rate)
+                w.writeframes(b"".join(frames))
+            try:
+                proc = subprocess.Popen(
+                    ["aplay", "-q"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                proc.communicate(input=buf.getvalue(), timeout=3)
+            except Exception:
+                pass
+
+        threading.Thread(target=_do, daemon=True).start()
 
     def _prerender_upcoming_steps(self, from_idx: int, count: int = 5) -> None:
         """Pre-render TTS audio for the next *count* steps starting at *from_idx*.
@@ -726,6 +827,10 @@ class MapTourMixin:
         self._tts_prerender_step_idx = -1
         self._lane_step_idx = -1
         self._speed_zones = self._build_speed_zones()
+        self._speed_zones_from_overpass = False
+        self._speed_warn_fired = False
+        self._route_gen += 1
+        self._start_overpass_speed_fetch()
         self._prerender_upcoming_steps(0, 5)
         self._skip_non_actionable_steps()
         self._update_maneuver_overlay()
