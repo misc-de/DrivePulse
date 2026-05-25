@@ -86,6 +86,19 @@ class MapShumateMixin:
         )
         if license_widget is not None:
             license_widget.set_halign(Gtk.Align.CENTER)
+        self._shumate_license_widget = license_widget
+        # Default bottom margins of OSD overlay widgets used by
+        # _shumate_apply_attribution; recorded once so we can reapply them
+        # when the license becomes visible again after a layer switch.
+        self._shumate_osd_default_margins = {
+            "fab": 41,
+            "scale": 36,
+            "coord_chip": 36,
+            "map_state": 36,
+            "speed_zone": 36,
+        }
+        # Pixels saved by hiding the empty license banner.
+        self._shumate_attr_compact_delta = 27
 
         self._inner_map = (
             self._shumate_map.get_map()
@@ -181,6 +194,53 @@ class MapShumateMixin:
 
     def _shumate_set_guide(self, coords: list[list[float]]) -> None:
         self._shumate_set_path(self._guide_path_layer, coords)
+
+    def _shumate_apply_attribution(self) -> None:
+        """Hide the license banner when the current map source has no license
+        text and pull bottom-anchored OSD overlay widgets down by the
+        attribution height so no empty strip is left below them."""
+        license_widget = getattr(self, "_shumate_license_widget", None)
+        if license_widget is None or self._shumate_map is None:
+            return
+
+        source = self._shumate_map.get_map_source()
+        has_license = False
+        if source is not None:
+            text = ""
+            try:
+                text = source.get_license() or ""
+            except (AttributeError, TypeError):
+                try:
+                    text = source.get_property("license") or ""
+                except Exception:
+                    text = ""
+            has_license = bool(text and text.strip())
+
+        license_widget.set_visible(has_license)
+
+        defaults = getattr(self, "_shumate_osd_default_margins", {})
+        delta = 0 if has_license else -getattr(
+            self, "_shumate_attr_compact_delta", 27
+        )
+
+        scale = (
+            self._shumate_map.get_scale()
+            if hasattr(self._shumate_map, "get_scale") else None
+        )
+        adjustments = [
+            (getattr(self, "_fab", None), defaults.get("fab", 41)),
+            (scale, defaults.get("scale", 36)),
+            (getattr(self, "_coord_chip", None), defaults.get("coord_chip", 36)),
+            (getattr(self, "_map_state_overlay", None), defaults.get("map_state", 36)),
+            (getattr(self, "_speed_zone_overlay", None), defaults.get("speed_zone", 36)),
+        ]
+        for widget, default in adjustments:
+            if widget is None:
+                continue
+            try:
+                widget.set_margin_bottom(default + delta)
+            except Exception:
+                pass
 
     def _shumate_max_zoom(self) -> float:
         """Maximum zoom level supported by the current Shumate tile source."""
