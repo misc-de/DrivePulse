@@ -321,7 +321,12 @@ class MapTourActionsMixin:
 
         # Long-press enters multi-select mode with this row pre-checked —
         # matches the gesture used on the cars trips/scans/photos lists.
+        # CAPTURE phase + touch_only=False keeps the press from being eaten
+        # by inner widgets (e.g. the edit-button suffix) before the gesture
+        # has a chance to recognise the long hold.
         lp = Gtk.GestureLongPress()
+        lp.set_touch_only(False)
+        lp.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         lp.connect(
             "pressed",
             lambda _g, _x, _y, k=key: self._enter_history_select_mode(k),
