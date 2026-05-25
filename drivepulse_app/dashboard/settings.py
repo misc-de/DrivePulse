@@ -44,6 +44,7 @@ class DashboardSettingsMixin:
                 "map_traffic_bundesweit": getattr(self, "map_traffic_bundesweit", True),
                 "map_traffic_nrw": getattr(self, "map_traffic_nrw", False),
                 "map_3d_view": getattr(self, "map_3d_view", True),
+                "map_layer": getattr(self, "map_layer", "map"),
                 "last_update_check": getattr(self, "last_update_check", None),
                 "dashcam_camera": getattr(self, "dashcam_camera", "/dev/video0"),
                 "dashcam_resolution": getattr(self, "dashcam_resolution", "1280x720"),
@@ -602,6 +603,12 @@ class DashboardSettingsMixin:
         if enabled == getattr(self, "map_3d_view", True):
             return
         self.map_3d_view = enabled
+        self._save_settings()
+
+    def _set_map_layer(self, layer: str) -> None:
+        if not isinstance(layer, str) or layer == getattr(self, "map_layer", "map"):
+            return
+        self.map_layer = layer
         self._save_settings()
 
     def _set_map_traffic_visible(self, visible: bool) -> None:

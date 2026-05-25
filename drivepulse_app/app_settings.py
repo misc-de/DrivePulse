@@ -34,6 +34,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "map_traffic_bundesweit": True,
     "map_traffic_nrw": False,
     "map_3d_view": True,
+    "map_layer": "map",
     "rotation_mode": "follow_sensor",
     "tts_enabled": True,
     "tts_backend": "espeak",
@@ -59,6 +60,13 @@ _VALID_TTS_BACKENDS = {"espeak", "piper"}
 _VALID_TTS_LANGUAGES = {"auto", "en", "de"}
 _VALID_TTS_VOICES = {"male", "female"}
 _VALID_TTS_QUALITIES = {"low", "medium", "high"}
+_VALID_MAP_LAYERS = {"map", "satellite", "dark", "grayscale"}
+
+
+def _normalize_map_layer(value: Any) -> str:
+    if isinstance(value, str) and value in _VALID_MAP_LAYERS:
+        return value
+    return DEFAULT_SETTINGS["map_layer"]
 
 
 def _bounded_int(value: Any, default: int, lower: int, upper: int) -> int:
@@ -111,6 +119,7 @@ def load_settings() -> dict[str, Any]:
         "map_traffic_bundesweit": bool(data.get("map_traffic_bundesweit", DEFAULT_SETTINGS["map_traffic_bundesweit"])),
         "map_traffic_nrw": bool(data.get("map_traffic_nrw", DEFAULT_SETTINGS["map_traffic_nrw"])),
         "map_3d_view": bool(data.get("map_3d_view", DEFAULT_SETTINGS["map_3d_view"])),
+        "map_layer": _normalize_map_layer(data.get("map_layer")),
         "sidebar_side": data.get("sidebar_side", "left") if data.get("sidebar_side") in {"left", "right"} else "left",
         "last_update_check": data.get("last_update_check") or None,
         "dashcam_camera": data.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
@@ -162,6 +171,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "map_traffic_bundesweit": bool(settings.get("map_traffic_bundesweit", True)),
                 "map_traffic_nrw": bool(settings.get("map_traffic_nrw", False)),
                 "map_3d_view": bool(settings.get("map_3d_view", True)),
+                "map_layer": _normalize_map_layer(settings.get("map_layer")),
                 "sidebar_side": settings.get("sidebar_side", "left") if settings.get("sidebar_side") in {"left", "right"} else "left",
                 "last_update_check": settings.get("last_update_check") or None,
                 "dashcam_camera": settings.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],

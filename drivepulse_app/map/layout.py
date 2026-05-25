@@ -8,7 +8,7 @@ from gi.repository import Gdk, GLib, Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.map.layout_css import _install_maneuver_css
-from drivepulse_app.map.services import MAP_LABEL_KEYS
+from drivepulse_app.map.services import MAP_ICONS, MAP_LABEL_KEYS, MAP_TYPES
 
 
 class MapLayoutMixin:
@@ -106,10 +106,16 @@ class MapLayoutMixin:
         self._poi_btn.set_tooltip_text(_translate(self.language, "map.poi"))
         self._poi_btn.connect("toggled", self._on_poi_toggled)
 
-        self._layer_btn = Gtk.Button(icon_name="dialog-layers-symbolic")
+        _initial_layer = (
+            MAP_TYPES[self._map_type_idx]
+            if 0 <= self._map_type_idx < len(MAP_TYPES) else "map"
+        )
+        self._layer_btn = Gtk.Button(
+            icon_name=MAP_ICONS.get(_initial_layer, "dialog-layers-symbolic")
+        )
         self._layer_btn.add_css_class("circular")
         self._layer_btn.add_css_class("osd")
-        self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS["map"]))
+        self._layer_btn.set_tooltip_text(_translate(self.language, MAP_LABEL_KEYS[_initial_layer]))
         self._layer_btn.connect("clicked", self._on_layer_clicked)
 
         self._center_btn = Gtk.Button(icon_name="find-location-symbolic")

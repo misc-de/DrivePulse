@@ -15,7 +15,8 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, Gtk
+gi.require_version("Graphene", "1.0")
+from gi.repository import Adw, Gdk, GLib, Graphene, Gtk
 
 from drivepulse_app.cars.metadata import _CHART_METRICS
 from drivepulse_app.common import _translate
@@ -375,73 +376,74 @@ def _build_chart_widget(
 
     area.set_draw_func(draw_cb)
 
-    # Pointer hover (mouse / stylus)
+    # Shared press flag for all controllers — keeps the cursor "live" between
+    # press and release across touch + pointer + emulated-touch input sources.
+    _pressed = [False]
+
+    def _widget_x_from_event(event: Any) -> float | None:
+        """Convert surface-relative event position to widget-local x."""
+        ok, sx, sy = event.get_position()
+        if not ok:
+            return None
+        root = area.get_root()
+        if root is None:
+            return sx
+        try:
+            ok2, p = root.compute_point(area, Graphene.Point().init(sx, sy))
+        except Exception:
+            return sx
+        return p.x if ok2 else sx
+
+    # Pointer hover + drag (mouse / stylus / pointer-emulated touch).
+    # CAPTURE phase so motion is delivered before any sequence claim.
     motion_ctl = Gtk.EventControllerMotion()
+    motion_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
     motion_ctl.connect("motion", lambda _c, x, _y: _set_cursor(x, area.get_width()))
-    motion_ctl.connect("leave", lambda _c: _clear_cursor())
+    motion_ctl.connect(
+        "leave",
+        lambda _c: None if _pressed[0] else _clear_cursor(),
+    )
     area.add_controller(motion_ctl)
 
-    # Touch: tap to mark a data point. Claim the touch sequence in CAPTURE
-    # phase so the parent page-swipe gesture never sees it — without this the
-    # swipe threshold could trip before the drag threshold and flip the tab.
+    # Tap + press tracking. Claim the sequence so a parent ScrolledWindow's
+    # kinetic-scroll gesture can't steal the drag.
     tap_ctl = Gtk.GestureClick()
     tap_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
 
     def _on_chart_tap_pressed(g: Any, _n: int, x: float, _y: float) -> None:
         g.set_state(Gtk.EventSequenceState.CLAIMED)
+        _pressed[0] = True
         _set_cursor(x, area.get_width())
+
+    def _on_chart_tap_released(_g: Any, _n: int, _x: float, _y: float) -> None:
+        _pressed[0] = False
 
     tap_ctl.connect("pressed", _on_chart_tap_pressed)
+    tap_ctl.connect("released", _on_chart_tap_released)
     area.add_controller(tap_ctl)
 
-    # Drag groups with the tap so claiming one claims both — keeps stylus /
-    # mouse scrub working without re-claiming and lets touch tap-then-drag
-    # transition smoothly into cursor scrubbing.
-    drag_ctl = Gtk.GestureDrag()
-
-    def _on_chart_drag_begin(g: Any, x: float, _y: float) -> None:
-        g.set_state(Gtk.EventSequenceState.CLAIMED)
-        _set_cursor(x, area.get_width())
-
-    def _on_chart_drag_update(g: Any, off_x: float, _off_y: float) -> None:
-        ok, sx, _sy = g.get_start_point()
-        if ok:
-            _set_cursor(sx + off_x, area.get_width())
-
-    drag_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-    drag_ctl.connect("drag-begin", _on_chart_drag_begin)
-    drag_ctl.connect("drag-update", _on_chart_drag_update)
-    drag_ctl.group(tap_ctl)
-    area.add_controller(drag_ctl)
-
-    # Press-and-drag scrub for both touch and pointer (incl. pointer-emulated
-    # touch on devices that send BUTTON_PRESS/MOTION_NOTIFY instead of TOUCH
-    # events). GestureDrag's 8 px threshold means slow drags don't fire
-    # drag-update until 8 px are crossed, so we capture every raw motion event
-    # while a press is active and move the cursor in lockstep.
+    # Raw touch fallback — keeps the cursor in lockstep with TOUCH_UPDATE
+    # events on devices that emit real touch events (not pointer emulation).
+    # Uses widget-local x conversion since GdkEvent.get_position() is
+    # surface-relative.
     legacy = Gtk.EventControllerLegacy()
     legacy.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-    _pressed = [False]
 
     def _on_legacy(_c: Any, event: Any) -> bool:
         if event is None:
             return False
         et = event.get_event_type()
-        if et in (Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.BUTTON_PRESS):
-            ok, x, _y = event.get_position()
-            if ok:
+        if et == Gdk.EventType.TOUCH_BEGIN:
+            x = _widget_x_from_event(event)
+            if x is not None:
                 _pressed[0] = True
                 _set_cursor(x, area.get_width())
-        elif et in (Gdk.EventType.TOUCH_UPDATE, Gdk.EventType.MOTION_NOTIFY):
+        elif et == Gdk.EventType.TOUCH_UPDATE:
             if _pressed[0]:
-                ok, x, _y = event.get_position()
-                if ok:
+                x = _widget_x_from_event(event)
+                if x is not None:
                     _set_cursor(x, area.get_width())
-        elif et in (
-            Gdk.EventType.TOUCH_END,
-            Gdk.EventType.TOUCH_CANCEL,
-            Gdk.EventType.BUTTON_RELEASE,
-        ):
+        elif et in (Gdk.EventType.TOUCH_END, Gdk.EventType.TOUCH_CANCEL):
             _pressed[0] = False
         return False
 
