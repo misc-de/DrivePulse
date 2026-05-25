@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC
+
+import pytest
 
 
 def test_db_returns_empty_scan_data_for_invalid_json(tmp_path):
@@ -57,6 +60,70 @@ def test_db_configures_lock_timeout_and_profile_path_index(tmp_path):
         assert "idx_cars_profile_path" in indexes
     finally:
         db.close()
+
+
+def test_db_sets_current_schema_version(tmp_path):
+    from drivepulse_app.db import DriveDB
+
+    path = tmp_path / "drivepulse.sqlite3"
+    db = DriveDB(path)
+    try:
+        with db._lock:
+            version = db._conn.execute("PRAGMA user_version").fetchone()[0]
+
+        assert version == 1
+    finally:
+        db.close()
+
+
+def test_db_migration_upgrades_legacy_version_zero(tmp_path):
+    from drivepulse_app.db import DriveDB
+
+    path = tmp_path / "drivepulse.sqlite3"
+    first = DriveDB(path)
+    with first._lock:
+        first._conn.execute("PRAGMA user_version=0")
+        first._conn.commit()
+    first.close()
+
+    second = DriveDB(path)
+    try:
+        with second._lock:
+            version = second._conn.execute("PRAGMA user_version").fetchone()[0]
+
+        assert version == 1
+    finally:
+        second.close()
+
+
+def test_db_migration_reraises_unexpected_sqlite_errors(monkeypatch, tmp_path):
+    from drivepulse_app import db as db_module
+    from drivepulse_app.db import DriveDB
+
+    path = tmp_path / "drivepulse.sqlite3"
+    first = DriveDB(path)
+    with first._lock:
+        first._conn.execute("PRAGMA user_version=0")
+        first._conn.commit()
+    first.close()
+
+    monkeypatch.setattr(db_module, "_is_duplicate_column_error", lambda _exc: False)
+    with pytest.raises(sqlite3.OperationalError, match="duplicate column"):
+        DriveDB(path)
+
+
+def test_db_rejects_newer_schema_version(tmp_path):
+    from drivepulse_app.db import DriveDB
+
+    path = tmp_path / "drivepulse.sqlite3"
+    first = DriveDB(path)
+    with first._lock:
+        first._conn.execute("PRAGMA user_version=999")
+        first._conn.commit()
+    first.close()
+
+    with pytest.raises(RuntimeError, match="newer than DrivePulse supports"):
+        DriveDB(path)
 
 
 def test_db_bulk_sample_insert_skips_malformed_rows_and_duplicates(tmp_path):

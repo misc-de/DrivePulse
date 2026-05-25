@@ -25,6 +25,6 @@ def get_or_create_device_id() -> str:
         device_id = generate_device_id()
         atomic_write_text(DEVICE_ID_FILE, device_id, mode=0o600)
         return device_id
-    except Exception:
+    except (OSError, UnicodeError):
         log.exception("Could not load or persist sync device id")
         return generate_device_id()
