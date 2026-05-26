@@ -168,10 +168,15 @@ class CarsDetailRenderMixin:
             if stack is not None:
                 out["__scan_date_stack__"] = stack
         dtcs = data.get("dtcs") or []
-        none_text = _translate(self.language, "cars.dtc.none")
-        out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(_format_dtc(d) for d in dtcs)
         pending = data.get("pending_dtcs") or []
+        none_text = _translate(self.language, "cars.dtc.none")
+        # Single-line summary string kept around for callers that only need
+        # the rendered text (e.g. fallback paths); the detail renderer
+        # itself consumes the raw lists below to build a proper table.
+        out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(_format_dtc(d) for d in dtcs)
         out[_SPECIAL_PENDING] = none_text if not pending else "  ".join(_format_dtc(d) for d in pending)
+        out["__dtcs_list__"] = list(dtcs)
+        out["__pending_dtcs_list__"] = list(pending)
         # Convenience flag for the sidebar highlight: yellow-tint the
         # diagnostics row when the loaded scan actually has DTCs.
         out["__has_dtc__"] = bool(dtcs) or bool(pending)
@@ -322,6 +327,12 @@ class CarsDetailRenderMixin:
                 row = self._make_editable_field_row(pid_key, label, value_text, is_unknown)
                 self.value_list.append(row)
                 continue
+            if pid_key in (_SPECIAL_DTC, _SPECIAL_PENDING):
+                src_key = "__dtcs_list__" if pid_key == _SPECIAL_DTC else "__pending_dtcs_list__"
+                entries = data.get(src_key) or []
+                for r in self._make_dtc_table_rows(label, entries):
+                    self.value_list.append(r)
+                continue
             if not pid_key.startswith("__"):
                 if is_live:
                     live_key = _PID_TO_LIVE_KEY.get(pid_key)
@@ -354,6 +365,48 @@ class CarsDetailRenderMixin:
             else:
                 row = self._make_stacked_row(label, value_text, is_unknown)
             self.value_list.append(row)
+
+    def _make_dtc_table_rows(
+        self, section_label: str, entries: list[Any]
+    ) -> list[Gtk.ListBoxRow]:
+        """Render a DTC / pending-DTC section as a header row plus one
+        ActionRow per fault code (code as title, description as subtitle).
+        Falls back to a single dim "no faults" row when the list is empty.
+        Entries are normalised via _dtc_parts, so dict / JSON-string /
+        "CODE: desc" / bytes inputs all render the same way."""
+        rows: list[Gtk.ListBoxRow] = []
+
+        header = Gtk.ListBoxRow()
+        header.set_activatable(False)
+        header.set_selectable(False)
+        h_lbl = Gtk.Label(label=section_label, xalign=0.0)
+        h_lbl.add_css_class("caption-heading")
+        h_lbl.set_margin_top(10)
+        h_lbl.set_margin_bottom(4)
+        h_lbl.set_margin_start(14)
+        h_lbl.set_margin_end(14)
+        header.set_child(h_lbl)
+        rows.append(header)
+
+        if not entries:
+            empty_row = Adw.ActionRow()
+            empty_row.set_title(_translate(self.language, "cars.dtc.none"))
+            empty_row.add_css_class("dim-label")
+            empty_row.set_activatable(False)
+            rows.append(empty_row)
+            return rows
+
+        for entry in entries:
+            code, desc = _dtc_parts(entry)
+            r = Adw.ActionRow()
+            r.set_title(GLib.markup_escape_text(code or "?"))
+            if desc:
+                r.set_subtitle(GLib.markup_escape_text(desc))
+                r.set_subtitle_lines(0)
+            r.add_css_class("error")
+            r.set_activatable(False)
+            rows.append(r)
+        return rows
 
     def _make_inline_row(self, pid_key: str, label: str, value_text: str, is_unknown: bool) -> Adw.ActionRow:
         row = Adw.ActionRow()
