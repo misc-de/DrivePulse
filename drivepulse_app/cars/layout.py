@@ -121,7 +121,7 @@ class CarsLayoutMixin:
         self._detail_merge_btn.add_css_class("flat")
         self._detail_merge_btn.set_visible(False)
         self._detail_merge_btn.set_tooltip_text(_translate(self.language, "cars.scans.merge.tooltip"))
-        self._detail_merge_btn.connect("clicked", lambda _b: self._on_merge_selected_scans_clicked())
+        self._detail_merge_btn.connect("clicked", lambda _b: self._on_merge_btn_clicked())
 
         self._detail_trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
         self._detail_trash_btn.add_css_class("flat")

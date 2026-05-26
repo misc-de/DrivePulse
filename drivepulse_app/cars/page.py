@@ -678,6 +678,28 @@ class CarsPage(
             and self._selected_category == "vehicle"
         )
 
+    def _update_merge_btn_visibility(self) -> None:
+        """Show the header merge button only when a multi-select that
+        supports merging is active and at least two items are picked."""
+        btn = getattr(self, "_detail_merge_btn", None)
+        if btn is None:
+            return
+        show = False
+        if not self.mock_mode:
+            if self._scan_select_mode and len(self._scan_selected_ids) >= 2:
+                show = True
+            elif self._trip_select_mode and len(self._trip_selected_ids) >= 2:
+                show = True
+        btn.set_visible(show)
+
+    def _on_merge_btn_clicked(self) -> None:
+        """Header merge button — dispatches to the active select-mode's
+        own handler defined on the trips/scans mixins."""
+        if self._scan_select_mode:
+            self._on_merge_selected_scans_clicked()
+        elif self._trip_select_mode:
+            self._on_merge_selected_trips_clicked()
+
     def _update_trash_default(self) -> None:
         """Reset the trash button to its category-appropriate default.
 

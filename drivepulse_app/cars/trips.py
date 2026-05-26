@@ -234,12 +234,14 @@ class CarsTripsMixin:
         self._trip_selected_ids = {trip_id}
         self._render_detail()
         self._set_trash(self._confirm_delete_selected_trips)
+        self._update_merge_btn_visibility()
 
     def _exit_trip_select_mode(self) -> None:
         self._trip_select_mode = False
         self._trip_selected_ids = set()
         self._render_detail()
         self._update_trash_default()
+        self._update_merge_btn_visibility()
 
     def _on_trip_checkbox_toggled(self, trip_id: int, active: bool) -> None:
         if active:
@@ -248,6 +250,49 @@ class CarsTripsMixin:
             self._trip_selected_ids.discard(trip_id)
         if not self._trip_selected_ids:
             self._exit_trip_select_mode()
+            return
+        self._update_merge_btn_visibility()
+
+    def _on_merge_selected_trips_clicked(self) -> None:
+        ids = sorted(self._trip_selected_ids)
+        if len(ids) < 2 or self.db is None:
+            return
+        dialog = Adw.AlertDialog()
+        dialog.set_heading(_translate(self.language, "cars.trips.merge.confirm.heading"))
+        dialog.set_body(_translate(self.language, "cars.trips.merge.confirm.body", n=len(ids)))
+        dialog.add_response("cancel", _translate(self.language, "cars.trips.merge.confirm.cancel"))
+        dialog.add_response("merge", _translate(self.language, "cars.trips.merge.confirm.ok"))
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("merge", Adw.ResponseAppearance.SUGGESTED)
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "merge":
+                return
+            self._do_merge_selected_trips(ids)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
+
+    def _do_merge_selected_trips(self, ids: list[int]) -> None:
+        if self.db is None:
+            return
+        try:
+            self.db.merge_trips(ids)
+        except ValueError as exc:
+            code = str(exc)
+            key = {
+                "too_few":       "cars.trips.merge.error.too_few",
+                "gap_too_large": "cars.trips.merge.error.gap",
+            }.get(code, "cars.trips.merge.error.generic")
+            self._show_toast(_translate(self.language, key))
+            return
+        except Exception:
+            log.exception("Could not merge trips %s", ids)
+            self._show_toast(_translate(self.language, "cars.trips.merge.error.generic"))
+            return
+        self._show_toast(_translate(self.language, "cars.trips.merge.toast_ok"))
+        self._exit_trip_select_mode()
 
     def _confirm_delete_selected_trips(self) -> None:
         n = len(self._trip_selected_ids)
