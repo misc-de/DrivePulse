@@ -22,8 +22,8 @@ from drivepulse_app.db._photos import PhotosMixin
 from drivepulse_app.db._samples import SamplesMixin
 from drivepulse_app.db._scans import ScansMixin
 from drivepulse_app.db._schema import (
-    _is_duplicate_column_error,
     _SCHEMA_VERSION,
+    _is_duplicate_column_error,
 )
 from drivepulse_app.db._stopwatch import StopwatchMixin
 from drivepulse_app.db._sync import SyncMixin
@@ -45,4 +45,4 @@ class DriveDB(
     """Slim wrapper around ``sqlite3``."""
 
 
-__all__ = ["DriveDB", "_SCHEMA_VERSION", "_is_duplicate_column_error"]
+__all__ = ["_SCHEMA_VERSION", "DriveDB", "_is_duplicate_column_error"]
