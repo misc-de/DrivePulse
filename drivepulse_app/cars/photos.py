@@ -33,12 +33,12 @@ _SHUTTER_CSS = b"""
     background-image: none;
     background-color: #e62b2b;
     color: white;
-    border: 4px solid white;
+    border: 3px solid white;
     border-radius: 999px;
-    min-width: 80px;
-    min-height: 80px;
+    min-width: 40px;
+    min-height: 40px;
     padding: 0;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.45);
 }
 .dp-cam-shutter:hover { background-color: #ff3a3a; }
 .dp-cam-shutter:active { background-color: #b81d1d; }
@@ -46,11 +46,11 @@ _SHUTTER_CSS = b"""
 
 .dp-cam-thumb {
     padding: 0;
-    border-radius: 6px;
+    border-radius: 8px;
     border: 2px solid white;
     background-color: black;
     background-image: none;
-    min-width: 30px;
+    min-width: 60px;
     min-height: 60px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.5);
 }
@@ -595,7 +595,7 @@ class CameraPhotoDialog:
         self._thumb_btn = Gtk.Button()
         self._thumb_btn.add_css_class("dp-cam-thumb")
         self._thumb_btn.set_child(self._thumb_pic)
-        self._thumb_btn.set_size_request(30, 60)
+        self._thumb_btn.set_size_request(60, 60)
         self._thumb_btn.set_hexpand(False)
         self._thumb_btn.set_vexpand(False)
         self._thumb_btn.set_halign(Gtk.Align.CENTER)
@@ -620,12 +620,12 @@ class CameraPhotoDialog:
         self._capture_btn.connect("clicked", lambda _b: self._do_capture())
 
         thumb_slot = Gtk.Box()
-        thumb_slot.set_size_request(30, 60)
+        thumb_slot.set_size_request(60, 60)
         thumb_slot.set_valign(Gtk.Align.CENTER)
         thumb_slot.append(self._thumb_btn)
 
         spacer = Gtk.Box()
-        spacer.set_size_request(30, 60)
+        spacer.set_size_request(60, 60)
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
         btn_row.set_halign(Gtk.Align.CENTER)
