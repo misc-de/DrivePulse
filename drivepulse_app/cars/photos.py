@@ -46,17 +46,17 @@ _SHUTTER_CSS = b"""
 
 .dp-cam-thumb {
     padding: 0;
-    border-radius: 6px;
+    border-radius: 8px;
     border: 2px solid white;
     background-color: black;
     background-image: none;
-    min-width: 40px;
-    min-height: 40px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    min-width: 60px;
+    min-height: 60px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
 }
 .dp-cam-thumb:hover { border-color: #e0e0e0; }
 .dp-cam-thumb picture {
-    border-radius: 4px;
+    border-radius: 6px;
 }
 
 .dp-cam-viewer-bg {
@@ -598,11 +598,11 @@ class CameraPhotoDialog:
         self._thumb_btn = Gtk.Button()
         self._thumb_btn.add_css_class("dp-cam-thumb")
         self._thumb_btn.set_child(self._thumb_pic)
-        self._thumb_btn.set_size_request(40, 40)
+        self._thumb_btn.set_size_request(60, 60)
         self._thumb_btn.set_halign(Gtk.Align.START)
         self._thumb_btn.set_valign(Gtk.Align.END)
-        self._thumb_btn.set_margin_start(10)
-        self._thumb_btn.set_margin_bottom(10)
+        self._thumb_btn.set_margin_start(12)
+        self._thumb_btn.set_margin_bottom(12)
         self._thumb_btn.set_visible(False)
         self._thumb_btn.connect("clicked", lambda _b: self._show_viewer())
         preview_overlay.add_overlay(self._thumb_btn)
