@@ -136,10 +136,7 @@ class CarsScansMixin:
         self._scan_select_mode = False
         self._scan_selected_ids = set()
         self._render_detail()
-        if self._selected_car_id is not None:
-            self._set_trash(self._confirm_delete_vehicle)
-        else:
-            self._set_trash(None)
+        self._update_trash_default()
 
     def _on_scan_checkbox_toggled(self, scan_id: int, active: bool) -> None:
         if active:
