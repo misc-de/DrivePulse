@@ -21,17 +21,21 @@ from drivepulse_app.common import (
     _make_label_responsive,
     _translate,
 )
+from drivepulse_app.dashboard.conflicts import DashboardConflictsMixin
 from drivepulse_app.dashboard.layout import DashboardLayoutMixin
+from drivepulse_app.dashboard.map_lifecycle import DashboardMapLifecycleMixin
+from drivepulse_app.dashboard.nav_routing import DashboardNavRoutingMixin
 from drivepulse_app.dashboard.page import DASHBOARD_THEMES, DashboardCanvas
 from drivepulse_app.dashboard.piper_overlay import DashboardPiperOverlayMixin
 from drivepulse_app.dashboard.settings import DashboardSettingsMixin
 from drivepulse_app.dashboard.telemetry import DashboardTelemetryMixin
+from drivepulse_app.dashboard.theming import DashboardThemingMixin
 from drivepulse_app.dashcam.page import DashcamPage
 from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger, set_log_enabled
 from drivepulse_app.map.page import MapPage
 from drivepulse_app.stopwatch.page import StopWatchPage
-from drivepulse_app.ui.gauge import Gauge, all_theme_options, get_theme_css
+from drivepulse_app.ui.gauge import Gauge
 
 log = get_logger(__name__)
 from drivepulse_app.mock.tour import MockTourSimulator
@@ -49,6 +53,10 @@ class DashboardWindow(
     DashboardLayoutMixin,
     DashboardTelemetryMixin,
     DashboardPiperOverlayMixin,
+    DashboardThemingMixin,
+    DashboardMapLifecycleMixin,
+    DashboardConflictsMixin,
+    DashboardNavRoutingMixin,
     Adw.ApplicationWindow,
 ):
     __gtype_name__ = "DashboardWindow"
@@ -754,167 +762,6 @@ class DashboardWindow(
 
         threading.Thread(target=_worker, name="obd-clear-dtc", daemon=True).start()
 
-    def _on_cars_back_swipe(self) -> None:
-        """Vom Autos-Tab (Übersicht) per Wisch nach rechts → StopWatch.
-
-        Cars ist der erste Tab; ein Wisch nach rechts hätte sonst kein Ziel.
-        Statt der Endlosschleife des ViewSwitchers springen wir direkt zum
-        gegenüberliegenden Ende (StopWatch), damit die Geste nicht ins
-        Leere läuft.
-        """
-        if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
-            self.view_stack.set_visible_child_name(self.PAGE_STOPWATCH)
-            self._last_swipe_time = time.monotonic()
-
-    def _on_cars_forward_swipe(self) -> None:
-        """Vom Autos-Tab (Liste) per Wisch nach links zur Karte."""
-        if self.view_stack.get_visible_child_name() == self.PAGE_CARS:
-            self.view_stack.set_visible_child_name(self.PAGE_MAP)
-            self._last_swipe_time = time.monotonic()
-
-    def _open_trip_as_route_on_map(
-        self,
-        coords_lonlat: list[list[float]],
-        distance_km: float | None,
-        duration_s: float | None,
-        label: str | None,
-    ) -> None:
-        """Switch to the Map tab and draw a recorded trip's polyline as the route."""
-        if not coords_lonlat:
-            return
-        self._cancel_map_unload()
-        self._ensure_map_page()
-        self.view_stack.set_visible_child_name(self.PAGE_MAP)
-
-        def _load_and_remove() -> bool:
-            if self.map_page is not None:
-                self.map_page.load_trip_as_route(
-                    coords_lonlat, distance_km, duration_s, label
-                )
-            return False
-
-        GLib.idle_add(_load_and_remove)
-
-    def _show_trip_replay_on_map_from_cars(self, trip_id: int, meta: dict) -> None:
-        """Switch to the Map tab and reuse the map's own replay machinery
-        (speed-coloured polyline, info card, speed/RPM chart) for the
-        trip the user picked in the Cars page."""
-        if not hasattr(self, "map_page"):
-            return
-        self.view_stack.set_visible_child_name(self.PAGE_MAP)
-
-        def _replay_and_remove() -> bool:
-            try:
-                self.map_page._show_trip_replay(meta)
-            except Exception:
-                # Fall back to the polyline-only path so the user at
-                # least sees the track if the full replay errors out.
-                try:
-                    samples = list(self.db.samples_for_trip(trip_id)) if self.db else []
-                except Exception:
-                    samples = []
-                coords = [
-                    [float(s["lon"]), float(s["lat"])]
-                    for s in samples
-                    if s["lat"] is not None and s["lon"] is not None
-                ]
-                if len(coords) >= 2:
-                    self.map_page.load_trip_as_route(
-                        coords, meta.get("distance_km"), meta.get("duration_s"),
-                        meta.get("trip_label"),
-                    )
-            return False
-
-        GLib.idle_add(_replay_and_remove)
-
-    def _load_persisted_run_into_stopwatch(self, data: dict) -> None:
-        """Hand off a saved stopwatch run, switch to the StopWatch tab, replay."""
-        sw = getattr(self, "stopwatch_page", None)
-        if sw is None or not hasattr(sw, "load_persisted_run"):
-            return
-        if not sw.load_persisted_run(data):
-            return
-        self.view_stack.set_visible_child_name(self.PAGE_STOPWATCH)
-        if hasattr(sw, "replay_measurement"):
-            GLib.idle_add(lambda: (sw.replay_measurement(), False)[1])
-
-    def _on_realize_install_css(self, *_args: Any) -> None:
-        from gi.repository import Adw
-        display = self.get_display()
-        Gtk.StyleContext.add_provider_for_display(
-            display, self._theme_css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
-        Gtk.StyleContext.add_provider_for_display(
-            display, self._nav_rotation_css,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
-        Gtk.StyleContext.add_provider_for_display(
-            display, self._light_palette_css,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
-        _global_css = Gtk.CssProvider()
-        _global_css.load_from_data(
-            b".dp-table-row { border-radius: 0; }"
-            b".dp-sync-online { color: #33d17a; }"
-        )
-        Gtk.StyleContext.add_provider_for_display(
-            display, _global_css,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
-        self._apply_theme_mode(self.theme_mode)
-        self._apply_window_theme(self.gauge_theme)
-        Adw.StyleManager.get_default().connect("notify::dark", self._on_system_dark_changed)
-
-    # Softens libadwaita's stock light palette toward a warm mid-grey while
-    # keeping its layering intact: view/card/popover sit *above* the window in
-    # luminance (paper-on-frame), headerbar/sidebar sit *below*. Same set of
-    # tokens the established adw-colors themes (Plano2/Nord/Solarized) touch.
-    _LIGHT_PALETTE_OVERRIDES = (
-        b"@define-color window_bg_color #c8c6c2;"
-        b"@define-color view_bg_color #d6d4d0;"
-        b"@define-color headerbar_bg_color #b8b6b2;"
-        b"@define-color headerbar_backdrop_color @window_bg_color;"
-        b"@define-color sidebar_bg_color #b8b6b2;"
-        b"@define-color sidebar_backdrop_color @window_bg_color;"
-        b"@define-color secondary_sidebar_bg_color #c0beba;"
-        b"@define-color secondary_sidebar_backdrop_color @window_bg_color;"
-        b"@define-color card_bg_color @view_bg_color;"
-        b"@define-color popover_bg_color @view_bg_color;"
-        b"@define-color dialog_bg_color @view_bg_color;"
-        b"@define-color thumbnail_bg_color @window_bg_color;"
-    )
-
-    def _apply_light_palette(self) -> None:
-        from gi.repository import Adw
-        is_dark = Adw.StyleManager.get_default().get_dark()
-        self._light_palette_css.load_from_data(
-            b"" if is_dark else self._LIGHT_PALETTE_OVERRIDES
-        )
-
-    def _apply_theme_mode(self, mode: str) -> None:
-        from gi.repository import Adw
-        manager = Adw.StyleManager.get_default()
-        if mode == "dark":
-            manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
-        elif mode == "light":
-            manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
-        else:
-            manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
-        self._apply_light_palette()
-        if hasattr(self, "stopwatch_page"):
-            effective = "dark" if manager.get_dark() else "light"
-            self.stopwatch_page.set_theme_mode(effective)
-
-    def _on_system_dark_changed(self, _manager: Any, _param: Any) -> None:
-        if getattr(self, "theme_mode", "auto") == "auto":
-            self._apply_light_palette()
-            self._apply_window_theme(self.gauge_theme)
-            if hasattr(self, "stopwatch_page"):
-                from gi.repository import Adw
-                effective = "dark" if Adw.StyleManager.get_default().get_dark() else "light"
-                self.stopwatch_page.set_theme_mode(effective)
-
     def _apply_nav_position(self, position: str) -> None:
         effective = position
         if effective == "auto":
@@ -1064,105 +911,6 @@ class DashboardWindow(
         if self.map_page is not None and hasattr(self.map_page, "set_form_factor"):
             self.map_page.set_form_factor(ff)
 
-    def _apply_window_theme(self, theme: str) -> None:
-        from gi.repository import Adw
-        for cls in list(self.get_css_classes()):
-            if cls.startswith("dp-theme-"):
-                self.remove_css_class(cls)
-        safe = theme.replace(":", "-").replace("_", "-")
-        self.add_css_class(f"dp-theme-{safe}")
-        mode = getattr(self, "theme_mode", "auto")
-        is_dark = mode == "dark" or (mode == "auto" and Adw.StyleManager.get_default().get_dark())
-        # Theme CSS contains broad window/toolbarview/scrolledwindow selectors that
-        # override the entire app background.  Only load it when the gauge theme
-        # variant matches the app colour scheme — a light gauge theme in a dark app
-        # (or vice versa) would otherwise repaint the whole UI the wrong colour.
-        # The gauge's Cairo drawing controls its own colours regardless of this CSS.
-        is_light_theme = "_light" in theme
-        # Dark themes always apply their background CSS — the user explicitly chose a dark
-        # theme and expects a dark canvas regardless of the system colour scheme.
-        # Light themes are suppressed in dark mode to avoid painting a white background
-        # over the dark UI.
-        load_css = not is_light_theme or not is_dark
-        if load_css:
-            css = get_theme_css(theme)
-            self._theme_css_provider.load_from_data(css.encode() if css else b"")
-        else:
-            self._theme_css_provider.load_from_data(b"")
-
-    # ── Map lazy-load / auto-unload ──────────────────────────────────────────
-
-    # Seconds of inactivity on any other tab before the map widget is destroyed.
-    _MAP_IDLE_UNLOAD_S = 3 * 60
-
-    def _ensure_map_page(self) -> None:
-        """Create MapPage on first use and restore any previously saved state."""
-        if self.map_page is not None:
-            return
-        from drivepulse_app.tts import service as _tts_svc
-        self.map_page = MapPage(
-            self.language,
-            force_webkit=self.force_webkit_map,
-            units=self.units,
-            mock_mode=self.mock_mode,
-            poi_visible=False,
-            traffic_visible=self.map_traffic_visible,
-            traffic_bundesweit=self.map_traffic_bundesweit,
-            traffic_nrw=self.map_traffic_nrw,
-            map_3d_view=self.map_3d_view,
-            map_layer=self.map_layer,
-            map_heading_up=self.map_heading_up,
-            on_traffic_visible_changed=self._set_map_traffic_visible,
-            on_3d_view_changed=self._set_map_3d_view,
-            on_map_layer_changed=self._set_map_layer,
-            on_heading_up_changed=self._set_map_heading_up,
-            on_tour_started=self._on_tour_started,
-            on_tour_stopped=self._on_tour_stopped,
-            on_tour_resumed=self._on_tour_resumed,
-            on_tts_enabled_changed=self._set_tts_enabled,
-            on_map_tapped=lambda: self._set_nav_visible(not self._nav_visible),
-            db=self.db,
-            get_sync_client=self._get_active_sync_client,
-            initial_zoom=self._map_suspended_zoom,
-        )
-        self.map_page.set_tts_enabled(self.tts_enabled)
-        self.map_page.set_speed_warn_enabled(self.speed_limit_warn)
-        self.map_page.set_tts_language(self.tts_language)
-        self.map_page.set_tts_voice(self.tts_voice)
-        self.map_page.set_tts_quality(self.tts_quality)
-        if not self._map_suspended_follow:
-            self.map_page._follow_gps = False
-        ff = getattr(self, "form_factor", None)
-        if ff and hasattr(self.map_page, "set_form_factor"):
-            self.map_page.set_form_factor(ff)
-        self._map_rotator.set_child(self.map_page)
-
-    def _schedule_map_unload(self) -> None:
-        self._cancel_map_unload()
-        self._map_unload_timer_id = GLib.timeout_add_seconds(
-            self._MAP_IDLE_UNLOAD_S, self._unload_map_page
-        )
-
-    def _cancel_map_unload(self) -> None:
-        if self._map_unload_timer_id is not None:
-            GLib.source_remove(self._map_unload_timer_id)
-            self._map_unload_timer_id = None
-
-    def _unload_map_page(self) -> bool:
-        self._map_unload_timer_id = None
-        if self.map_page is None:
-            return False
-        # Keep alive during active navigation or while the tab is open.
-        if getattr(self.map_page, "_tour_active", False) or getattr(self.map_page, "_tour_paused", False):
-            return False
-        if self.view_stack.get_visible_child_name() == self.PAGE_MAP:
-            return False
-        self._map_suspended_zoom = getattr(self.map_page, "_map_zoom", None)
-        self._map_suspended_follow = getattr(self.map_page, "_follow_gps", True)
-        self._map_rotator.set_child(Gtk.Box())
-        self.map_page = None
-        return False
-
     def close(self) -> bool:
         self._cancel_map_unload()
         self.reader.stop()
@@ -1202,18 +950,6 @@ class DashboardWindow(
         elif velocity_x > 0 and index > 0:
             self.view_stack.set_visible_child_name(pages[index - 1])
 
-    def _cycle_theme(self, up: bool) -> None:
-        """Cycle to the next/previous theme via vertical swipe."""
-        options = [tid for tid, _ in all_theme_options(self.language)]
-        if not options:
-            return
-        try:
-            idx = options.index(self.gauge_theme)
-        except ValueError:
-            idx = 0
-        idx = (idx + (1 if up else -1)) % len(options)
-        self._set_gauge_theme(options[idx])
-
     def _get_active_sync_client(self) -> Any:
         from drivepulse_app.sync.client import SyncClient
         dialog = getattr(self, "_active_sync_dialog", None)
@@ -1228,121 +964,3 @@ class DashboardWindow(
             return ServerShareClient(server)
         return None
 
-    def _update_conflict_badge(self) -> None:
-        try:
-            n = self.db.count_share_conflicts()
-        except sqlite3.Error:
-            log.debug("Could not count share conflicts", exc_info=True)
-            n = 0
-        btn = getattr(self, "_conflict_btn", None)
-        if btn is not None:
-            btn.set_visible(n > 0)
-
-    def _open_conflict_page(self, *_args: Any) -> None:
-        if self.nav_view.find_page("share-conflicts") is not None:
-            return
-        def t(key: str, **values: object) -> str:
-            return _translate(self.language, key, **values)
-
-        toolbar_view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_title_widget(Gtk.Label(label=t("share.conflicts_title")))
-        header.set_show_start_title_buttons(False)
-        header.set_show_end_title_buttons(False)
-        toolbar_view.add_top_bar(header)
-
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        outer.set_margin_top(16)
-        outer.set_margin_bottom(16)
-        outer.set_margin_start(16)
-        outer.set_margin_end(16)
-
-        list_box = Gtk.ListBox()
-        list_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        list_box.add_css_class("boxed-list")
-        list_box.set_valign(Gtk.Align.START)
-        outer.append(list_box)
-
-        def _refresh() -> None:
-            while True:
-                child = list_box.get_first_child()
-                if child is None:
-                    break
-                list_box.remove(child)
-            try:
-                conflicts = self.db.list_share_conflicts()
-            except sqlite3.Error:
-                log.warning("Could not list share conflicts", exc_info=True)
-                conflicts = []
-            for c in conflicts:
-                import json as _json
-                try:
-                    incoming = _json.loads(c["incoming_json"])
-                except (ValueError, TypeError, _json.JSONDecodeError):
-                    log.debug("Conflict id=%s has unparseable incoming_json", c["id"], exc_info=True)
-                    incoming = {}
-                typ = c["type"]
-                type_label = {
-                    "trip": t("share.conflict_type_trip"),
-                    "run": t("share.conflict_type_run"),
-                    "scan": t("share.conflict_type_scan"),
-                }.get(typ, typ)
-                item_ts_raw = (
-                    incoming.get("started_at")
-                    or incoming.get("run_at")
-                    or incoming.get("scanned_at")
-                    or ""
-                )
-                item_ts = item_ts_raw[:16].replace("T", " ") if item_ts_raw else ""
-                row = Adw.ActionRow()
-                row.set_title(type_label + (f"  {item_ts}" if item_ts else ""))
-                received = c["received_at"][:16].replace("T", " ") if c["received_at"] else ""
-                row.set_subtitle(t("share.conflict_received", ts=received) if received else "")
-
-                cid = int(c["id"])
-
-                discard_btn = Gtk.Button(label=t("share.conflict_discard"))
-                discard_btn.add_css_class("flat")
-                discard_btn.set_valign(Gtk.Align.CENTER)
-
-                def _discard(_btn: Gtk.Button, conflict_id: int = cid) -> None:
-                    try:
-                        self.db.discard_conflict(conflict_id)
-                    except sqlite3.Error:
-                        log.warning("Could not discard conflict id=%s", conflict_id, exc_info=True)
-                    _refresh()
-                    self._update_conflict_badge()
-
-                discard_btn.connect("clicked", _discard)
-                row.add_suffix(discard_btn)
-
-                apply_btn = Gtk.Button(label=t("share.conflict_apply"))
-                apply_btn.add_css_class("suggested-action")
-                apply_btn.set_valign(Gtk.Align.CENTER)
-
-                def _apply(_btn: Gtk.Button, conflict_id: int = cid) -> None:
-                    try:
-                        self.db.resolve_conflict(conflict_id)
-                    except sqlite3.Error:
-                        log.warning("Could not resolve conflict id=%s", conflict_id, exc_info=True)
-                    _refresh()
-                    self._update_conflict_badge()
-                    self.cars_page.refresh_profiles()
-
-                apply_btn.connect("clicked", _apply)
-                row.add_suffix(apply_btn)
-                list_box.append(row)
-
-        _refresh()
-
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_vexpand(True)
-        scroll.set_child(outer)
-        toolbar_view.set_content(scroll)
-
-        page = Adw.NavigationPage()
-        page.set_tag("share-conflicts")
-        page.set_title(t("share.conflicts_title"))
-        page.set_child(toolbar_view)
-        self.nav_view.push(page)
