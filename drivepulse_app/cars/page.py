@@ -1312,6 +1312,11 @@ class CarsPage(
         if self._photo_select_mode and new_cat != "photos":
             self._photo_select_mode = False
             self._photo_selected_ids = set()
+        # Spurious row-selected re-fires (caused by _value_scroll.set_child() during
+        # photo grid rebuilds) must not reset the select-mode UI — the grid and the
+        # header buttons are already in the correct state.
+        if self._photo_select_mode and new_cat == "photos":
+            return
         self._selected_category = new_cat
         self._update_merge_btn_visibility()
         # Mark all "new via sync" items in this category as seen — the user
