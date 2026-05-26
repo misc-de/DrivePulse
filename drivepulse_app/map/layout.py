@@ -1,11 +1,9 @@
 """Map page core layout — map widget + overlays (FAB, zoom, maneuver, speed sign)."""
 from __future__ import annotations
 
-import math
-import time as _time
 from typing import Any
 
-from gi.repository import Gdk, GLib, Gtk
+from gi.repository import Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.map.layout_css import _install_maneuver_css
@@ -50,7 +48,6 @@ class MapLayoutMixin:
         content.set_valign(Gtk.Align.FILL)
 
         if self._backend != "none":
-            self._install_map_tap_controller(content)
             # Shumate-only: a single Cairo overlay paints the replay polyline.
             # Added first so the UI controls below sit on top of it.
             if self._backend == "shumate":
@@ -394,52 +391,6 @@ class MapLayoutMixin:
         self._coord_chip = chip
         self._coord_lbl = lbl
         return chip
-
-    def _install_map_tap_controller(self, widget: Gtk.Widget) -> None:
-        """Attach a capture-phase legacy controller to the map widget so a short
-        tap toggles navigation visibility — the same as on all other pages.
-        Adding it to the map content widget (not the overlay) means FAB button
-        taps do not trigger the toggle."""
-        _press: list = [0.0, 0.0, 0.0]  # monotonic, start_x, start_y
-        _cur: list = [0.0, 0.0]  # last tracked x, y (TOUCH_UPDATE fallback)
-
-        def _on_event(_ctrl: Gtk.EventControllerLegacy, event: Gdk.Event) -> bool:
-            if event is None:
-                return False
-            etype = event.get_event_type()
-            if etype in (Gdk.EventType.BUTTON_PRESS, Gdk.EventType.TOUCH_BEGIN):
-                ok, x, y = event.get_position()
-                if ok:
-                    _press[0] = _time.monotonic()
-                    _press[1] = x
-                    _press[2] = y
-                    _cur[0] = x
-                    _cur[1] = y
-            elif etype == Gdk.EventType.TOUCH_UPDATE:
-                ok, x, y = event.get_position()
-                if ok:
-                    _cur[0] = x
-                    _cur[1] = y
-            elif etype in (Gdk.EventType.BUTTON_RELEASE, Gdk.EventType.TOUCH_END):
-                if _press[0] == 0.0:
-                    return False
-                now = _time.monotonic()
-                ok, x, y = event.get_position()
-                duration = now - _press[0]
-                _press[0] = 0.0
-                if not ok:
-                    x, y = _cur[0], _cur[1]
-                moved = math.hypot(x - _press[1], y - _press[2])
-                if duration <= 0.30 and moved <= 14.0:
-                    cb = getattr(self, "_on_map_tapped", None)
-                    if cb is not None:
-                        GLib.idle_add(cb)
-            return False  # never consume — map interaction stays intact
-
-        ctrl = Gtk.EventControllerLegacy()
-        ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        ctrl.connect("event", _on_event)
-        widget.add_controller(ctrl)
 
     def _build_speed_zone_overlay(self) -> Gtk.Widget:
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
