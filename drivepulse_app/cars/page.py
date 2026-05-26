@@ -789,7 +789,7 @@ class CarsPage(
         their own action.
         """
         if self._photo_select_mode:
-            self._set_trash(self._confirm_delete_selected_photos)
+            self._set_trash(None)
             return
         if (
             self._is_real_car

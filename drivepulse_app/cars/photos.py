@@ -134,9 +134,6 @@ class CarsPhotosMixin:
         outer.append(flow)
         self._value_scroll.set_child(outer)
 
-        if self._photo_select_mode:
-            self._set_trash(self._confirm_delete_selected_photos)
-
     def _make_photo_tile(self, photo: Any) -> Gtk.FlowBoxChild:
         photo_id = int(photo["id"])
         filename = photo["filename"]
@@ -468,15 +465,29 @@ class CarsPhotosMixin:
         self._photo_select_mode = True
         self._photo_selected_ids = {photo_id}
         self._render_detail()
-        self._set_trash(self._confirm_delete_selected_photos)
+        self._update_photo_select_buttons()
         self._update_photo_upload_btn_visibility()
 
     def _exit_photo_select_mode(self) -> None:
         self._photo_select_mode = False
         self._photo_selected_ids = set()
         self._render_detail()
+        self._update_photo_select_buttons()
         self._update_trash_default()
         self._update_photo_upload_btn_visibility()
+
+    def _update_photo_select_buttons(self) -> None:
+        trash_btn = getattr(self, "_photo_select_trash_btn", None)
+        share_btn = getattr(self, "_photo_select_share_btn", None)
+        active = self._photo_select_mode
+        if trash_btn is not None:
+            trash_btn.set_visible(active)
+        if share_btn is not None:
+            share_btn.set_visible(active and self._is_sync_active())
+
+    def _on_photo_select_share_clicked(self) -> None:
+        if self._photo_selected_ids:
+            self._share_selected_photos()
 
     def _on_photo_checkbox_toggled(self, photo_id: int, active: bool) -> None:
         if active:
