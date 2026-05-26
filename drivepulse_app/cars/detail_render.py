@@ -130,6 +130,20 @@ class CarsDetailRenderMixin:
                 if scan_meta:
                     ts = self._parse_ts(scan_meta["scanned_at"])
                     label = ts.strftime("%d.%m.%Y  %H:%M") if ts else str(self._selected_scan_id)
+                    # Scans only carry live_data/DTCs/vehicle_info — VIN-decoded
+                    # master data lives on the car. Merge it in so switching
+                    # back to the vehicle category after viewing a scan keeps
+                    # the extended master data visible.
+                    if not (data.get("vin_data") or {}):
+                        car_entry = next(
+                            (e for e in self._profiles
+                             if e.get("car_id") == self._selected_car_id),
+                            None,
+                        )
+                        if car_entry:
+                            car_vin_data = (car_entry.get("data") or {}).get("vin_data") or {}
+                            if car_vin_data:
+                                data = {**data, "vin_data": car_vin_data}
                     return self._flatten_profile(data), label
             except (sqlite3.Error, KeyError, ValueError, TypeError):
                 log.debug("Could not render selected scan_id=%s in detail view", self._selected_scan_id, exc_info=True)
