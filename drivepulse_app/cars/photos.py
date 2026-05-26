@@ -134,6 +134,9 @@ class CarsPhotosMixin:
         outer.append(flow)
         self._value_scroll.set_child(outer)
 
+        if self._photo_select_mode:
+            self._set_trash(self._confirm_delete_selected_photos)
+
     def _make_photo_tile(self, photo: Any) -> Gtk.FlowBoxChild:
         photo_id = int(photo["id"])
         filename = photo["filename"]
