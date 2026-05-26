@@ -50,10 +50,10 @@ _SHUTTER_CSS = b"""
     border: 2px solid white;
     background-color: black;
     background-image: none;
-    min-width: 60px;
-    min-height: 60px;
-    max-width: 60px;
-    max-height: 60px;
+    min-width: 120px;
+    min-height: 120px;
+    max-width: 120px;
+    max-height: 120px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.5);
 }
 .dp-cam-thumb:hover { border-color: #e0e0e0; }
@@ -576,16 +576,18 @@ class CameraPhotoDialog:
         self._status_lbl.add_css_class("dim-label")
 
         self._thumb_img = Gtk.Image()
-        self._thumb_img.set_size_request(60, 60)
+        self._thumb_img.set_size_request(120, 120)
 
         self._thumb_btn = Gtk.Button()
         self._thumb_btn.add_css_class("dp-cam-thumb")
         self._thumb_btn.set_child(self._thumb_img)
-        self._thumb_btn.set_size_request(60, 60)
+        self._thumb_btn.set_size_request(120, 120)
         self._thumb_btn.set_hexpand(False)
         self._thumb_btn.set_vexpand(False)
-        self._thumb_btn.set_halign(Gtk.Align.CENTER)
-        self._thumb_btn.set_valign(Gtk.Align.CENTER)
+        self._thumb_btn.set_halign(Gtk.Align.START)
+        self._thumb_btn.set_valign(Gtk.Align.END)
+        self._thumb_btn.set_margin_start(8)
+        self._thumb_btn.set_margin_bottom(8)
         self._thumb_btn.set_sensitive(False)
         self._thumb_btn.set_visible(False)
         if self._last_photo_path and self._last_photo_path.exists():
@@ -594,7 +596,7 @@ class CameraPhotoDialog:
 
         self._capture_btn = Gtk.Button()
         self._capture_btn.add_css_class("dp-cam-shutter")
-        self._capture_btn.set_size_request(60, 60)
+        self._capture_btn.set_size_request(78, 78)
         self._capture_btn.set_hexpand(False)
         self._capture_btn.set_vexpand(False)
         self._capture_btn.set_halign(Gtk.Align.CENTER)
@@ -602,14 +604,14 @@ class CameraPhotoDialog:
         self._capture_btn.set_tooltip_text(self._t("cars.photos.camera_capture"))
         self._capture_btn.connect("clicked", lambda _b: self._do_capture())
 
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        btn_row.set_halign(Gtk.Align.CENTER)
-        btn_row.set_valign(Gtk.Align.CENTER)
+        btn_row = Gtk.CenterBox()
+        btn_row.set_hexpand(True)
         btn_row.set_vexpand(False)
+        btn_row.set_valign(Gtk.Align.CENTER)
         btn_row.set_margin_top(8)
         btn_row.set_margin_bottom(16)
-        btn_row.append(self._thumb_btn)
-        btn_row.append(self._capture_btn)
+        btn_row.set_start_widget(self._thumb_btn)
+        btn_row.set_center_widget(self._capture_btn)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.set_margin_top(8)
@@ -821,7 +823,7 @@ class CameraPhotoDialog:
     def _set_thumb_image(self, path: Path) -> None:
         from gi.repository import GdkPixbuf
         try:
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 60, 60, False)
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 120, 120, False)
             self._thumb_img.set_from_pixbuf(pixbuf)
         except Exception:
             log.debug("Could not load thumbnail %s", path, exc_info=True)
