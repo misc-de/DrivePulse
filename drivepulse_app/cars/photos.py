@@ -132,6 +132,14 @@ class CarsPhotosMixin:
             )
             overlay.add_overlay(chk)
             child.set_child(overlay)
+            # Tapping anywhere on the tile (outside the checkbox itself,
+            # which the overlay hit-tests on top) toggles selection.
+            tile_click = Gtk.GestureClick()
+            tile_click.connect(
+                "released",
+                lambda _g, _n, _x, _y, c=chk: c.set_active(not c.get_active()),
+            )
+            tile.add_controller(tile_click)
         elif is_new_shared:
             overlay = Gtk.Overlay()
             overlay.set_child(tile)

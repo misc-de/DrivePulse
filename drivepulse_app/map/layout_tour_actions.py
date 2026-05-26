@@ -346,14 +346,18 @@ class MapTourActionsMixin:
         key = (meta["kind"], meta["id"])
 
         if getattr(self, "_tour_history_select_mode", False):
-            # In select mode the row is non-activatable; checkbox prefix
-            # toggles selection. No edit button — that lives in normal mode.
+            # In select mode the checkbox prefix tracks selection, but the
+            # entire row is also activatable so a tap anywhere toggles —
+            # the checkbox alone is too small a touch target.
             check = Gtk.CheckButton()
             check.set_active(key in self._tour_history_selected)
             check.set_valign(Gtk.Align.CENTER)
             check.connect("toggled", self._on_history_row_check_toggled, key)
             action_row.add_prefix(check)
-            action_row.set_activatable(False)
+            action_row.set_activatable(True)
+            action_row.connect(
+                "activated", lambda _r, c=check: c.set_active(not c.get_active())
+            )
             return action_row
 
         loaded_id = getattr(self, "_loaded_tour_id", None)
@@ -727,7 +731,10 @@ class MapTourActionsMixin:
             check.set_valign(Gtk.Align.CENTER)
             check.connect("toggled", self._on_saved_tour_check_toggled, tour_id)
             row.add_prefix(check)
-            row.set_activatable(False)
+            row.set_activatable(True)
+            row.connect(
+                "activated", lambda _r, c=check: c.set_active(not c.get_active())
+            )
             return row
 
         loaded_id = getattr(self, "_loaded_tour_id", None)
