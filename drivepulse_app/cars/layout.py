@@ -117,6 +117,16 @@ class CarsLayoutMixin:
         self._photo_upload_btn.set_tooltip_text(_translate(self.language, "cars.photos.upload_tooltip"))
         self._photo_upload_btn.connect("clicked", lambda _b: self._open_upload_dialog())
 
+        self._photo_select_share_btn = Gtk.Button(icon_name="share-alt-symbolic")
+        self._photo_select_share_btn.add_css_class("flat")
+        self._photo_select_share_btn.set_visible(False)
+        self._photo_select_share_btn.connect("clicked", lambda _b: self._on_photo_select_share_clicked())
+
+        self._photo_select_trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        self._photo_select_trash_btn.add_css_class("flat")
+        self._photo_select_trash_btn.set_visible(False)
+        self._photo_select_trash_btn.connect("clicked", lambda _b: self._confirm_delete_selected_photos())
+
         self._detail_merge_btn = Gtk.Button(icon_name="media-playlist-consecutive-symbolic")
         self._detail_merge_btn.add_css_class("flat")
         self._detail_merge_btn.set_visible(False)
@@ -135,6 +145,8 @@ class CarsLayoutMixin:
         head.append(self._vin_refresh_btn)
         head.append(self._detail_share_btn)
         head.append(self._photo_upload_btn)
+        head.append(self._photo_select_share_btn)
+        head.append(self._photo_select_trash_btn)
         head.append(self._detail_merge_btn)
         head.append(self._detail_trash_btn)
         outer.append(head)
