@@ -33,12 +33,12 @@ _SHUTTER_CSS = b"""
     background-image: none;
     background-color: #e62b2b;
     color: white;
-    border: 2px solid white;
+    border: 4px solid white;
     border-radius: 999px;
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 80px;
+    min-height: 80px;
     padding: 0;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.45);
 }
 .dp-cam-shutter:hover { background-color: #ff3a3a; }
 .dp-cam-shutter:active { background-color: #b81d1d; }
