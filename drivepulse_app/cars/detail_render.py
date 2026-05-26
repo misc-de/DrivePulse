@@ -318,7 +318,7 @@ class CarsDetailRenderMixin:
                 if not _scan_stats or not (_scan_stats.get("values") or []):
                     continue
             label = _translate(self.language, label_key)
-            if pid_key in (_SPECIAL_VIN, _SPECIAL_BRAND) and not is_live and self._selected_car_id is not None:
+            if pid_key == _SPECIAL_VIN and not is_live and self._selected_car_id is not None:
                 row = self._make_editable_field_row(pid_key, label, value_text, is_unknown)
                 self.value_list.append(row)
                 continue
@@ -505,15 +505,16 @@ class CarsDetailRenderMixin:
         return row
 
     def _show_field_edit_dialog(self, pid_key: str, current_value: str) -> None:
+        # Only the VIN field is user-editable. The manufacturer/brand row is
+        # populated from VIN-decoded data and treated as permanent master
+        # data — no edit affordance.
+        if pid_key != _SPECIAL_VIN:
+            return
         car_id = self._selected_car_id
         if car_id is None or self.db is None:
             return
-        if pid_key == _SPECIAL_VIN:
-            heading = _translate(self.language, "cars.field.edit_vin")
-            entry_title = _translate(self.language, "cars.pid.VIN")
-        else:
-            heading = _translate(self.language, "cars.field.edit_brand")
-            entry_title = _translate(self.language, "cars.pid.BRAND")
+        heading = _translate(self.language, "cars.field.edit_vin")
+        entry_title = _translate(self.language, "cars.pid.VIN")
 
         dialog = Adw.AlertDialog()
         dialog.set_heading(heading)
@@ -537,12 +538,9 @@ class CarsDetailRenderMixin:
                 return
             value = entry.get_text().strip()
             try:
-                if pid_key == _SPECIAL_VIN:
-                    self.db.update_car_vin(car_id, value)
-                else:
-                    self.db.update_car_brand(car_id, value)
+                self.db.update_car_vin(car_id, value)
             except Exception:
-                log.exception("Could not update field %s for car_id=%s", pid_key, car_id)
+                log.exception("Could not update VIN for car_id=%s", car_id)
                 self._show_toast(_translate(self.language, "cars.field.save_error"))
                 return
             self.refresh_profiles()

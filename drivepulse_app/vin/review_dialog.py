@@ -26,7 +26,9 @@ _FIELD_ORDER = [
 ]
 
 _FIELD_LANG_SUFFIX: dict[str, str] = {
-    "manufacturer":  "VIN_MANUFACTURER",
+    # The manufacturer value lands in the permanent (non-editable) brand
+    # field, so it reuses the BRAND label for consistency.
+    "manufacturer":  "BRAND",
     "model":         "VIN_MODEL",
     "year":          "VIN_YEAR",
     "vehicle_type":  "VIN_TYPE",
