@@ -63,11 +63,7 @@ _DP_NEW_DOT_CSS = (
     # auto-adapts: on light themes the foreground is dark → strip ends
     # up slightly darker; on dark themes the foreground is light → strip
     # ends up slightly lighter than the row.
-    b".dp-value-chevron { background-color: alpha(@theme_fg_color, 0.07); }\n"
-    b".dp-value-chevron:dir(ltr) { border-top-right-radius: 12px;"
-    b" border-bottom-right-radius: 12px; }\n"
-    b".dp-value-chevron:dir(rtl) { border-top-left-radius: 12px;"
-    b" border-bottom-left-radius: 12px; }\n"
+    b".dp-value-chevron { background-color: transparent; }\n"
 )
 _dp_new_dot_css_installed = False
 
