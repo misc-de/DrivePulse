@@ -247,31 +247,38 @@ class MapLayoutMixin:
         return dummy
 
     def _show_route_info(self, duration_s: float | None, distance_m: float | None) -> None:
-        """Render duration + distance into the top-centered route-info card.
-
-        Hides the card when both values are missing.
+        """Render duration + distance into the top-left route-info card,
+        stacked vertically. Hides the card when both values are missing.
         """
         from drivepulse_app.map.services import format_distance, format_duration
         if getattr(self, "_route_info_overlay", None) is None:
             return
-        parts: list[str] = []
+        duration_text = ""
+        distance_text = ""
         if duration_s:
             prefix = _translate(self.language, "map.duration_prefix")
-            parts.append(f"{prefix}{format_duration(duration_s)}")
+            duration_text = f"{prefix}{format_duration(duration_s)}"
         if distance_m:
             distance_prefix = _translate(self.language, "map.distance_prefix")
-            parts.append(f"{distance_prefix}{format_distance(distance_m, self.units)}")
-        if not parts:
+            distance_text = f"{distance_prefix}{format_distance(distance_m, self.units)}"
+        if not duration_text and not distance_text:
             self._hide_route_info()
             return
-        self._route_info_lbl.set_text("  ·  ".join(parts))
+        if getattr(self, "_route_info_duration_lbl", None) is not None:
+            self._route_info_duration_lbl.set_text(duration_text)
+            self._route_info_duration_lbl.set_visible(bool(duration_text))
+        if getattr(self, "_route_info_distance_lbl", None) is not None:
+            self._route_info_distance_lbl.set_text(distance_text)
+            self._route_info_distance_lbl.set_visible(bool(distance_text))
         self._route_info_overlay.set_visible(True)
 
     def _hide_route_info(self) -> None:
         if getattr(self, "_route_info_overlay", None) is not None:
             self._route_info_overlay.set_visible(False)
-            if getattr(self, "_route_info_lbl", None) is not None:
-                self._route_info_lbl.set_text("")
+            for attr in ("_route_info_duration_lbl", "_route_info_distance_lbl"):
+                lbl = getattr(self, attr, None)
+                if lbl is not None:
+                    lbl.set_text("")
 
     def _build_map_state_overlay(self) -> Gtk.Widget:
         wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -574,19 +581,26 @@ class MapLayoutMixin:
         icon_row.append(notepad_slot)
 
         # Route info (duration + distance) to the right of the notepad icon.
-        # Sitting in icon_row (row 1 of the grid) it never overlaps the
-        # row-0 buttons even when "Nächstes Ziel" is visible.
-        _install_maneuver_css()  # ensures dp-route-info CSS is available
-        route_info_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        route_info_box.add_css_class("dp-route-info")
+        # Duration and distance stack vertically; the .dp-route-info-osd
+        # class gives the same translucent OSD background used by the
+        # neighbouring "Start Tour" button so the two cards visually match.
+        _install_maneuver_css()
+        route_info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        route_info_box.add_css_class("dp-route-info-osd")
         route_info_box.set_valign(Gtk.Align.CENTER)
         route_info_box.set_visible(False)
-        route_info_lbl = Gtk.Label(label="")
-        route_info_lbl.set_xalign(0.5)
-        route_info_box.append(route_info_lbl)
+        route_info_duration_lbl = Gtk.Label(label="")
+        route_info_duration_lbl.set_xalign(0.0)
+        route_info_duration_lbl.set_halign(Gtk.Align.START)
+        route_info_distance_lbl = Gtk.Label(label="")
+        route_info_distance_lbl.set_xalign(0.0)
+        route_info_distance_lbl.set_halign(Gtk.Align.START)
+        route_info_box.append(route_info_duration_lbl)
+        route_info_box.append(route_info_distance_lbl)
         icon_row.append(route_info_box)
         self._route_info_overlay = route_info_box
-        self._route_info_lbl = route_info_lbl
+        self._route_info_duration_lbl = route_info_duration_lbl
+        self._route_info_distance_lbl = route_info_distance_lbl
 
         # Let icon_row span all 3 button columns so the route info can use the
         # full available width without being clipped by column boundaries.
