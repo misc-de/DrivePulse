@@ -470,15 +470,6 @@ class CarsPhotosMixin:
         self._render_detail()
         self._set_trash(self._confirm_delete_selected_photos)
         self._update_photo_upload_btn_visibility()
-        # Defer a second application so any idle callbacks (e.g. _apply_scan_pid_stats)
-        # that fire after this handler cannot silently reset the trash button.
-        GLib.idle_add(self._reapply_photo_select_ui)
-
-    def _reapply_photo_select_ui(self) -> bool:
-        if self._photo_select_mode:
-            self._set_trash(self._confirm_delete_selected_photos)
-            self._update_photo_upload_btn_visibility()
-        return False
 
     def _exit_photo_select_mode(self) -> None:
         self._photo_select_mode = False
