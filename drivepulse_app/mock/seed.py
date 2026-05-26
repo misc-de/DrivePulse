@@ -538,7 +538,7 @@ def _seed_scan_samples(
 
     # Per-profile parameters keyed by scan_idx → chart-compare shows
     # meaningfully different curves for each scan.
-    profiles = [
+    profiles: list[dict[str, Any]] = [
         # City: many short accel/decel cycles, low cruise.
         dict(
             label="city",

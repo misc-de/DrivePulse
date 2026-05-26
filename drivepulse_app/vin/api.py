@@ -234,7 +234,7 @@ def fetch_vin_data(
     vindecoder_api_key: str | None = None,
     vindecoder_secret_key: str | None = None,
     nhtsa_enabled: bool = True,
-    on_autodev_call: Callable[[], None] | None = None,
+    on_autodev_call: Callable[[dict[str, Any]], None] | None = None,
     on_source_done: Callable[[str, bool, str, int], None] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Fetch VIN data from each configured source independently.

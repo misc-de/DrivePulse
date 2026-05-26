@@ -52,7 +52,7 @@ def _probe() -> bool:
     try:
         import gi
         gi.require_version("Secret", "1")
-        from gi.repository import Secret  # type: ignore
+        from gi.repository import Secret
         _secret_mod = Secret
         _schema = Secret.Schema.new(
             _SCHEMA_NAME,

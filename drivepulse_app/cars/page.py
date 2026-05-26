@@ -117,7 +117,7 @@ class CarsPage(
         vindecoder_secret_key: str | None = None,
         autodev_api_key: str | None = None,
         nhtsa_enabled: bool = True,
-        on_autodev_call: Callable[[], None] | None = None,
+        on_autodev_call: Callable[[dict[str, Any]], None] | None = None,
         initial_source: str | None = None,
         initial_category: str | None = None,
         initial_scan_id: int | None = None,
@@ -141,7 +141,7 @@ class CarsPage(
         self._restoring_state: bool = True
         self._autodev_api_key: str | None = autodev_api_key
         self._nhtsa_enabled: bool = nhtsa_enabled
-        self._on_autodev_call: Callable[[], None] | None = on_autodev_call
+        self._on_autodev_call: Callable[[dict[str, Any]], None] | None = on_autodev_call
         self._vin_fetch_pending: set[int] = set()
         self._vin_review_queue: list[tuple[int, str, dict]] = []
         self._vin_review_open: bool = False
