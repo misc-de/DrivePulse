@@ -739,21 +739,35 @@ class CarsDetailRenderMixin:
         row.set_activatable(on_click is not None)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        outer.set_margin_top(10)
-        outer.set_margin_bottom(10)
+        # Vertical padding now lives on the inner content box so the
+        # chevron column (if any) can span the full row height with its
+        # tinted background.
         outer.set_margin_start(14)
-        outer.set_margin_end(14)
+        # No right margin — the chevron-column flushes to the row edge.
+        outer.set_margin_end(0)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         box.set_hexpand(True)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        # Without a chevron the right margin needs to come back so the
+        # value text doesn't crash into the row's right edge.
+        if on_click is None:
+            box.set_margin_end(14)
         outer.append(box)
 
         if on_click is not None:
+            chevron_col = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            chevron_col.add_css_class("dp-value-chevron")
+            chevron_col.set_valign(Gtk.Align.FILL)
+            chevron_col.set_size_request(38, -1)
             arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
-            arrow.set_pixel_size(12)
-            arrow.add_css_class("dim-label")
+            arrow.set_pixel_size(14)
             arrow.set_valign(Gtk.Align.CENTER)
-            outer.append(arrow)
+            arrow.set_halign(Gtk.Align.CENTER)
+            arrow.set_hexpand(True)
+            chevron_col.append(arrow)
+            outer.append(chevron_col)
 
             gesture = Gtk.GestureClick()
             gesture.connect("released", lambda g, _n, _x, _y: on_click())
