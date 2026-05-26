@@ -272,6 +272,17 @@ class CarsPhotosMixin:
         if car_id is None:
             return
 
+        last_photo_path: Path | None = None
+        if self.db is not None:
+            try:
+                photos = self.db.list_photos_for_car(car_id)
+                if photos:
+                    p = self._photo_path(car_id, photos[-1]["filename"])
+                    if p.exists():
+                        last_photo_path = p
+            except Exception:
+                pass
+
         def _on_captured(jpeg_path: Path) -> None:
             try:
                 self._import_camera_jpeg(car_id, jpeg_path)
@@ -280,7 +291,7 @@ class CarsPhotosMixin:
                 return
             GLib.idle_add(self._after_camera_import)
 
-        CameraPhotoDialog(self.language, self.get_root(), _on_captured)
+        CameraPhotoDialog(self.language, self.get_root(), _on_captured, last_photo_path)
 
     def _after_camera_import(self) -> None:
         if self._detail_pushed and self._selected_category == "photos":
@@ -462,9 +473,11 @@ class CameraPhotoDialog:
         language: str,
         parent: Gtk.Widget | None,
         on_captured: Callable[[Path], None],
+        last_photo_path: Path | None = None,
     ) -> None:
         self._language = language
         self._on_captured = on_captured
+        self._last_photo_path = last_photo_path
         self._pipeline: Any = None
         self._Gst: Any = None
         self._temp_path: Path | None = None
@@ -518,15 +531,35 @@ class CameraPhotoDialog:
         self._status_lbl.add_css_class("dim-label")
         pb.append(self._status_lbl)
 
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         btn_row.set_halign(Gtk.Align.CENTER)
-        cancel_btn = Gtk.Button(label=self._t("cars.photos.camera_cancel"))
-        cancel_btn.connect("clicked", lambda _b: self._close())
-        self._capture_btn = Gtk.Button(label=self._t("cars.photos.camera_capture"))
+        btn_row.set_margin_top(4)
+        btn_row.set_margin_bottom(8)
+
+        # Thumbnail of last photo to the left of the shutter button
+        thumb_box = Gtk.Box()
+        thumb_box.set_size_request(60, 60)
+        thumb_box.add_css_class("dp-cam-thumb")
+        thumb_box.set_overflow(Gtk.Overflow.HIDDEN)
+        if self._last_photo_path and self._last_photo_path.exists():
+            thumb = Gtk.Picture()
+            thumb.set_size_request(60, 60)
+            thumb.set_content_fit(Gtk.ContentFit.COVER)
+            thumb.set_can_shrink(True)
+            thumb.set_file(Gio.File.new_for_path(str(self._last_photo_path)))
+            thumb_box.append(thumb)
+        btn_row.append(thumb_box)
+
+        self._capture_btn = Gtk.Button()
+        self._capture_btn.set_size_request(60, 60)
         self._capture_btn.add_css_class("suggested-action")
+        self._capture_btn.add_css_class("dp-shutter-btn")
+        capture_icon = Gtk.Image.new_from_icon_name("camera-photo-symbolic")
+        capture_icon.set_pixel_size(24)
+        self._capture_btn.set_child(capture_icon)
         self._capture_btn.connect("clicked", lambda _b: self._do_capture())
-        btn_row.append(cancel_btn)
         btn_row.append(self._capture_btn)
+
         pb.append(btn_row)
         stack.add_named(pb, "preview")
 
@@ -558,6 +591,18 @@ class CameraPhotoDialog:
         stack.add_named(cb, "captured")
 
         win.set_child(stack)
+
+        _css = Gtk.CssProvider()
+        _css.load_from_data(
+            b".dp-shutter-btn { border-radius: 30px; min-width: 60px; min-height: 60px; }"
+            b" .dp-cam-thumb { border-radius: 8px; }"
+        )
+        Gtk.StyleContext.add_provider_for_display(
+            win.get_display(),
+            _css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
         win.present()
 
     # ---------- preview pipeline ----------
