@@ -13,7 +13,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from drivepulse_app.cars.actions import CarsActionsMixin
 from drivepulse_app.cars.detail_render import CarsDetailRenderMixin
@@ -56,6 +56,40 @@ def _extract_session_number(v: Any) -> float | None:
 # ---------------------------------------------------------------------------
 
 
+_DP_NEW_DOT_CSS = (
+    b".dp-new-dot { color: #3584e4; }\n"
+    # Chevron column on clickable PID-value rows. The tinted strip lets
+    # the user see at a glance which rows drill deeper. alpha(@theme_fg)
+    # auto-adapts: on light themes the foreground is dark → strip ends
+    # up slightly darker; on dark themes the foreground is light → strip
+    # ends up slightly lighter than the row.
+    b".dp-value-chevron { background-color: alpha(@theme_fg_color, 0.07); }\n"
+    b".dp-value-chevron:dir(ltr) { border-top-right-radius: 12px;"
+    b" border-bottom-right-radius: 12px; }\n"
+    b".dp-value-chevron:dir(rtl) { border-top-left-radius: 12px;"
+    b" border-bottom-left-radius: 12px; }\n"
+)
+_dp_new_dot_css_installed = False
+
+
+def _install_new_dot_css() -> None:
+    """Force a reliable blue for the unread-item dot — the previous
+    Adwaita .accent class fell back to grey on themes without a strong
+    accent colour, which the user explicitly does not want."""
+    global _dp_new_dot_css_installed
+    if _dp_new_dot_css_installed:
+        return
+    display = Gdk.Display.get_default()
+    if display is None:
+        return
+    provider = Gtk.CssProvider()
+    provider.load_from_data(_DP_NEW_DOT_CSS)
+    Gtk.StyleContext.add_provider_for_display(
+        display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+    _dp_new_dot_css_installed = True
+
+
 class CarsPage(
     CarsActionsMixin,
     CarsLayoutMixin,
@@ -89,6 +123,7 @@ class CarsPage(
         on_state_changed: Callable[[str | None, str | None, int | None], None] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        _install_new_dot_css()
         self.language = _normalize_language(language)
         self.db = db
         self._sidebar_side: str = sidebar_side
@@ -109,6 +144,19 @@ class CarsPage(
         self._vin_fetch_pending: set[int] = set()
         self._vin_review_queue: list[tuple[int, str, dict]] = []
         self._vin_review_open: bool = False
+        # Snapshot of the car's vin_data dict at the moment the user opened
+        # the refresh flow. Used after the fetch finishes to (a) drop
+        # source fields that match what we already have so the review only
+        # shows actual changes and (b) merge the accepted values into the
+        # existing dict rather than replacing it wholesale. Keyed by
+        # car_id; cleared after the review is closed.
+        self._vin_refetch_existing: dict[int, dict] = {}
+        # New-car prompt: tracks which car_ids we've already asked about
+        # this session and which are queued waiting for the dialog to
+        # become free again.
+        self._vin_new_car_prompted: set[int] = set()
+        self._vin_new_car_prompt_queue: list[int] = []
+        self._vin_new_car_prompt_open: bool = False
         self._latest_live: dict[str, Any] = {}
         self._live_identity: dict[str, str] = {}
         self._live_session_stats: dict[str, dict] = {}
@@ -118,6 +166,8 @@ class CarsPage(
         self._selected_source: str = self.LIVE_ID
         self._selected_car_id: int | None = None
         self._selected_category: str = CATEGORIES[0][0]
+        self._has_vin: bool = False
+        self._is_real_car: bool = False
         self._detail_pushed = False
         self._trip_detail_pushed = False
         self._trip_detail_page: Adw.NavigationPage | None = None
@@ -149,6 +199,14 @@ class CarsPage(
         self.on_open_trip_as_route: Callable[
             [list[list[float]], float | None, float | None, str | None], None
         ] | None = None
+        # Tap-on-trip → full replay on the map (speed-coloured polyline,
+        # info card, speed/RPM chart). Receives the trip id plus a meta
+        # dict shaped like the map page's own history entries so the
+        # replay machinery can be reused verbatim.
+        self.on_show_trip_replay_on_map: Callable[[int, dict], None] | None = None
+        # Invoked with a single argument: a callback that receives the
+        # boolean success result on the GTK thread once Mode-04 finished.
+        self.on_clear_dtcs: Callable[[Callable[[bool], None]], None] | None = None
         self._drag_claimed = False
         self.get_sync_client: Any = None
         # Mock mode disables share/rename so demo data isn't pushed to peers.
@@ -285,6 +343,12 @@ class CarsPage(
         self._schedule_vin_fetches()
 
     def _schedule_vin_fetches(self) -> None:
+        """For each car the user has just added that still has no VIN
+        data on file, queue a one-off prompt asking whether to look the
+        VIN up online. The app never auto-fetches anymore — the user
+        decides per car, and either the fetched data or an explicit
+        decline is recorded so the prompt doesn't reappear next start.
+        """
         if self.db is None:
             return
         for entry in self._profiles:
@@ -293,45 +357,78 @@ class CarsPage(
             if not car_id or not vin or len(vin) < 11:
                 continue
             if entry.get("vin_data_fetched"):
-                print(f"[VIN] car_id={car_id} already fetched, skipping", flush=True)
+                # Either real data on file or the user previously declined
+                # (stored as "{}") — both count as "already decided".
+                continue
+            if car_id in self._vin_new_car_prompted:
                 continue
             if car_id in self._vin_fetch_pending:
-                print(f"[VIN] car_id={car_id} fetch already pending, skipping", flush=True)
                 continue
-            print(
-                f"[VIN] scheduling fetch car_id={car_id} vin=...{vin[-6:]} "
-                f"nhtsa={self._nhtsa_enabled} autodev={bool(self._autodev_api_key)} "
-                f"vindecoder={bool(self._vindecoder_api_key)}",
-                flush=True,
-            )
-            self._vin_fetch_pending.add(car_id)
-            threading.Thread(
-                target=self._fetch_vin_data_thread,
-                args=(car_id, vin),
-                daemon=True,
-            ).start()
+            self._vin_new_car_prompted.add(car_id)
+            self._vin_new_car_prompt_queue.append(car_id)
+        self._maybe_show_next_new_car_prompt()
 
-    def _fetch_vin_data_thread(self, car_id: int, vin: str) -> None:
-        print(
-            f"[VIN] thread start car_id={car_id} nhtsa={self._nhtsa_enabled} "
-            f"autodev={bool(self._autodev_api_key)} vindecoder={bool(self._vindecoder_api_key)}",
-            flush=True,
+    def _maybe_show_next_new_car_prompt(self) -> None:
+        if self._vin_new_car_prompt_open or not self._vin_new_car_prompt_queue:
+            return
+        car_id = self._vin_new_car_prompt_queue.pop(0)
+        entry = next((e for e in self._profiles if e.get("car_id") == car_id), None)
+        if entry is None or entry.get("vin_data_fetched"):
+            # Profile disappeared or has been decided meanwhile — skip.
+            self._maybe_show_next_new_car_prompt()
+            return
+        vin = str(entry.get("vin") or "")
+        if not vin:
+            self._maybe_show_next_new_car_prompt()
+            return
+
+        label = (
+            entry.get("label")
+            or entry.get("brand")
+            or _translate(self.language, "cars.unknown")
         )
-        try:
-            data = fetch_vin_data(
-                vin,
-                autodev_api_key=self._autodev_api_key,
-                vindecoder_api_key=self._vindecoder_api_key,
-                vindecoder_secret_key=self._vindecoder_secret_key,
-                nhtsa_enabled=self._nhtsa_enabled,
-                on_autodev_call=self._on_autodev_call,
-            )
-        except Exception:
-            log.warning("VIN lookup failed for car_id=%s", car_id, exc_info=True)
-            print(f"[VIN] thread exception car_id={car_id}", flush=True)
-            data = {}
-        print(f"[VIN] thread done car_id={car_id} sources={list(data.keys())}", flush=True)
-        GLib.idle_add(self._on_vin_data_ready, car_id, vin, data)
+        vin_tail = f"…{vin[-5:]}" if len(vin) > 5 else vin
+        dialog = Adw.AlertDialog()
+        dialog.set_heading(_translate(self.language, "cars.vin_new_car.heading"))
+        dialog.set_body(_translate(
+            self.language, "cars.vin_new_car.body", label=label, vin=vin_tail,
+        ))
+        dialog.add_response("decline", _translate(self.language, "cars.vin_new_car.cancel"))
+        dialog.add_response("fetch", _translate(self.language, "cars.vin_new_car.ok"))
+        dialog.set_default_response("fetch")
+        dialog.set_close_response("decline")
+        dialog.set_response_appearance("fetch", Adw.ResponseAppearance.SUGGESTED)
+        self._vin_new_car_prompt_open = True
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            self._vin_new_car_prompt_open = False
+            if response == "fetch":
+                # Reuse the explicit-refresh pipeline — its progress
+                # dialog + review flow is exactly what we want here.
+                self._start_vin_refresh(car_id, vin, entry)
+            else:
+                # User declined for this car — write an empty marker so
+                # vin_data_fetched flips to True and we never re-ask.
+                if self.db is not None:
+                    try:
+                        self.db.update_car_vin_data(car_id, "{}")
+                    except sqlite3.Error:
+                        log.warning("Could not persist decline for car_id=%s",
+                                    car_id, exc_info=True)
+                try:
+                    self._profiles = _load_profiles(self.db)
+                except Exception:
+                    log.debug("Could not reload profiles after decline", exc_info=True)
+            # Drain the next prompt if any cars are still pending.
+            self._maybe_show_next_new_car_prompt()
+
+        dialog.connect("response", _on_response)
+        root = self.get_root()
+        if root:
+            dialog.present(root)
+        else:
+            # No window yet — defer to the next idle.
+            GLib.idle_add(lambda: (dialog.present(self), False)[1])
 
     def _start_refetch_with_dialog(self, car_id: int, vin: str, dialog: Any) -> None:
         threading.Thread(
@@ -381,49 +478,23 @@ class CarsPage(
             except Exception:
                 log.warning("Could not save autodev raw for car_id=%s", car_id, exc_info=True)
         sources.pop("auto.dev_error", None)  # already shown in dialog row
-        if not sources and self.db is not None:
-            try:
-                self.db.update_car_vin_data(car_id, "{}")
-            except sqlite3.Error:
-                log.warning("Could not persist empty VIN data for car_id=%s", car_id, exc_info=True)
-        dialog.set_all_done(sources)
-        return False
-
-    def _on_vin_data_ready(self, car_id: int, vin: str, sources: dict) -> bool:
-        print(f"[VIN] data ready car_id={car_id} raw_sources={list(sources.keys())}", flush=True)
-        self._vin_fetch_pending.discard(car_id)
-        raw = sources.pop("auto.dev_raw", None)
-        if raw and self.db is not None:
-            try:
-                self.db.save_autodev_raw(car_id, raw)
-                print(f"[VIN] auto.dev raw saved for car_id={car_id} keys={list(raw.keys())}", flush=True)
-            except Exception:
-                log.warning("Could not save autodev raw for car_id=%s", car_id, exc_info=True)
-        error_entry = sources.pop("auto.dev_error", None)
-        if error_entry:
-            status = error_entry.get("_status", 0)
-            print(f"[VIN] auto.dev error status={status} msg={error_entry.get('_error')}", flush=True)
-            code = error_entry.get("_code", "")
-            if status in (401, 403):
-                msg = _translate(self.language, "vin.autodev.error.auth")
-            elif status == 404:
-                msg = _translate(self.language, "vin.autodev.error.not_found")
-            elif code == "INVALID_VIN_FORMAT":
-                msg = _translate(self.language, "vin.autodev.error.vin_format")
-            else:
-                msg = _translate(self.language, "vin.autodev.error.generic")
-            self._show_toast(msg)
-        if not sources:
-            print(f"[VIN] car_id={car_id}: no data from any source → storing empty", flush=True)
-            if self.db is not None:
-                try:
-                    self.db.update_car_vin_data(car_id, "{}")
-                except sqlite3.Error:
-                    log.warning("Could not persist empty VIN data for car_id=%s", car_id, exc_info=True)
-            return False
-        print(f"[VIN] car_id={car_id}: sources with data={list(sources.keys())}", flush=True)
-        self._vin_review_queue.append((car_id, vin, sources))
-        self._maybe_show_next_review()
+        # The user already confirmed they want to refresh in the
+        # pre-confirm dialog — a second "Weiter"-click on the progress
+        # dialog after the fetch finishes is redundant. Auto-close it
+        # and route the result to the review (or no-changes toast)
+        # immediately.
+        try:
+            dialog.close()
+        except Exception:
+            log.debug("Could not auto-close VIN fetch dialog", exc_info=True)
+        if sources:
+            self._vin_review_queue.append((car_id, vin, sources))
+            self._maybe_show_next_review()
+        else:
+            # Nothing came back — leave existing vin_data_json alone,
+            # drop the snapshot and tell the user.
+            self._vin_refetch_existing.pop(car_id, None)
+            self._show_toast(_translate(self.language, "cars.vin_refresh.no_changes"))
         return False
 
     def _show_toast(self, msg: str) -> None:
@@ -436,21 +507,74 @@ class CarsPage(
         if self._vin_review_open or not self._vin_review_queue:
             return
         car_id, vin, data = self._vin_review_queue.pop(0)
+
+        # Drop fields that match what we already have on file — the user
+        # asked the refresh to surface *new* data, not re-confirm the
+        # full record every time. Sources that end up empty after the
+        # filter are removed; if no source has anything new at all, show
+        # a toast and skip the review dialog entirely.
+        existing = self._vin_refetch_existing.get(car_id, {})
+        if existing:
+            filtered: dict = {}
+            for src_name, src_data in data.items():
+                kept = {
+                    field: value
+                    for field, value in (src_data or {}).items()
+                    if existing.get(field) != value
+                }
+                if kept:
+                    filtered[src_name] = kept
+            data = filtered
+        if not data:
+            self._show_toast(_translate(self.language, "cars.vin_refresh.no_changes"))
+            self._vin_refetch_existing.pop(car_id, None)
+            # Drain anything else that already queued up while we were
+            # filtering — keeps the UX consistent across multi-car refreshes.
+            self._maybe_show_next_review()
+            return
+
         self._vin_review_open = True
         from drivepulse_app.vin.review_dialog import VinReviewDialog
         dialog = VinReviewDialog(vin, data, self.language)
 
         def _on_response(d: VinReviewDialog, response: str) -> None:
             self._vin_review_open = False
-            if response == "accept":
-                accepted = d.get_accepted_data()
-            else:
-                accepted = {}
+            existing_snap = self._vin_refetch_existing.pop(car_id, {})
+            if response != "accept":
+                # Cancel: leave the DB alone. Crucially we do NOT write
+                # the snapshot back — if it was somehow empty (defensive)
+                # that would wipe perfectly good existing data.
+                self._profiles = _load_profiles(self.db)
+                self._rebuild_list()
+                if self._detail_pushed:
+                    self._render_detail()
+                self._maybe_show_next_review()
+                return
+            accepted = d.get_accepted_data()
+            # Merge accepted fields into the snapshot so existing values
+            # the user already curated stay intact when the refresh only
+            # touches a subset of fields.
+            merged = {**existing_snap, **accepted}
             if self.db is not None:
                 try:
-                    self.db.update_car_vin_data(car_id, json.dumps(accepted))
+                    self.db.update_car_vin_data(car_id, json.dumps(merged))
                 except sqlite3.Error:
                     log.warning("Could not persist VIN data for car_id=%s", car_id, exc_info=True)
+                # Promote the decoded manufacturer into the permanent brand
+                # column when the car has none yet — brand is the single
+                # non-editable manufacturer field shown to the user and
+                # survives later vin_data_json resets.
+                decoded_manufacturer = (accepted.get("manufacturer") or "").strip()
+                if decoded_manufacturer:
+                    try:
+                        existing = self.db.get_car(car_id)
+                        if existing is not None and not (existing["brand"] or "").strip():
+                            self.db.update_car_brand(car_id, decoded_manufacturer)
+                    except sqlite3.Error:
+                        log.warning(
+                            "Could not promote VIN manufacturer to brand for car_id=%s",
+                            car_id, exc_info=True,
+                        )
             self._profiles = _load_profiles(self.db)
             self._rebuild_list()
             if self._detail_pushed:
@@ -614,6 +738,70 @@ class CarsPage(
         )
         btn.set_visible(show)
 
+    def _update_vin_refresh_visibility(self) -> None:
+        # VIN refresh is a master-data-only action — only visible while the
+        # user is on the vehicle category, where the VIN field actually
+        # shows up.
+        self._vin_refresh_btn.set_visible(
+            self._is_real_car
+            and self._has_vin
+            and not self.mock_mode
+            and self._selected_category == "vehicle"
+        )
+
+    def _update_rename_btn_visibility(self) -> None:
+        # Renaming the car edits master data, so it only makes sense in the
+        # vehicle category — same scoping rule as the VIN refresh button.
+        self._rename_btn.set_visible(
+            self._is_real_car
+            and not self.mock_mode
+            and self._detail_pushed
+            and self._selected_category == "vehicle"
+        )
+
+    def _update_merge_btn_visibility(self) -> None:
+        """Show the header merge button only when a multi-select that
+        supports merging is active and at least two items are picked."""
+        btn = getattr(self, "_detail_merge_btn", None)
+        if btn is None:
+            return
+        show = False
+        if not self.mock_mode:
+            if self._scan_select_mode and len(self._scan_selected_ids) >= 2:
+                show = True
+            elif self._trip_select_mode and len(self._trip_selected_ids) >= 2:
+                show = True
+        btn.set_visible(show)
+
+    def _on_merge_btn_clicked(self) -> None:
+        """Header merge button — dispatches to the active select-mode's
+        own handler defined on the trips/scans mixins."""
+        if self._scan_select_mode:
+            self._on_merge_selected_scans_clicked()
+        elif self._trip_select_mode:
+            self._on_merge_selected_trips_clicked()
+
+    def _update_trash_default(self) -> None:
+        """Reset the trash button to its category-appropriate default.
+
+        The trash icon is overloaded: in the vehicle category it deletes the
+        whole car, in trips/scans/photos select-mode it deletes the picked
+        items, and in item-detail sub-pages it deletes that one item.
+        This helper handles only the *default* fallback (delete-vehicle in
+        the vehicle category, hidden everywhere else); select-mode and
+        item-detail handlers still call _set_trash() themselves to install
+        their own action.
+        """
+        if (
+            self._is_real_car
+            and not self.mock_mode
+            and self._detail_pushed
+            and self._selected_category == "vehicle"
+        ):
+            self._set_trash(self._confirm_delete_vehicle)
+        else:
+            self._set_trash(None)
+
     # ---------------------------------------------------- Detail-Navigation
 
     _LIVE_HIDDEN_CATS = frozenset({"trips", "stopwatch_runs", "scans", "photos"})
@@ -750,21 +938,22 @@ class CarsPage(
         self._detail_page.set_title(title)
         self._detail_title.set_text(title)
         is_real_car = source != self.LIVE_ID and self._selected_car_id is not None
-        # Show trash only for real vehicles, not the live view
-        if is_real_car:
-            self._set_trash(self._confirm_delete_vehicle)
-        else:
-            self._set_trash(None)
-        self._rename_btn.set_visible(is_real_car and not self.mock_mode)
         has_vin = bool(entry.get("vin")) if (is_real_car and entry) else False
-        self._vin_refresh_btn.set_visible(is_real_car and has_vin and not self.mock_mode)
+        self._has_vin = has_vin
+        self._is_real_car = is_real_car
+        # Mark the detail as pushed before the visibility helpers run so
+        # they evaluate against the correct state.
+        self._detail_pushed = True
+        self._update_trash_default()
+        self._update_vin_refresh_visibility()
+        self._update_rename_btn_visibility()
+        self._update_merge_btn_visibility()
         self._update_live_add_button()
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
         self._update_photo_upload_btn_visibility()
         if self._selected_car_id is not None:
             threading.Thread(target=self._bg_compute_scan_stats, daemon=True).start()
-        self._detail_pushed = True
         # In collapsed (mobile) layout this slides the detail in over the list.
         # In uncollapsed (desktop) layout both panes are already visible; this
         # only updates the internal show-content flag for later use.
@@ -782,29 +971,24 @@ class CarsPage(
             self._trip_detail_page = None
             if self._detail_pushed and self._selected_category == "trips":
                 self._render_detail()
-            # Restore vehicle delete action when returning to vehicle detail
-            if self._detail_pushed and self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
+            self._update_trash_default()
         if page is self._scan_detail_page:
             self._scan_detail_pushed = False
             self._scan_detail_page = None
             self._scan_id_shown = None
             if self._detail_pushed and self._selected_category == "scans":
                 self._render_detail()
-            if self._detail_pushed and self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
+            self._update_trash_default()
         if page is self._stopwatch_run_detail_page:
             self._stopwatch_run_detail_page = None
             if self._detail_pushed and self._selected_category == "stopwatch_runs":
                 self._render_detail()
-            if self._detail_pushed and self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
+            self._update_trash_default()
         if page is self._photo_detail_page:
             self._photo_detail_page = None
             if self._detail_pushed and self._selected_category == "photos":
                 self._render_detail()
-            if self._detail_pushed and self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
+            self._update_trash_default()
             self._update_photo_upload_btn_visibility()
 
     def _apply_initial_state(self) -> None:
@@ -886,7 +1070,10 @@ class CarsPage(
         self._photo_detail_page = None
         self._set_trash(None)
         self._rename_btn.set_visible(False)
+        self._has_vin = False
+        self._is_real_car = False
         self._vin_refresh_btn.set_visible(False)
+        self._detail_merge_btn.set_visible(False)
         self._update_photo_upload_btn_visibility()
         # User left the detail view — clear persisted state so the next
         # startup shows the list, not the previously open detail page.
@@ -966,7 +1153,7 @@ class CarsPage(
         if hasattr(self, "_detail_share_btn"):
             self._detail_share_btn.set_visible(self._is_sync_active() and self._detail_pushed)
         if hasattr(self, "_rename_btn"):
-            self._rename_btn.set_visible(not self.mock_mode and self._detail_pushed)
+            self._update_rename_btn_visibility()
         self.refresh()
 
     def notify_sync_changed(self) -> None:
@@ -1117,32 +1304,33 @@ class CarsPage(
         if self._trip_select_mode and new_cat != "trips":
             self._trip_select_mode = False
             self._trip_selected_ids = set()
-            if self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
-            else:
-                self._set_trash(None)
         if self._scan_select_mode and new_cat != "scans":
             self._scan_select_mode = False
             self._scan_selected_ids = set()
-            if self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
-            else:
-                self._set_trash(None)
         if self._run_select_mode and new_cat != "stopwatch_runs":
             self._run_select_mode = False
             self._run_selected_ids = set()
-            if self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
-            else:
-                self._set_trash(None)
         if self._photo_select_mode and new_cat != "photos":
             self._photo_select_mode = False
             self._photo_selected_ids = set()
-            if self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
-            else:
-                self._set_trash(None)
         self._selected_category = new_cat
+        self._update_merge_btn_visibility()
+        # Mark all "new via sync" items in this category as seen — the user
+        # has the list in front of them, so the unread blue dot has done
+        # its job. mark_all_seen_for_car is idempotent (NULL guard).
+        if (
+            new_cat in {"trips", "scans", "stopwatch_runs", "photos"}
+            and self._selected_car_id is not None
+            and self.db is not None
+        ):
+            try:
+                self.db.mark_all_seen_for_car(self._selected_car_id, new_cat)
+            except sqlite3.Error:
+                log.debug("Could not bulk-mark seen for car=%s cat=%s",
+                          self._selected_car_id, new_cat, exc_info=True)
+        self._update_trash_default()
+        self._update_vin_refresh_visibility()
+        self._update_rename_btn_visibility()
         # Entering the scans list with no scan picked yet → highlight the most
         # recent one so the green marker reflects a concrete entry.
         if (

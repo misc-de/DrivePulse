@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from drivepulse_app.common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language  # noqa: F401
+from drivepulse_app.credentials import SECRET_FIELDS, load as secret_load
+from drivepulse_app.credentials import store as secret_store
 from drivepulse_app.diagnostics import atomic_write_text, get_logger
 
 log = get_logger(__name__)
@@ -43,6 +45,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tts_language": "auto",
     "tts_voice": "female",
     "tts_quality": "high",
+    # Navi-volume in percent (espeak amplitude / paplay --volume scaling)
+    "tts_volume_pct": 100,
+    # Music ducking while TTS speaks: how much (% reduction of other
+    # streams) and how early (ms before speech) to apply it. 0 disables.
+    "tts_duck_pct": 50,
+    "tts_duck_pre_ms": 200,
     "log_app_enabled": False,
     "log_obd_enabled": False,
     "obd_auto_record": True,
@@ -52,6 +60,15 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autodev_api_key": "",
     "autodev_month": "",
     "autodev_month_count": 0,
+    # Mirrors the most recent X-Usage-* headers + user.plan auto.dev
+    # returns on every call. These are authoritative; the local
+    # autodev_month_count above stays as fallback for offline runs.
+    "autodev_usage_used": 0,
+    "autodev_usage_limit": 0,
+    "autodev_usage_remaining": 0,
+    "autodev_usage_paid": 0,
+    "autodev_usage_plan": "",
+    "autodev_usage_updated": "",
     # Last viewed position inside the Cars tab: source path ("__live__" or
     # "car:N") and the category key ("vehicle", "trips", ...). Restored on
     # startup so the user lands where they left off.
@@ -111,7 +128,7 @@ def load_settings() -> dict[str, Any]:
         0.05,
         1.50,
     )
-    return {
+    result = {
         "units": units if units in {"metric", "imperial"} else "metric",
         "language": _normalize_language(language),
         "mock_mode": bool(data.get("mock_mode", DEFAULT_SETTINGS["mock_mode"])),
@@ -144,6 +161,9 @@ def load_settings() -> dict[str, Any]:
         "tts_language": data.get("tts_language") if data.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
         "tts_voice": data.get("tts_voice") if data.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
         "tts_quality": data.get("tts_quality") if data.get("tts_quality") in _VALID_TTS_QUALITIES else DEFAULT_SETTINGS["tts_quality"],
+        "tts_volume_pct": _bounded_int(data.get("tts_volume_pct"), 100, 1, 200),
+        "tts_duck_pct": _bounded_int(data.get("tts_duck_pct"), 50, 0, 90),
+        "tts_duck_pre_ms": _bounded_int(data.get("tts_duck_pre_ms"), 200, 0, 2000),
         "log_app_enabled": bool(data.get("log_app_enabled", DEFAULT_SETTINGS["log_app_enabled"])),
         "log_obd_enabled": bool(data.get("log_obd_enabled", DEFAULT_SETTINGS["log_obd_enabled"])),
         "obd_auto_record": bool(data.get("obd_auto_record", DEFAULT_SETTINGS["obd_auto_record"])),
@@ -153,13 +173,64 @@ def load_settings() -> dict[str, Any]:
         "autodev_api_key": str(data.get("autodev_api_key") or "").strip(),
         "autodev_month": str(data.get("autodev_month") or ""),
         "autodev_month_count": max(0, int(data.get("autodev_month_count") or 0)),
+        "autodev_usage_used": max(0, int(data.get("autodev_usage_used") or 0)),
+        "autodev_usage_limit": max(0, int(data.get("autodev_usage_limit") or 0)),
+        "autodev_usage_remaining": max(0, int(data.get("autodev_usage_remaining") or 0)),
+        "autodev_usage_paid": max(0, int(data.get("autodev_usage_paid") or 0)),
+        "autodev_usage_plan": str(data.get("autodev_usage_plan") or ""),
+        "autodev_usage_updated": str(data.get("autodev_usage_updated") or ""),
         "last_cars_source": (str(data["last_cars_source"]) if data.get("last_cars_source") else None),
         "last_cars_category": (str(data["last_cars_category"]) if data.get("last_cars_category") else None),
     }
+    # Pull secrets from the keyring when available — that path replaces
+    # any value the JSON file may still carry (legacy installs). If the
+    # keyring is reachable but the JSON also contains a plain-text key,
+    # treat that as a fresh migration: store into keyring, blank the
+    # JSON value (will be persisted next save_settings).
+    for field in SECRET_FIELDS:
+        keyring_val = secret_load(field)
+        if keyring_val is None:
+            # Keyring unavailable → keep the JSON value, no migration.
+            continue
+        plain = result.get(field) or ""
+        if keyring_val:
+            # Keyring is authoritative.
+            result[field] = keyring_val
+            if plain and plain != keyring_val:
+                # JSON had a stale leftover — wipe it next save.
+                result[f"__migrate_clear_json_{field}__"] = True
+        elif plain:
+            # Fresh migration: keyring is empty but JSON has a value.
+            if secret_store(field, plain):
+                log.info("Migrated %s from settings.json into the keyring", field)
+                result[f"__migrate_clear_json_{field}__"] = True
+            # Either way the user expects the key to live in the
+            # keyring from now on; keep the value in-memory but mark
+            # the JSON copy for removal so the next save flushes a
+            # clean file.
+    return result
 
 
 def save_settings(settings: dict[str, Any]) -> None:
-    """Persist normalized settings to settings.json."""
+    """Persist normalized settings to settings.json.
+
+    Secret fields (API keys / secret keys) get routed through the
+    keyring helper: on systems where libsecret is reachable they are
+    written there and stored as an empty string in the JSON file, so a
+    settings.json copy never leaks a usable credential. On systems
+    without a keyring daemon the values stay in the JSON file (chmod
+    0600) exactly like before — same behaviour the project has always
+    had as the lower bound.
+    """
+    # Push each secret field through the keyring; what ends up in the
+    # JSON depends on whether the keyring accepted the write.
+    json_secret_values: dict[str, str] = {}
+    for field in SECRET_FIELDS:
+        value = str(settings.get(field) or "").strip()
+        if secret_store(field, value):
+            json_secret_values[field] = ""
+        else:
+            json_secret_values[field] = value
     atomic_write_text(
         SETTINGS_FILE,
         json.dumps(
@@ -201,15 +272,24 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "tts_language": settings.get("tts_language") if settings.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
                 "tts_voice": settings.get("tts_voice") if settings.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
                 "tts_quality": settings.get("tts_quality") if settings.get("tts_quality") in _VALID_TTS_QUALITIES else DEFAULT_SETTINGS["tts_quality"],
+                "tts_volume_pct": _bounded_int(settings.get("tts_volume_pct"), 100, 1, 200),
+                "tts_duck_pct": _bounded_int(settings.get("tts_duck_pct"), 50, 0, 90),
+                "tts_duck_pre_ms": _bounded_int(settings.get("tts_duck_pre_ms"), 200, 0, 2000),
                 "log_app_enabled": bool(settings.get("log_app_enabled", False)),
                 "log_obd_enabled": bool(settings.get("log_obd_enabled", False)),
                 "obd_auto_record": bool(settings.get("obd_auto_record", True)),
                 "nhtsa_enabled": bool(settings.get("nhtsa_enabled", DEFAULT_SETTINGS["nhtsa_enabled"])),
-                "vindecoder_api_key": str(settings.get("vindecoder_api_key") or "").strip(),
-                "vindecoder_secret_key": str(settings.get("vindecoder_secret_key") or "").strip(),
-                "autodev_api_key": str(settings.get("autodev_api_key") or "").strip(),
+                "vindecoder_api_key": json_secret_values["vindecoder_api_key"],
+                "vindecoder_secret_key": json_secret_values["vindecoder_secret_key"],
+                "autodev_api_key": json_secret_values["autodev_api_key"],
                 "autodev_month": str(settings.get("autodev_month") or ""),
                 "autodev_month_count": max(0, int(settings.get("autodev_month_count") or 0)),
+                "autodev_usage_used": max(0, int(settings.get("autodev_usage_used") or 0)),
+                "autodev_usage_limit": max(0, int(settings.get("autodev_usage_limit") or 0)),
+                "autodev_usage_remaining": max(0, int(settings.get("autodev_usage_remaining") or 0)),
+                "autodev_usage_paid": max(0, int(settings.get("autodev_usage_paid") or 0)),
+                "autodev_usage_plan": str(settings.get("autodev_usage_plan") or ""),
+                "autodev_usage_updated": str(settings.get("autodev_usage_updated") or ""),
                 "last_cars_source": (str(settings["last_cars_source"]) if settings.get("last_cars_source") else None),
                 "last_cars_category": (str(settings["last_cars_category"]) if settings.get("last_cars_category") else None),
             },

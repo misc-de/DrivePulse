@@ -27,29 +27,27 @@ _SPECIAL_DTC = "__DTC__"
 _SPECIAL_PENDING = "__PENDING_DTC__"
 _SPECIAL_ADAPTER_V = "__ATRV__"
 
-_SPECIAL_VIN_MAKE = "__VIN_MAKE__"
 _SPECIAL_VIN_MODEL = "__VIN_MODEL__"
 _SPECIAL_VIN_YEAR = "__VIN_YEAR__"
+_SPECIAL_VIN_TYPE = "__VIN_TYPE__"
 _SPECIAL_VIN_BODY = "__VIN_BODY__"
 _SPECIAL_VIN_FUEL = "__VIN_FUEL__"
 _SPECIAL_VIN_DRIVE = "__VIN_DRIVE__"
 _SPECIAL_VIN_CYLINDERS = "__VIN_CYLINDERS__"
 _SPECIAL_VIN_DISPLACEMENT = "__VIN_DISPLACEMENT__"
 _SPECIAL_VIN_TRANSMISSION = "__VIN_TRANSMISSION__"
-_SPECIAL_VIN_MANUFACTURER = "__VIN_MANUFACTURER__"
 _SPECIAL_VIN_COUNTRY = "__VIN_COUNTRY__"
 
 VIN_DATA_SPECIAL_KEYS: dict[str, str] = {
-    "make":         _SPECIAL_VIN_MAKE,
     "model":        _SPECIAL_VIN_MODEL,
     "year":         _SPECIAL_VIN_YEAR,
+    "vehicle_type": _SPECIAL_VIN_TYPE,
     "body":         _SPECIAL_VIN_BODY,
     "fuel":         _SPECIAL_VIN_FUEL,
     "drive":        _SPECIAL_VIN_DRIVE,
     "cylinders":    _SPECIAL_VIN_CYLINDERS,
     "displacement": _SPECIAL_VIN_DISPLACEMENT,
     "transmission": _SPECIAL_VIN_TRANSMISSION,
-    "manufacturer": _SPECIAL_VIN_MANUFACTURER,
     "plant_country": _SPECIAL_VIN_COUNTRY,
 }
 
@@ -70,10 +68,9 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
     ("vehicle", "cars.category.vehicle", "info-symbolic", (
         (_SPECIAL_VIN,              "cars.pid.VIN"),
         (_SPECIAL_BRAND,            "cars.pid.BRAND"),
-        (_SPECIAL_VIN_MANUFACTURER, "cars.pid.VIN_MANUFACTURER"),
-        (_SPECIAL_VIN_MAKE,         "cars.pid.VIN_MAKE"),
         (_SPECIAL_VIN_MODEL,        "cars.pid.VIN_MODEL"),
         (_SPECIAL_VIN_YEAR,         "cars.pid.VIN_YEAR"),
+        (_SPECIAL_VIN_TYPE,         "cars.pid.VIN_TYPE"),
         (_SPECIAL_VIN_BODY,         "cars.pid.VIN_BODY"),
         (_SPECIAL_VIN_FUEL,         "cars.pid.VIN_FUEL"),
         (_SPECIAL_VIN_DRIVE,        "cars.pid.VIN_DRIVE"),
@@ -205,9 +202,45 @@ def _wmi_to_brand(vin: str) -> str:
     return _WMI_BRANDS.get(vin[:3], "")
 
 
+# Maps the raw "Vehicle Type" string from VIN decoders (NHTSA returns
+# upper-case English) to the short German abbreviation drivers expect.
+# English UI keeps the original NHTSA wording, only the German UI gets
+# the colloquial PKW/LKW shorthand.
+_VIN_TYPE_LOCALIZE_DE: dict[str, str] = {
+    "PASSENGER CAR": "PKW",
+    "TRUCK": "LKW",
+    "MULTIPURPOSE PASSENGER VEHICLE (MPV)": "SUV/Van",
+    "MULTIPURPOSE PASSENGER VEHICLE": "SUV/Van",
+    "BUS": "Bus",
+    "MOTORCYCLE": "Motorrad",
+    "TRAILER": "Anhänger",
+    "INCOMPLETE VEHICLE": "Unvollständiges Fahrzeug",
+    "LOW SPEED VEHICLE (LSV)": "Langsamfahrzeug",
+}
+
+
+def localize_vehicle_type(raw: str, language: str) -> str:
+    if not raw:
+        return raw
+    if language != "de":
+        return raw
+    return _VIN_TYPE_LOCALIZE_DE.get(raw.strip().upper(), raw)
+
+
 def _parse_profile_pid_key(key: str) -> str:
+    # Real OBD scanner stores keys as the repr of a bytes object, e.g.
+    # "b'010C'" embedded in something like
+    # "OBDCommand: ENGINE_LOAD - b'010C'". We extract the hex payload.
     m = re.search(r"b['\"]([0-9A-Fa-f]+)['\"]", key)
-    return m.group(1).upper() if m else ""
+    if m:
+        return m.group(1).upper()
+    # Some consumers (mock data, direct writers) skip python-obd's
+    # command-repr step and just use the bare hex PID as the dict key.
+    # Accept that form as well so the scan-chart sees those samples.
+    s = key.strip()
+    if re.fullmatch(r"[0-9A-Fa-f]{4,6}", s):
+        return s.upper()
+    return ""
 
 
 def _format_status_string(value: str) -> str:

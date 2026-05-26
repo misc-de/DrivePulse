@@ -45,6 +45,21 @@ _current_proc: subprocess.Popen | None = None
 # Active backend — changed by set_backend() when the user picks one in Settings.
 _backend: str = "espeak"
 
+# Volume + ducking — set from settings via setters below. Volume is in
+# percent (100 = native). Ducking lowers other audio streams by
+# tts_duck_pct percent for tts_duck_pre_ms before speech starts plus the
+# duration of the utterance.
+_volume_pct: int = 100
+_duck_pct: int = 50
+_duck_pre_ms: int = 200
+
+# Detected once at import time. paplay routes through both PulseAudio
+# and PipeWire (via pipewire-pulse), supports per-stream volume and
+# media.role for system ducking — we use it whenever it's around and
+# fall back to aplay (ALSA) otherwise.
+_PAPLAY_AVAILABLE: bool = shutil.which("paplay") is not None
+_PACTL_AVAILABLE: bool = shutil.which("pactl") is not None
+
 # Pre-rendered audio cache: text-hash → (Path to raw PCM file, sample_rate).
 # Populated by prerender(); consumed (and file deleted) by speak() on cache hit.
 _audio_cache: dict[str, tuple[Path, int]] = {}
@@ -409,9 +424,44 @@ def _prerender_sync(text: str, language: str, gender: VoiceGender, quality: str,
             _prerender_active.discard(key)
 
 
+def _paplay_volume_arg() -> str:
+    """paplay --volume takes a 0…65536 linear scale; 65536 = native."""
+    # Clamp to a reasonable range; >100% works but limited gain.
+    pct = max(1, min(200, _volume_pct))
+    return str(int(65536 * pct / 100))
+
+
+def _paplay_env() -> dict[str, str]:
+    """Stream metadata so PulseAudio / PipeWire know this is a navi
+    announcement → system-level ducking (module-role-ducking, or
+    WirePlumber's equivalent on PipeWire) kicks in automatically when
+    available."""
+    env = os.environ.copy()
+    env["PULSE_PROP"] = "media.role=event filter.want=echo-cancel"
+    return env
+
+
 def _play_cached_file(path: Path, sample_rate: int = 22050) -> subprocess.Popen | None:
-    """Play a pre-rendered raw PCM file via aplay (instant — no piper needed)."""
+    """Play a pre-rendered raw PCM file. Prefers paplay (works with both
+    PulseAudio and PipeWire via the pipewire-pulse compatibility layer)
+    because it supports per-stream volume scaling and media.role for
+    system-level ducking. Falls back to aplay (ALSA) on systems without
+    a Pulse/Pipewire client."""
     try:
+        if _PAPLAY_AVAILABLE:
+            return subprocess.Popen(
+                [
+                    "paplay", "--raw",
+                    f"--rate={sample_rate}",
+                    "--format=s16le",
+                    "--channels=1",
+                    f"--volume={_paplay_volume_arg()}",
+                    str(path),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=_paplay_env(),
+            )
         return subprocess.Popen(
             ["aplay", "-r", str(sample_rate), "-f", "S16_LE", "-c", "1", "-q", str(path)],
             stdout=subprocess.DEVNULL,
@@ -426,6 +476,126 @@ def set_backend(backend: str) -> None:
     """Switch active backend.  Unknown values fall back to 'espeak'."""
     global _backend
     _backend = backend if backend in {"espeak", "piper"} else "espeak"
+
+
+def set_volume_pct(value: int) -> None:
+    """0…200 — affects espeak amplitude and paplay volume scaling."""
+    global _volume_pct
+    try:
+        _volume_pct = max(1, min(200, int(value)))
+    except (TypeError, ValueError):
+        _volume_pct = 100
+
+
+def set_duck(percent: int, pre_ms: int) -> None:
+    """Configure music ducking: lower other streams by *percent* during
+    speech, starting *pre_ms* before the utterance plays. percent=0
+    disables ducking entirely."""
+    global _duck_pct, _duck_pre_ms
+    try:
+        _duck_pct = max(0, min(90, int(percent)))
+    except (TypeError, ValueError):
+        _duck_pct = 0
+    try:
+        _duck_pre_ms = max(0, min(2000, int(pre_ms)))
+    except (TypeError, ValueError):
+        _duck_pre_ms = 0
+
+
+def _pactl_list_other_sink_inputs() -> list[int]:
+    """Return PulseAudio/PipeWire sink-input IDs that are NOT TTS-owned
+    (i.e. media.role != event). Used to pick out which streams to duck.
+
+    Returns empty list when pactl is unavailable or fails for any
+    reason — ducking simply degrades to a no-op."""
+    if not _PACTL_AVAILABLE:
+        return []
+    try:
+        out = subprocess.check_output(
+            ["pactl", "list", "sink-inputs"],
+            stderr=subprocess.DEVNULL, timeout=2,
+        ).decode("utf-8", errors="replace")
+    except Exception:
+        return []
+    ids: list[int] = []
+    current_id: int | None = None
+    current_role: str = ""
+    for raw in out.splitlines():
+        line = raw.strip()
+        if line.startswith("Sink Input #"):
+            if current_id is not None and current_role != "event":
+                ids.append(current_id)
+            try:
+                current_id = int(line.split("#", 1)[1])
+            except ValueError:
+                current_id = None
+            current_role = ""
+        elif line.startswith("media.role"):
+            # Format: media.role = "music" or similar.
+            _, _, v = line.partition("=")
+            current_role = v.strip().strip('"')
+    if current_id is not None and current_role != "event":
+        ids.append(current_id)
+    return ids
+
+
+def _pactl_get_volume_pct(sink_input: int) -> int | None:
+    """Best-effort fetch of a sink-input's current volume in percent.
+    None when we can't parse (no ducking → no restore)."""
+    if not _PACTL_AVAILABLE:
+        return None
+    try:
+        out = subprocess.check_output(
+            ["pactl", "get-sink-input-volume", str(sink_input)],
+            stderr=subprocess.DEVNULL, timeout=2,
+        ).decode("utf-8", errors="replace")
+    except Exception:
+        return None
+    # The output contains a "Volume: ... XX%" segment. Pick the first match.
+    import re
+    m = re.search(r"(\d+)%", out)
+    if m:
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _pactl_set_volume_pct(sink_input: int, percent: int) -> None:
+    if not _PACTL_AVAILABLE:
+        return
+    try:
+        subprocess.run(
+            ["pactl", "set-sink-input-volume", str(sink_input), f"{percent}%"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=2, check=False,
+        )
+    except Exception:
+        log.debug("Could not set volume on sink-input %s", sink_input, exc_info=True)
+
+
+def _duck_now() -> dict[int, int]:
+    """Snapshot + lower volumes of non-TTS streams. Returns map of
+    sink_input → original_volume so the caller can restore afterwards.
+    No-op (returns {}) when ducking is disabled or pactl is missing."""
+    if _duck_pct <= 0:
+        return {}
+    saved: dict[int, int] = {}
+    for sid in _pactl_list_other_sink_inputs():
+        orig = _pactl_get_volume_pct(sid)
+        if orig is None:
+            continue
+        target = max(0, int(orig * (100 - _duck_pct) / 100))
+        if target < orig:
+            _pactl_set_volume_pct(sid, target)
+            saved[sid] = orig
+    return saved
+
+
+def _restore_volumes(saved: dict[int, int]) -> None:
+    for sid, vol in saved.items():
+        _pactl_set_volume_pct(sid, vol)
 
 
 def ensure_models(language: str, gender: str, quality: str = "high") -> None:
@@ -507,6 +677,13 @@ def _speak_sync(
     cached_path: Path | None = None
     cached_sr: int = 22050
 
+    # Duck music a touch before speech actually plays. The lead-time gives
+    # PA/PW a moment to apply the new volume so the first syllable isn't
+    # eaten by a still-ramping music level.
+    ducked = _duck_now()
+    if ducked and _duck_pre_ms > 0:
+        time.sleep(_duck_pre_ms / 1000.0)
+
     if backend == "piper" and PIPER_AVAILABLE:
         key = _cache_key(text, language, gender, quality)
         with _cache_lock:
@@ -530,6 +707,8 @@ def _speak_sync(
         proc = _launch_espeak(text, language, gender, speed)
 
     if proc is None:
+        # Restore any ducked volumes immediately — no speech is about to play.
+        _restore_volumes(ducked)
         if cached_path is not None:
             try:
                 cached_path.unlink(missing_ok=True)
@@ -550,6 +729,9 @@ def _speak_sync(
         if _current_proc is proc:
             _current_proc = None
 
+    # Speech finished (or got terminated) — restore the music volume.
+    _restore_volumes(ducked)
+
     if cached_path is not None:
         try:
             cached_path.unlink(missing_ok=True)
@@ -564,9 +746,15 @@ def _launch_espeak(
     speed: int,
 ) -> subprocess.Popen | None:
     voice = _espeak_voice(language, gender)
+    # espeak amplitude scale is 0…200 with 100 being default; map our 1…200
+    # percent setting onto it directly so 100% means the unchanged default.
+    amplitude = max(0, min(200, _volume_pct))
     try:
         return subprocess.Popen(
-            ["espeak-ng", "-v", voice, "-s", str(speed), text],
+            [
+                "espeak-ng", "-v", voice, "-s", str(speed),
+                "-a", str(amplitude), text,
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -588,7 +776,9 @@ def _launch_piper(
         return None
     try:
         # piper reads text from stdin, writes raw PCM to stdout;
-        # pipe into aplay for immediate playback.
+        # pipe into paplay (PulseAudio/PipeWire) for instant playback +
+        # per-stream volume + media.role tagging. aplay (ALSA) remains
+        # as the fallback when no Pulse/PW client is around.
         echo = subprocess.Popen(
             ["echo", text],
             stdout=subprocess.PIPE,
@@ -602,15 +792,31 @@ def _launch_piper(
         )
         assert echo.stdout is not None and piper_proc.stdout is not None
         echo.stdout.close()  # let echo exit when piper closes the pipe
-        aplay = subprocess.Popen(
-            ["aplay", "-r", str(_piper_sample_rate(model)), "-f", "S16_LE", "-c", "1", "-q"],
-            stdin=piper_proc.stdout,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        sample_rate = _piper_sample_rate(model)
+        if _PAPLAY_AVAILABLE:
+            player = subprocess.Popen(
+                [
+                    "paplay", "--raw",
+                    f"--rate={sample_rate}",
+                    "--format=s16le",
+                    "--channels=1",
+                    f"--volume={_paplay_volume_arg()}",
+                ],
+                stdin=piper_proc.stdout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=_paplay_env(),
+            )
+        else:
+            player = subprocess.Popen(
+                ["aplay", "-r", str(sample_rate), "-f", "S16_LE", "-c", "1", "-q"],
+                stdin=piper_proc.stdout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         piper_proc.stdout.close()
-        # Return aplay as the "current process" — terminating it stops audio.
-        return aplay
+        # Return the player as the "current process" — terminating it stops audio.
+        return player
     except FileNotFoundError as exc:
         log.warning("Piper TTS process not found: %s", exc)
     except Exception as exc:

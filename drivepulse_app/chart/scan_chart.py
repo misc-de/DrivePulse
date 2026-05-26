@@ -10,7 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
 from drivepulse_app.cars.metadata import _parse_profile_pid_key, _unit_display
 from drivepulse_app.common import LOG_DIR
@@ -514,16 +514,39 @@ class ScanChartContent(Gtk.Box):
         self._cars_list.add_css_class("boxed-list")
         self._cars_list.set_valign(Gtk.Align.START)
 
-        # Hauptfahrzeug-Zeile (immer da, nicht entfernbar)
+        # Hauptfahrzeug-Zeile (immer da, nicht entfernbar). Eigenes Row-
+        # Layout statt Adw.ActionRow, weil sonst der Scan-Dropdown als
+        # Suffix neben dem Auto-Namen klemmt — Namen + 16er-Datums-Combo
+        # bekommen in einer Zeile auf jeder realistischen Bildschirm-
+        # breite zu wenig Platz. Wir setzen Auto-Name oben, Scan-Auswahl
+        # darunter (etwas eingerückt unter dem Farb-Dot).
         main_car_name = self._lookup_car_name(main_car_id) if main_car_id is not None else "Hauptfahrzeug"
-        self._main_car_row = Adw.ActionRow()
-        self._main_car_row.set_title(main_car_name)
+        self._main_car_row = Gtk.ListBoxRow()
+        self._main_car_row.set_selectable(False)
+        self._main_car_row.set_activatable(False)
+        _main_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        _main_container.set_margin_top(8)
+        _main_container.set_margin_bottom(8)
+        _main_container.set_margin_start(12)
+        _main_container.set_margin_end(12)
+        _main_top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         main_dot = Gtk.Label()
         main_dot.set_markup(
             f'<span foreground="{_rgb_to_hex(_COLOR_MAIN)}" size="large">⬤</span>'
         )
         main_dot.set_valign(Gtk.Align.CENTER)
-        self._main_car_row.add_prefix(main_dot)
+        _main_top.append(main_dot)
+        _main_name_lbl = Gtk.Label(label=main_car_name, xalign=0.0)
+        _main_name_lbl.set_halign(Gtk.Align.START)
+        _main_name_lbl.set_hexpand(True)
+        _main_name_lbl.add_css_class("heading")
+        _main_name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        _main_top.append(_main_name_lbl)
+        _main_container.append(_main_top)
+        self._main_car_dropdown_slot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self._main_car_dropdown_slot.set_halign(Gtk.Align.END)
+        _main_container.append(self._main_car_dropdown_slot)
+        self._main_car_row.set_child(_main_container)
 
         # Scan-Auswahl fürs Hauptauto: alle Scans mit Sensordaten, neuester
         # zuerst. Default ist der aktuell ausgewählte Scan (falls bekannt),
@@ -551,7 +574,7 @@ class ScanChartContent(Gtk.Box):
         if self._main_scans_meta:
             self._main_scan_dd = self._make_scan_dd(self._main_scans_meta, self._main_scan_ts, set())
             self._main_scan_dd.connect("notify::selected", self._on_main_scan_changed)
-            self._main_car_row.add_suffix(self._main_scan_dd)
+            self._main_car_dropdown_slot.append(self._main_scan_dd)
 
         self._cars_list.append(self._main_car_row)
 
@@ -689,9 +712,10 @@ class ScanChartContent(Gtk.Box):
         green_ts = self._comparison_scan_ts_for_car(self._main_car_id)
         new_dd = self._make_scan_dd(self._main_scans_meta, self._main_scan_ts, green_ts)
         new_dd.connect("notify::selected", self._on_main_scan_changed)
-        self._main_car_row.remove(self._main_scan_dd)
+        if self._main_car_dropdown_slot is not None:
+            self._main_car_dropdown_slot.remove(self._main_scan_dd)
+            self._main_car_dropdown_slot.append(new_dd)
         self._main_scan_dd = new_dd
-        self._main_car_row.add_suffix(new_dd)
 
     def _car_has_pid_values(self, car_id: int, pid: str) -> bool:
         if self._db is None:
@@ -722,13 +746,18 @@ class ScanChartContent(Gtk.Box):
 
     def _refresh_add_car_dropdown(self) -> None:
         # Das gleiche Fahrzeug darf mehrfach als Vergleichseintrag hinzugefügt
-        # werden (z. B. um verschiedene Scan-Historien zu vergleichen).
+        # werden (z. B. um verschiedene Scan-Historien zu vergleichen) — aber
+        # nur wenn dort wirklich noch nicht geladene Scans übrig sind.
+        # Sonst landet man bei einem leeren Compare-Eintrag (scan_ts=None)
+        # mit unklarem Verhalten beim Zeichnen.
         self._add_car_candidates: list[int] = []
         sl = Gtk.StringList()
         sl.append("—")
         for p in self._profiles:
             cid = p.get("car_id")
             if cid is None or cid not in self._cars_with_data:
+                continue
+            if not self._car_has_unused_scans(cid):
                 continue
             sl.append(self._lookup_car_name(cid))
             self._add_car_candidates.append(cid)
@@ -738,6 +767,25 @@ class ScanChartContent(Gtk.Box):
         self._add_car_dd.set_model(sl)
         self._add_car_dd.set_selected(0)
         self._refreshing_add_car_dd = False
+
+    def _car_has_unused_scans(self, car_id: int) -> bool:
+        """True iff the car has at least one scan that's not already loaded
+        (neither as the main scan nor in an existing compare entry)."""
+        if self._db is None:
+            return False
+        try:
+            scans = list(self._db.list_scans_for_car(car_id))
+        except sqlite3.Error:
+            return False
+        used: set[str] = self._comparison_scan_ts_for_car(car_id)
+        if self._main_car_id == car_id and self._main_scan_ts:
+            used.add(self._main_scan_ts)
+        for s in scans:
+            if _safe_pids_count(s) <= 0:
+                continue
+            if str(s["scanned_at"]) not in used:
+                return True
+        return False
 
     # ── Value handlers ────────────────────────────────────────────────────
 
@@ -805,9 +853,20 @@ class ScanChartContent(Gtk.Box):
             "_restored_scan_ts": restored_scan_ts,
         }
 
-        row = Adw.ActionRow()
-        row.set_title(entry["name"])
+        # Two-row layout: top has color, name and (filled later) remove
+        # button; bottom holds the scan dropdown indented under the dot.
+        # Auto name + Scan-Dropdown fit nowhere on one line on phone
+        # widths, so we stack them.
+        row = Gtk.ListBoxRow()
+        row.set_selectable(False)
+        row.set_activatable(False)
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        container.set_margin_top(8)
+        container.set_margin_bottom(8)
+        container.set_margin_start(12)
+        container.set_margin_end(12)
 
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         color_btn = Gtk.Button()
         color_btn.add_css_class("flat")
         color_btn.add_css_class("circular")
@@ -819,15 +878,31 @@ class ScanChartContent(Gtk.Box):
         )
         color_btn.set_child(color_lbl)
         color_btn.connect("clicked", self._on_color_clicked, entry)
-        row.add_prefix(color_btn)
+        top.append(color_btn)
 
-        suffix_box = Gtk.Box(spacing=4)
+        name_lbl = Gtk.Label(label=entry["name"], xalign=0.0)
+        name_lbl.set_halign(Gtk.Align.START)
+        name_lbl.set_hexpand(True)
+        name_lbl.add_css_class("heading")
+        name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        top.append(name_lbl)
+
+        # suffix_box (kept name for backwards compat with the rest of
+        # the code that reaches in to swap spinner ↔ dropdown ↔ remove).
+        # Sits on the bottom row, right-aligned so the scan-date combo
+        # and the remove-X button line up cleanly under the row's
+        # right edge.
+        suffix_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         suffix_box.set_valign(Gtk.Align.CENTER)
+        suffix_box.set_halign(Gtk.Align.END)
 
         spinner = Gtk.Spinner()
         spinner.start()
         suffix_box.append(spinner)
-        row.add_suffix(suffix_box)
+
+        container.append(top)
+        container.append(suffix_box)
+        row.set_child(container)
 
         entry["row"] = row
         entry["suffix_box"] = suffix_box
@@ -1112,10 +1187,18 @@ class ScanChartContent(Gtk.Box):
                 unit = _unit_display(stats[pid].get("unit", ""), self._language)
                 return vals, ts_labels, unit
 
+        # No intra-series for the selected scan → fall back to the
+        # per-scan trend (one point per scan_at across all scans).
+        # Previously this code path filtered ``values`` down to the
+        # selected scan_ts, which collapsed to a single datapoint and
+        # left the chart looking empty for every PID without intra-
+        # series. Showing the cross-scan trend is the useful signal:
+        # min/max in the overview row already implies there's
+        # variation to plot.
         pairs = stats[pid].get("values") or []
-        # Concrete timestamp → snapshot of this scan (single point).
-        # None is treated as full history (fallback for unselected states).
-        if scan_ts is not None:
+        if scan_ts is not None and len(pairs) <= 1:
+            # If there's literally only one stored value (or none) we
+            # can't show a trend — keep the original snapshot behavior.
             pairs = [(t, v) for t, v in pairs if t == scan_ts]
         vals = [v for _, v in pairs]
         ts = [t for t, _ in pairs]

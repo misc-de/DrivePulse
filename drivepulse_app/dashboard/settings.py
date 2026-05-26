@@ -65,6 +65,9 @@ class DashboardSettingsMixin:
                 "tts_language": getattr(self, "tts_language", "auto"),
                 "tts_voice": getattr(self, "tts_voice", "female"),
                 "tts_quality": getattr(self, "tts_quality", "high"),
+                "tts_volume_pct": getattr(self, "tts_volume_pct", 100),
+                "tts_duck_pct": getattr(self, "tts_duck_pct", 0),
+                "tts_duck_pre_ms": getattr(self, "tts_duck_pre_ms", 0),
                 "log_app_enabled": getattr(self, "log_app_enabled", True),
                 "log_obd_enabled": getattr(self, "log_obd_enabled", True),
                 "nhtsa_enabled": getattr(self, "nhtsa_enabled", True),
@@ -73,6 +76,12 @@ class DashboardSettingsMixin:
                 "autodev_api_key": getattr(self, "autodev_api_key", ""),
                 "autodev_month": getattr(self, "autodev_month", ""),
                 "autodev_month_count": getattr(self, "autodev_month_count", 0),
+                "autodev_usage_used": getattr(self, "autodev_usage_used", 0),
+                "autodev_usage_limit": getattr(self, "autodev_usage_limit", 0),
+                "autodev_usage_remaining": getattr(self, "autodev_usage_remaining", 0),
+                "autodev_usage_paid": getattr(self, "autodev_usage_paid", 0),
+                "autodev_usage_plan": getattr(self, "autodev_usage_plan", ""),
+                "autodev_usage_updated": getattr(self, "autodev_usage_updated", ""),
                 "last_cars_source": getattr(self, "last_cars_source", None),
                 "last_cars_category": getattr(self, "last_cars_category", None),
                 "last_cars_scan_id": getattr(self, "last_cars_scan_id", None),
@@ -165,6 +174,12 @@ class DashboardSettingsMixin:
             on_tts_voice_changed=self._set_tts_voice,
             current_tts_quality=getattr(self, "tts_quality", "high"),
             on_tts_quality_changed=self._set_tts_quality,
+            current_tts_volume_pct=getattr(self, "tts_volume_pct", 100),
+            on_tts_volume_pct_changed=self._set_tts_volume_pct,
+            current_tts_duck_pct=getattr(self, "tts_duck_pct", 0),
+            on_tts_duck_pct_changed=self._set_tts_duck_pct,
+            current_tts_duck_pre_ms=getattr(self, "tts_duck_pre_ms", 0),
+            on_tts_duck_pre_ms_changed=self._set_tts_duck_pre_ms,
             current_log_app_enabled=getattr(self, "log_app_enabled", True),
             on_log_app_enabled_changed=self._set_log_app_enabled,
             current_log_obd_enabled=getattr(self, "log_obd_enabled", True),
@@ -181,6 +196,10 @@ class DashboardSettingsMixin:
             on_autodev_api_key_changed=self._set_autodev_api_key,
             current_autodev_month=getattr(self, "autodev_month", ""),
             current_autodev_month_count=getattr(self, "autodev_month_count", 0),
+            current_autodev_usage_used=getattr(self, "autodev_usage_used", 0),
+            current_autodev_usage_limit=getattr(self, "autodev_usage_limit", 0),
+            current_autodev_usage_paid=getattr(self, "autodev_usage_paid", 0),
+            current_autodev_usage_plan=getattr(self, "autodev_usage_plan", ""),
         )
 
         def _on_page_hidden(_p: object) -> None:
@@ -298,6 +317,24 @@ class DashboardSettingsMixin:
             from drivepulse_app.tts import service as tts_service
             tts_service.ensure_models(getattr(self, "tts_language", "auto"), getattr(self, "tts_voice", "female"), quality)
 
+    def _set_tts_volume_pct(self, value: int) -> None:
+        self.tts_volume_pct = int(value)
+        self._save_settings()
+        from drivepulse_app.tts import service as tts_service
+        tts_service.set_volume_pct(self.tts_volume_pct)
+
+    def _set_tts_duck_pct(self, value: int) -> None:
+        self.tts_duck_pct = int(value)
+        self._save_settings()
+        from drivepulse_app.tts import service as tts_service
+        tts_service.set_duck(self.tts_duck_pct, getattr(self, "tts_duck_pre_ms", 0))
+
+    def _set_tts_duck_pre_ms(self, value: int) -> None:
+        self.tts_duck_pre_ms = int(value)
+        self._save_settings()
+        from drivepulse_app.tts import service as tts_service
+        tts_service.set_duck(getattr(self, "tts_duck_pct", 0), self.tts_duck_pre_ms)
+
     def _set_log_app_enabled(self, enabled: bool) -> None:
         self.log_app_enabled = enabled
         self._save_settings()
@@ -346,14 +383,33 @@ class DashboardSettingsMixin:
         self._save_settings()
         self.cars_page._autodev_api_key = self.autodev_api_key or None
 
-    def _increment_autodev_count(self) -> None:
-        """Called from VIN fetch thread via callback; safe to call from any thread."""
+    def _increment_autodev_count(self, usage: dict | None = None) -> None:
+        """Called from the VIN fetch thread after each auto.dev request.
+
+        Receives the parsed X-Usage-* headers + user.plan in *usage*. When
+        the server-side numbers are present we treat them as authoritative
+        and just overwrite the cached fields; the local monthly counter
+        below stays as fallback for failed fetches where the response
+        never reached us.
+        """
         current_month = datetime.now().strftime("%Y-%m")
         if getattr(self, "autodev_month", "") != current_month:
             self.autodev_month = current_month
             self.autodev_month_count = 1
         else:
             self.autodev_month_count = getattr(self, "autodev_month_count", 0) + 1
+        if usage:
+            if "used" in usage:
+                self.autodev_usage_used = int(usage["used"])
+            if "limit" in usage:
+                self.autodev_usage_limit = int(usage["limit"])
+            if "remaining" in usage:
+                self.autodev_usage_remaining = int(usage["remaining"])
+            if "paid" in usage:
+                self.autodev_usage_paid = int(usage["paid"])
+            if "plan" in usage:
+                self.autodev_usage_plan = str(usage["plan"])
+            self.autodev_usage_updated = datetime.now().isoformat(timespec="seconds")
         self._save_settings()
 
     def _open_sync(self, *_args: Any) -> None:

@@ -346,29 +346,41 @@ class MapTourActionsMixin:
         key = (meta["kind"], meta["id"])
 
         if getattr(self, "_tour_history_select_mode", False):
-            # In select mode the row is non-activatable; checkbox prefix
-            # toggles selection. No edit button — that lives in normal mode.
+            # In select mode the checkbox prefix tracks selection, but the
+            # entire row is also activatable so a tap anywhere toggles —
+            # the checkbox alone is too small a touch target.
             check = Gtk.CheckButton()
             check.set_active(key in self._tour_history_selected)
             check.set_valign(Gtk.Align.CENTER)
             check.connect("toggled", self._on_history_row_check_toggled, key)
             action_row.add_prefix(check)
-            action_row.set_activatable(False)
+            action_row.set_activatable(True)
+            action_row.connect(
+                "activated", lambda _r, c=check: c.set_active(not c.get_active())
+            )
             return action_row
 
-        loaded_id = getattr(self, "_loaded_tour_id", None)
+        loaded_tour_id = getattr(self, "_loaded_tour_id", None)
+        loaded_trip_id = getattr(self, "_loaded_trip_id", None)
         is_loaded = (
             meta["kind"] == "tour"
-            and loaded_id is not None
-            and int(meta["id"]) == loaded_id
+            and loaded_tour_id is not None
+            and int(meta["id"]) == loaded_tour_id
+        ) or (
+            meta["kind"] == "trip"
+            and loaded_trip_id is not None
+            and int(meta["id"]) == loaded_trip_id
         )
-        if is_loaded:
-            icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
-            icon.add_css_class("dp-tour-loaded-icon")
-        elif meta["kind"] == "tour":
+        # Keep the kind-specific icon shape even when loaded; only tint
+        # it green via the dp-tour-loaded-icon CSS class. Swapping to
+        # emblem-ok-symbolic for the loaded row was unreliable on some
+        # icon themes (icon failed to render → row looked blank).
+        if meta["kind"] == "tour":
             icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
         else:
             icon = Gtk.Image.new_from_icon_name("distance-symbolic")
+        if is_loaded:
+            icon.add_css_class("dp-tour-loaded-icon")
         action_row.add_prefix(icon)
 
         edit_btn = Gtk.Button(icon_name="document-edit-symbolic")
@@ -727,15 +739,21 @@ class MapTourActionsMixin:
             check.set_valign(Gtk.Align.CENTER)
             check.connect("toggled", self._on_saved_tour_check_toggled, tour_id)
             row.add_prefix(check)
-            row.set_activatable(False)
+            row.set_activatable(True)
+            row.connect(
+                "activated", lambda _r, c=check: c.set_active(not c.get_active())
+            )
             return row
 
         loaded_id = getattr(self, "_loaded_tour_id", None)
+        icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
         if loaded_id is not None and int(tour["id"]) == loaded_id:
-            icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+            # Same icon as the unloaded state, just tinted via the
+            # dp-tour-loaded-icon CSS class. Using a different icon name
+            # here (emblem-ok-symbolic) was unreliable across icon
+            # themes — on some setups the icon simply didn't render,
+            # so the loaded row ended up blank.
             icon.add_css_class("dp-tour-loaded-icon")
-        else:
-            icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
         row.add_prefix(icon)
 
         sync_getter = getattr(self, "get_sync_client", None)

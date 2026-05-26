@@ -271,28 +271,47 @@ class DriveDB:
                 ).fetchone()
             if row is not None:
                 car_id = int(row["id"])
+                # User-editable master data (vin, brand, label) is preserved
+                # if already set; OBD only fills these when they are still
+                # empty. Technical OBD/profile fields (cal_id, cvn, protocol,
+                # profile_path) still let the newer scan win.
                 if is_live is None:
                     cur.execute(
                         "UPDATE cars SET last_seen=?,"
-                        " brand=COALESCE(?,brand), cal_id=COALESCE(?,cal_id),"
-                        " cvn=COALESCE(?,cvn), label=COALESCE(?,label),"
+                        " vin=COALESCE(vin,?),"
+                        " brand=COALESCE(brand,?),"
+                        " cal_id=COALESCE(?,cal_id),"
+                        " cvn=COALESCE(?,cvn),"
+                        " label=COALESCE(label,?),"
                         " protocol=COALESCE(?,protocol),"
                         " profile_path=COALESCE(?,profile_path)"
                         " WHERE id=?",
-                        (now, brand, cal_id, cvn, label, protocol, profile_path, car_id),
+                        (now, vin, brand, cal_id, cvn, label, protocol, profile_path, car_id),
                     )
                 else:
                     cur.execute(
                         "UPDATE cars SET last_seen=?,"
-                        " brand=COALESCE(?,brand), cal_id=COALESCE(?,cal_id),"
-                        " cvn=COALESCE(?,cvn), label=COALESCE(?,label),"
+                        " vin=COALESCE(vin,?),"
+                        " brand=COALESCE(brand,?),"
+                        " cal_id=COALESCE(?,cal_id),"
+                        " cvn=COALESCE(?,cvn),"
+                        " label=COALESCE(label,?),"
                         " protocol=COALESCE(?,protocol),"
                         " profile_path=COALESCE(?,profile_path),"
                         " is_live=?"
                         " WHERE id=?",
-                        (now, brand, cal_id, cvn, label, protocol, profile_path,
+                        (now, vin, brand, cal_id, cvn, label, protocol, profile_path,
                          int(bool(is_live)), car_id),
                     )
+                if vin:
+                    hash_row = cur.execute(
+                        "SELECT vin, vin_hash FROM cars WHERE id=?", (car_id,)
+                    ).fetchone()
+                    if hash_row and hash_row["vin"] and not hash_row["vin_hash"]:
+                        h = hashlib.sha256(hash_row["vin"].encode("utf-8")).hexdigest()
+                        cur.execute(
+                            "UPDATE cars SET vin_hash=? WHERE id=?", (h, car_id)
+                        )
             else:
                 cur.execute(
                     "INSERT INTO cars(vin,brand,cal_id,cvn,label,protocol,first_seen,last_seen,profile_path,is_live)"
@@ -677,6 +696,280 @@ class DriveDB:
             ).fetchone()
         return row is not None
 
+    TRIP_MERGE_MAX_GAP_S: float = 30 * 60   # 30 min between consecutive trips
+    TRIP_MERGE_FILL_INTERVAL_S: float = 1.0
+    TRIP_MERGE_FILL_GAP_THRESHOLD_S: float = 5.0
+
+    def merge_trips(self, trip_ids: list[int]) -> int:
+        """Merge multiple trips into the earliest one. Returns survivor id.
+
+        Behaves like merge_scans for scans, with the trip-specific twist that
+        the *pause* between consecutive trips is booked as standstill, not as
+        driving time: each gap is filled with zero-speed samples at
+        TRIP_MERGE_FILL_INTERVAL_S cadence, while ``duration_s`` aggregates
+        only the actual driving stretches (sum of source durations) rather
+        than the elapsed wall-clock span. lat/lon are left NULL on the
+        fill rows so the map polyline doesn't jump to (0, 0).
+
+        Error codes (same shape as merge_scans):
+          - "too_few", "trip_not_found", "different_cars", "gap_too_large"
+        """
+        if len(trip_ids) < 2:
+            raise ValueError("too_few")
+
+        def _parse_ts(s: Any) -> datetime:
+            return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+
+        placeholders = ",".join("?" * len(trip_ids))
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT id, car_id, started_at, ended_at, distance_km,"
+                f" duration_s, max_speed_kmh FROM trips"
+                f" WHERE id IN ({placeholders}) ORDER BY started_at ASC",
+                tuple(trip_ids),
+            ).fetchall()
+            if len(rows) != len(trip_ids):
+                raise ValueError("trip_not_found")
+            car_id = rows[0]["car_id"]
+            if any(r["car_id"] != car_id for r in rows):
+                raise ValueError("different_cars")
+            starts = [_parse_ts(r["started_at"]) for r in rows]
+            ends = [_parse_ts(r["ended_at"]) if r["ended_at"] else starts[i]
+                    for i, r in enumerate(rows)]
+            for i in range(1, len(starts)):
+                gap = (starts[i] - ends[i - 1]).total_seconds()
+                if gap > self.TRIP_MERGE_MAX_GAP_S:
+                    raise ValueError("gap_too_large")
+
+            survivor_id = int(rows[0]["id"])
+            loser_ids = [int(r["id"]) for r in rows[1:]]
+
+            sample_cols = ("speed_kmh", "obd_speed_kmh", "gps_speed_kmh",
+                           "rpm", "coolant_c", "throttle_pct", "engine_load",
+                           "fuel_pct", "intake_c", "maf_gps", "voltage_v",
+                           "lat", "lon", "altitude_m", "heading_deg", "accel_g")
+            col_list = ", ".join(sample_cols)
+            placeholders_cols = ", ".join("?" * (2 + len(sample_cols)))
+
+            # Copy samples from losers into survivor.
+            for loser in loser_ids:
+                copy_rows = self._conn.execute(
+                    f"SELECT ts, {col_list} FROM samples WHERE trip_id=?",
+                    (loser,),
+                ).fetchall()
+                if copy_rows:
+                    self._conn.executemany(
+                        f"INSERT OR IGNORE INTO samples(trip_id, ts, {col_list})"
+                        f" VALUES({placeholders_cols})",
+                        [(survivor_id, *(r[c] for c in ("ts", *sample_cols)))
+                         for r in copy_rows],
+                    )
+
+            # Gap-fill the merged sample stream with zero-speed rows so the
+            # pause shows up as a clear standstill plateau. lat/lon stay
+            # NULL — otherwise the map track jumps to the equator during
+            # the pause.
+            ts_rows = self._conn.execute(
+                "SELECT ts FROM samples WHERE trip_id=? ORDER BY ts",
+                (survivor_id,),
+            ).fetchall()
+            fill_interval = self.TRIP_MERGE_FILL_INTERVAL_S
+            gap_threshold = self.TRIP_MERGE_FILL_GAP_THRESHOLD_S
+            zero_fill_cols = ("speed_kmh", "obd_speed_kmh", "gps_speed_kmh",
+                              "rpm", "throttle_pct", "engine_load", "accel_g")
+            fills: list[tuple] = []
+            for i in range(1, len(ts_rows)):
+                prev_ts = float(ts_rows[i - 1]["ts"])
+                curr_ts = float(ts_rows[i]["ts"])
+                gap = curr_ts - prev_ts
+                if gap <= gap_threshold:
+                    continue
+                n = int(gap / fill_interval)
+                for j in range(1, n):
+                    t = prev_ts + j * fill_interval
+                    row_values = [survivor_id, t]
+                    for c in sample_cols:
+                        row_values.append(0.0 if c in zero_fill_cols else None)
+                    fills.append(tuple(row_values))
+            if fills:
+                self._conn.executemany(
+                    f"INSERT OR IGNORE INTO samples(trip_id, ts, {col_list})"
+                    f" VALUES({placeholders_cols})",
+                    fills,
+                )
+
+            # Aggregate columns: distance and drive-time are sums of the
+            # source trips (the pause does NOT count as drive time), max
+            # speed is the overall max, avg_speed is recomputed from the
+            # combined drive time.
+            sum_distance = sum(float(r["distance_km"] or 0) for r in rows)
+            sum_duration = sum(float(r["duration_s"] or 0) for r in rows)
+            max_speed = max((float(r["max_speed_kmh"] or 0) for r in rows), default=0.0)
+            avg_speed = None
+            if sum_duration > 0 and sum_distance:
+                avg_speed = sum_distance / (sum_duration / 3600.0)
+            count_row = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM samples WHERE trip_id=?",
+                (survivor_id,),
+            ).fetchone()
+            samples_count = int(count_row["n"] if count_row else 0)
+            # ended_at = latest source's ended_at (falls back to its start).
+            last = rows[-1]
+            new_ended_at = last["ended_at"] or last["started_at"]
+
+            self._conn.execute(
+                "UPDATE trips SET ended_at=?, distance_km=?, duration_s=?,"
+                " max_speed_kmh=?, avg_speed_kmh=?, samples_count=?"
+                " WHERE id=?",
+                (
+                    new_ended_at,
+                    sum_distance if sum_distance else None,
+                    sum_duration,
+                    max_speed if max_speed else None,
+                    avg_speed,
+                    samples_count,
+                    survivor_id,
+                ),
+            )
+            self._conn.executemany(
+                "DELETE FROM trips WHERE id=?", [(i,) for i in loser_ids]
+            )
+            self._conn.commit()
+            return survivor_id
+
+    SCAN_MERGE_MAX_GAP_S: float = 30 * 60   # 30 min between consecutive scans
+    SCAN_MERGE_FILL_INTERVAL_S: float = 1.0  # zero-fill cadence
+    SCAN_MERGE_FILL_GAP_THRESHOLD_S: float = 5.0  # only fill gaps wider than this
+
+    def merge_scans(self, scan_ids: list[int]) -> int:
+        """Merge multiple scans into the earliest one. Returns survivor id.
+
+        Raises ValueError with codes the caller can map to UI messages:
+          - "too_few"        : fewer than 2 scans selected
+          - "scan_not_found" : not all ids exist
+          - "different_cars" : scans belong to multiple cars
+          - "gap_too_large"  : consecutive scans more than
+            SCAN_MERGE_MAX_GAP_S apart — refuses to merge non-adjacent ones
+            because the user's mental model is "scan → short break → scan",
+            not "two unrelated recordings stitched together".
+
+        Gap-filling: for each PID, every gap wider than
+        SCAN_MERGE_FILL_GAP_THRESHOLD_S between adjacent samples is filled
+        with value=0 rows at SCAN_MERGE_FILL_INTERVAL_S cadence so the chart
+        renders the offline stretch as a visible flatline instead of
+        connecting the two real segments with a straight line.
+        """
+        if len(scan_ids) < 2:
+            raise ValueError("too_few")
+
+        def _parse_ts(s: Any) -> datetime:
+            return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+
+        placeholders = ",".join("?" * len(scan_ids))
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT id, car_id, scanned_at, data_json FROM scans"
+                f" WHERE id IN ({placeholders}) ORDER BY scanned_at ASC",
+                tuple(scan_ids),
+            ).fetchall()
+            if len(rows) != len(scan_ids):
+                raise ValueError("scan_not_found")
+            car_id = rows[0]["car_id"]
+            if any(r["car_id"] != car_id for r in rows):
+                raise ValueError("different_cars")
+            timestamps = [_parse_ts(r["scanned_at"]) for r in rows]
+            for i in range(1, len(timestamps)):
+                gap = (timestamps[i] - timestamps[i - 1]).total_seconds()
+                if gap > self.SCAN_MERGE_MAX_GAP_S:
+                    raise ValueError("gap_too_large")
+
+            survivor_id = int(rows[0]["id"])
+            loser_ids = [int(r["id"]) for r in rows[1:]]
+
+            for loser in loser_ids:
+                samples = self._conn.execute(
+                    "SELECT ts, pid, value, unit FROM scan_samples WHERE scan_id=?",
+                    (loser,),
+                ).fetchall()
+                if samples:
+                    self._conn.executemany(
+                        "INSERT OR IGNORE INTO scan_samples(scan_id, ts, pid, value, unit) VALUES(?,?,?,?,?)",
+                        [(survivor_id, s["ts"], s["pid"], s["value"], s["unit"]) for s in samples],
+                    )
+
+            pid_rows = self._conn.execute(
+                "SELECT DISTINCT pid FROM scan_samples WHERE scan_id=?", (survivor_id,)
+            ).fetchall()
+            fill_interval = self.SCAN_MERGE_FILL_INTERVAL_S
+            gap_threshold = self.SCAN_MERGE_FILL_GAP_THRESHOLD_S
+            for pr in pid_rows:
+                pid = pr["pid"]
+                sample_rows = self._conn.execute(
+                    "SELECT ts, unit FROM scan_samples WHERE scan_id=? AND pid=? ORDER BY ts",
+                    (survivor_id, pid),
+                ).fetchall()
+                if len(sample_rows) < 2:
+                    continue
+                fills: list[tuple] = []
+                for i in range(1, len(sample_rows)):
+                    prev_ts = float(sample_rows[i - 1]["ts"])
+                    curr_ts = float(sample_rows[i]["ts"])
+                    unit = sample_rows[i - 1]["unit"]
+                    gap = curr_ts - prev_ts
+                    if gap > gap_threshold:
+                        n = int(gap / fill_interval)
+                        for j in range(1, n):
+                            fills.append((survivor_id, prev_ts + j * fill_interval, pid, 0.0, unit))
+                if fills:
+                    self._conn.executemany(
+                        "INSERT OR IGNORE INTO scan_samples(scan_id, ts, pid, value, unit) VALUES(?,?,?,?,?)",
+                        fills,
+                    )
+
+            try:
+                survivor_data = json.loads(rows[0]["data_json"])
+            except (ValueError, json.JSONDecodeError):
+                survivor_data = {}
+            merged_dtcs = list(survivor_data.get("dtcs") or [])
+            merged_pending = list(survivor_data.get("pending_dtcs") or [])
+            for r in rows[1:]:
+                try:
+                    d = json.loads(r["data_json"])
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                for entry in d.get("dtcs") or []:
+                    if entry not in merged_dtcs:
+                        merged_dtcs.append(entry)
+                for entry in d.get("pending_dtcs") or []:
+                    if entry not in merged_pending:
+                        merged_pending.append(entry)
+            survivor_data["dtcs"] = merged_dtcs
+            survivor_data["pending_dtcs"] = merged_pending
+
+            pid_count_row = self._conn.execute(
+                "SELECT COUNT(DISTINCT pid) AS n FROM scan_samples WHERE scan_id=?",
+                (survivor_id,),
+            ).fetchone()
+            pids_count = int(pid_count_row["n"] if pid_count_row else 0)
+
+            self._conn.execute(
+                "UPDATE scans SET data_json=?, dtc_count=?, pending_dtc_count=?,"
+                " pids_count=? WHERE id=?",
+                (
+                    json.dumps(survivor_data),
+                    len(merged_dtcs),
+                    len(merged_pending),
+                    pids_count,
+                    survivor_id,
+                ),
+            )
+
+            self._conn.executemany(
+                "DELETE FROM scans WHERE id=?", [(i,) for i in loser_ids]
+            )
+            self._conn.commit()
+            return survivor_id
+
 
     # --------------------------------------------------------------- Samples
 
@@ -878,6 +1171,29 @@ class DriveDB:
                 (now, photo_id),
             )
             self._conn.commit()
+
+    def mark_all_seen_for_car(self, car_id: int, kind: str) -> int:
+        """Clear the unread-dot for every row of *kind* on *car_id*.
+        Returns the number of rows that were actually flipped to seen,
+        so the caller can decide whether the UI needs a refresh.
+        """
+        tables = {
+            "trips":           "trips",
+            "scans":           "scans",
+            "stopwatch_runs":  "acceleration_runs",
+            "photos":          "car_photos",
+        }
+        table = tables.get(kind)
+        if table is None:
+            return 0
+        now = datetime.now(UTC).isoformat()
+        with self._lock:
+            cur = self._conn.execute(
+                f"UPDATE {table} SET seen_at=? WHERE car_id=? AND seen_at IS NULL",
+                (now, car_id),
+            )
+            self._conn.commit()
+            return cur.rowcount or 0
 
     # ---------------------------------------------------------- share conflicts
 

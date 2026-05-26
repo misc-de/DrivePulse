@@ -63,6 +63,7 @@ class MapLayoutMixin:
             overlay.add_overlay(self._build_speed_zone_overlay())
             overlay.add_overlay(self._build_map_state_overlay())
             overlay.add_overlay(self._build_replay_chart_overlay())
+            overlay.add_overlay(self._build_tour_reset_btn())
             overlay.add_overlay(self._build_route_loading_overlay())
             overlay.add_overlay(self._build_route_info_overlay())
 
@@ -237,6 +238,72 @@ class MapLayoutMixin:
         cr.fill()
         cr.restore()
 
+    def _build_tour_reset_btn(self) -> Gtk.Widget:
+        """Trash button bottom-left, above the Shumate scale ruler.
+        Click clears any loaded/planned tour and resets the map to the
+        empty state. Visibility is driven by
+        _update_left_chrome_visibility() so it disappears whenever the
+        replay chart takes over the bottom-left corner."""
+        btn = Gtk.Button.new_from_icon_name("user-trash-symbolic")
+        btn.add_css_class("osd")
+        btn.add_css_class("circular")
+        btn.set_halign(Gtk.Align.START)
+        btn.set_valign(Gtk.Align.END)
+        btn.set_margin_start(7)
+        # Scale ruler sits at margin_bottom=36; the trash icon stacks above
+        # it with enough gap for the 40px button + a small breathing space.
+        btn.set_margin_bottom(78)
+        btn.set_size_request(40, 40)
+        btn.set_tooltip_text(_translate(self.language, "map.tour_reset.tooltip"))
+        btn.set_visible(False)
+        btn.connect("clicked", lambda _b: self._on_tour_reset_clicked())
+        self._tour_reset_btn = btn
+        return btn
+
+    def _on_tour_reset_clicked(self) -> None:
+        # Re-uses the same teardown the search-bar's X already triggers:
+        # clears entries, route, tour state, overlays, hides controls.
+        if hasattr(self, "_on_clear_clicked"):
+            self._on_clear_clicked(None)
+        self._update_left_chrome_visibility()
+
+    def _update_left_chrome_visibility(self) -> None:
+        """Decide which of the three bottom-/top-left controls
+        (trash, info-restore, chart-restore) get to be visible right now.
+
+          - Trash → only when a tour or plan exists AND the chart is
+            not currently expanded (would clash visually).
+          - Chart-restore icon → only when the chart is minimised AND
+            the info card isn't expanded.
+
+        Called from set_replay_*_minimized, route load/clear paths, and
+        the tour state-machine transitions."""
+        chart_overlay = getattr(self, "_replay_chart_overlay", None)
+        chart_expanded = bool(chart_overlay is not None and chart_overlay.get_visible())
+        info_overlay = getattr(self, "_replay_info_overlay", None)
+        info_expanded = bool(info_overlay is not None and info_overlay.get_visible())
+
+        has_tour = bool(
+            getattr(self, "_tour_active", False)
+            or getattr(self, "_tour_paused", False)
+            or getattr(self, "_tour_plan_active", False)
+            or getattr(self, "_loaded_tour_id", None) is not None
+            or (getattr(self, "_tour_coords", None) or [])
+            or (getattr(self, "_route_coords", None) or [])
+        )
+
+        btn = getattr(self, "_tour_reset_btn", None)
+        if btn is not None:
+            btn.set_visible(has_tour and not chart_expanded)
+
+        chart_restore = getattr(self, "_replay_chart_restore_btn", None)
+        chart_minimized = bool(getattr(self, "_replay_chart_minimized", False))
+        chart_has_data = bool(getattr(self, "_replay_chart_widget", None))
+        if chart_restore is not None:
+            chart_restore.set_visible(
+                chart_has_data and chart_minimized and not info_expanded
+            )
+
     def _build_route_info_overlay(self) -> Gtk.Widget:
         """Route info is now embedded in the tour-controls icon row.
         Return an invisible placeholder so _build_map's overlay.add_overlay()
@@ -247,31 +314,38 @@ class MapLayoutMixin:
         return dummy
 
     def _show_route_info(self, duration_s: float | None, distance_m: float | None) -> None:
-        """Render duration + distance into the top-centered route-info card.
-
-        Hides the card when both values are missing.
+        """Render duration + distance into the top-left route-info card,
+        stacked vertically. Hides the card when both values are missing.
         """
         from drivepulse_app.map.services import format_distance, format_duration
         if getattr(self, "_route_info_overlay", None) is None:
             return
-        parts: list[str] = []
+        duration_text = ""
+        distance_text = ""
         if duration_s:
             prefix = _translate(self.language, "map.duration_prefix")
-            parts.append(f"{prefix}{format_duration(duration_s)}")
+            duration_text = f"{prefix}{format_duration(duration_s)}"
         if distance_m:
             distance_prefix = _translate(self.language, "map.distance_prefix")
-            parts.append(f"{distance_prefix}{format_distance(distance_m, self.units)}")
-        if not parts:
+            distance_text = f"{distance_prefix}{format_distance(distance_m, self.units)}"
+        if not duration_text and not distance_text:
             self._hide_route_info()
             return
-        self._route_info_lbl.set_text("  ·  ".join(parts))
+        if getattr(self, "_route_info_duration_lbl", None) is not None:
+            self._route_info_duration_lbl.set_text(duration_text)
+            self._route_info_duration_lbl.set_visible(bool(duration_text))
+        if getattr(self, "_route_info_distance_lbl", None) is not None:
+            self._route_info_distance_lbl.set_text(distance_text)
+            self._route_info_distance_lbl.set_visible(bool(distance_text))
         self._route_info_overlay.set_visible(True)
 
     def _hide_route_info(self) -> None:
         if getattr(self, "_route_info_overlay", None) is not None:
             self._route_info_overlay.set_visible(False)
-            if getattr(self, "_route_info_lbl", None) is not None:
-                self._route_info_lbl.set_text("")
+            for attr in ("_route_info_duration_lbl", "_route_info_distance_lbl"):
+                lbl = getattr(self, attr, None)
+                if lbl is not None:
+                    lbl.set_text("")
 
     def _build_map_state_overlay(self) -> Gtk.Widget:
         wrap = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -520,6 +594,10 @@ class MapLayoutMixin:
         self._tour_abort_btn.set_child(abort_inner)
         self._tour_abort_btn.add_css_class("osd")
         self._tour_abort_btn.add_css_class("destructive-action")
+        # dp-abort-tour cranks the background back up to near-opaque so
+        # the abort affordance pops against the map instead of fading
+        # into the OSD-typical translucency.
+        self._tour_abort_btn.add_css_class("dp-abort-tour")
         self._tour_abort_btn.set_halign(Gtk.Align.END)
         self._tour_abort_btn.set_visible(False)
         self._tour_abort_btn.connect("clicked", lambda _b: self._abort_tour())
@@ -574,19 +652,26 @@ class MapLayoutMixin:
         icon_row.append(notepad_slot)
 
         # Route info (duration + distance) to the right of the notepad icon.
-        # Sitting in icon_row (row 1 of the grid) it never overlaps the
-        # row-0 buttons even when "Nächstes Ziel" is visible.
-        _install_maneuver_css()  # ensures dp-route-info CSS is available
-        route_info_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        route_info_box.add_css_class("dp-route-info")
+        # Duration and distance stack vertically; the .dp-route-info-osd
+        # class gives the same translucent OSD background used by the
+        # neighbouring "Start Tour" button so the two cards visually match.
+        _install_maneuver_css()
+        route_info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        route_info_box.add_css_class("dp-route-info-osd")
         route_info_box.set_valign(Gtk.Align.CENTER)
         route_info_box.set_visible(False)
-        route_info_lbl = Gtk.Label(label="")
-        route_info_lbl.set_xalign(0.5)
-        route_info_box.append(route_info_lbl)
+        route_info_duration_lbl = Gtk.Label(label="")
+        route_info_duration_lbl.set_xalign(0.0)
+        route_info_duration_lbl.set_halign(Gtk.Align.START)
+        route_info_distance_lbl = Gtk.Label(label="")
+        route_info_distance_lbl.set_xalign(0.0)
+        route_info_distance_lbl.set_halign(Gtk.Align.START)
+        route_info_box.append(route_info_duration_lbl)
+        route_info_box.append(route_info_distance_lbl)
         icon_row.append(route_info_box)
         self._route_info_overlay = route_info_box
-        self._route_info_lbl = route_info_lbl
+        self._route_info_duration_lbl = route_info_duration_lbl
+        self._route_info_distance_lbl = route_info_distance_lbl
 
         # Let icon_row span all 3 button columns so the route info can use the
         # full available width without being clipped by column boundaries.

@@ -213,6 +213,8 @@ class MapTourMixin:
         self._highlight_active_step()
         if was_running and self._on_tour_stopped is not None:
             self._on_tour_stopped()
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
     def _set_tour_button(self, mode: str) -> None:
         """mode: 'start' | 'stop' | 'resume'."""

@@ -45,7 +45,7 @@ class CarsScansMixin:
         seen_at = scan["seen_at"] if "seen_at" in keys else None
         if shared_at and not seen_at:
             dot = Gtk.Label(label="●")
-            dot.add_css_class("accent")
+            dot.add_css_class("dp-new-dot")
             dot.set_valign(Gtk.Align.CENTER)
             row.add_prefix(dot)
 
@@ -62,7 +62,8 @@ class CarsScansMixin:
             chk.set_valign(Gtk.Align.CENTER)
             chk.connect("toggled", lambda c, s=sid: self._on_scan_checkbox_toggled(s, c.get_active()))
             row.add_prefix(chk)
-            row.set_activatable(False)
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, c=chk: c.set_active(not c.get_active()))
         else:
             icon = Gtk.Image.new_from_icon_name("library-symbolic")
             if self._selected_scan_id is not None and int(self._selected_scan_id) == sid:
@@ -130,15 +131,14 @@ class CarsScansMixin:
         self._scan_selected_ids = {scan_id}
         self._render_detail()
         self._set_trash(self._confirm_delete_selected_scans)
+        self._update_merge_btn_visibility()
 
     def _exit_scan_select_mode(self) -> None:
         self._scan_select_mode = False
         self._scan_selected_ids = set()
         self._render_detail()
-        if self._selected_car_id is not None:
-            self._set_trash(self._confirm_delete_vehicle)
-        else:
-            self._set_trash(None)
+        self._update_trash_default()
+        self._update_merge_btn_visibility()
 
     def _on_scan_checkbox_toggled(self, scan_id: int, active: bool) -> None:
         if active:
@@ -147,6 +147,53 @@ class CarsScansMixin:
             self._scan_selected_ids.discard(scan_id)
         if not self._scan_selected_ids:
             self._exit_scan_select_mode()
+            return
+        self._update_merge_btn_visibility()
+
+    def _on_merge_selected_scans_clicked(self) -> None:
+        ids = sorted(self._scan_selected_ids)
+        if len(ids) < 2 or self.db is None:
+            return
+        dialog = Adw.AlertDialog()
+        dialog.set_heading(_translate(self.language, "cars.scans.merge.confirm.heading"))
+        dialog.set_body(_translate(self.language, "cars.scans.merge.confirm.body", n=len(ids)))
+        dialog.add_response("cancel", _translate(self.language, "cars.scans.merge.confirm.cancel"))
+        dialog.add_response("merge", _translate(self.language, "cars.scans.merge.confirm.ok"))
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("merge", Adw.ResponseAppearance.SUGGESTED)
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "merge":
+                return
+            self._do_merge_selected_scans(ids)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
+
+    def _do_merge_selected_scans(self, ids: list[int]) -> None:
+        if self.db is None:
+            return
+        try:
+            survivor = self.db.merge_scans(ids)
+        except ValueError as exc:
+            code = str(exc)
+            key = {
+                "too_few":       "cars.scans.merge.error.too_few",
+                "gap_too_large": "cars.scans.merge.error.gap",
+            }.get(code, "cars.scans.merge.error.generic")
+            self._show_toast(_translate(self.language, key))
+            return
+        except Exception:
+            log.exception("Could not merge scans %s", ids)
+            self._show_toast(_translate(self.language, "cars.scans.merge.error.generic"))
+            return
+        self._show_toast(_translate(self.language, "cars.scans.merge.toast_ok"))
+        # The survivor stays — make it the selected scan so the chart
+        # immediately reflects the merged trace.
+        self._selected_scan_id = survivor
+        self._scan_pid_stats = {}
+        self._exit_scan_select_mode()
 
     def _confirm_delete_selected_scans(self) -> None:
         n = len(self._scan_selected_ids)

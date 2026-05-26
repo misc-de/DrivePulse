@@ -39,7 +39,7 @@ class CarsStopWatchRunsMixin:
         seen_at = run["seen_at"] if "seen_at" in keys else None
         if shared_at and not seen_at:
             dot = Gtk.Label(label="●")
-            dot.add_css_class("accent")
+            dot.add_css_class("dp-new-dot")
             dot.set_valign(Gtk.Align.CENTER)
             row.add_prefix(dot)
 
@@ -68,7 +68,8 @@ class CarsStopWatchRunsMixin:
             chk.set_valign(Gtk.Align.CENTER)
             chk.connect("toggled", lambda c, rid=run_id: self._on_run_checkbox_toggled(rid, c.get_active()))
             row.add_prefix(chk)
-            row.set_activatable(False)
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, c=chk: c.set_active(not c.get_active()))
         else:
             icon = Gtk.Image.new_from_icon_name("stopwatch-symbolic")
             row.add_prefix(icon)
@@ -294,10 +295,7 @@ class CarsStopWatchRunsMixin:
         self._run_select_mode = False
         self._run_selected_ids = set()
         self._render_detail()
-        if self._selected_car_id is not None:
-            self._set_trash(self._confirm_delete_vehicle)
-        else:
-            self._set_trash(None)
+        self._update_trash_default()
 
     def _on_run_checkbox_toggled(self, run_id: int, active: bool) -> None:
         if active:
