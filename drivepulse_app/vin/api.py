@@ -107,7 +107,39 @@ def _fetch_autodev(
         with urllib.request.urlopen(req, timeout=10) as resp:
             if on_request:
                 on_request()
-            data = json.loads(resp.read().decode("utf-8"))
+            # Diagnose: dump the response headers that look quota/rate-limit
+            # related, plus the user/api/billing meta blocks once. We strip
+            # them later anyway, but log them here so we can wire a real
+            # usage display once we know the schema auto.dev actually ships.
+            try:
+                _hdr_items = list(resp.headers.items())  # type: ignore[attr-defined]
+            except Exception:
+                _hdr_items = []
+            quota_headers = {
+                name: value
+                for name, value in _hdr_items
+                if any(token in name.lower() for token in (
+                    "ratelimit", "rate-limit", "quota", "usage", "remaining",
+                    "x-request", "x-billing",
+                ))
+            }
+            if quota_headers:
+                print(f"[VIN] auto.dev quota headers: {quota_headers}", flush=True)
+            elif _hdr_items:
+                print(f"[VIN] auto.dev quota headers: <none>  (all headers: {[n for n, _ in _hdr_items]})", flush=True)
+            payload = resp.read().decode("utf-8")
+            data = json.loads(payload)
+        meta_blocks = {
+            k: data.get(k) for k in ("user", "api", "actions", "links", "discover")
+            if data.get(k) is not None
+        }
+        if meta_blocks:
+            # Bounded preview so we don't flood the log if the blocks are huge.
+            preview = {
+                k: (v if isinstance(v, dict) else str(v))
+                for k, v in meta_blocks.items()
+            }
+            print(f"[VIN] auto.dev meta blocks: {json.dumps(preview, default=str)[:1500]}", flush=True)
         print(f"[VIN] auto.dev OK fields={[k for k in data if not k.startswith('_') and k not in ('api','links','examples','photos','discover','actions','user')]}", flush=True)
     except urllib.error.HTTPError as exc:
         if on_request:
