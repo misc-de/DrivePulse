@@ -118,6 +118,8 @@ class CarsPage(
         self._selected_source: str = self.LIVE_ID
         self._selected_car_id: int | None = None
         self._selected_category: str = CATEGORIES[0][0]
+        self._has_vin: bool = False
+        self._is_real_car: bool = False
         self._detail_pushed = False
         self._trip_detail_pushed = False
         self._trip_detail_page: Adw.NavigationPage | None = None
@@ -614,6 +616,17 @@ class CarsPage(
         )
         btn.set_visible(show)
 
+    def _update_vin_refresh_visibility(self) -> None:
+        # VIN refresh is a master-data-only action — only visible while the
+        # user is on the vehicle category, where the VIN field actually
+        # shows up.
+        self._vin_refresh_btn.set_visible(
+            self._is_real_car
+            and self._has_vin
+            and not self.mock_mode
+            and self._selected_category == "vehicle"
+        )
+
     # ---------------------------------------------------- Detail-Navigation
 
     _LIVE_HIDDEN_CATS = frozenset({"trips", "stopwatch_runs", "scans", "photos"})
@@ -757,7 +770,9 @@ class CarsPage(
             self._set_trash(None)
         self._rename_btn.set_visible(is_real_car and not self.mock_mode)
         has_vin = bool(entry.get("vin")) if (is_real_car and entry) else False
-        self._vin_refresh_btn.set_visible(is_real_car and has_vin and not self.mock_mode)
+        self._has_vin = has_vin
+        self._is_real_car = is_real_car
+        self._update_vin_refresh_visibility()
         self._update_live_add_button()
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
@@ -886,6 +901,8 @@ class CarsPage(
         self._photo_detail_page = None
         self._set_trash(None)
         self._rename_btn.set_visible(False)
+        self._has_vin = False
+        self._is_real_car = False
         self._vin_refresh_btn.set_visible(False)
         self._update_photo_upload_btn_visibility()
         # User left the detail view — clear persisted state so the next
@@ -1143,6 +1160,7 @@ class CarsPage(
             else:
                 self._set_trash(None)
         self._selected_category = new_cat
+        self._update_vin_refresh_visibility()
         # Entering the scans list with no scan picked yet → highlight the most
         # recent one so the green marker reflects a concrete entry.
         if (
