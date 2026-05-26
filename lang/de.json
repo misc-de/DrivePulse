@@ -535,7 +535,7 @@
   "settings.vin_decoder.nhtsa.desc": "Kostenloser US-Behördendienst (vpic.nhtsa.dot.gov). Solide Basisdaten, vor allem für US-Fahrzeuge. Als Fallback aktivierbar — kein Schlüssel nötig.",
   "settings.vin_decoder.nhtsa_enable": "NHTSA als Fallback verwenden",
   "settings.vin_decoder.autodev": "auto.dev",
-  "settings.vin_decoder.autodev.desc": "1.000 Anfragen/Monat kostenlos. Schwerpunkt US-Markt — EU-Fahrzeuge oft nicht oder unvollständig erfasst. API-Schlüssel auf auto.dev registrieren.",
+  "settings.vin_decoder.autodev.desc": "1.000 Anfragen/Monat kostenlos. API-Schlüssel auf auto.dev registrieren.",
   "vin.fetch.title": "VIN-Abfrage",
   "vin.fetch.close": "Schließen",
   "vin.fetch.proceed": "Übernehmen",

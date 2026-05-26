@@ -515,7 +515,7 @@
   "settings.vin_decoder.nhtsa.desc": "Free US government service (vpic.nhtsa.dot.gov). Solid baseline data, strongest for US vehicles. Can be toggled as a fallback — no key required.",
   "settings.vin_decoder.nhtsa_enable": "Use NHTSA as fallback",
   "settings.vin_decoder.autodev": "auto.dev",
-  "settings.vin_decoder.autodev.desc": "1,000 requests/month free. US market focus — EU vehicles often missing or incomplete. Register an API key at auto.dev.",
+  "settings.vin_decoder.autodev.desc": "1,000 requests/month free. Register an API key at auto.dev.",
   "vin.fetch.title": "VIN Lookup",
   "vin.fetch.close": "Close",
   "vin.fetch.proceed": "Apply",
