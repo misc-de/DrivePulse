@@ -271,28 +271,47 @@ class DriveDB:
                 ).fetchone()
             if row is not None:
                 car_id = int(row["id"])
+                # User-editable master data (vin, brand, label) is preserved
+                # if already set; OBD only fills these when they are still
+                # empty. Technical OBD/profile fields (cal_id, cvn, protocol,
+                # profile_path) still let the newer scan win.
                 if is_live is None:
                     cur.execute(
                         "UPDATE cars SET last_seen=?,"
-                        " brand=COALESCE(?,brand), cal_id=COALESCE(?,cal_id),"
-                        " cvn=COALESCE(?,cvn), label=COALESCE(?,label),"
+                        " vin=COALESCE(vin,?),"
+                        " brand=COALESCE(brand,?),"
+                        " cal_id=COALESCE(?,cal_id),"
+                        " cvn=COALESCE(?,cvn),"
+                        " label=COALESCE(label,?),"
                         " protocol=COALESCE(?,protocol),"
                         " profile_path=COALESCE(?,profile_path)"
                         " WHERE id=?",
-                        (now, brand, cal_id, cvn, label, protocol, profile_path, car_id),
+                        (now, vin, brand, cal_id, cvn, label, protocol, profile_path, car_id),
                     )
                 else:
                     cur.execute(
                         "UPDATE cars SET last_seen=?,"
-                        " brand=COALESCE(?,brand), cal_id=COALESCE(?,cal_id),"
-                        " cvn=COALESCE(?,cvn), label=COALESCE(?,label),"
+                        " vin=COALESCE(vin,?),"
+                        " brand=COALESCE(brand,?),"
+                        " cal_id=COALESCE(?,cal_id),"
+                        " cvn=COALESCE(?,cvn),"
+                        " label=COALESCE(label,?),"
                         " protocol=COALESCE(?,protocol),"
                         " profile_path=COALESCE(?,profile_path),"
                         " is_live=?"
                         " WHERE id=?",
-                        (now, brand, cal_id, cvn, label, protocol, profile_path,
+                        (now, vin, brand, cal_id, cvn, label, protocol, profile_path,
                          int(bool(is_live)), car_id),
                     )
+                if vin:
+                    hash_row = cur.execute(
+                        "SELECT vin, vin_hash FROM cars WHERE id=?", (car_id,)
+                    ).fetchone()
+                    if hash_row and hash_row["vin"] and not hash_row["vin_hash"]:
+                        h = hashlib.sha256(hash_row["vin"].encode("utf-8")).hexdigest()
+                        cur.execute(
+                            "UPDATE cars SET vin_hash=? WHERE id=?", (h, car_id)
+                        )
             else:
                 cur.execute(
                     "INSERT INTO cars(vin,brand,cal_id,cvn,label,protocol,first_seen,last_seen,profile_path,is_live)"
