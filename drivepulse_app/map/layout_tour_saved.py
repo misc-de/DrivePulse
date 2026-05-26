@@ -20,6 +20,11 @@ log = get_logger(__name__)
 
 
 class MapTourSavedMixin:
+    # Owning class (MapPage) initializes these in __init__. Annotated here so
+    # mypy doesn't infer them as non-Optional from the assignments below.
+    _loaded_tour_id: int | None
+    _loaded_tour_name: str | None
+
     def _on_tour_load_clicked(self, _btn: object) -> None:
         nav_view = getattr(self, "_nav_view", None)
         if nav_view is None:

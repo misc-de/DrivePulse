@@ -17,6 +17,20 @@ log = get_logger(__name__)
 
 
 class MapGpsFilterMixin:
+    # Owning class (MapPage) initializes these in __init__. Annotated here so
+    # mypy doesn't infer them as non-Optional from a later assignment inside
+    # this mixin's methods.
+    _gps_lat: float | None
+    _gps_lon: float | None
+    _gps_filt_lat: float | None
+    _gps_filt_lon: float | None
+    _snapped_lat: float | None
+    _snapped_lon: float | None
+    _gps_filt_suspect: tuple | None
+    _obd_speed_kmh: float | None
+    _last_map_js_lat: float | None
+    _last_map_js_lon: float | None
+
     # ── GPS kinematic sanity filter ───────────────────────────────────────────
 
     # Maximum plausible acceleration: ~10 m/s² ≈ 36 km/h per second (sports car).

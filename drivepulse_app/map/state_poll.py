@@ -12,6 +12,14 @@ log = get_logger(__name__)
 
 
 class MapStatePollMixin:
+    # Owning class (MapPage) initializes these to None and updates them from
+    # the poll callbacks below. Annotated here so mypy doesn't infer the type
+    # from a single assignment branch.
+    _map_zoom: float | None
+    _map_pitch: float | None
+    _map_bearing: float | None
+    _map_state_poll_id: int | None
+
     def _ensure_map_state_poll(self) -> None:
         # Map-state polling is intentionally disabled: the bottom-left
         # backend/zoom/pitch/bearing readout is hidden in mock mode now,

@@ -16,6 +16,12 @@ from drivepulse_app.obd.devices import scan_obd_devices
 
 
 class SettingsRowCallbacksMixin:
+    # Owning class (SettingsDialog) initializes the dongle-port list with an
+    # explicit ``list[str | None]`` because the first entry is the "auto"
+    # sentinel. Annotated here so mypy doesn't infer ``list[None]`` from the
+    # reset below.
+    _obd_port_values: list[str | None]
+
     # ── I/O config: units, language, mock, dongle ────────────────────────────
 
     def _on_unit_selected(self, *_args: Any) -> None:
