@@ -652,6 +652,27 @@ class CarsPage(
             and self._selected_category == "vehicle"
         )
 
+    def _update_trash_default(self) -> None:
+        """Reset the trash button to its category-appropriate default.
+
+        The trash icon is overloaded: in the vehicle category it deletes the
+        whole car, in trips/scans/photos select-mode it deletes the picked
+        items, and in item-detail sub-pages it deletes that one item.
+        This helper handles only the *default* fallback (delete-vehicle in
+        the vehicle category, hidden everywhere else); select-mode and
+        item-detail handlers still call _set_trash() themselves to install
+        their own action.
+        """
+        if (
+            self._is_real_car
+            and not self.mock_mode
+            and self._detail_pushed
+            and self._selected_category == "vehicle"
+        ):
+            self._set_trash(self._confirm_delete_vehicle)
+        else:
+            self._set_trash(None)
+
     # ---------------------------------------------------- Detail-Navigation
 
     _LIVE_HIDDEN_CATS = frozenset({"trips", "stopwatch_runs", "scans", "photos"})
@@ -788,14 +809,13 @@ class CarsPage(
         self._detail_page.set_title(title)
         self._detail_title.set_text(title)
         is_real_car = source != self.LIVE_ID and self._selected_car_id is not None
-        # Show trash only for real vehicles, not the live view
-        if is_real_car:
-            self._set_trash(self._confirm_delete_vehicle)
-        else:
-            self._set_trash(None)
         has_vin = bool(entry.get("vin")) if (is_real_car and entry) else False
         self._has_vin = has_vin
         self._is_real_car = is_real_car
+        # Mark the detail as pushed before the visibility helpers run so
+        # they evaluate against the correct state.
+        self._detail_pushed = True
+        self._update_trash_default()
         self._update_vin_refresh_visibility()
         self._update_rename_btn_visibility()
         self._update_live_add_button()
@@ -804,7 +824,6 @@ class CarsPage(
         self._update_photo_upload_btn_visibility()
         if self._selected_car_id is not None:
             threading.Thread(target=self._bg_compute_scan_stats, daemon=True).start()
-        self._detail_pushed = True
         # In collapsed (mobile) layout this slides the detail in over the list.
         # In uncollapsed (desktop) layout both panes are already visible; this
         # only updates the internal show-content flag for later use.
@@ -822,29 +841,24 @@ class CarsPage(
             self._trip_detail_page = None
             if self._detail_pushed and self._selected_category == "trips":
                 self._render_detail()
-            # Restore vehicle delete action when returning to vehicle detail
-            if self._detail_pushed and self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
+            self._update_trash_default()
         if page is self._scan_detail_page:
             self._scan_detail_pushed = False
             self._scan_detail_page = None
             self._scan_id_shown = None
             if self._detail_pushed and self._selected_category == "scans":
                 self._render_detail()
-            if self._detail_pushed and self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
+            self._update_trash_default()
         if page is self._stopwatch_run_detail_page:
             self._stopwatch_run_detail_page = None
             if self._detail_pushed and self._selected_category == "stopwatch_runs":
                 self._render_detail()
-            if self._detail_pushed and self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
+            self._update_trash_default()
         if page is self._photo_detail_page:
             self._photo_detail_page = None
             if self._detail_pushed and self._selected_category == "photos":
                 self._render_detail()
-            if self._detail_pushed and self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
+            self._update_trash_default()
             self._update_photo_upload_btn_visibility()
 
     def _apply_initial_state(self) -> None:
@@ -1159,32 +1173,17 @@ class CarsPage(
         if self._trip_select_mode and new_cat != "trips":
             self._trip_select_mode = False
             self._trip_selected_ids = set()
-            if self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
-            else:
-                self._set_trash(None)
         if self._scan_select_mode and new_cat != "scans":
             self._scan_select_mode = False
             self._scan_selected_ids = set()
-            if self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
-            else:
-                self._set_trash(None)
         if self._run_select_mode and new_cat != "stopwatch_runs":
             self._run_select_mode = False
             self._run_selected_ids = set()
-            if self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
-            else:
-                self._set_trash(None)
         if self._photo_select_mode and new_cat != "photos":
             self._photo_select_mode = False
             self._photo_selected_ids = set()
-            if self._selected_car_id is not None:
-                self._set_trash(self._confirm_delete_vehicle)
-            else:
-                self._set_trash(None)
         self._selected_category = new_cat
+        self._update_trash_default()
         self._update_vin_refresh_visibility()
         self._update_rename_btn_visibility()
         # Entering the scans list with no scan picked yet → highlight the most
