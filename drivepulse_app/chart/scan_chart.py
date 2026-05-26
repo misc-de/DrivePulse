@@ -722,13 +722,18 @@ class ScanChartContent(Gtk.Box):
 
     def _refresh_add_car_dropdown(self) -> None:
         # Das gleiche Fahrzeug darf mehrfach als Vergleichseintrag hinzugefügt
-        # werden (z. B. um verschiedene Scan-Historien zu vergleichen).
+        # werden (z. B. um verschiedene Scan-Historien zu vergleichen) — aber
+        # nur wenn dort wirklich noch nicht geladene Scans übrig sind.
+        # Sonst landet man bei einem leeren Compare-Eintrag (scan_ts=None)
+        # mit unklarem Verhalten beim Zeichnen.
         self._add_car_candidates: list[int] = []
         sl = Gtk.StringList()
         sl.append("—")
         for p in self._profiles:
             cid = p.get("car_id")
             if cid is None or cid not in self._cars_with_data:
+                continue
+            if not self._car_has_unused_scans(cid):
                 continue
             sl.append(self._lookup_car_name(cid))
             self._add_car_candidates.append(cid)
@@ -738,6 +743,25 @@ class ScanChartContent(Gtk.Box):
         self._add_car_dd.set_model(sl)
         self._add_car_dd.set_selected(0)
         self._refreshing_add_car_dd = False
+
+    def _car_has_unused_scans(self, car_id: int) -> bool:
+        """True iff the car has at least one scan that's not already loaded
+        (neither as the main scan nor in an existing compare entry)."""
+        if self._db is None:
+            return False
+        try:
+            scans = list(self._db.list_scans_for_car(car_id))
+        except sqlite3.Error:
+            return False
+        used: set[str] = self._comparison_scan_ts_for_car(car_id)
+        if self._main_car_id == car_id and self._main_scan_ts:
+            used.add(self._main_scan_ts)
+        for s in scans:
+            if _safe_pids_count(s) <= 0:
+                continue
+            if str(s["scanned_at"]) not in used:
+                return True
+        return False
 
     # ── Value handlers ────────────────────────────────────────────────────
 
