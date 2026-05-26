@@ -381,12 +381,11 @@ class CarsPage(
             except Exception:
                 log.warning("Could not save autodev raw for car_id=%s", car_id, exc_info=True)
         sources.pop("auto.dev_error", None)  # already shown in dialog row
-        if not sources:
-            if self.db is not None:
-                try:
-                    self.db.update_car_vin_data(car_id, "{}")
-                except sqlite3.Error:
-                    log.warning("Could not persist empty VIN data for car_id=%s", car_id, exc_info=True)
+        if not sources and self.db is not None:
+            try:
+                self.db.update_car_vin_data(car_id, "{}")
+            except sqlite3.Error:
+                log.warning("Could not persist empty VIN data for car_id=%s", car_id, exc_info=True)
         dialog.set_all_done(sources)
         return False
 

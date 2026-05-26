@@ -991,12 +991,14 @@ class MapTourActionsMixin:
         tours = [t for t in self._saved_tour_metas if int(t["id"]) in id_set]
         if not tours:
             return
+
+        def _send_saved_tours() -> None:
+            self._make_share_flow().share_tours(tours)
+            self._exit_saved_tour_select_mode()
+
         self._confirm_and_bulk_share(
             count=len(tours),
-            on_send=lambda: (
-                self._make_share_flow().share_tours(tours),
-                self._exit_saved_tour_select_mode(),
-            ),
+            on_send=_send_saved_tours,
         )
 
     def _on_history_share_clicked(self, _btn: Gtk.Button) -> None:

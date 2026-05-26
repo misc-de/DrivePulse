@@ -12,6 +12,7 @@ Optimiert auf:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -301,8 +302,7 @@ class DriveDB:
                 )
                 car_id = int(cur.lastrowid or 0)
                 if vin:
-                    import hashlib as _hashlib
-                    h = _hashlib.sha256(vin.encode("utf-8")).hexdigest()
+                    h = hashlib.sha256(vin.encode("utf-8")).hexdigest()
                     cur.execute("UPDATE cars SET vin_hash=? WHERE id=?", (h, car_id))
             self._conn.commit()
             return car_id
@@ -380,7 +380,7 @@ class DriveDB:
 
     def update_car_vin(self, car_id: int, new_vin: str) -> None:
         new_vin = new_vin.strip().upper()
-        h = _hashlib.sha256(new_vin.encode()).hexdigest() if new_vin else None
+        h = hashlib.sha256(new_vin.encode()).hexdigest() if new_vin else None
         with self._lock:
             self._conn.execute(
                 "UPDATE cars SET vin=?, vin_hash=?, vin_data_json=NULL WHERE id=?",
@@ -826,7 +826,6 @@ class DriveDB:
     # ---------------------------------------------------------- VIN hash helpers
 
     def _backfill_vin_hashes(self) -> None:
-        import hashlib
         rows = self._conn.execute(
             "SELECT id, vin FROM cars WHERE vin IS NOT NULL AND vin_hash IS NULL"
         ).fetchall()

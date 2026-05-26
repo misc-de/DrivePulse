@@ -449,6 +449,7 @@ class MapPage(
                     heading_delta = 360.0 - heading_delta
                 moved = (
                     self._last_map_js_lat is None
+                    or self._last_map_js_lon is None
                     or abs(display_lat - self._last_map_js_lat) >= self._MAP_JS_MIN_DEG
                     or abs(display_lon - self._last_map_js_lon) >= self._MAP_JS_MIN_DEG
                     or heading_delta >= self._MAP_JS_MIN_HEADING
