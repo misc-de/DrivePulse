@@ -33,12 +33,12 @@ _SHUTTER_CSS = b"""
     background-image: none;
     background-color: #e62b2b;
     color: white;
-    border: 4px solid white;
+    border: 2px solid white;
     border-radius: 999px;
-    min-width: 56px;
-    min-height: 56px;
+    min-width: 28px;
+    min-height: 28px;
     padding: 0;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
 }
 .dp-cam-shutter:hover { background-color: #ff3a3a; }
 .dp-cam-shutter:active { background-color: #b81d1d; }
@@ -46,17 +46,17 @@ _SHUTTER_CSS = b"""
 
 .dp-cam-thumb {
     padding: 0;
-    border-radius: 8px;
+    border-radius: 6px;
     border: 2px solid white;
     background-color: black;
     background-image: none;
-    min-width: 80px;
-    min-height: 80px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    min-width: 40px;
+    min-height: 40px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
 }
 .dp-cam-thumb:hover { border-color: #e0e0e0; }
 .dp-cam-thumb picture {
-    border-radius: 6px;
+    border-radius: 4px;
 }
 
 .dp-cam-viewer-bg {
@@ -577,22 +577,19 @@ class CameraPhotoDialog:
         win.connect("close-request", _on_close_request)
         self._window = win
 
-        # --- Preview area ------------------------------------------------------
+        # --- Preview area with bottom-left thumbnail overlay --------------------
         self._preview_picture = Gtk.Picture()
         self._preview_picture.set_hexpand(True)
         self._preview_picture.set_vexpand(True)
         self._preview_picture.set_can_shrink(True)
         self._preview_picture.set_size_request(-1, 320)
 
-        # --- Status + shutter row ----------------------------------------------
-        # Layout: [thumbnail slot 80×80] [shutter] [spacer 80×80] — symmetric so
-        # the shutter sits visually centered.  The thumbnail slot is always
-        # 80×80 (square, never a rectangle); the button inside is invisible
-        # until the first capture, but the slot stays reserved so the shutter
-        # doesn't shift left.
-        self._status_lbl = Gtk.Label(label="")
-        self._status_lbl.add_css_class("dim-label")
+        preview_overlay = Gtk.Overlay()
+        preview_overlay.set_hexpand(True)
+        preview_overlay.set_vexpand(True)
+        preview_overlay.set_child(self._preview_picture)
 
+        # Thumbnail: 40×40 square anchored bottom-left of the preview area.
         self._thumb_pic = Gtk.Picture()
         self._thumb_pic.set_can_shrink(True)
         self._thumb_pic.set_hexpand(True)
@@ -601,45 +598,41 @@ class CameraPhotoDialog:
         self._thumb_btn = Gtk.Button()
         self._thumb_btn.add_css_class("dp-cam-thumb")
         self._thumb_btn.set_child(self._thumb_pic)
-        # Lock both axes to keep the thumbnail a perfect square regardless of
-        # the photo's aspect ratio (the inner Picture is cropped via COVER fit).
-        self._thumb_btn.set_size_request(80, 80)
-        self._thumb_btn.set_hexpand(False)
-        self._thumb_btn.set_vexpand(False)
-        self._thumb_btn.set_valign(Gtk.Align.CENTER)
+        self._thumb_btn.set_size_request(40, 40)
+        self._thumb_btn.set_halign(Gtk.Align.START)
+        self._thumb_btn.set_valign(Gtk.Align.END)
+        self._thumb_btn.set_margin_start(10)
+        self._thumb_btn.set_margin_bottom(10)
         self._thumb_btn.set_visible(False)
         self._thumb_btn.connect("clicked", lambda _b: self._show_viewer())
+        preview_overlay.add_overlay(self._thumb_btn)
 
-        # Fixed-size wrapper so the slot reserves 80×80 even when the button
-        # itself is hidden (otherwise the shutter drifts to the left edge).
-        thumb_slot = Gtk.Box()
-        thumb_slot.set_size_request(80, 80)
-        thumb_slot.set_halign(Gtk.Align.CENTER)
-        thumb_slot.set_valign(Gtk.Align.CENTER)
-        thumb_slot.append(self._thumb_btn)
+        # --- Status + shutter row ----------------------------------------------
+        # Shutter is half its previous size (~28×28) and the row sits 60 px
+        # above the dialog's bottom edge, lifting the shutter toward the screen
+        # centre.  The thumbnail no longer shares this row — it lives as a
+        # bottom-left overlay on the preview above.
+        self._status_lbl = Gtk.Label(label="")
+        self._status_lbl.add_css_class("dim-label")
 
         self._capture_btn = Gtk.Button()
         self._capture_btn.add_css_class("dp-cam-shutter")
         self._capture_btn.set_tooltip_text(self._t("cars.photos.camera_capture"))
+        self._capture_btn.set_halign(Gtk.Align.CENTER)
         self._capture_btn.set_valign(Gtk.Align.CENTER)
         self._capture_btn.connect("clicked", lambda _b: self._do_capture())
 
-        spacer = Gtk.Box()
-        spacer.set_size_request(80, 80)
-
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         btn_row.set_halign(Gtk.Align.CENTER)
         btn_row.set_margin_top(8)
-        btn_row.set_margin_bottom(12)
-        btn_row.append(thumb_slot)
+        btn_row.set_margin_bottom(60)
         btn_row.append(self._capture_btn)
-        btn_row.append(spacer)
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         main_box.set_margin_top(8)
         main_box.set_margin_start(8)
         main_box.set_margin_end(8)
-        main_box.append(self._preview_picture)
+        main_box.append(preview_overlay)
         main_box.append(self._status_lbl)
         main_box.append(btn_row)
 
