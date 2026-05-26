@@ -59,18 +59,6 @@ _SHUTTER_CSS = b"""
     border-radius: 6px;
 }
 
-.dp-cam-viewer-bg {
-    background-color: rgba(0,0,0,0.93);
-}
-.dp-cam-viewer-close {
-    background-color: rgba(40,40,40,0.7);
-    color: white;
-    border-radius: 999px;
-    min-width: 36px;
-    min-height: 36px;
-    padding: 0;
-}
-.dp-cam-viewer-close:hover { background-color: rgba(80,80,80,0.85); }
 """
 _shutter_css_loaded = False
 
@@ -531,13 +519,7 @@ class CarsPhotosMixin:
 
 
 class CameraPhotoDialog:
-    """Modal camera window with live preview, bottom-left thumbnail, and a
-    fullscreen Adw.Carousel viewer for session photos.
-
-    Photos auto-save on every shutter press (via ``on_captured``).  The dialog
-    keeps temp-file copies of each capture for the in-session thumbnail and
-    carousel; those temps are removed when the dialog closes.
-    """
+    """Live preview + shutter. Thumbnail of the last capture sits left of the shutter."""
 
     def __init__(
         self,
@@ -551,20 +533,14 @@ class CameraPhotoDialog:
         self._last_photo_path = last_photo_path
         self._pipeline: Any = None
         self._Gst: Any = None
+        self._raw_sink: Any = None
         self._window: Gtk.Window | None = None
         self._preview_picture: Gtk.Picture | None = None
         self._status_lbl: Gtk.Label | None = None
         self._capture_btn: Gtk.Button | None = None
-        self._raw_sink: Any = None
-        # In-session photo list — temp paths kept alive until the dialog closes
-        # so the thumbnail and carousel can display them.  Auto-import (via the
-        # on_captured callback) has already happened by the time a path lands
-        # here, so the originals on disk are independent of these temps.
-        self._session_paths: list[Path] = []
-        self._thumb_btn: Gtk.Button | None = None
         self._thumb_pic: Gtk.Picture | None = None
-        self._viewer_overlay: Gtk.Overlay | None = None
-        self._carousel: Any = None
+        self._thumb_btn: Gtk.Button | None = None
+        self._session_paths: list[Path] = []
 
         _ensure_shutter_css()
         self._build_ui(parent)
@@ -576,35 +552,32 @@ class CameraPhotoDialog:
     def _build_ui(self, parent: Gtk.Widget | None) -> None:
         win = Gtk.Window()
         win.set_title(self._t("cars.photos.camera_title"))
-        win.set_default_size(640, 560)
+        win.set_default_size(640, 520)
         win.set_modal(True)
         if parent is not None:
             root = parent.get_root() if hasattr(parent, "get_root") else parent
             if isinstance(root, Gtk.Window):
                 win.set_transient_for(root)
-
         def _on_close_request(_w: Gtk.Window) -> bool:
             self._cleanup()
             return False
-
         win.connect("close-request", _on_close_request)
         self._window = win
 
-        # --- Preview area ------------------------------------------------------
         self._preview_picture = Gtk.Picture()
         self._preview_picture.set_hexpand(True)
         self._preview_picture.set_vexpand(True)
         self._preview_picture.set_can_shrink(True)
-        self._preview_picture.set_size_request(-1, 320)
+        self._preview_picture.set_size_request(-1, 300)
 
-        # --- Thumbnail (lives in the shutter row, left of the shutter) ---------
-        # Picture has NO hexpand/vexpand so its expand flag doesn't propagate
-        # up to the button — otherwise the row would stretch the button into a
-        # rectangle the full width of the row.
+        self._status_lbl = Gtk.Label(label="")
+        self._status_lbl.add_css_class("dim-label")
+
         self._thumb_pic = Gtk.Picture()
         self._thumb_pic.set_can_shrink(True)
-        # FILL stretches the picture to the 60×60 tile; user accepts distortion.
-        self._thumb_pic.set_content_fit(Gtk.ContentFit.FILL)
+        self._thumb_pic.set_content_fit(Gtk.ContentFit.COVER)
+        self._thumb_pic.set_hexpand(False)
+        self._thumb_pic.set_vexpand(False)
 
         self._thumb_btn = Gtk.Button()
         self._thumb_btn.add_css_class("dp-cam-thumb")
@@ -612,106 +585,39 @@ class CameraPhotoDialog:
         self._thumb_btn.set_size_request(60, 60)
         self._thumb_btn.set_hexpand(False)
         self._thumb_btn.set_vexpand(False)
-        self._thumb_btn.set_halign(Gtk.Align.CENTER)
-        self._thumb_btn.set_valign(Gtk.Align.CENTER)
-        self._thumb_btn.set_overflow(Gtk.Overflow.HIDDEN)  # clip picture to the rounded tile
+        self._thumb_btn.set_overflow(Gtk.Overflow.HIDDEN)
+        self._thumb_btn.set_sensitive(False)
         self._thumb_btn.set_visible(False)
-        self._thumb_btn.connect("clicked", lambda _b: self._show_viewer())
         if self._last_photo_path and self._last_photo_path.exists():
             self._thumb_pic.set_file(Gio.File.new_for_path(str(self._last_photo_path)))
             self._thumb_btn.set_visible(True)
 
-        # --- Status + shutter row ----------------------------------------------
-        # Shutter sits centered on its own; the thumbnail is overlaid on the
-        # preview at bottom-left so it doesn't push the shutter off-center.
-        self._status_lbl = Gtk.Label(label="")
-        self._status_lbl.add_css_class("dim-label")
-
         self._capture_btn = Gtk.Button()
         self._capture_btn.add_css_class("dp-cam-shutter")
         self._capture_btn.set_size_request(60, 60)
+        self._capture_btn.set_hexpand(False)
+        self._capture_btn.set_vexpand(False)
         self._capture_btn.set_tooltip_text(self._t("cars.photos.camera_capture"))
-        self._capture_btn.set_halign(Gtk.Align.CENTER)
-        self._capture_btn.set_valign(Gtk.Align.CENTER)
         self._capture_btn.connect("clicked", lambda _b: self._do_capture())
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         btn_row.set_halign(Gtk.Align.CENTER)
         btn_row.set_margin_top(8)
-        btn_row.set_margin_bottom(60)
+        btn_row.set_margin_bottom(16)
         btn_row.append(self._thumb_btn)
         btn_row.append(self._capture_btn)
 
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        main_box.set_margin_top(8)
-        main_box.set_margin_start(8)
-        main_box.set_margin_end(8)
-        main_box.append(self._preview_picture)
-        main_box.append(self._status_lbl)
-        main_box.append(btn_row)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+        box.append(self._preview_picture)
+        box.append(self._status_lbl)
+        box.append(btn_row)
 
-        # --- Root overlay: main UI + fullscreen viewer --------------------------
-        root_overlay = Gtk.Overlay()
-        root_overlay.set_child(main_box)
-        root_overlay.add_overlay(self._build_viewer())
-
-        win.set_child(root_overlay)
+        win.set_child(box)
         win.present()
-
-    def _build_viewer(self) -> Gtk.Overlay:
-        """Fullscreen carousel viewer — hidden by default, tap-outside dismisses."""
-        viewer = Gtk.Overlay()
-        viewer.set_visible(False)
-        viewer.set_hexpand(True)
-        viewer.set_vexpand(True)
-        self._viewer_overlay = viewer
-
-        # Dim background — clicks here (i.e. NOT on the centered carousel) dismiss.
-        dim = Gtk.Box()
-        dim.set_hexpand(True)
-        dim.set_vexpand(True)
-        dim.add_css_class("dp-cam-viewer-bg")
-        dim_click = Gtk.GestureClick()
-        dim_click.connect("released", lambda *_a: self._hide_viewer())
-        dim.add_controller(dim_click)
-        viewer.set_child(dim)
-
-        # Centered carousel + dot indicator.  The carousel sits inside a vertical
-        # box that is centered both horizontally and vertically; clicks landing
-        # outside this box hit the dim layer above and dismiss the viewer.
-        self._carousel = Adw.Carousel()
-        self._carousel.set_hexpand(True)
-        self._carousel.set_vexpand(True)
-        self._carousel.set_spacing(12)
-        self._carousel.set_allow_long_swipes(True)
-
-        dots = Adw.CarouselIndicatorDots()
-        dots.set_carousel(self._carousel)
-        dots.set_halign(Gtk.Align.CENTER)
-        dots.set_margin_top(8)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        content.set_halign(Gtk.Align.FILL)
-        content.set_valign(Gtk.Align.FILL)
-        content.set_margin_top(48)
-        content.set_margin_bottom(24)
-        content.set_margin_start(16)
-        content.set_margin_end(16)
-        content.append(self._carousel)
-        content.append(dots)
-        viewer.add_overlay(content)
-
-        # Close (X) button anchored top-right of the viewer.
-        close_x = Gtk.Button(icon_name="window-close-symbolic")
-        close_x.add_css_class("dp-cam-viewer-close")
-        close_x.set_halign(Gtk.Align.END)
-        close_x.set_valign(Gtk.Align.START)
-        close_x.set_margin_top(8)
-        close_x.set_margin_end(8)
-        close_x.connect("clicked", lambda _b: self._hide_viewer())
-        viewer.add_overlay(close_x)
-
-        return viewer
 
     # ---------- preview pipeline ----------
 
@@ -891,17 +797,12 @@ class CameraPhotoDialog:
             GLib.idle_add(self._on_capture_failed)
 
     def _on_capture_done(self, path: Path) -> None:
-        # Auto-import the freshly captured JPEG into the car gallery — the
-        # session no longer has a separate "Save" step.
         try:
             self._on_captured(path)
         except Exception:
             log.exception("Camera on_captured callback failed")
-
         self._session_paths.append(path)
         self._refresh_thumbnail(path)
-        self._append_to_carousel(path)
-
         if self._capture_btn:
             self._capture_btn.set_sensitive(True)
 
@@ -911,40 +812,13 @@ class CameraPhotoDialog:
             self._capture_btn.set_sensitive(True)
         # Preview pipeline is still running, no need to restart.
 
-    # ---------- thumbnail + carousel ----------
+    # ---------- thumbnail ----------
 
     def _refresh_thumbnail(self, latest: Path) -> None:
         if self._thumb_pic is None or self._thumb_btn is None:
             return
         self._thumb_pic.set_file(Gio.File.new_for_path(str(latest)))
         self._thumb_btn.set_visible(True)
-
-    def _append_to_carousel(self, path: Path) -> None:
-        if self._carousel is None:
-            return
-        pic = Gtk.Picture()
-        pic.set_file(Gio.File.new_for_path(str(path)))
-        pic.set_content_fit(Gtk.ContentFit.CONTAIN)
-        pic.set_hexpand(True)
-        pic.set_vexpand(True)
-        self._carousel.append(pic)
-
-    def _show_viewer(self) -> None:
-        if self._viewer_overlay is None or self._carousel is None:
-            return
-        if not self._session_paths:
-            return
-        self._viewer_overlay.set_visible(True)
-        # Newest photo first: scroll to the last carousel page.
-        last_idx = self._carousel.get_n_pages() - 1
-        if last_idx >= 0:
-            page = self._carousel.get_nth_page(last_idx)
-            if page is not None:
-                self._carousel.scroll_to(page, False)
-
-    def _hide_viewer(self) -> None:
-        if self._viewer_overlay is not None:
-            self._viewer_overlay.set_visible(False)
 
     # ---------- close ----------
 
