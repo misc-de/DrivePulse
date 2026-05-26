@@ -453,18 +453,6 @@ class CarsPage(
                     self.db.update_car_vin_data(car_id, json.dumps(accepted))
                 except sqlite3.Error:
                     log.warning("Could not persist VIN data for car_id=%s", car_id, exc_info=True)
-                # Promote VIN-decoded make into the permanent brand master
-                # data when the user hasn't set a brand yet — brand is the
-                # editable, OBD-protected field so VIN data lives on even
-                # if vin_data_json is later reset.
-                decoded_make = (accepted.get("make") or "").strip()
-                if decoded_make:
-                    try:
-                        existing = self.db.get_car(car_id)
-                        if existing is not None and not (existing["brand"] or "").strip():
-                            self.db.update_car_brand(car_id, decoded_make)
-                    except sqlite3.Error:
-                        log.warning("Could not promote VIN make to brand for car_id=%s", car_id, exc_info=True)
             self._profiles = _load_profiles(self.db)
             self._rebuild_list()
             if self._detail_pushed:
