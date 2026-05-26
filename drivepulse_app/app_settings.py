@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from drivepulse_app.common import LOG_DIR, SETTINGS_FILE, _detect_language, _normalize_language  # noqa: F401
+from drivepulse_app.credentials import SECRET_FIELDS, load as secret_load
+from drivepulse_app.credentials import store as secret_store
 from drivepulse_app.diagnostics import atomic_write_text, get_logger
 
 log = get_logger(__name__)
@@ -120,7 +122,7 @@ def load_settings() -> dict[str, Any]:
         0.05,
         1.50,
     )
-    return {
+    result = {
         "units": units if units in {"metric", "imperial"} else "metric",
         "language": _normalize_language(language),
         "mock_mode": bool(data.get("mock_mode", DEFAULT_SETTINGS["mock_mode"])),
@@ -171,10 +173,55 @@ def load_settings() -> dict[str, Any]:
         "last_cars_source": (str(data["last_cars_source"]) if data.get("last_cars_source") else None),
         "last_cars_category": (str(data["last_cars_category"]) if data.get("last_cars_category") else None),
     }
+    # Pull secrets from the keyring when available — that path replaces
+    # any value the JSON file may still carry (legacy installs). If the
+    # keyring is reachable but the JSON also contains a plain-text key,
+    # treat that as a fresh migration: store into keyring, blank the
+    # JSON value (will be persisted next save_settings).
+    for field in SECRET_FIELDS:
+        keyring_val = secret_load(field)
+        if keyring_val is None:
+            # Keyring unavailable → keep the JSON value, no migration.
+            continue
+        plain = result.get(field) or ""
+        if keyring_val:
+            # Keyring is authoritative.
+            result[field] = keyring_val
+            if plain and plain != keyring_val:
+                # JSON had a stale leftover — wipe it next save.
+                result[f"__migrate_clear_json_{field}__"] = True
+        elif plain:
+            # Fresh migration: keyring is empty but JSON has a value.
+            if secret_store(field, plain):
+                log.info("Migrated %s from settings.json into the keyring", field)
+                result[f"__migrate_clear_json_{field}__"] = True
+            # Either way the user expects the key to live in the
+            # keyring from now on; keep the value in-memory but mark
+            # the JSON copy for removal so the next save flushes a
+            # clean file.
+    return result
 
 
 def save_settings(settings: dict[str, Any]) -> None:
-    """Persist normalized settings to settings.json."""
+    """Persist normalized settings to settings.json.
+
+    Secret fields (API keys / secret keys) get routed through the
+    keyring helper: on systems where libsecret is reachable they are
+    written there and stored as an empty string in the JSON file, so a
+    settings.json copy never leaks a usable credential. On systems
+    without a keyring daemon the values stay in the JSON file (chmod
+    0600) exactly like before — same behaviour the project has always
+    had as the lower bound.
+    """
+    # Push each secret field through the keyring; what ends up in the
+    # JSON depends on whether the keyring accepted the write.
+    json_secret_values: dict[str, str] = {}
+    for field in SECRET_FIELDS:
+        value = str(settings.get(field) or "").strip()
+        if secret_store(field, value):
+            json_secret_values[field] = ""
+        else:
+            json_secret_values[field] = value
     atomic_write_text(
         SETTINGS_FILE,
         json.dumps(
@@ -220,9 +267,9 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "log_obd_enabled": bool(settings.get("log_obd_enabled", False)),
                 "obd_auto_record": bool(settings.get("obd_auto_record", True)),
                 "nhtsa_enabled": bool(settings.get("nhtsa_enabled", DEFAULT_SETTINGS["nhtsa_enabled"])),
-                "vindecoder_api_key": str(settings.get("vindecoder_api_key") or "").strip(),
-                "vindecoder_secret_key": str(settings.get("vindecoder_secret_key") or "").strip(),
-                "autodev_api_key": str(settings.get("autodev_api_key") or "").strip(),
+                "vindecoder_api_key": json_secret_values["vindecoder_api_key"],
+                "vindecoder_secret_key": json_secret_values["vindecoder_secret_key"],
+                "autodev_api_key": json_secret_values["autodev_api_key"],
                 "autodev_month": str(settings.get("autodev_month") or ""),
                 "autodev_month_count": max(0, int(settings.get("autodev_month_count") or 0)),
                 "autodev_usage_used": max(0, int(settings.get("autodev_usage_used") or 0)),
