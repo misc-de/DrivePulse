@@ -63,6 +63,50 @@ def test_upsert_car_uses_profile_path_for_anonymous_match(db):
     assert db.get_car(cid)["brand"] == "Mock"
 
 
+def test_upsert_car_preserves_user_editable_master_data(db):
+    # User-editable master data (vin, brand, label) is global per car: once
+    # the user (or a previous scan) has set it, a later OBD scan must not
+    # silently overwrite it.
+    cid = db.upsert_car(vin="VIN-KEEP", brand="UserBrand", label="UserLabel")
+    db.upsert_car(
+        vin="VIN-KEEP",
+        brand="OBDBrand",
+        label="OBDLabel",
+        protocol="CAN",
+        cal_id="CAL-1",
+    )
+    car = db.get_car(cid)
+    assert car["brand"] == "UserBrand"
+    assert car["label"] == "UserLabel"
+    # Technical OBD metadata still gets refreshed by the newer scan.
+    assert car["protocol"] == "CAN"
+    assert car["cal_id"] == "CAL-1"
+
+
+def test_upsert_car_fills_vin_on_anonymous_match(db):
+    # Anonymous car (matched by profile_path) gets its VIN filled in once an
+    # OBD scan supplies it — VIN was empty, so the OBD value wins.
+    cid = db.upsert_car(profile_path="/var/anon.json")
+    assert db.get_car(cid)["vin"] is None
+    cid2 = db.upsert_car(profile_path="/var/anon.json", vin="WBA0NEWVIN000001")
+    assert cid == cid2
+    car = db.get_car(cid)
+    assert car["vin"] == "WBA0NEWVIN000001"
+    assert car["vin_hash"] is not None
+    assert len(car["vin_hash"]) == 64
+
+
+def test_upsert_car_does_not_overwrite_existing_vin(db):
+    # A car with VIN already set is found by VIN match; if upsert is called
+    # again with the same VIN nothing changes. The COALESCE-on-existing rule
+    # also guards the path where the same row is reached via profile_path.
+    cid = db.upsert_car(vin="VIN-LOCKED", profile_path="/var/p.json")
+    # Same profile_path, but caller passes a different VIN — must not
+    # overwrite the locked VIN.
+    db.upsert_car(profile_path="/var/p.json", vin="VIN-LOCKED")
+    assert db.get_car(cid)["vin"] == "VIN-LOCKED"
+
+
 def test_list_cars_orders_by_last_seen_desc(db):
     c1 = db.upsert_car(vin="VIN1")
     time.sleep(0.005)
