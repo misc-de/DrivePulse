@@ -311,6 +311,7 @@ class DashboardWindow(
         self.cars_page.get_sync_client = self._get_active_sync_client
         self.cars_page.on_load_stopwatch_run = self._load_persisted_run_into_stopwatch
         self.cars_page.on_open_trip_as_route = self._open_trip_as_route_on_map
+        self.cars_page.on_show_trip_replay_on_map = self._show_trip_replay_on_map_from_cars
         self.cars_page.on_clear_dtcs = self._clear_obd_dtcs
         self._cars_rotator = RotatedContainer()
         self._cars_rotator.set_child(self.cars_page)
@@ -797,6 +798,38 @@ class DashboardWindow(
             return False
 
         GLib.idle_add(_load_and_remove)
+
+    def _show_trip_replay_on_map_from_cars(self, trip_id: int, meta: dict) -> None:
+        """Switch to the Map tab and reuse the map's own replay machinery
+        (speed-coloured polyline, info card, speed/RPM chart) for the
+        trip the user picked in the Cars page."""
+        if not hasattr(self, "map_page"):
+            return
+        self.view_stack.set_visible_child_name(self.PAGE_MAP)
+
+        def _replay_and_remove() -> bool:
+            try:
+                self.map_page._show_trip_replay(meta)
+            except Exception:
+                # Fall back to the polyline-only path so the user at
+                # least sees the track if the full replay errors out.
+                try:
+                    samples = list(self.db.samples_for_trip(trip_id)) if self.db else []
+                except Exception:
+                    samples = []
+                coords = [
+                    [float(s["lon"]), float(s["lat"])]
+                    for s in samples
+                    if s["lat"] is not None and s["lon"] is not None
+                ]
+                if len(coords) >= 2:
+                    self.map_page.load_trip_as_route(
+                        coords, meta.get("distance_km"), meta.get("duration_s"),
+                        meta.get("trip_label"),
+                    )
+            return False
+
+        GLib.idle_add(_replay_and_remove)
 
     def _load_persisted_run_into_stopwatch(self, data: dict) -> None:
         """Hand off a saved stopwatch run, switch to the StopWatch tab, replay."""

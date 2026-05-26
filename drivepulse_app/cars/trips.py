@@ -121,12 +121,41 @@ class CarsTripsMixin:
         except Exception:
             log.exception("Could not mark trip seen id=%s", trip_id)
 
-        # Tap on a trip row → switch straight to the map and load the
-        # recorded GPS polyline as the active route. Falls back to the
-        # detail page when there are no usable GPS points or the host
-        # hasn't wired up the callback.
+        # Tap on a trip row → switch straight to the map and replay the
+        # recorded GPS polyline + speed/RPM chart + info card. Falls back
+        # to the in-page detail when there are no usable GPS points or
+        # the host hasn't wired up the callback.
+        has_gps = any(
+            s["lat"] is not None and s["lon"] is not None
+            and not (s["lat"] == 0.0 and s["lon"] == 0.0)
+            for s in samples
+        )
+        on_show_replay = getattr(self, "on_show_trip_replay_on_map", None)
+        if has_gps and on_show_replay is not None:
+            keys = trip.keys() if hasattr(trip, "keys") else []
+            distance_km = trip["distance_km"] if "distance_km" in keys else None  # noqa: SIM118
+            duration_s = trip["duration_s"] if "duration_s" in keys else None  # noqa: SIM118
+            started_at = trip["started_at"] if "started_at" in keys else None  # noqa: SIM118
+            label = self._trip_detail_title(trip)
+            car_entry = next(
+                (e for e in self._profiles if e.get("car_id") == self._selected_car_id),
+                None,
+            )
+            meta = {
+                "kind": "trip",
+                "id": trip_id,
+                "trip_label": label,
+                "ts": started_at,
+                "distance_km": distance_km,
+                "duration_s": duration_s,
+                "car_label": (car_entry or {}).get("label"),
+                "car_brand": (car_entry or {}).get("brand"),
+                "car_vin":   (car_entry or {}).get("vin"),
+            }
+            on_show_replay(trip_id, meta)
+            return
         on_open_as_route = getattr(self, "on_open_trip_as_route", None)
-        if on_open_as_route is not None:
+        if has_gps and on_open_as_route is not None:
             coords_lonlat = [
                 [float(s["lon"]), float(s["lat"])]
                 for s in samples
