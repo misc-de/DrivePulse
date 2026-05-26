@@ -118,10 +118,6 @@ class MapWebKitMixin:
             action = data.get("action")
             if action == "follow_off":
                 GLib.idle_add(self._set_follow, False)
-            elif action == "map_tapped":
-                cb = getattr(self, "_on_map_tapped", None)
-                if cb is not None:
-                    GLib.idle_add(cb)
             elif action == "map_state":
                 z = data.get("zoom")
                 p = data.get("pitch")

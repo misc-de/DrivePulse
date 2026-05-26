@@ -99,7 +99,6 @@ class MapPage(
         on_tour_stopped: Callable[[], None] | None = None,
         on_tour_resumed: Callable[[], None] | None = None,
         on_tts_enabled_changed: Callable[[bool], None] | None = None,
-        on_map_tapped: Callable[[], None] | None = None,
         db: DriveDB | None = None,
         get_sync_client: Callable | None = None,
         initial_zoom: float | None = None,
@@ -136,7 +135,6 @@ class MapPage(
         self._on_tour_stopped = on_tour_stopped
         self._on_tour_resumed = on_tour_resumed
         self._on_tts_enabled_changed = on_tts_enabled_changed
-        self._on_map_tapped = on_map_tapped
         self._tts_btn: Gtk.ToggleButton | None = None
 
         self._gps_lat: float | None = None
