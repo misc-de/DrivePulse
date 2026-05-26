@@ -514,38 +514,95 @@ def _seed_scan_samples(
     rng: random.Random,
     scan_idx: int,
 ) -> None:
-    """Generate a realistic ~10-minute OBD time series for a mock scan."""
+    """Generate a realistic ~10-minute OBD time series for a mock scan.
+
+    Each of the three scans per car follows a distinct driving profile
+    so the chart-compare feature actually has visibly different curves
+    to overlay:
+
+      scan_idx 0 — city stop-and-go (frequent idle/accel oscillations,
+                   low avg speed, peak RPM ~2500)
+      scan_idx 1 — highway cruise (steady ~120 km/h, peaks at start,
+                   gentle variation around plateau)
+      scan_idx 2 — spirited mixed (longer accel phases up to ~4500 rpm
+                   and 160 km/h, deeper throttle excursions)
+    """
     from drivepulse_app.obd.recorder import _KEY_TO_PID
+    import math
 
     base_ts = scanned_at.timestamp()
     interval = 5.0          # seconds between samples
     duration = 600.0        # 10 minutes
     steps = int(duration / interval)
 
-    # Starting values that warm up over the drive
-    rpm_base = 800.0 + scan_idx * 100
-    coolant_start = 20.0 + scan_idx * 15
-    speed_base = 0.0
+    # Per-profile parameters keyed by scan_idx → chart-compare shows
+    # meaningfully different curves for each scan.
+    profiles = [
+        # City: many short accel/decel cycles, low cruise.
+        dict(
+            label="city",
+            speed_peak=55.0, speed_base=15.0, cycle_s=70.0, cycle_amp=35.0,
+            rpm_idle=950.0, rpm_swing=1300.0,
+            throttle_base=12.0, throttle_swing=25.0, load_base=18.0,
+            coolant_start=25.0, maf_base=2.5, maf_swing=4.0,
+        ),
+        # Highway: rises to plateau, then steady cruise with mild noise.
+        dict(
+            label="highway",
+            speed_peak=125.0, speed_base=110.0, cycle_s=180.0, cycle_amp=8.0,
+            rpm_idle=2300.0, rpm_swing=200.0,
+            throttle_base=22.0, throttle_swing=4.0, load_base=35.0,
+            coolant_start=55.0, maf_base=10.0, maf_swing=2.0,
+        ),
+        # Spirited mixed: high RPM peaks, deep throttle stabs.
+        dict(
+            label="spirited",
+            speed_peak=160.0, speed_base=80.0, cycle_s=110.0, cycle_amp=60.0,
+            rpm_idle=2800.0, rpm_swing=1800.0,
+            throttle_base=35.0, throttle_swing=40.0, load_base=55.0,
+            coolant_start=40.0, maf_base=12.0, maf_swing=10.0,
+        ),
+    ]
+    p = profiles[scan_idx % 3]
 
     rows: list[dict] = []
     for i in range(steps):
         t = base_ts + i * interval
         frac = i / max(1, steps - 1)
 
-        rpm = rpm_base + rng.gauss(0, 80) + frac * 1200
-        speed = max(0.0, speed_base + frac * 90 + rng.gauss(0, 12))
-        coolant = coolant_start + frac * (90 - coolant_start) + rng.gauss(0, 1.5)
-        throttle = max(0.0, min(100.0, 10 + frac * 40 + rng.gauss(0, 8)))
-        load = max(0.0, min(100.0, 15 + frac * 35 + rng.gauss(0, 5)))
-        intake = 20.0 + frac * 15 + rng.gauss(0, 2)
-        maf = max(0.5, 2.0 + frac * 18 + rng.gauss(0, 1.5))
-        fuel = max(5.0, min(100.0, 60 - frac * 8 + rng.gauss(0, 0.5)))
+        # Oscillation phase shared across speed/RPM/throttle so they
+        # move together (accel ↔ load ↔ MAF correlate, like in real
+        # driving).
+        cycle_phase = (i * interval) / p["cycle_s"] * 2 * math.pi
+        wave = math.sin(cycle_phase)
+
+        speed = p["speed_base"] + wave * p["cycle_amp"] + rng.gauss(0, 4.0)
+        # Highway scan ramps up over the first ~3 minutes to the plateau.
+        if p["label"] == "highway":
+            ramp = min(1.0, i * interval / 180.0)
+            speed = ramp * p["speed_base"] + wave * p["cycle_amp"] + rng.gauss(0, 4.0)
+        speed = max(0.0, min(p["speed_peak"], speed))
+
+        rpm = p["rpm_idle"] + wave * p["rpm_swing"] * 0.5 + frac * 200 + rng.gauss(0, 80)
+        # When the wave dips into negative the car is decel/idling →
+        # clamp to idle rather than going below.
+        rpm = max(680.0, rpm)
+
+        throttle = max(0.0, min(100.0, p["throttle_base"] + wave * p["throttle_swing"] + rng.gauss(0, 4)))
+        load = max(0.0, min(100.0, p["load_base"] + wave * p["throttle_swing"] * 0.7 + rng.gauss(0, 3)))
+        coolant = p["coolant_start"] + min(1.0, i * interval / 360.0) * (90 - p["coolant_start"]) + rng.gauss(0, 1.2)
+        intake = 20.0 + frac * 12 + rng.gauss(0, 1.5)
+        maf = max(0.5, p["maf_base"] + wave * p["maf_swing"] + rng.gauss(0, 1.0))
+        # Fuel level shaped per-scan so the three scans tell a story
+        # (full → halfway → topped-up).
+        fuel_start = (78.0, 42.0, 88.0)[scan_idx % 3]
+        fuel = max(5.0, min(100.0, fuel_start - frac * 7.0 + rng.gauss(0, 0.4)))
         runtime = i * interval
-        voltage = 12.5 + rng.gauss(0, 0.15)
+        voltage = 14.05 + rng.gauss(0, 0.08)
 
         values = {
-            "rpm": (max(600.0, rpm), "revolutions_per_minute"),
-            "speed": (max(0.0, speed), "kph"),
+            "rpm": (rpm, "revolutions_per_minute"),
+            "speed": (speed, "kph"),
             "coolant_temp": (coolant, "degree_Celsius"),
             "throttle_pos": (throttle, "percent"),
             "engine_load": (load, "percent"),

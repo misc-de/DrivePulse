@@ -4,6 +4,7 @@ from __future__ import annotations
 import atexit
 import math
 import sqlite3
+import threading
 import time
 from typing import Any, cast
 
@@ -117,6 +118,9 @@ class DashboardWindow(
         self.tts_language: str = self.settings.get("tts_language", "auto")
         self.tts_voice: str = self.settings.get("tts_voice", "female")
         self.tts_quality: str = self.settings.get("tts_quality", "high")
+        self.tts_volume_pct: int = int(self.settings.get("tts_volume_pct") or 100)
+        self.tts_duck_pct: int = int(self.settings.get("tts_duck_pct") or 0)
+        self.tts_duck_pre_ms: int = int(self.settings.get("tts_duck_pre_ms") or 0)
         self.log_app_enabled: bool = bool(self.settings.get("log_app_enabled", True))
         self.log_obd_enabled: bool = bool(self.settings.get("log_obd_enabled", True))
         self.obd_auto_record: bool = bool(self.settings.get("obd_auto_record", True))
@@ -126,6 +130,12 @@ class DashboardWindow(
         self.autodev_api_key: str = self.settings.get("autodev_api_key") or ""
         self.autodev_month: str = self.settings.get("autodev_month") or ""
         self.autodev_month_count: int = max(0, int(self.settings.get("autodev_month_count") or 0))
+        self.autodev_usage_used: int = max(0, int(self.settings.get("autodev_usage_used") or 0))
+        self.autodev_usage_limit: int = max(0, int(self.settings.get("autodev_usage_limit") or 0))
+        self.autodev_usage_remaining: int = max(0, int(self.settings.get("autodev_usage_remaining") or 0))
+        self.autodev_usage_paid: int = max(0, int(self.settings.get("autodev_usage_paid") or 0))
+        self.autodev_usage_plan: str = self.settings.get("autodev_usage_plan") or ""
+        self.autodev_usage_updated: str = self.settings.get("autodev_usage_updated") or ""
         self.last_cars_source: str | None = self.settings.get("last_cars_source") or None
         self.last_cars_category: str | None = self.settings.get("last_cars_category") or None
         _raw_scan_id = self.settings.get("last_cars_scan_id")
@@ -310,6 +320,8 @@ class DashboardWindow(
         self.cars_page.get_sync_client = self._get_active_sync_client
         self.cars_page.on_load_stopwatch_run = self._load_persisted_run_into_stopwatch
         self.cars_page.on_open_trip_as_route = self._open_trip_as_route_on_map
+        self.cars_page.on_show_trip_replay_on_map = self._show_trip_replay_on_map_from_cars
+        self.cars_page.on_clear_dtcs = self._clear_obd_dtcs
         self._cars_rotator = RotatedContainer()
         self._cars_rotator.set_child(self.cars_page)
         self._cars_rotator.set_hexpand(True)
@@ -324,6 +336,8 @@ class DashboardWindow(
         self._map_suspended_follow: bool = True
         from drivepulse_app.tts import service as _tts_svc
         _tts_svc.set_backend(self.tts_backend)
+        _tts_svc.set_volume_pct(self.tts_volume_pct)
+        _tts_svc.set_duck(self.tts_duck_pct, self.tts_duck_pre_ms)
         _tts_svc.set_download_callback(self._on_piper_dl_progress)
         self._piper_dl_current_model: str | None = None
         if self.tts_backend == "piper":
@@ -713,6 +727,30 @@ class DashboardWindow(
         if self.mock_mode:
             self.mock_tour_sim.resume()
 
+    def _clear_obd_dtcs(self, on_done: Any) -> None:
+        """Run OBD Mode 04 in a worker thread and report back via on_done(ok).
+
+        Done off the GTK thread because the OBD round-trip can take a
+        moment, and we don't want the confirmation dialog to freeze the UI.
+        """
+        def _worker() -> None:
+            ok = False
+            try:
+                ok = self.reader.clear_dtcs()
+            finally:
+                GLib.idle_add(on_done, ok)
+            if ok:
+                # Trigger a fresh vehicle scan so the cleared state is
+                # reflected the next time the user opens the diagnostics
+                # category. Without this the cached DTC list lingers until
+                # the periodic rescan kicks in.
+                try:
+                    self.reader._run_vehicle_scan(force_rescan=True)
+                except Exception:
+                    pass
+
+        threading.Thread(target=_worker, name="obd-clear-dtc", daemon=True).start()
+
     def _on_cars_back_swipe(self) -> None:
         """Vom Autos-Tab (Übersicht) per Wisch nach rechts → StopWatch.
 
@@ -753,6 +791,38 @@ class DashboardWindow(
             return False
 
         GLib.idle_add(_load_and_remove)
+
+    def _show_trip_replay_on_map_from_cars(self, trip_id: int, meta: dict) -> None:
+        """Switch to the Map tab and reuse the map's own replay machinery
+        (speed-coloured polyline, info card, speed/RPM chart) for the
+        trip the user picked in the Cars page."""
+        if not hasattr(self, "map_page"):
+            return
+        self.view_stack.set_visible_child_name(self.PAGE_MAP)
+
+        def _replay_and_remove() -> bool:
+            try:
+                self.map_page._show_trip_replay(meta)
+            except Exception:
+                # Fall back to the polyline-only path so the user at
+                # least sees the track if the full replay errors out.
+                try:
+                    samples = list(self.db.samples_for_trip(trip_id)) if self.db else []
+                except Exception:
+                    samples = []
+                coords = [
+                    [float(s["lon"]), float(s["lat"])]
+                    for s in samples
+                    if s["lat"] is not None and s["lon"] is not None
+                ]
+                if len(coords) >= 2:
+                    self.map_page.load_trip_as_route(
+                        coords, meta.get("distance_km"), meta.get("duration_s"),
+                        meta.get("trip_label"),
+                    )
+            return False
+
+        GLib.idle_add(_replay_and_remove)
 
     def _load_persisted_run_into_stopwatch(self, data: dict) -> None:
         """Hand off a saved stopwatch run, switch to the StopWatch tab, replay."""

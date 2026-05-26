@@ -132,11 +132,19 @@ class CarsPhotosMixin:
             )
             overlay.add_overlay(chk)
             child.set_child(overlay)
+            # Tapping anywhere on the tile (outside the checkbox itself,
+            # which the overlay hit-tests on top) toggles selection.
+            tile_click = Gtk.GestureClick()
+            tile_click.connect(
+                "released",
+                lambda _g, _n, _x, _y, c=chk: c.set_active(not c.get_active()),
+            )
+            tile.add_controller(tile_click)
         elif is_new_shared:
             overlay = Gtk.Overlay()
             overlay.set_child(tile)
             dot = Gtk.Label(label="●")
-            dot.add_css_class("accent")
+            dot.add_css_class("dp-new-dot")
             dot.set_valign(Gtk.Align.START)
             dot.set_halign(Gtk.Align.END)
             dot.set_margin_top(4)
@@ -382,10 +390,7 @@ class CarsPhotosMixin:
         self._photo_select_mode = False
         self._photo_selected_ids = set()
         self._render_detail()
-        if self._selected_car_id is not None:
-            self._set_trash(self._confirm_delete_vehicle)
-        else:
-            self._set_trash(None)
+        self._update_trash_default()
 
     def _on_photo_checkbox_toggled(self, photo_id: int, active: bool) -> None:
         if active:

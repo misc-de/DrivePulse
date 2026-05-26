@@ -11,6 +11,7 @@ from drivepulse_app.cars.metadata import (
     _parse_profile_pid_key,
     _unit_display,
     _wmi_to_brand,
+    localize_vehicle_type,
 )
 
 # ─── _unit_display ────────────────────────────────────────────────────────────
@@ -89,6 +90,24 @@ def test_parse_profile_pid_key_returns_empty_for_unmatched():
     assert _parse_profile_pid_key("") == ""
 
 
+def test_parse_profile_pid_key_accepts_bare_hex():
+    # Mock data and any direct writer that skips python-obd's bytes-repr
+    # convention just uses the PID hex directly. The chart aggregator
+    # needs to recognise that form too, otherwise mock cars never show
+    # up in the scan-chart PID list.
+    assert _parse_profile_pid_key("010C") == "010C"
+    assert _parse_profile_pid_key("010c") == "010C"
+    assert _parse_profile_pid_key("  0142 ") == "0142"
+    # Mode 22 DIDs are 6 hex digits.
+    assert _parse_profile_pid_key("221E10") == "221E10"
+
+
+def test_parse_profile_pid_key_rejects_too_short_or_too_long_hex():
+    # Plain hex outside 4..6 digits is ambiguous — leave it alone.
+    assert _parse_profile_pid_key("AB") == ""
+    assert _parse_profile_pid_key("DEADBEEF12") == ""
+
+
 # ─── _format_status_string ───────────────────────────────────────────────────
 
 def test_format_status_string_extracts_tuple_first_element():
@@ -136,3 +155,27 @@ def test_format_value_unit_unitless_payload_has_no_trailing_space():
     # space at the end of the formatted string.
     out = _format_value_unit({"value": 0.5, "unit": "ratio"})
     assert out == "0.50"
+
+
+# ─── localize_vehicle_type ────────────────────────────────────────────────────
+
+def test_localize_vehicle_type_german_known_values():
+    # NHTSA returns upper-case English; the German UI displays the colloquial
+    # short form drivers actually use.
+    assert localize_vehicle_type("PASSENGER CAR", "de") == "PKW"
+    assert localize_vehicle_type("TRUCK", "de") == "LKW"
+    assert localize_vehicle_type("MOTORCYCLE", "de") == "Motorrad"
+
+
+def test_localize_vehicle_type_english_passes_through():
+    assert localize_vehicle_type("PASSENGER CAR", "en") == "PASSENGER CAR"
+
+
+def test_localize_vehicle_type_unknown_value_returned_unchanged():
+    # Defensive: don't drop a value the decoder gave us just because we
+    # haven't seen it before.
+    assert localize_vehicle_type("HOVERCRAFT", "de") == "HOVERCRAFT"
+
+
+def test_localize_vehicle_type_empty_string_returns_empty():
+    assert localize_vehicle_type("", "de") == ""

@@ -196,7 +196,29 @@ class CarsActionsMixin:
         if car_id is None or self.db is None:
             return
 
-        # Determine active sources for the dialog
+        profile = next((p for p in self._profiles if p.get("car_id") == car_id), None)
+        vin = str((profile or {}).get("vin") or "")
+
+        # Pre-confirm so the user doesn't accidentally hammer the paid
+        # APIs by mis-clicking the refresh icon.
+        confirm = Adw.AlertDialog()
+        confirm.set_heading(_translate(self.language, "cars.vin_refresh.confirm.heading"))
+        confirm.set_body(_translate(self.language, "cars.vin_refresh.confirm.body"))
+        confirm.add_response("cancel", _translate(self.language, "cars.vin_refresh.confirm.cancel"))
+        confirm.add_response("refresh", _translate(self.language, "cars.vin_refresh.confirm.ok"))
+        confirm.set_default_response("refresh")
+        confirm.set_close_response("cancel")
+        confirm.set_response_appearance("refresh", Adw.ResponseAppearance.SUGGESTED)
+
+        def _on_confirm(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "refresh":
+                return
+            self._start_vin_refresh(car_id, vin, profile)
+
+        confirm.connect("response", _on_confirm)
+        confirm.present(self)
+
+    def _start_vin_refresh(self, car_id: int, vin: str, profile: dict | None) -> None:
         active_sources: list[str] = []
         if self._nhtsa_enabled:
             active_sources.append("NHTSA")
@@ -205,31 +227,26 @@ class CarsActionsMixin:
         if self._vindecoder_api_key and self._vindecoder_secret_key:
             active_sources.append("vindecoder.eu")
 
-        # Get VIN before resetting so the dialog can display it
-        profile = next((p for p in self._profiles if p.get("car_id") == car_id), None)
-        vin = str((profile or {}).get("vin") or "")
+        # Snapshot the currently stored vin_data so we can later diff the
+        # fetched values and only surface what's actually new. Do NOT wipe
+        # vin_data_json upfront anymore — if the user cancels at the
+        # review step or no new values come back, the existing data stays
+        # intact instead of getting blanked.
+        existing = dict(((profile or {}).get("data") or {}).get("vin_data") or {})
+        self._vin_refetch_existing[car_id] = existing
 
-        try:
-            self.db.reset_car_vin_data(car_id)
-        except Exception:
-            log.exception("Could not reset vin_data for car id=%s", car_id)
-            return
-
-        # Block the scheduler from starting a silent background fetch for this car
+        # Block the silent background fetcher from racing us for this car.
         self._vin_fetch_pending.add(car_id)
-        self.refresh_profiles()
 
         from drivepulse_app.vin.fetch_dialog import VinFetchDialog
         dialog = VinFetchDialog(vin=vin, active_sources=active_sources, language=self.language)
-
-        def _on_dialog_response(d: VinFetchDialog, response: str) -> None:
-            if response == "proceed":
-                sources = d.get_result_sources()
-                if sources:
-                    self._vin_review_queue.append((car_id, vin, sources))
-                    self._maybe_show_next_review()
-
-        dialog.connect("response", _on_dialog_response)
+        # Don't attach a response handler here anymore. The post-fetch
+        # transition is driven entirely by _on_vin_refetch_dialog_done
+        # (which closes the dialog itself), and snapshot cleanup happens
+        # in the consumers (_maybe_show_next_review on review accept/
+        # cancel, _on_vin_refetch_dialog_done on empty result). An earlier
+        # close-handler popped the snapshot too eagerly and wiped good
+        # vin_data when the user cancelled the subsequent review.
         root = self.get_root()
         if root:
             dialog.present(root)

@@ -1,6 +1,8 @@
 """Scan history widgets for the Cars page."""
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -21,10 +23,52 @@ def _decode(val: Any) -> str:
 
 
 def _dtc_parts(entry: Any) -> tuple[str, str]:
-    """Return (code, description) from a DTC entry — supports dict (new) and plain string (legacy)."""
+    """Return (code, description) from a DTC entry.
+
+    Robust against the various shapes we've seen across versions:
+      - dict {"code", "description"} — current scanner output
+      - bytes — decoded
+      - JSON-encoded dict string '{"code": "...", "description": "..."}'
+      - tuple/list of (code, description)
+      - "CODE: description" or just "CODE"
+    """
+    if entry is None:
+        return "?", ""
+    if isinstance(entry, bytes):
+        try:
+            entry = entry.decode("utf-8", errors="replace")
+        except Exception:
+            entry = entry.decode("latin-1", errors="replace")
     if isinstance(entry, dict):
-        return entry.get("code", "?"), entry.get("description", "")
-    return str(entry) if entry is not None else "?", ""
+        code = entry.get("code") or entry.get("Code") or "?"
+        desc = entry.get("description") or entry.get("desc") or ""
+        return str(code), str(desc)
+    if isinstance(entry, (tuple, list)) and entry:
+        code = str(entry[0])
+        desc = str(entry[1]) if len(entry) > 1 else ""
+        return code, desc
+    if isinstance(entry, str):
+        s = entry.strip()
+        if s.startswith("{") and s.endswith("}"):
+            # JSON-ish dict that slipped through as a string.
+            try:
+                obj = json.loads(s)
+                if isinstance(obj, dict):
+                    return _dtc_parts(obj)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        # "CODE: Description" — split on the first colon only so descriptions
+        # that themselves contain colons survive intact.
+        if ":" in s:
+            code, _, desc = s.partition(":")
+            code = code.strip()
+            # Only treat as code/desc when the prefix looks like an OBD code
+            # (e.g. P0420, U0100, C1234, B1234) — otherwise the whole string
+            # is just a free-form description.
+            if re.fullmatch(r"[PCBU][0-9A-F]{4}", code, flags=re.IGNORECASE):
+                return code.upper(), desc.strip()
+        return s, ""
+    return str(entry), ""
 
 
 def _safe_int(value: Any) -> int:

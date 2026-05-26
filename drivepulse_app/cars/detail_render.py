@@ -27,6 +27,7 @@ from drivepulse_app.cars.metadata import (
     _format_value_unit,
     _parse_profile_pid_key,
     _unit_display,
+    localize_vehicle_type,
 )
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
@@ -129,6 +130,20 @@ class CarsDetailRenderMixin:
                 if scan_meta:
                     ts = self._parse_ts(scan_meta["scanned_at"])
                     label = ts.strftime("%d.%m.%Y  %H:%M") if ts else str(self._selected_scan_id)
+                    # Scans only carry live_data/DTCs/vehicle_info — VIN-decoded
+                    # master data lives on the car. Merge it in so switching
+                    # back to the vehicle category after viewing a scan keeps
+                    # the extended master data visible.
+                    if not (data.get("vin_data") or {}):
+                        car_entry = next(
+                            (e for e in self._profiles
+                             if e.get("car_id") == self._selected_car_id),
+                            None,
+                        )
+                        if car_entry:
+                            car_vin_data = (car_entry.get("data") or {}).get("vin_data") or {}
+                            if car_vin_data:
+                                data = {**data, "vin_data": car_vin_data}
                     return self._flatten_profile(data), label
             except (sqlite3.Error, KeyError, ValueError, TypeError):
                 log.debug("Could not render selected scan_id=%s in detail view", self._selected_scan_id, exc_info=True)
@@ -167,16 +182,23 @@ class CarsDetailRenderMixin:
             if stack is not None:
                 out["__scan_date_stack__"] = stack
         dtcs = data.get("dtcs") or []
-        none_text = _translate(self.language, "cars.dtc.none")
-        out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(_format_dtc(d) for d in dtcs)
         pending = data.get("pending_dtcs") or []
+        none_text = _translate(self.language, "cars.dtc.none")
+        # Single-line summary string kept around for callers that only need
+        # the rendered text (e.g. fallback paths); the detail renderer
+        # itself consumes the raw lists below to build a proper table.
+        out[_SPECIAL_DTC] = none_text if not dtcs else "  ".join(_format_dtc(d) for d in dtcs)
         out[_SPECIAL_PENDING] = none_text if not pending else "  ".join(_format_dtc(d) for d in pending)
+        out["__dtcs_list__"] = list(dtcs)
+        out["__pending_dtcs_list__"] = list(pending)
         # Convenience flag for the sidebar highlight: yellow-tint the
         # diagnostics row when the loaded scan actually has DTCs.
         out["__has_dtc__"] = bool(dtcs) or bool(pending)
         for field_key, special_key in VIN_DATA_SPECIAL_KEYS.items():
             val = (data.get("vin_data") or {}).get(field_key)
             if val:
+                if field_key == "vehicle_type":
+                    val = localize_vehicle_type(str(val), self.language)
                 out[special_key] = str(val)
         return out
 
@@ -315,9 +337,29 @@ class CarsDetailRenderMixin:
                 if not _scan_stats or not (_scan_stats.get("values") or []):
                     continue
             label = _translate(self.language, label_key)
-            if pid_key in (_SPECIAL_VIN, _SPECIAL_BRAND) and not is_live and self._selected_car_id is not None:
+            if pid_key == _SPECIAL_VIN and not is_live and self._selected_car_id is not None:
                 row = self._make_editable_field_row(pid_key, label, value_text, is_unknown)
                 self.value_list.append(row)
+                continue
+            if pid_key in (_SPECIAL_DTC, _SPECIAL_PENDING):
+                src_key = "__dtcs_list__" if pid_key == _SPECIAL_DTC else "__pending_dtcs_list__"
+                entries = data.get(src_key) or []
+                for r in self._make_dtc_table_rows(label, entries):
+                    self.value_list.append(r)
+                # Show the "Clear fault memory" button right after the
+                # stored-faults table when in live mode, faults are
+                # present (stored OR pending) and the host has wired up
+                # the OBD Mode-04 callback.
+                if (
+                    pid_key == _SPECIAL_DTC
+                    and is_live
+                    and getattr(self, "on_clear_dtcs", None) is not None
+                    and (
+                        (data.get("__dtcs_list__") or [])
+                        or (data.get("__pending_dtcs_list__") or [])
+                    )
+                ):
+                    self.value_list.append(self._make_dtc_clear_button_row())
                 continue
             if not pid_key.startswith("__"):
                 if is_live:
@@ -342,7 +384,26 @@ class CarsDetailRenderMixin:
                             avg_str = f"{avg:.2f}"
                         value_text = f"{avg_str} {unit}".strip()
                         is_unknown = False
-                    if stats and len(stats.get("values") or []) > 1:
+                    # Chart only makes sense when there is actual
+                    # variation to plot. A single datapoint (min == max
+                    # AND no intra-series with movement) gives just a
+                    # dot — show only the value, no clickable chart.
+                    has_data = bool(
+                        (stats or {}).get("values")
+                        or (stats or {}).get("intra_series")
+                    )
+                    has_variation = False
+                    if has_data:
+                        mn = (stats or {}).get("min")
+                        mx = (stats or {}).get("max")
+                        if mn is not None and mx is not None and mn != mx:
+                            has_variation = True
+                        else:
+                            has_variation = any(
+                                len(pts) > 1
+                                for pts in ((stats or {}).get("intra_series") or {}).values()
+                            )
+                    if has_variation:
                         def on_click(_lbl=label, _pk=pid_key, _st=self._scan_pid_stats, _pl=_pid_labels, _lg=_lang):
                             return self._push_scan_chart(_lbl, _pk, _st, _pl, _lg)
                     else:
@@ -351,6 +412,125 @@ class CarsDetailRenderMixin:
             else:
                 row = self._make_stacked_row(label, value_text, is_unknown)
             self.value_list.append(row)
+
+    def _make_dtc_table_rows(
+        self, section_label: str, entries: list[Any]
+    ) -> list[Gtk.ListBoxRow]:
+        """Render a DTC / pending-DTC section as a header row plus one
+        ActionRow per fault code (code as title, description as subtitle).
+        Falls back to a single dim "no faults" row when the list is empty.
+        Entries are normalised via _dtc_parts, so dict / JSON-string /
+        "CODE: desc" / bytes inputs all render the same way."""
+        rows: list[Gtk.ListBoxRow] = []
+
+        header = Gtk.ListBoxRow()
+        header.set_activatable(False)
+        header.set_selectable(False)
+        h_lbl = Gtk.Label(label=section_label, xalign=0.0)
+        h_lbl.add_css_class("caption-heading")
+        h_lbl.set_margin_top(10)
+        h_lbl.set_margin_bottom(4)
+        h_lbl.set_margin_start(14)
+        h_lbl.set_margin_end(14)
+        header.set_child(h_lbl)
+        rows.append(header)
+
+        if not entries:
+            empty_row = Adw.ActionRow()
+            empty_row.set_title(_translate(self.language, "cars.dtc.none"))
+            empty_row.add_css_class("dim-label")
+            empty_row.set_activatable(False)
+            rows.append(empty_row)
+            return rows
+
+        for entry in entries:
+            code, desc = _dtc_parts(entry)
+            r = Gtk.ListBoxRow()
+            r.set_activatable(False)
+            r.set_selectable(False)
+
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            box.set_margin_top(10)
+            box.set_margin_bottom(10)
+            box.set_margin_start(14)
+            box.set_margin_end(14)
+
+            # Code stays in the error accent so it pops, description renders
+            # in the normal text colour for readability.
+            code_lbl = Gtk.Label(label=code or "?", xalign=0.0)
+            code_lbl.set_halign(Gtk.Align.START)
+            code_lbl.add_css_class("error")
+            code_lbl.add_css_class("heading")
+            box.append(code_lbl)
+
+            if desc:
+                desc_lbl = Gtk.Label(label=desc, xalign=0.0)
+                desc_lbl.set_halign(Gtk.Align.START)
+                desc_lbl.set_hexpand(True)
+                desc_lbl.set_wrap(True)
+                desc_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                desc_lbl.set_selectable(True)
+                box.append(desc_lbl)
+
+            r.set_child(box)
+            rows.append(r)
+        return rows
+
+    def _make_dtc_clear_button_row(self) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+        row.set_selectable(False)
+
+        btn = Gtk.Button(label=_translate(self.language, "cars.dtc.clear"))
+        btn.add_css_class("destructive-action")
+        btn.set_halign(Gtk.Align.FILL)
+        btn.set_hexpand(True)
+        btn.set_margin_top(8)
+        btn.set_margin_bottom(8)
+        btn.set_margin_start(14)
+        btn.set_margin_end(14)
+        btn.connect("clicked", lambda _b: self._confirm_clear_dtcs())
+        row.set_child(btn)
+        return row
+
+    def _confirm_clear_dtcs(self) -> None:
+        if getattr(self, "on_clear_dtcs", None) is None:
+            return
+        dialog = Adw.AlertDialog()
+        dialog.set_heading(_translate(self.language, "cars.dtc.clear.confirm.heading"))
+        dialog.set_body(_translate(self.language, "cars.dtc.clear.confirm.body"))
+        dialog.add_response("cancel", _translate(self.language, "cars.dtc.clear.confirm.cancel"))
+        dialog.add_response("clear", _translate(self.language, "cars.dtc.clear.confirm.ok"))
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("clear", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "clear":
+                return
+            on_clear = getattr(self, "on_clear_dtcs", None)
+            if on_clear is None:
+                return
+
+            def _done(ok: bool) -> None:
+                toast_key = "cars.dtc.clear.toast_ok" if ok else "cars.dtc.clear.toast_err"
+                self._show_toast(_translate(self.language, toast_key))
+                if ok and self._detail_pushed:
+                    # The clear succeeded; re-render so the freshly empty
+                    # tables show right away. The reader's force-rescan
+                    # will eventually overwrite this with real data.
+                    self._render_detail()
+
+            try:
+                on_clear(_done)
+            except Exception:
+                log.exception("on_clear_dtcs callback raised")
+                self._show_toast(_translate(self.language, "cars.dtc.clear.toast_err"))
+
+        dialog.connect("response", _on_response)
+        root = self.get_root()
+        if root:
+            dialog.present(root)
 
     def _make_inline_row(self, pid_key: str, label: str, value_text: str, is_unknown: bool) -> Adw.ActionRow:
         row = Adw.ActionRow()
@@ -502,15 +682,16 @@ class CarsDetailRenderMixin:
         return row
 
     def _show_field_edit_dialog(self, pid_key: str, current_value: str) -> None:
+        # Only the VIN field is user-editable. The manufacturer/brand row is
+        # populated from VIN-decoded data and treated as permanent master
+        # data — no edit affordance.
+        if pid_key != _SPECIAL_VIN:
+            return
         car_id = self._selected_car_id
         if car_id is None or self.db is None:
             return
-        if pid_key == _SPECIAL_VIN:
-            heading = _translate(self.language, "cars.field.edit_vin")
-            entry_title = _translate(self.language, "cars.pid.VIN")
-        else:
-            heading = _translate(self.language, "cars.field.edit_brand")
-            entry_title = _translate(self.language, "cars.pid.BRAND")
+        heading = _translate(self.language, "cars.field.edit_vin")
+        entry_title = _translate(self.language, "cars.pid.VIN")
 
         dialog = Adw.AlertDialog()
         dialog.set_heading(heading)
@@ -534,12 +715,9 @@ class CarsDetailRenderMixin:
                 return
             value = entry.get_text().strip()
             try:
-                if pid_key == _SPECIAL_VIN:
-                    self.db.update_car_vin(car_id, value)
-                else:
-                    self.db.update_car_brand(car_id, value)
+                self.db.update_car_vin(car_id, value)
             except Exception:
-                log.exception("Could not update field %s for car_id=%s", pid_key, car_id)
+                log.exception("Could not update VIN for car_id=%s", car_id)
                 self._show_toast(_translate(self.language, "cars.field.save_error"))
                 return
             self.refresh_profiles()
@@ -561,21 +739,44 @@ class CarsDetailRenderMixin:
         row.set_activatable(on_click is not None)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        outer.set_margin_top(10)
-        outer.set_margin_bottom(10)
+        # Vertical padding now lives on the inner content box so the
+        # chevron column (if any) can span the full row height with its
+        # tinted background.
         outer.set_margin_start(14)
-        outer.set_margin_end(14)
+        # No right margin — the chevron-column flushes to the row edge.
+        outer.set_margin_end(0)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         box.set_hexpand(True)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        # Without a chevron we still reserve the 40-px slot on the
+        # right, so values across clickable and non-clickable rows line
+        # up to the same right edge — otherwise the eye notices the
+        # mixed-alignment jitter when scrolling the list.
+        if on_click is None:
+            box.set_margin_end(40)
         outer.append(box)
 
         if on_click is not None:
+            chevron_col = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            chevron_col.add_css_class("dp-value-chevron")
+            chevron_col.set_valign(Gtk.Align.FILL)
+            # Fix the column at exactly 40 px wide. Both min + max via
+            # size_request AND an explicit hexpand=False so we don't
+            # inherit any expand-flag from the child icon and end up
+            # competing with the content box for slack.
+            chevron_col.set_size_request(40, -1)
+            chevron_col.set_hexpand(False)
             arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
-            arrow.set_pixel_size(12)
-            arrow.add_css_class("dim-label")
+            arrow.set_pixel_size(14)
             arrow.set_valign(Gtk.Align.CENTER)
-            outer.append(arrow)
+            arrow.set_halign(Gtk.Align.END)
+            arrow.set_margin_end(10)
+            arrow.set_vexpand(True)
+            arrow.set_hexpand(False)
+            chevron_col.append(arrow)
+            outer.append(chevron_col)
 
             gesture = Gtk.GestureClick()
             gesture.connect("released", lambda g, _n, _x, _y: on_click())
@@ -610,9 +811,15 @@ class CarsDetailRenderMixin:
                     return f"{v:.1f}"
                 return f"{v:.2f}"
 
-            mn_str = f"{_fmt(mn)} {unit}".strip()
-            mx_str = f"{_fmt(mx)} {unit}".strip()
-            stats_text = f"↓ {mn_str}   ↑ {mx_str}"
+            if mn == mx:
+                # Single recorded value: showing „↓ 8 km/h  ↑ 8 km/h" is
+                # just noise. Drop the min/max arrows and render the
+                # value once.
+                stats_text = f"{_fmt(mn)} {unit}".strip()
+            else:
+                mn_str = f"{_fmt(mn)} {unit}".strip()
+                mx_str = f"{_fmt(mx)} {unit}".strip()
+                stats_text = f"↓ {mn_str}   ↑ {mx_str}"
             stats_lbl = Gtk.Label(label=stats_text, xalign=1.0)
             stats_lbl.set_halign(Gtk.Align.END)
             stats_lbl.set_hexpand(True)

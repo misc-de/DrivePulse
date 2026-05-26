@@ -52,7 +52,7 @@ class CarsTripsMixin:
         seen_at = trip["seen_at"] if "seen_at" in keys else None
         if shared_at and not seen_at:
             dot = Gtk.Label(label="●")
-            dot.add_css_class("accent")
+            dot.add_css_class("dp-new-dot")
             dot.set_valign(Gtk.Align.CENTER)
             row.add_prefix(dot)
 
@@ -79,7 +79,10 @@ class CarsTripsMixin:
             chk.set_valign(Gtk.Align.CENTER)
             chk.connect("toggled", lambda c, tid=trip_id: self._on_trip_checkbox_toggled(tid, c.get_active()))
             row.add_prefix(chk)
-            row.set_activatable(False)
+            # Tapping anywhere on the row toggles selection — the checkbox
+            # alone is too small a hit target on touchscreens.
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, c=chk: c.set_active(not c.get_active()))
         else:
             icon = Gtk.Image.new_from_icon_name("distance-symbolic")
             row.add_prefix(icon)
@@ -118,12 +121,41 @@ class CarsTripsMixin:
         except Exception:
             log.exception("Could not mark trip seen id=%s", trip_id)
 
-        # Tap on a trip row → switch straight to the map and load the
-        # recorded GPS polyline as the active route. Falls back to the
-        # detail page when there are no usable GPS points or the host
-        # hasn't wired up the callback.
+        # Tap on a trip row → switch straight to the map and replay the
+        # recorded GPS polyline + speed/RPM chart + info card. Falls back
+        # to the in-page detail when there are no usable GPS points or
+        # the host hasn't wired up the callback.
+        has_gps = any(
+            s["lat"] is not None and s["lon"] is not None
+            and not (s["lat"] == 0.0 and s["lon"] == 0.0)
+            for s in samples
+        )
+        on_show_replay = getattr(self, "on_show_trip_replay_on_map", None)
+        if has_gps and on_show_replay is not None:
+            keys = trip.keys() if hasattr(trip, "keys") else []
+            distance_km = trip["distance_km"] if "distance_km" in keys else None  # noqa: SIM118
+            duration_s = trip["duration_s"] if "duration_s" in keys else None  # noqa: SIM118
+            started_at = trip["started_at"] if "started_at" in keys else None  # noqa: SIM118
+            label = self._trip_detail_title(trip)
+            car_entry = next(
+                (e for e in self._profiles if e.get("car_id") == self._selected_car_id),
+                None,
+            )
+            meta = {
+                "kind": "trip",
+                "id": trip_id,
+                "trip_label": label,
+                "ts": started_at,
+                "distance_km": distance_km,
+                "duration_s": duration_s,
+                "car_label": (car_entry or {}).get("label"),
+                "car_brand": (car_entry or {}).get("brand"),
+                "car_vin":   (car_entry or {}).get("vin"),
+            }
+            on_show_replay(trip_id, meta)
+            return
         on_open_as_route = getattr(self, "on_open_trip_as_route", None)
-        if on_open_as_route is not None:
+        if has_gps and on_open_as_route is not None:
             coords_lonlat = [
                 [float(s["lon"]), float(s["lat"])]
                 for s in samples
@@ -231,15 +263,14 @@ class CarsTripsMixin:
         self._trip_selected_ids = {trip_id}
         self._render_detail()
         self._set_trash(self._confirm_delete_selected_trips)
+        self._update_merge_btn_visibility()
 
     def _exit_trip_select_mode(self) -> None:
         self._trip_select_mode = False
         self._trip_selected_ids = set()
         self._render_detail()
-        if self._selected_car_id is not None:
-            self._set_trash(self._confirm_delete_vehicle)
-        else:
-            self._set_trash(None)
+        self._update_trash_default()
+        self._update_merge_btn_visibility()
 
     def _on_trip_checkbox_toggled(self, trip_id: int, active: bool) -> None:
         if active:
@@ -248,6 +279,49 @@ class CarsTripsMixin:
             self._trip_selected_ids.discard(trip_id)
         if not self._trip_selected_ids:
             self._exit_trip_select_mode()
+            return
+        self._update_merge_btn_visibility()
+
+    def _on_merge_selected_trips_clicked(self) -> None:
+        ids = sorted(self._trip_selected_ids)
+        if len(ids) < 2 or self.db is None:
+            return
+        dialog = Adw.AlertDialog()
+        dialog.set_heading(_translate(self.language, "cars.trips.merge.confirm.heading"))
+        dialog.set_body(_translate(self.language, "cars.trips.merge.confirm.body", n=len(ids)))
+        dialog.add_response("cancel", _translate(self.language, "cars.trips.merge.confirm.cancel"))
+        dialog.add_response("merge", _translate(self.language, "cars.trips.merge.confirm.ok"))
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("merge", Adw.ResponseAppearance.SUGGESTED)
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "merge":
+                return
+            self._do_merge_selected_trips(ids)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
+
+    def _do_merge_selected_trips(self, ids: list[int]) -> None:
+        if self.db is None:
+            return
+        try:
+            self.db.merge_trips(ids)
+        except ValueError as exc:
+            code = str(exc)
+            key = {
+                "too_few":       "cars.trips.merge.error.too_few",
+                "gap_too_large": "cars.trips.merge.error.gap",
+            }.get(code, "cars.trips.merge.error.generic")
+            self._show_toast(_translate(self.language, key))
+            return
+        except Exception:
+            log.exception("Could not merge trips %s", ids)
+            self._show_toast(_translate(self.language, "cars.trips.merge.error.generic"))
+            return
+        self._show_toast(_translate(self.language, "cars.trips.merge.toast_ok"))
+        self._exit_trip_select_mode()
 
     def _confirm_delete_selected_trips(self) -> None:
         n = len(self._trip_selected_ids)

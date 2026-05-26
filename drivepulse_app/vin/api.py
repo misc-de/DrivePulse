@@ -18,9 +18,9 @@ _AUTODEV_URL = "https://api.auto.dev/vin/{}"
 _VINDECODER_URL = "https://api.vindecoder.eu/3.2/{}/{}/decode/{}.json"
 
 _NHTSA_FIELDS: dict[str, str] = {
-    "Make":                        "make",
     "Model":                       "model",
     "Model Year":                  "year",
+    "Vehicle Type":                "vehicle_type",
     "Body Class":                  "body",
     "Fuel Type - Primary":         "fuel",
     "Drive Type":                  "drive",
@@ -32,7 +32,6 @@ _NHTSA_FIELDS: dict[str, str] = {
 }
 
 _AUTODEV_FIELDS: dict[str, str] = {
-    "make":          "make",
     "model":         "model",
     "trim":          "trim",
     "style":         "style",
@@ -43,7 +42,6 @@ _AUTODEV_FIELDS: dict[str, str] = {
 }
 
 _VINDECODER_FIELDS: dict[str, str] = {
-    "Make":                        "make",
     "Model":                       "model",
     "Model Year":                  "year",
     "Body":                        "body",
@@ -91,13 +89,55 @@ class AutodevError(Exception):
         self.status = status
 
 
+def _parse_autodev_usage(headers: Any, body: dict[str, Any] | None) -> dict[str, Any]:
+    """Pull the X-Usage-* headers plus the plan name out of an auto.dev
+    response. Returns an empty dict when nothing usable was found.
+
+    auto.dev ships ``X-Usage-Limit``, ``X-Usage-Used`` and
+    ``X-Usage-Remaining`` on every successful call, plus a ``user.plan``
+    string in the JSON body (e.g. ``"Starter"`` for the free tier). The
+    paid-request count is derived: anything above the limit is billed."""
+    out: dict[str, Any] = {}
+
+    def _hget(name: str) -> str | None:
+        if headers is None:
+            return None
+        try:
+            return headers.get(name)
+        except Exception:
+            return None
+
+    try:
+        lim = int(_hget("X-Usage-Limit") or "")
+        out["limit"] = lim
+    except (ValueError, TypeError):
+        pass
+    try:
+        out["used"] = int(_hget("X-Usage-Used") or "")
+    except (ValueError, TypeError):
+        pass
+    try:
+        out["remaining"] = int(_hget("X-Usage-Remaining") or "")
+    except (ValueError, TypeError):
+        pass
+    if "used" in out and "limit" in out:
+        out["paid"] = max(0, out["used"] - out["limit"])
+    if isinstance(body, dict):
+        user = body.get("user") or {}
+        if isinstance(user, dict):
+            plan = user.get("plan")
+            if plan:
+                out["plan"] = str(plan)
+    return out
+
+
 def _fetch_autodev(
     vin: str,
     api_key: str,
-    on_request: Callable[[], None] | None = None,
+    on_request: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     url = _AUTODEV_URL.format(urllib.parse.quote(vin.upper(), safe=""))
-    print(f"[VIN] auto.dev GET {url} key_len={len(api_key)} key_repr={api_key[-10:]!r}", flush=True)
+    log.debug("auto.dev GET %s (key …%s)", url, api_key[-6:])
     req = urllib.request.Request(
         url,
         headers={
@@ -107,22 +147,24 @@ def _fetch_autodev(
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            if on_request:
-                on_request()
-            data = json.loads(resp.read().decode("utf-8"))
-        print(f"[VIN] auto.dev OK fields={[k for k in data if not k.startswith('_') and k not in ('api','links','examples','photos','discover','actions','user')]}", flush=True)
-    except urllib.error.HTTPError as exc:
+            payload = resp.read().decode("utf-8")
+            data = json.loads(payload)
+            usage = _parse_autodev_usage(getattr(resp, "headers", None), data)
+        if usage:
+            log.info("auto.dev usage: %s", usage)
         if on_request:
-            on_request()
+            on_request(usage)
+    except urllib.error.HTTPError as exc:
+        usage = _parse_autodev_usage(getattr(exc, "headers", None), None)
+        if on_request:
+            on_request(usage)
         try:
             body = exc.read().decode("utf-8", errors="replace")
         except Exception:
             body = ""
-        print(f"[VIN] auto.dev HTTP {exc.code} for {vin}: {body[:200]}", flush=True)
         log.warning("auto.dev HTTP %s for VIN %s: %s", exc.code, vin, body[:200])
         raise AutodevError(exc.code, f"HTTP {exc.code}") from exc
     except Exception as exc:
-        print(f"[VIN] auto.dev exception for {vin}: {exc}", flush=True)
         log.warning("auto.dev fetch failed for VIN %s: %s", vin, exc)
         raise AutodevError(0, str(exc)) from exc
 

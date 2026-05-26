@@ -307,6 +307,10 @@ class MapPage(
         self._tour_listbox: Gtk.ListBox | None = None
         self._loaded_tour_id: int | None = None
         self._loaded_tour_name: str | None = None
+        # Trip-replay equivalent of _loaded_tour_id — tracks the recorded
+        # trip currently being shown on the map so the Recent-Tours list
+        # can mark it with the green emblem just like loaded tours.
+        self._loaded_trip_id: int | None = None
 
         # NavigationView wraps all map content — enables sub-page push/pop
         self._nav_view: Adw.NavigationView = Adw.NavigationView()
@@ -853,6 +857,8 @@ class MapPage(
             self._js("mapClearRoute()")
         else:
             self._shumate_clear_route_layers()
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
     def set_nav_visible(self, visible: bool) -> None:
         if self._tour_topnav is not None:
@@ -1081,6 +1087,13 @@ class MapPage(
         self._tour_step_idx = 0
         self._step_min_dist = None
         self._tour_coords = list(coords) if coords else []
+        # Pre-render the first couple of nav prompts so that the moment
+        # the driver hits "Start", the very first announcement plays
+        # without the usual 1-2 s piper warm-up latency.
+        try:
+            self._prerender_upcoming_steps(0, 2)
+        except Exception:
+            log.debug("Could not pre-render initial nav prompts", exc_info=True)
         self._gps_route_idx = 0
         self._snapped_lat = None
         self._snapped_lon = None
@@ -1099,6 +1112,8 @@ class MapPage(
             self._tour_save_btn.set_visible(
                 getattr(self, "_loaded_tour_id", None) is None
             )
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
         if self._steps_toggle_btn is not None and self._steps_toggle_btn.get_active():
             self._rebuild_steps_list()
             if self._steps_panel is not None:
@@ -1193,6 +1208,8 @@ class MapPage(
             self._set_steps_panel_visible(False)
         if self._steps_toggle_btn is not None:
             self._steps_toggle_btn.set_active(False)
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
         lats = [c[1] for c in coords]
         lons = [c[0] for c in coords]

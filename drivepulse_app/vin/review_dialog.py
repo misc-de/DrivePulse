@@ -13,9 +13,9 @@ from drivepulse_app.common import _translate
 
 _FIELD_ORDER = [
     "manufacturer",
-    "make",
     "model",
     "year",
+    "vehicle_type",
     "body",
     "fuel",
     "drive",
@@ -26,10 +26,12 @@ _FIELD_ORDER = [
 ]
 
 _FIELD_LANG_SUFFIX: dict[str, str] = {
-    "manufacturer":  "VIN_MANUFACTURER",
-    "make":          "VIN_MAKE",
+    # The manufacturer value lands in the permanent (non-editable) brand
+    # field, so it reuses the BRAND label for consistency.
+    "manufacturer":  "BRAND",
     "model":         "VIN_MODEL",
     "year":          "VIN_YEAR",
+    "vehicle_type":  "VIN_TYPE",
     "body":          "VIN_BODY",
     "fuel":          "VIN_FUEL",
     "drive":         "VIN_DRIVE",
