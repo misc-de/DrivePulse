@@ -127,6 +127,12 @@ class DashboardWindow(
         self.autodev_api_key: str = self.settings.get("autodev_api_key") or ""
         self.autodev_month: str = self.settings.get("autodev_month") or ""
         self.autodev_month_count: int = max(0, int(self.settings.get("autodev_month_count") or 0))
+        self.autodev_usage_used: int = max(0, int(self.settings.get("autodev_usage_used") or 0))
+        self.autodev_usage_limit: int = max(0, int(self.settings.get("autodev_usage_limit") or 0))
+        self.autodev_usage_remaining: int = max(0, int(self.settings.get("autodev_usage_remaining") or 0))
+        self.autodev_usage_paid: int = max(0, int(self.settings.get("autodev_usage_paid") or 0))
+        self.autodev_usage_plan: str = self.settings.get("autodev_usage_plan") or ""
+        self.autodev_usage_updated: str = self.settings.get("autodev_usage_updated") or ""
         self.last_cars_source: str | None = self.settings.get("last_cars_source") or None
         self.last_cars_category: str | None = self.settings.get("last_cars_category") or None
         _raw_scan_id = self.settings.get("last_cars_scan_id")

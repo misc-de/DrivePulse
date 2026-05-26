@@ -52,6 +52,15 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autodev_api_key": "",
     "autodev_month": "",
     "autodev_month_count": 0,
+    # Mirrors the most recent X-Usage-* headers + user.plan auto.dev
+    # returns on every call. These are authoritative; the local
+    # autodev_month_count above stays as fallback for offline runs.
+    "autodev_usage_used": 0,
+    "autodev_usage_limit": 0,
+    "autodev_usage_remaining": 0,
+    "autodev_usage_paid": 0,
+    "autodev_usage_plan": "",
+    "autodev_usage_updated": "",
     # Last viewed position inside the Cars tab: source path ("__live__" or
     # "car:N") and the category key ("vehicle", "trips", ...). Restored on
     # startup so the user lands where they left off.
@@ -153,6 +162,12 @@ def load_settings() -> dict[str, Any]:
         "autodev_api_key": str(data.get("autodev_api_key") or "").strip(),
         "autodev_month": str(data.get("autodev_month") or ""),
         "autodev_month_count": max(0, int(data.get("autodev_month_count") or 0)),
+        "autodev_usage_used": max(0, int(data.get("autodev_usage_used") or 0)),
+        "autodev_usage_limit": max(0, int(data.get("autodev_usage_limit") or 0)),
+        "autodev_usage_remaining": max(0, int(data.get("autodev_usage_remaining") or 0)),
+        "autodev_usage_paid": max(0, int(data.get("autodev_usage_paid") or 0)),
+        "autodev_usage_plan": str(data.get("autodev_usage_plan") or ""),
+        "autodev_usage_updated": str(data.get("autodev_usage_updated") or ""),
         "last_cars_source": (str(data["last_cars_source"]) if data.get("last_cars_source") else None),
         "last_cars_category": (str(data["last_cars_category"]) if data.get("last_cars_category") else None),
     }
@@ -210,6 +225,12 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "autodev_api_key": str(settings.get("autodev_api_key") or "").strip(),
                 "autodev_month": str(settings.get("autodev_month") or ""),
                 "autodev_month_count": max(0, int(settings.get("autodev_month_count") or 0)),
+                "autodev_usage_used": max(0, int(settings.get("autodev_usage_used") or 0)),
+                "autodev_usage_limit": max(0, int(settings.get("autodev_usage_limit") or 0)),
+                "autodev_usage_remaining": max(0, int(settings.get("autodev_usage_remaining") or 0)),
+                "autodev_usage_paid": max(0, int(settings.get("autodev_usage_paid") or 0)),
+                "autodev_usage_plan": str(settings.get("autodev_usage_plan") or ""),
+                "autodev_usage_updated": str(settings.get("autodev_usage_updated") or ""),
                 "last_cars_source": (str(settings["last_cars_source"]) if settings.get("last_cars_source") else None),
                 "last_cars_category": (str(settings["last_cars_category"]) if settings.get("last_cars_category") else None),
             },

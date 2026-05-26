@@ -73,6 +73,12 @@ class DashboardSettingsMixin:
                 "autodev_api_key": getattr(self, "autodev_api_key", ""),
                 "autodev_month": getattr(self, "autodev_month", ""),
                 "autodev_month_count": getattr(self, "autodev_month_count", 0),
+                "autodev_usage_used": getattr(self, "autodev_usage_used", 0),
+                "autodev_usage_limit": getattr(self, "autodev_usage_limit", 0),
+                "autodev_usage_remaining": getattr(self, "autodev_usage_remaining", 0),
+                "autodev_usage_paid": getattr(self, "autodev_usage_paid", 0),
+                "autodev_usage_plan": getattr(self, "autodev_usage_plan", ""),
+                "autodev_usage_updated": getattr(self, "autodev_usage_updated", ""),
                 "last_cars_source": getattr(self, "last_cars_source", None),
                 "last_cars_category": getattr(self, "last_cars_category", None),
                 "last_cars_scan_id": getattr(self, "last_cars_scan_id", None),
@@ -181,6 +187,10 @@ class DashboardSettingsMixin:
             on_autodev_api_key_changed=self._set_autodev_api_key,
             current_autodev_month=getattr(self, "autodev_month", ""),
             current_autodev_month_count=getattr(self, "autodev_month_count", 0),
+            current_autodev_usage_used=getattr(self, "autodev_usage_used", 0),
+            current_autodev_usage_limit=getattr(self, "autodev_usage_limit", 0),
+            current_autodev_usage_paid=getattr(self, "autodev_usage_paid", 0),
+            current_autodev_usage_plan=getattr(self, "autodev_usage_plan", ""),
         )
 
         def _on_page_hidden(_p: object) -> None:
@@ -346,14 +356,33 @@ class DashboardSettingsMixin:
         self._save_settings()
         self.cars_page._autodev_api_key = self.autodev_api_key or None
 
-    def _increment_autodev_count(self) -> None:
-        """Called from VIN fetch thread via callback; safe to call from any thread."""
+    def _increment_autodev_count(self, usage: dict | None = None) -> None:
+        """Called from the VIN fetch thread after each auto.dev request.
+
+        Receives the parsed X-Usage-* headers + user.plan in *usage*. When
+        the server-side numbers are present we treat them as authoritative
+        and just overwrite the cached fields; the local monthly counter
+        below stays as fallback for failed fetches where the response
+        never reached us.
+        """
         current_month = datetime.now().strftime("%Y-%m")
         if getattr(self, "autodev_month", "") != current_month:
             self.autodev_month = current_month
             self.autodev_month_count = 1
         else:
             self.autodev_month_count = getattr(self, "autodev_month_count", 0) + 1
+        if usage:
+            if "used" in usage:
+                self.autodev_usage_used = int(usage["used"])
+            if "limit" in usage:
+                self.autodev_usage_limit = int(usage["limit"])
+            if "remaining" in usage:
+                self.autodev_usage_remaining = int(usage["remaining"])
+            if "paid" in usage:
+                self.autodev_usage_paid = int(usage["paid"])
+            if "plan" in usage:
+                self.autodev_usage_plan = str(usage["plan"])
+            self.autodev_usage_updated = datetime.now().isoformat(timespec="seconds")
         self._save_settings()
 
     def _open_sync(self, *_args: Any) -> None:
