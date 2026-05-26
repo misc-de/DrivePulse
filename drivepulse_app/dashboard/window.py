@@ -4,6 +4,7 @@ from __future__ import annotations
 import atexit
 import math
 import sqlite3
+import threading
 import time
 from typing import Any, cast
 
@@ -310,6 +311,7 @@ class DashboardWindow(
         self.cars_page.get_sync_client = self._get_active_sync_client
         self.cars_page.on_load_stopwatch_run = self._load_persisted_run_into_stopwatch
         self.cars_page.on_open_trip_as_route = self._open_trip_as_route_on_map
+        self.cars_page.on_clear_dtcs = self._clear_obd_dtcs
         self._cars_rotator = RotatedContainer()
         self._cars_rotator.set_child(self.cars_page)
         self._cars_rotator.set_hexpand(True)
@@ -733,6 +735,30 @@ class DashboardWindow(
     def _on_tour_resumed(self) -> None:
         if self.mock_mode:
             self.mock_tour_sim.resume()
+
+    def _clear_obd_dtcs(self, on_done: Any) -> None:
+        """Run OBD Mode 04 in a worker thread and report back via on_done(ok).
+
+        Done off the GTK thread because the OBD round-trip can take a
+        moment, and we don't want the confirmation dialog to freeze the UI.
+        """
+        def _worker() -> None:
+            ok = False
+            try:
+                ok = self.reader.clear_dtcs()
+            finally:
+                GLib.idle_add(on_done, ok)
+            if ok:
+                # Trigger a fresh vehicle scan so the cleared state is
+                # reflected the next time the user opens the diagnostics
+                # category. Without this the cached DTC list lingers until
+                # the periodic rescan kicks in.
+                try:
+                    self.reader._run_vehicle_scan(force_rescan=True)
+                except Exception:
+                    pass
+
+        threading.Thread(target=_worker, name="obd-clear-dtc", daemon=True).start()
 
     def _on_cars_back_swipe(self) -> None:
         """Vom Autos-Tab (Übersicht) per Wisch nach rechts → StopWatch.
