@@ -544,7 +544,7 @@ class ScanChartContent(Gtk.Box):
         _main_top.append(_main_name_lbl)
         _main_container.append(_main_top)
         self._main_car_dropdown_slot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        self._main_car_dropdown_slot.set_margin_start(28)  # indent under the dot
+        self._main_car_dropdown_slot.set_halign(Gtk.Align.END)
         _main_container.append(self._main_car_dropdown_slot)
         self._main_car_row.set_child(_main_container)
 
@@ -889,11 +889,12 @@ class ScanChartContent(Gtk.Box):
 
         # suffix_box (kept name for backwards compat with the rest of
         # the code that reaches in to swap spinner ↔ dropdown ↔ remove).
-        # Sits on the bottom row, indented to line up under the name.
+        # Sits on the bottom row, right-aligned so the scan-date combo
+        # and the remove-X button line up cleanly under the row's
+        # right edge.
         suffix_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         suffix_box.set_valign(Gtk.Align.CENTER)
-        suffix_box.set_margin_start(28)
-        suffix_box.set_hexpand(True)
+        suffix_box.set_halign(Gtk.Align.END)
 
         spinner = Gtk.Spinner()
         spinner.start()
