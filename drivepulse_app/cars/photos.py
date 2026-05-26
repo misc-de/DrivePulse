@@ -46,11 +46,11 @@ _SHUTTER_CSS = b"""
 
 .dp-cam-thumb {
     padding: 0;
-    border-radius: 8px;
+    border-radius: 6px;
     border: 2px solid white;
     background-color: black;
     background-image: none;
-    min-width: 60px;
+    min-width: 30px;
     min-height: 60px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.5);
 }
@@ -595,12 +595,12 @@ class CameraPhotoDialog:
         self._thumb_btn = Gtk.Button()
         self._thumb_btn.add_css_class("dp-cam-thumb")
         self._thumb_btn.set_child(self._thumb_pic)
-        self._thumb_btn.set_size_request(60, 60)
+        self._thumb_btn.set_size_request(30, 60)
         self._thumb_btn.set_hexpand(False)
         self._thumb_btn.set_vexpand(False)
         self._thumb_btn.set_halign(Gtk.Align.CENTER)
         self._thumb_btn.set_valign(Gtk.Align.CENTER)
-        self._thumb_btn.set_overflow(Gtk.Overflow.HIDDEN)  # clip picture to the rounded square
+        self._thumb_btn.set_overflow(Gtk.Overflow.HIDDEN)  # clip picture to the rounded tile
         self._thumb_btn.set_visible(False)
         self._thumb_btn.connect("clicked", lambda _b: self._show_viewer())
 
@@ -620,12 +620,12 @@ class CameraPhotoDialog:
         self._capture_btn.connect("clicked", lambda _b: self._do_capture())
 
         thumb_slot = Gtk.Box()
-        thumb_slot.set_size_request(60, 60)
+        thumb_slot.set_size_request(30, 60)
         thumb_slot.set_valign(Gtk.Align.CENTER)
         thumb_slot.append(self._thumb_btn)
 
         spacer = Gtk.Box()
-        spacer.set_size_request(60, 60)
+        spacer.set_size_request(30, 60)
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
         btn_row.set_halign(Gtk.Align.CENTER)
