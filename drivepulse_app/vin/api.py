@@ -21,6 +21,7 @@ _NHTSA_FIELDS: dict[str, str] = {
     "Make":                        "make",
     "Model":                       "model",
     "Model Year":                  "year",
+    "Vehicle Type":                "vehicle_type",
     "Body Class":                  "body",
     "Fuel Type - Primary":         "fuel",
     "Drive Type":                  "drive",

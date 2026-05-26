@@ -287,6 +287,7 @@
   "cars.pid.VIN_MANUFACTURER": "Hersteller",
   "cars.pid.VIN_MODEL": "Modell",
   "cars.pid.VIN_YEAR": "Baujahr",
+  "cars.pid.VIN_TYPE": "Fahrzeugtyp",
   "cars.pid.VIN_BODY": "Karosserieform",
   "cars.pid.VIN_FUEL": "Kraftstoffart",
   "cars.pid.VIN_DRIVE": "Antrieb",
