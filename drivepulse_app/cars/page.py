@@ -642,6 +642,16 @@ class CarsPage(
             and self._selected_category == "vehicle"
         )
 
+    def _update_rename_btn_visibility(self) -> None:
+        # Renaming the car edits master data, so it only makes sense in the
+        # vehicle category — same scoping rule as the VIN refresh button.
+        self._rename_btn.set_visible(
+            self._is_real_car
+            and not self.mock_mode
+            and self._detail_pushed
+            and self._selected_category == "vehicle"
+        )
+
     # ---------------------------------------------------- Detail-Navigation
 
     _LIVE_HIDDEN_CATS = frozenset({"trips", "stopwatch_runs", "scans", "photos"})
@@ -783,11 +793,11 @@ class CarsPage(
             self._set_trash(self._confirm_delete_vehicle)
         else:
             self._set_trash(None)
-        self._rename_btn.set_visible(is_real_car and not self.mock_mode)
         has_vin = bool(entry.get("vin")) if (is_real_car and entry) else False
         self._has_vin = has_vin
         self._is_real_car = is_real_car
         self._update_vin_refresh_visibility()
+        self._update_rename_btn_visibility()
         self._update_live_add_button()
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
@@ -998,7 +1008,7 @@ class CarsPage(
         if hasattr(self, "_detail_share_btn"):
             self._detail_share_btn.set_visible(self._is_sync_active() and self._detail_pushed)
         if hasattr(self, "_rename_btn"):
-            self._rename_btn.set_visible(not self.mock_mode and self._detail_pushed)
+            self._update_rename_btn_visibility()
         self.refresh()
 
     def notify_sync_changed(self) -> None:
@@ -1176,6 +1186,7 @@ class CarsPage(
                 self._set_trash(None)
         self._selected_category = new_cat
         self._update_vin_refresh_visibility()
+        self._update_rename_btn_visibility()
         # Entering the scans list with no scan picked yet → highlight the most
         # recent one so the green marker reflects a concrete entry.
         if (
