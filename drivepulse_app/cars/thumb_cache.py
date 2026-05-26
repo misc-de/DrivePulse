@@ -8,11 +8,6 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-import gi
-
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import GdkPixbuf
-
 from drivepulse_app.common import LOG_DIR
 from drivepulse_app.diagnostics import get_logger
 
@@ -52,6 +47,12 @@ def create_thumb(photo_path: Path) -> Path | None:
         if _is_fresh(photo_path):
             return tp
         try:
+            # GdkPixbuf is imported lazily so this module loads in test
+            # environments without the GdkPixbuf typelib installed.
+            import gi
+            gi.require_version("GdkPixbuf", "2.0")
+            from gi.repository import GdkPixbuf
+
             tp.parent.mkdir(parents=True, exist_ok=True)
             pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(
                 str(photo_path), THUMB_PIXEL, THUMB_PIXEL, True
