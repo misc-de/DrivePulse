@@ -760,7 +760,7 @@ class CarsDetailRenderMixin:
             chevron_col = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
             chevron_col.add_css_class("dp-value-chevron")
             chevron_col.set_valign(Gtk.Align.FILL)
-            chevron_col.set_size_request(38, -1)
+            chevron_col.set_size_request(30, -1)
             arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
             arrow.set_pixel_size(14)
             arrow.set_valign(Gtk.Align.CENTER)
