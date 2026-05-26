@@ -65,6 +65,9 @@ class DashboardSettingsMixin:
                 "tts_language": getattr(self, "tts_language", "auto"),
                 "tts_voice": getattr(self, "tts_voice", "female"),
                 "tts_quality": getattr(self, "tts_quality", "high"),
+                "tts_volume_pct": getattr(self, "tts_volume_pct", 100),
+                "tts_duck_pct": getattr(self, "tts_duck_pct", 0),
+                "tts_duck_pre_ms": getattr(self, "tts_duck_pre_ms", 0),
                 "log_app_enabled": getattr(self, "log_app_enabled", True),
                 "log_obd_enabled": getattr(self, "log_obd_enabled", True),
                 "nhtsa_enabled": getattr(self, "nhtsa_enabled", True),
@@ -171,6 +174,12 @@ class DashboardSettingsMixin:
             on_tts_voice_changed=self._set_tts_voice,
             current_tts_quality=getattr(self, "tts_quality", "high"),
             on_tts_quality_changed=self._set_tts_quality,
+            current_tts_volume_pct=getattr(self, "tts_volume_pct", 100),
+            on_tts_volume_pct_changed=self._set_tts_volume_pct,
+            current_tts_duck_pct=getattr(self, "tts_duck_pct", 0),
+            on_tts_duck_pct_changed=self._set_tts_duck_pct,
+            current_tts_duck_pre_ms=getattr(self, "tts_duck_pre_ms", 0),
+            on_tts_duck_pre_ms_changed=self._set_tts_duck_pre_ms,
             current_log_app_enabled=getattr(self, "log_app_enabled", True),
             on_log_app_enabled_changed=self._set_log_app_enabled,
             current_log_obd_enabled=getattr(self, "log_obd_enabled", True),
@@ -307,6 +316,24 @@ class DashboardSettingsMixin:
         if getattr(self, "tts_backend", "espeak") == "piper":
             from drivepulse_app.tts import service as tts_service
             tts_service.ensure_models(getattr(self, "tts_language", "auto"), getattr(self, "tts_voice", "female"), quality)
+
+    def _set_tts_volume_pct(self, value: int) -> None:
+        self.tts_volume_pct = int(value)
+        self._save_settings()
+        from drivepulse_app.tts import service as tts_service
+        tts_service.set_volume_pct(self.tts_volume_pct)
+
+    def _set_tts_duck_pct(self, value: int) -> None:
+        self.tts_duck_pct = int(value)
+        self._save_settings()
+        from drivepulse_app.tts import service as tts_service
+        tts_service.set_duck(self.tts_duck_pct, getattr(self, "tts_duck_pre_ms", 0))
+
+    def _set_tts_duck_pre_ms(self, value: int) -> None:
+        self.tts_duck_pre_ms = int(value)
+        self._save_settings()
+        from drivepulse_app.tts import service as tts_service
+        tts_service.set_duck(getattr(self, "tts_duck_pct", 0), self.tts_duck_pre_ms)
 
     def _set_log_app_enabled(self, enabled: bool) -> None:
         self.log_app_enabled = enabled

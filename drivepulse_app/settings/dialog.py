@@ -132,6 +132,12 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         on_tts_voice_changed: Callable[[str], None] | None = None,
         current_tts_quality: str = "high",
         on_tts_quality_changed: Callable[[str], None] | None = None,
+        current_tts_volume_pct: int = 100,
+        on_tts_volume_pct_changed: Callable[[int], None] | None = None,
+        current_tts_duck_pct: int = 0,
+        on_tts_duck_pct_changed: Callable[[int], None] | None = None,
+        current_tts_duck_pre_ms: int = 0,
+        on_tts_duck_pre_ms_changed: Callable[[int], None] | None = None,
         current_log_app_enabled: bool = True,
         on_log_app_enabled_changed: Callable[[bool], None] | None = None,
         current_log_obd_enabled: bool = True,
@@ -189,6 +195,12 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self.on_tts_language_changed = on_tts_language_changed
         self.on_tts_voice_changed = on_tts_voice_changed
         self.on_tts_quality_changed = on_tts_quality_changed
+        self.on_tts_volume_pct_changed = on_tts_volume_pct_changed
+        self.on_tts_duck_pct_changed = on_tts_duck_pct_changed
+        self.on_tts_duck_pre_ms_changed = on_tts_duck_pre_ms_changed
+        self._current_tts_volume_pct = current_tts_volume_pct
+        self._current_tts_duck_pct = current_tts_duck_pct
+        self._current_tts_duck_pre_ms = current_tts_duck_pre_ms
         self.on_log_app_enabled_changed = on_log_app_enabled_changed
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self.on_obd_auto_record_changed = on_obd_auto_record_changed
@@ -372,6 +384,27 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self.tts_language_row.set_visible(_piper_selected)
         self.tts_voice_row.set_visible(_piper_selected)
         self.tts_quality_row.set_visible(_piper_selected)
+
+        # Volume + music-ducking controls — work for both backends and
+        # rely on paplay (PulseAudio/PipeWire). When neither is around
+        # the ducking-only rows still appear, they'll just be no-ops.
+        self.tts_volume_row = Adw.SpinRow.new_with_range(1, 200, 5)
+        self.tts_volume_row.set_title(_translate(self.language, "settings.tts.volume"))
+        self.tts_volume_row.set_subtitle(_translate(self.language, "settings.tts.volume.subtitle"))
+        self.tts_volume_row.set_value(self._current_tts_volume_pct)
+        self.tts_volume_row.connect("notify::value", self._on_tts_volume_changed)
+
+        self.tts_duck_row = Adw.SpinRow.new_with_range(0, 90, 5)
+        self.tts_duck_row.set_title(_translate(self.language, "settings.tts.duck_pct"))
+        self.tts_duck_row.set_subtitle(_translate(self.language, "settings.tts.duck_pct.subtitle"))
+        self.tts_duck_row.set_value(self._current_tts_duck_pct)
+        self.tts_duck_row.connect("notify::value", self._on_tts_duck_pct_changed)
+
+        self.tts_duck_pre_row = Adw.SpinRow.new_with_range(0, 2000, 50)
+        self.tts_duck_pre_row.set_title(_translate(self.language, "settings.tts.duck_pre_ms"))
+        self.tts_duck_pre_row.set_subtitle(_translate(self.language, "settings.tts.duck_pre_ms.subtitle"))
+        self.tts_duck_pre_row.set_value(self._current_tts_duck_pre_ms)
+        self.tts_duck_pre_row.connect("notify::value", self._on_tts_duck_pre_ms_changed)
 
         # Download progress row — shown directly below voice options when a download runs.
         self._piper_dl_row = Adw.ActionRow()
@@ -654,6 +687,9 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         tts_group.add(self.tts_language_row)
         tts_group.add(self.tts_voice_row)
         tts_group.add(self.tts_quality_row)
+        tts_group.add(self.tts_volume_row)
+        tts_group.add(self.tts_duck_row)
+        tts_group.add(self.tts_duck_pre_row)
         tts_group.add(self._piper_dl_row)
         tour_page.add(tts_group)
 
@@ -1019,6 +1055,18 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
             idx = self.tts_quality_row.get_selected()
             quality = self._TTS_QUALITIES[idx] if 0 <= idx < len(self._TTS_QUALITIES) else "high"
             self.on_tts_quality_changed(quality)
+
+    def _on_tts_volume_changed(self, *_args: Any) -> None:
+        if self.on_tts_volume_pct_changed is not None:
+            self.on_tts_volume_pct_changed(int(self.tts_volume_row.get_value()))
+
+    def _on_tts_duck_pct_changed(self, *_args: Any) -> None:
+        if self.on_tts_duck_pct_changed is not None:
+            self.on_tts_duck_pct_changed(int(self.tts_duck_row.get_value()))
+
+    def _on_tts_duck_pre_ms_changed(self, *_args: Any) -> None:
+        if self.on_tts_duck_pre_ms_changed is not None:
+            self.on_tts_duck_pre_ms_changed(int(self.tts_duck_pre_row.get_value()))
 
     def _on_piper_dl_progress(self, model_name: str, fraction: float) -> None:
         """Callback from tts_service — runs on GLib main loop."""

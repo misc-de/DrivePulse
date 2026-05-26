@@ -118,6 +118,9 @@ class DashboardWindow(
         self.tts_language: str = self.settings.get("tts_language", "auto")
         self.tts_voice: str = self.settings.get("tts_voice", "female")
         self.tts_quality: str = self.settings.get("tts_quality", "high")
+        self.tts_volume_pct: int = int(self.settings.get("tts_volume_pct") or 100)
+        self.tts_duck_pct: int = int(self.settings.get("tts_duck_pct") or 0)
+        self.tts_duck_pre_ms: int = int(self.settings.get("tts_duck_pre_ms") or 0)
         self.log_app_enabled: bool = bool(self.settings.get("log_app_enabled", True))
         self.log_obd_enabled: bool = bool(self.settings.get("log_obd_enabled", True))
         self.obd_auto_record: bool = bool(self.settings.get("obd_auto_record", True))
@@ -352,6 +355,8 @@ class DashboardWindow(
         )
         from drivepulse_app.tts import service as _tts_svc
         _tts_svc.set_backend(self.tts_backend)
+        _tts_svc.set_volume_pct(self.tts_volume_pct)
+        _tts_svc.set_duck(self.tts_duck_pct, self.tts_duck_pre_ms)
         _tts_svc.set_download_callback(self._on_piper_dl_progress)
         self._piper_dl_current_model: str | None = None
         if self.tts_backend == "piper":
