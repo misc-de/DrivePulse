@@ -384,15 +384,26 @@ class CarsDetailRenderMixin:
                             avg_str = f"{avg:.2f}"
                         value_text = f"{avg_str} {unit}".strip()
                         is_unknown = False
-                    # A single scan with intra-sample data is still
-                    # chartable — only suppress the click when there is
-                    # literally nothing to plot. The previous "> 1" gate
-                    # broke the chart whenever multiple scans had been
-                    # merged into one (so values collapsed to len 1).
-                    if stats and (
-                        (stats.get("values") or [])
-                        or (stats.get("intra_series") or {})
-                    ):
+                    # Chart only makes sense when there is actual
+                    # variation to plot. A single datapoint (min == max
+                    # AND no intra-series with movement) gives just a
+                    # dot — show only the value, no clickable chart.
+                    has_data = bool(
+                        (stats or {}).get("values")
+                        or (stats or {}).get("intra_series")
+                    )
+                    has_variation = False
+                    if has_data:
+                        mn = (stats or {}).get("min")
+                        mx = (stats or {}).get("max")
+                        if mn is not None and mx is not None and mn != mx:
+                            has_variation = True
+                        else:
+                            has_variation = any(
+                                len(pts) > 1
+                                for pts in ((stats or {}).get("intra_series") or {}).values()
+                            )
+                    if has_variation:
                         def on_click(_lbl=label, _pk=pid_key, _st=self._scan_pid_stats, _pl=_pid_labels, _lg=_lang):
                             return self._push_scan_chart(_lbl, _pk, _st, _pl, _lg)
                     else:
@@ -777,9 +788,15 @@ class CarsDetailRenderMixin:
                     return f"{v:.1f}"
                 return f"{v:.2f}"
 
-            mn_str = f"{_fmt(mn)} {unit}".strip()
-            mx_str = f"{_fmt(mx)} {unit}".strip()
-            stats_text = f"↓ {mn_str}   ↑ {mx_str}"
+            if mn == mx:
+                # Single recorded value: showing „↓ 8 km/h  ↑ 8 km/h" is
+                # just noise. Drop the min/max arrows and render the
+                # value once.
+                stats_text = f"{_fmt(mn)} {unit}".strip()
+            else:
+                mn_str = f"{_fmt(mn)} {unit}".strip()
+                mx_str = f"{_fmt(mx)} {unit}".strip()
+                stats_text = f"↓ {mn_str}   ↑ {mx_str}"
             stats_lbl = Gtk.Label(label=stats_text, xalign=1.0)
             stats_lbl.set_halign(Gtk.Align.END)
             stats_lbl.set_hexpand(True)
