@@ -76,6 +76,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "last_cars_source": None,
     "last_cars_category": None,
     "last_cars_scan_id": None,
+    "photo_thumb_cache_max_mb": 200,
 }
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
@@ -184,6 +185,7 @@ def load_settings() -> dict[str, Any]:
         "autodev_usage_updated": str(data.get("autodev_usage_updated") or ""),
         "last_cars_source": (str(data["last_cars_source"]) if data.get("last_cars_source") else None),
         "last_cars_category": (str(data["last_cars_category"]) if data.get("last_cars_category") else None),
+        "photo_thumb_cache_max_mb": _bounded_int(data.get("photo_thumb_cache_max_mb"), 200, 10, 2000),
     }
     # Pull secrets from the keyring when available — that path replaces
     # any value the JSON file may still carry (legacy installs). If the

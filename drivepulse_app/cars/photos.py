@@ -16,6 +16,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
+from drivepulse_app.cars import thumb_cache
 from drivepulse_app.common import LOG_DIR, _translate
 from drivepulse_app.diagnostics import get_logger
 
@@ -131,6 +132,10 @@ class CarsPhotosMixin:
         outer.set_hexpand(True)
         outer.set_vexpand(True)
         outer.append(flow)
+
+        if self._photo_select_mode:
+            outer.append(self._build_photo_action_bar())
+
         self._value_scroll.set_child(outer)
 
     def _make_photo_tile(self, photo: Any) -> Gtk.FlowBoxChild:
@@ -153,7 +158,17 @@ class CarsPhotosMixin:
 
         photo_path = self._photo_path(self._selected_car_id, filename)
         if photo_path.exists():
-            picture.set_file(Gio.File.new_for_path(str(photo_path)))
+            cached = thumb_cache.get_or_create(photo_path)
+            if cached:
+                picture.set_file(Gio.File.new_for_path(str(cached)))
+            else:
+                picture.set_file(Gio.File.new_for_path(str(photo_path)))
+                def _bg_thumb(_p=photo_path, _pic=picture):
+                    t = thumb_cache.create_thumb(_p)
+                    if t:
+                        from gi.repository import GLib as _GLib
+                        _GLib.idle_add(lambda: _pic.set_file(Gio.File.new_for_path(str(t))))
+                threading.Thread(target=_bg_thumb, daemon=True).start()
 
         tile.append(picture)
 
@@ -319,6 +334,7 @@ class CarsPhotosMixin:
         shutil.copy2(str(src), str(dest))
         if self.db is not None:
             self.db.add_car_photo(car_id, dest.name, ts.isoformat())
+        self._generate_thumb_async(dest)
 
     # ---------------------------------------------------------------- camera
 
@@ -334,7 +350,7 @@ class CarsPhotosMixin:
                 if photos:
                     p = self._photo_path(car_id, photos[-1]["filename"])
                     if p.exists():
-                        last_photo_path = p
+                        last_photo_path = thumb_cache.get_or_create(p) or p
             except Exception:
                 pass
 
@@ -366,6 +382,7 @@ class CarsPhotosMixin:
         shutil.copy2(str(src), str(dest))
         if self.db is not None:
             self.db.add_car_photo(car_id, dest.name, ts.isoformat())
+        self._generate_thumb_async(dest)
         return dest
 
     # ---------------------------------------------------------------- photo viewer
@@ -446,6 +463,39 @@ class CarsPhotosMixin:
             self._photo_detail_page = None
         self._render_detail()
 
+    # ---------------------------------------------------------------- action bar (multi-select)
+
+    def _build_photo_action_bar(self) -> Gtk.Box:
+        n = len(self._photo_selected_ids)
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        bar.add_css_class("toolbar")
+        bar.set_margin_top(4)
+        bar.set_margin_bottom(4)
+        bar.set_margin_start(8)
+        bar.set_margin_end(8)
+
+        lbl = Gtk.Label(label=_translate(self.language, "cars.photos.selected_count", n=n))
+        lbl.set_hexpand(True)
+        lbl.set_xalign(0.0)
+        lbl.add_css_class("dim-label")
+        bar.append(lbl)
+
+        if self._is_sync_active():
+            share_btn = Gtk.Button(icon_name="share-alt-symbolic")
+            share_btn.add_css_class("flat")
+            share_btn.set_tooltip_text(_translate(self.language, "cars.photos.share_selected"))
+            share_btn.connect("clicked", lambda _b: self._share_selected_photos())
+            bar.append(share_btn)
+
+        del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        del_btn.add_css_class("flat")
+        del_btn.add_css_class("destructive-action")
+        del_btn.set_tooltip_text(_translate(self.language, "cars.photos.delete_selected"))
+        del_btn.connect("clicked", lambda _b: self._confirm_delete_selected_photos())
+        bar.append(del_btn)
+
+        return bar
+
     # ---------------------------------------------------------------- multi-select
 
     def _enter_photo_select_mode(self, photo_id: int) -> None:
@@ -453,12 +503,14 @@ class CarsPhotosMixin:
         self._photo_selected_ids = {photo_id}
         self._render_detail()
         self._set_trash(self._confirm_delete_selected_photos)
+        self._update_photo_upload_btn_visibility()
 
     def _exit_photo_select_mode(self) -> None:
         self._photo_select_mode = False
         self._photo_selected_ids = set()
         self._render_detail()
         self._update_trash_default()
+        self._update_photo_upload_btn_visibility()
 
     def _on_photo_checkbox_toggled(self, photo_id: int, active: bool) -> None:
         if active:
@@ -501,6 +553,15 @@ class CarsPhotosMixin:
 
     # ---------------------------------------------------------------- helpers
 
+    def _generate_thumb_async(self, photo_path: Path) -> None:
+        max_mb = getattr(self, "photo_thumb_cache_max_mb", 200)
+
+        def _run():
+            thumb_cache.create_thumb(photo_path)
+            thumb_cache.evict_to_limit(max_mb * 1024 * 1024)
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _photo_path(self, car_id: int, filename: str) -> Path:
         return PHOTOS_DIR / str(car_id) / filename
 
@@ -513,6 +574,7 @@ class CarsPhotosMixin:
             and self._selected_source != self.LIVE_ID
             and self._selected_car_id is not None
             and self._detail_pushed
+            and not self._photo_select_mode
         )
         btn.set_visible(show)
 
@@ -829,7 +891,8 @@ class CameraPhotoDialog:
     def _refresh_thumbnail(self, latest: Path) -> None:
         if self._thumb_pic is None or self._thumb_btn is None:
             return
-        self._thumb_pic.set_file(Gio.File.new_for_path(str(latest)))
+        cached = thumb_cache.get_or_create(latest)
+        self._thumb_pic.set_file(Gio.File.new_for_path(str(cached or latest)))
         self._thumb_btn.set_visible(True)
 
     # ---------- close ----------

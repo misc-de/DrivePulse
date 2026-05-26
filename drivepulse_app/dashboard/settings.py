@@ -86,6 +86,7 @@ class DashboardSettingsMixin:
                 "last_cars_source": getattr(self, "last_cars_source", None),
                 "last_cars_category": getattr(self, "last_cars_category", None),
                 "last_cars_scan_id": getattr(self, "last_cars_scan_id", None),
+                "photo_thumb_cache_max_mb": getattr(self, "photo_thumb_cache_max_mb", 200),
             })
         except Exception:
             log.exception("Could not save dashboard settings")
@@ -203,6 +204,8 @@ class DashboardSettingsMixin:
             current_autodev_usage_limit=getattr(self, "autodev_usage_limit", 0),
             current_autodev_usage_paid=getattr(self, "autodev_usage_paid", 0),
             current_autodev_usage_plan=getattr(self, "autodev_usage_plan", ""),
+            current_photo_thumb_cache_max_mb=getattr(self, "photo_thumb_cache_max_mb", 200),
+            on_photo_thumb_cache_max_mb_changed=self._set_photo_thumb_cache_max_mb,
         )
 
         def _on_page_hidden(_p: object) -> None:
@@ -356,6 +359,10 @@ class DashboardSettingsMixin:
     def _set_obd_auto_record(self, enabled: bool) -> None:
         self.obd_auto_record = enabled
         self.settings["obd_auto_record"] = enabled
+        self._save_settings()
+
+    def _set_photo_thumb_cache_max_mb(self, value: int) -> None:
+        self.photo_thumb_cache_max_mb = value
         self._save_settings()
 
     def _set_nhtsa_enabled(self, enabled: bool) -> None:
