@@ -132,6 +132,13 @@ class CarsPage(
         self._vin_fetch_pending: set[int] = set()
         self._vin_review_queue: list[tuple[int, str, dict]] = []
         self._vin_review_open: bool = False
+        # Snapshot of the car's vin_data dict at the moment the user opened
+        # the refresh flow. Used after the fetch finishes to (a) drop
+        # source fields that match what we already have so the review only
+        # shows actual changes and (b) merge the accepted values into the
+        # existing dict rather than replacing it wholesale. Keyed by
+        # car_id; cleared after the review is closed.
+        self._vin_refetch_existing: dict[int, dict] = {}
         self._latest_live: dict[str, Any] = {}
         self._live_identity: dict[str, str] = {}
         self._live_session_stats: dict[str, dict] = {}
@@ -414,11 +421,10 @@ class CarsPage(
             except Exception:
                 log.warning("Could not save autodev raw for car_id=%s", car_id, exc_info=True)
         sources.pop("auto.dev_error", None)  # already shown in dialog row
-        if not sources and self.db is not None:
-            try:
-                self.db.update_car_vin_data(car_id, "{}")
-            except sqlite3.Error:
-                log.warning("Could not persist empty VIN data for car_id=%s", car_id, exc_info=True)
+        # NOTE: We no longer wipe vin_data_json when the fetch returns
+        # nothing usable. The refresh is an additive operation now —
+        # existing data stays put on a failed/empty fetch, and gets
+        # merged with any new fields when there are some.
         dialog.set_all_done(sources)
         return False
 
@@ -447,12 +453,12 @@ class CarsPage(
                 msg = _translate(self.language, "vin.autodev.error.generic")
             self._show_toast(msg)
         if not sources:
-            print(f"[VIN] car_id={car_id}: no data from any source → storing empty", flush=True)
-            if self.db is not None:
-                try:
-                    self.db.update_car_vin_data(car_id, "{}")
-                except sqlite3.Error:
-                    log.warning("Could not persist empty VIN data for car_id=%s", car_id, exc_info=True)
+            # No usable data came back — leave the existing vin_data_json
+            # alone (additive refresh), just drop the snapshot and notify
+            # the user. The silent live-car path lands here too; the
+            # toast is harmless and informative in either case.
+            self._vin_refetch_existing.pop(car_id, None)
+            self._show_toast(_translate(self.language, "cars.vin_refresh.no_changes"))
             return False
         print(f"[VIN] car_id={car_id}: sources with data={list(sources.keys())}", flush=True)
         self._vin_review_queue.append((car_id, vin, sources))
@@ -469,6 +475,32 @@ class CarsPage(
         if self._vin_review_open or not self._vin_review_queue:
             return
         car_id, vin, data = self._vin_review_queue.pop(0)
+
+        # Drop fields that match what we already have on file — the user
+        # asked the refresh to surface *new* data, not re-confirm the
+        # full record every time. Sources that end up empty after the
+        # filter are removed; if no source has anything new at all, show
+        # a toast and skip the review dialog entirely.
+        existing = self._vin_refetch_existing.get(car_id, {})
+        if existing:
+            filtered: dict = {}
+            for src_name, src_data in data.items():
+                kept = {
+                    field: value
+                    for field, value in (src_data or {}).items()
+                    if existing.get(field) != value
+                }
+                if kept:
+                    filtered[src_name] = kept
+            data = filtered
+        if not data:
+            self._show_toast(_translate(self.language, "cars.vin_refresh.no_changes"))
+            self._vin_refetch_existing.pop(car_id, None)
+            # Drain anything else that already queued up while we were
+            # filtering — keeps the UX consistent across multi-car refreshes.
+            self._maybe_show_next_review()
+            return
+
         self._vin_review_open = True
         from drivepulse_app.vin.review_dialog import VinReviewDialog
         dialog = VinReviewDialog(vin, data, self.language)
@@ -479,9 +511,14 @@ class CarsPage(
                 accepted = d.get_accepted_data()
             else:
                 accepted = {}
+            # Merge accepted fields into the snapshot so existing values
+            # the user already curated stay intact when the refresh only
+            # touches a subset of fields.
+            existing_snap = self._vin_refetch_existing.pop(car_id, {})
+            merged = {**existing_snap, **accepted} if accepted else existing_snap
             if self.db is not None:
                 try:
-                    self.db.update_car_vin_data(car_id, json.dumps(accepted))
+                    self.db.update_car_vin_data(car_id, json.dumps(merged))
                 except sqlite3.Error:
                     log.warning("Could not persist VIN data for car_id=%s", car_id, exc_info=True)
                 # Promote the decoded manufacturer into the permanent brand
