@@ -1136,10 +1136,18 @@ class ScanChartContent(Gtk.Box):
                 unit = _unit_display(stats[pid].get("unit", ""), self._language)
                 return vals, ts_labels, unit
 
+        # No intra-series for the selected scan → fall back to the
+        # per-scan trend (one point per scan_at across all scans).
+        # Previously this code path filtered ``values`` down to the
+        # selected scan_ts, which collapsed to a single datapoint and
+        # left the chart looking empty for every PID without intra-
+        # series. Showing the cross-scan trend is the useful signal:
+        # min/max in the overview row already implies there's
+        # variation to plot.
         pairs = stats[pid].get("values") or []
-        # Concrete timestamp → snapshot of this scan (single point).
-        # None is treated as full history (fallback for unselected states).
-        if scan_ts is not None:
+        if scan_ts is not None and len(pairs) <= 1:
+            # If there's literally only one stored value (or none) we
+            # can't show a trend — keep the original snapshot behavior.
             pairs = [(t, v) for t, v in pairs if t == scan_ts]
         vals = [v for _, v in pairs]
         ts = [t for t, _ in pairs]
