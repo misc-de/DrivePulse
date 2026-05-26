@@ -271,6 +271,22 @@ class _SwitchRow(_ActionRow):
         return self._active
 
 
+class _SpinRow(_ActionRow):
+    def __init__(self, title: str = "", subtitle: str = "", **kwargs) -> None:
+        super().__init__(title=title, subtitle=subtitle, **kwargs)
+        self._value = 0.0
+
+    @classmethod
+    def new_with_range(cls, _lo, _hi, _step):
+        return cls()
+
+    def set_value(self, v) -> None:
+        self._value = float(v)
+
+    def get_value(self) -> float:
+        return self._value
+
+
 class _DrawingArea(_Widget):
     pass
 
@@ -582,6 +598,7 @@ def _build_gi_stub_modules() -> tuple[types.ModuleType, types.ModuleType]:
         ),
         StyleManager=types.SimpleNamespace(get_default=lambda: _style_manager_instance),
         SwitchRow=_SwitchRow,
+        SpinRow=_SpinRow,
         Toast=_Toast,
         ToolbarView=_ToolbarView,
         ViewStack=_ViewStack,

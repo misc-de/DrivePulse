@@ -1083,6 +1083,13 @@ class MapPage(
         self._tour_step_idx = 0
         self._step_min_dist = None
         self._tour_coords = list(coords) if coords else []
+        # Pre-render the first couple of nav prompts so that the moment
+        # the driver hits "Start", the very first announcement plays
+        # without the usual 1-2 s piper warm-up latency.
+        try:
+            self._prerender_upcoming_steps(0, 2)
+        except Exception:
+            log.debug("Could not pre-render initial nav prompts", exc_info=True)
         self._gps_route_idx = 0
         self._snapped_lat = None
         self._snapped_lon = None

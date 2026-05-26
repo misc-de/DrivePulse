@@ -45,6 +45,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tts_language": "auto",
     "tts_voice": "female",
     "tts_quality": "high",
+    # Navi-volume in percent (espeak amplitude / paplay --volume scaling)
+    "tts_volume_pct": 100,
+    # Music ducking while TTS speaks: how much (% reduction of other
+    # streams) and how early (ms before speech) to apply it. 0 disables.
+    "tts_duck_pct": 50,
+    "tts_duck_pre_ms": 200,
     "log_app_enabled": False,
     "log_obd_enabled": False,
     "obd_auto_record": True,
@@ -155,6 +161,9 @@ def load_settings() -> dict[str, Any]:
         "tts_language": data.get("tts_language") if data.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
         "tts_voice": data.get("tts_voice") if data.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
         "tts_quality": data.get("tts_quality") if data.get("tts_quality") in _VALID_TTS_QUALITIES else DEFAULT_SETTINGS["tts_quality"],
+        "tts_volume_pct": _bounded_int(data.get("tts_volume_pct"), 100, 1, 200),
+        "tts_duck_pct": _bounded_int(data.get("tts_duck_pct"), 50, 0, 90),
+        "tts_duck_pre_ms": _bounded_int(data.get("tts_duck_pre_ms"), 200, 0, 2000),
         "log_app_enabled": bool(data.get("log_app_enabled", DEFAULT_SETTINGS["log_app_enabled"])),
         "log_obd_enabled": bool(data.get("log_obd_enabled", DEFAULT_SETTINGS["log_obd_enabled"])),
         "obd_auto_record": bool(data.get("obd_auto_record", DEFAULT_SETTINGS["obd_auto_record"])),
@@ -263,6 +272,9 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "tts_language": settings.get("tts_language") if settings.get("tts_language") in _VALID_TTS_LANGUAGES else DEFAULT_SETTINGS["tts_language"],
                 "tts_voice": settings.get("tts_voice") if settings.get("tts_voice") in _VALID_TTS_VOICES else DEFAULT_SETTINGS["tts_voice"],
                 "tts_quality": settings.get("tts_quality") if settings.get("tts_quality") in _VALID_TTS_QUALITIES else DEFAULT_SETTINGS["tts_quality"],
+                "tts_volume_pct": _bounded_int(settings.get("tts_volume_pct"), 100, 1, 200),
+                "tts_duck_pct": _bounded_int(settings.get("tts_duck_pct"), 50, 0, 90),
+                "tts_duck_pre_ms": _bounded_int(settings.get("tts_duck_pre_ms"), 200, 0, 2000),
                 "log_app_enabled": bool(settings.get("log_app_enabled", False)),
                 "log_obd_enabled": bool(settings.get("log_obd_enabled", False)),
                 "obd_auto_record": bool(settings.get("obd_auto_record", True)),
