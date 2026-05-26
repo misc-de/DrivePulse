@@ -542,7 +542,7 @@ class CameraPhotoDialog:
         self._preview_picture: Gtk.Picture | None = None
         self._status_lbl: Gtk.Label | None = None
         self._capture_btn: Gtk.Button | None = None
-        self._thumb_img: Gtk.Image | None = None
+        self._thumb_pic: Gtk.Picture | None = None
         self._thumb_btn: Gtk.Button | None = None
         self._session_paths: list[Path] = []
 
@@ -577,12 +577,13 @@ class CameraPhotoDialog:
         self._status_lbl = Gtk.Label(label="")
         self._status_lbl.add_css_class("dim-label")
 
-        self._thumb_img = Gtk.Image()
-        self._thumb_img.set_size_request(120, 120)
+        self._thumb_pic = Gtk.Picture()
+        self._thumb_pic.set_can_shrink(True)
+        self._thumb_pic.set_content_fit(Gtk.ContentFit.COVER)
 
         self._thumb_btn = Gtk.Button()
         self._thumb_btn.add_css_class("dp-cam-thumb")
-        self._thumb_btn.set_child(self._thumb_img)
+        self._thumb_btn.set_child(self._thumb_pic)
         self._thumb_btn.set_size_request(120, 120)
         self._thumb_btn.set_hexpand(False)
         self._thumb_btn.set_vexpand(False)
@@ -593,7 +594,7 @@ class CameraPhotoDialog:
         self._thumb_btn.set_sensitive(False)
         self._thumb_btn.set_visible(False)
         if self._last_photo_path and self._last_photo_path.exists():
-            self._set_thumb_image(self._last_photo_path)
+            self._thumb_pic.set_file(Gio.File.new_for_path(str(self._last_photo_path)))
             self._thumb_btn.set_visible(True)
 
         self._capture_btn = Gtk.Button()
@@ -825,18 +826,10 @@ class CameraPhotoDialog:
 
     # ---------- thumbnail ----------
 
-    def _set_thumb_image(self, path: Path) -> None:
-        from gi.repository import GdkPixbuf
-        try:
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 120, 120, False)
-            self._thumb_img.set_from_pixbuf(pixbuf)
-        except Exception:
-            log.debug("Could not load thumbnail %s", path, exc_info=True)
-
     def _refresh_thumbnail(self, latest: Path) -> None:
-        if self._thumb_img is None or self._thumb_btn is None:
+        if self._thumb_pic is None or self._thumb_btn is None:
             return
-        self._set_thumb_image(latest)
+        self._thumb_pic.set_file(Gio.File.new_for_path(str(latest)))
         self._thumb_btn.set_visible(True)
 
     # ---------- close ----------
