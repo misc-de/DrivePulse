@@ -151,6 +151,9 @@ class CarsPage(
         self.on_open_trip_as_route: Callable[
             [list[list[float]], float | None, float | None, str | None], None
         ] | None = None
+        # Invoked with a single argument: a callback that receives the
+        # boolean success result on the GTK thread once Mode-04 finished.
+        self.on_clear_dtcs: Callable[[Callable[[bool], None]], None] | None = None
         self._drag_claimed = False
         self.get_sync_client: Any = None
         # Mock mode disables share/rename so demo data isn't pushed to peers.

@@ -437,6 +437,26 @@ class ObdReader(GObject.Object):
         with self._obd_lock:
             return self.connection.query(command)
 
+    def clear_dtcs(self) -> bool:
+        """Send OBD Mode 04 (CLEAR_DTC). Returns True if the ECU acknowledged.
+
+        Note for callers: this clears stored *and* pending DTCs, the freeze
+        frame, and resets the emissions readiness monitors. The caller is
+        responsible for confirming the action with the user before
+        invoking this method.
+        """
+        if obd is None or self.connection is None or self.mock:
+            return False
+        cmd = getattr(obd.commands, "CLEAR_DTC", None)
+        if cmd is None:
+            return False
+        try:
+            response = self._query_locked(cmd)
+            return not response.is_null()
+        except Exception:
+            log.exception("CLEAR_DTC query failed")
+            return False
+
     def _run_vehicle_scan(self, force_rescan: bool = False) -> None:
         """Start the vehicle scan in a background thread so the live read loop
         is not blocked. The scan can take 30+ seconds over Bluetooth; running it

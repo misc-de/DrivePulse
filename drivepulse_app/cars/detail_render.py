@@ -346,6 +346,20 @@ class CarsDetailRenderMixin:
                 entries = data.get(src_key) or []
                 for r in self._make_dtc_table_rows(label, entries):
                     self.value_list.append(r)
+                # Show the "Clear fault memory" button right after the
+                # stored-faults table when in live mode, faults are
+                # present (stored OR pending) and the host has wired up
+                # the OBD Mode-04 callback.
+                if (
+                    pid_key == _SPECIAL_DTC
+                    and is_live
+                    and getattr(self, "on_clear_dtcs", None) is not None
+                    and (
+                        (data.get("__dtcs_list__") or [])
+                        or (data.get("__pending_dtcs_list__") or [])
+                    )
+                ):
+                    self.value_list.append(self._make_dtc_clear_button_row())
                 continue
             if not pid_key.startswith("__"):
                 if is_live:
@@ -442,6 +456,62 @@ class CarsDetailRenderMixin:
             r.set_child(box)
             rows.append(r)
         return rows
+
+    def _make_dtc_clear_button_row(self) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+        row.set_selectable(False)
+
+        btn = Gtk.Button(label=_translate(self.language, "cars.dtc.clear"))
+        btn.add_css_class("destructive-action")
+        btn.set_halign(Gtk.Align.FILL)
+        btn.set_hexpand(True)
+        btn.set_margin_top(8)
+        btn.set_margin_bottom(8)
+        btn.set_margin_start(14)
+        btn.set_margin_end(14)
+        btn.connect("clicked", lambda _b: self._confirm_clear_dtcs())
+        row.set_child(btn)
+        return row
+
+    def _confirm_clear_dtcs(self) -> None:
+        if getattr(self, "on_clear_dtcs", None) is None:
+            return
+        dialog = Adw.AlertDialog()
+        dialog.set_heading(_translate(self.language, "cars.dtc.clear.confirm.heading"))
+        dialog.set_body(_translate(self.language, "cars.dtc.clear.confirm.body"))
+        dialog.add_response("cancel", _translate(self.language, "cars.dtc.clear.confirm.cancel"))
+        dialog.add_response("clear", _translate(self.language, "cars.dtc.clear.confirm.ok"))
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("clear", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "clear":
+                return
+            on_clear = getattr(self, "on_clear_dtcs", None)
+            if on_clear is None:
+                return
+
+            def _done(ok: bool) -> None:
+                toast_key = "cars.dtc.clear.toast_ok" if ok else "cars.dtc.clear.toast_err"
+                self._show_toast(_translate(self.language, toast_key))
+                if ok and self._detail_pushed:
+                    # The clear succeeded; re-render so the freshly empty
+                    # tables show right away. The reader's force-rescan
+                    # will eventually overwrite this with real data.
+                    self._render_detail()
+
+            try:
+                on_clear(_done)
+            except Exception:
+                log.exception("on_clear_dtcs callback raised")
+                self._show_toast(_translate(self.language, "cars.dtc.clear.toast_err"))
+
+        dialog.connect("response", _on_response)
+        root = self.get_root()
+        if root:
+            dialog.present(root)
 
     def _make_inline_row(self, pid_key: str, label: str, value_text: str, is_unknown: bool) -> Adw.ActionRow:
         row = Adw.ActionRow()
