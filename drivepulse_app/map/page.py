@@ -37,6 +37,8 @@ from drivepulse_app.map.layout import MapLayoutMixin
 from drivepulse_app.map.layout_search import MapSearchBarMixin
 from drivepulse_app.map.layout_steps import MapStepsPanelMixin
 from drivepulse_app.map.layout_tour_actions import MapTourActionsMixin
+from drivepulse_app.map.layout_tour_history import MapTourHistoryMixin
+from drivepulse_app.map.layout_tour_saved import MapTourSavedMixin
 from drivepulse_app.map.replay import MapReplayMixin
 from drivepulse_app.map.route_compute import MapRouteComputeMixin
 from drivepulse_app.map.services import (
@@ -62,6 +64,8 @@ class MapPage(
     MapSearchBarMixin,
     MapStepsPanelMixin,
     MapTourActionsMixin,
+    MapTourHistoryMixin,
+    MapTourSavedMixin,
     MapReplayMixin,
     MapTourMixin,
     MapTrafficMixin,
