@@ -27,7 +27,6 @@ _SPECIAL_DTC = "__DTC__"
 _SPECIAL_PENDING = "__PENDING_DTC__"
 _SPECIAL_ADAPTER_V = "__ATRV__"
 
-_SPECIAL_VIN_MAKE = "__VIN_MAKE__"
 _SPECIAL_VIN_MODEL = "__VIN_MODEL__"
 _SPECIAL_VIN_YEAR = "__VIN_YEAR__"
 _SPECIAL_VIN_BODY = "__VIN_BODY__"
@@ -40,7 +39,6 @@ _SPECIAL_VIN_MANUFACTURER = "__VIN_MANUFACTURER__"
 _SPECIAL_VIN_COUNTRY = "__VIN_COUNTRY__"
 
 VIN_DATA_SPECIAL_KEYS: dict[str, str] = {
-    "make":         _SPECIAL_VIN_MAKE,
     "model":        _SPECIAL_VIN_MODEL,
     "year":         _SPECIAL_VIN_YEAR,
     "body":         _SPECIAL_VIN_BODY,
@@ -71,7 +69,6 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         (_SPECIAL_VIN,              "cars.pid.VIN"),
         (_SPECIAL_BRAND,            "cars.pid.BRAND"),
         (_SPECIAL_VIN_MANUFACTURER, "cars.pid.VIN_MANUFACTURER"),
-        (_SPECIAL_VIN_MAKE,         "cars.pid.VIN_MAKE"),
         (_SPECIAL_VIN_MODEL,        "cars.pid.VIN_MODEL"),
         (_SPECIAL_VIN_YEAR,         "cars.pid.VIN_YEAR"),
         (_SPECIAL_VIN_BODY,         "cars.pid.VIN_BODY"),

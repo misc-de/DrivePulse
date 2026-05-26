@@ -13,7 +13,6 @@ from drivepulse_app.common import _translate
 
 _FIELD_ORDER = [
     "manufacturer",
-    "make",
     "model",
     "year",
     "body",
@@ -27,7 +26,6 @@ _FIELD_ORDER = [
 
 _FIELD_LANG_SUFFIX: dict[str, str] = {
     "manufacturer":  "VIN_MANUFACTURER",
-    "make":          "VIN_MAKE",
     "model":         "VIN_MODEL",
     "year":          "VIN_YEAR",
     "body":          "VIN_BODY",
