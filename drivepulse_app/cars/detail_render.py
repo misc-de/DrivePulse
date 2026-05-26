@@ -750,10 +750,12 @@ class CarsDetailRenderMixin:
         box.set_hexpand(True)
         box.set_margin_top(10)
         box.set_margin_bottom(10)
-        # Without a chevron the right margin needs to come back so the
-        # value text doesn't crash into the row's right edge.
+        # Without a chevron we still reserve the 40-px slot on the
+        # right, so values across clickable and non-clickable rows line
+        # up to the same right edge — otherwise the eye notices the
+        # mixed-alignment jitter when scrolling the list.
         if on_click is None:
-            box.set_margin_end(14)
+            box.set_margin_end(40)
         outer.append(box)
 
         if on_click is not None:
