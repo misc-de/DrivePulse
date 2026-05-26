@@ -539,8 +539,7 @@ class CameraPhotoDialog:
         self._preview_picture: Gtk.Picture | None = None
         self._status_lbl: Gtk.Label | None = None
         self._capture_btn: Gtk.Button | None = None
-        self._jpeg_sink: Any = None
-        self._cap_valve: Any = None
+        self._raw_sink: Any = None
         # In-session photo list — temp paths kept alive until the dialog closes
         # so the thumbnail and carousel can display them.  Auto-import (via the
         # on_captured callback) has already happened by the time a path lands
@@ -718,26 +717,24 @@ class CameraPhotoDialog:
                 self._capture_btn.set_sensitive(False)
             return
 
-        # Capture branch (always present): tee → queue → valve (default drop) →
-        # jpegenc → appsink.  Keeping the source streaming continuously means the
-        # sensor is fully warmed up by the time the user clicks the shutter — the
-        # old approach of spawning a fresh `num-buffers=1` pipeline produced black
-        # frames because many cameras (droidcamsrc, pipewiresrc) deliver dark/empty
-        # buffers in the first ~10 frames.
+        # Capture branch: a continuously-consuming RGB appsink keeps the latest
+        # raw frame for the shutter.  Using a valve drop=true here would stall
+        # the tee (downstream never prerolls), so instead the appsink always
+        # eats buffers and we encode the latest one to JPEG via GdkPixbuf only
+        # on shutter press.
         cap_branch = (
             "t. ! queue leaky=downstream max-size-buffers=2 "
-            "! valve name=capvalve drop=true "
-            "! videoconvert ! jpegenc quality=92 "
-            "! appsink name=jpegsink max-buffers=1 drop=true sync=false emit-signals=false"
+            "! videoconvert ! video/x-raw,format=RGB "
+            "! appsink name=rawsink max-buffers=1 drop=true sync=false emit-signals=false"
         )
         if has_paintable:
             preview_branch = (
                 "t. ! queue leaky=downstream max-size-buffers=2 "
-                "! gtk4paintablesink name=preview sync=false"
+                "! videoconvert ! gtk4paintablesink name=preview sync=false"
             )
         else:
             # No GTK4 paintable sink available — still keep the pipeline flowing
-            # via fakesink so the capture branch can pull JPEG samples.
+            # via fakesink so the capture branch can pull samples.
             preview_branch = "t. ! queue leaky=downstream max-size-buffers=2 ! fakesink sync=false"
 
         for src_name in sources:
@@ -758,8 +755,7 @@ class CameraPhotoDialog:
                         paintable = sink.get_property("paintable")
                         if paintable:
                             self._preview_picture.set_paintable(paintable)
-                self._jpeg_sink = pipe.get_by_name("jpegsink")
-                self._cap_valve = pipe.get_by_name("capvalve")
+                self._raw_sink = pipe.get_by_name("rawsink")
                 bus = pipe.get_bus()
                 bus.add_signal_watch()
                 bus.connect("message", self._on_bus_msg)
@@ -803,59 +799,70 @@ class CameraPhotoDialog:
         t.start()
 
     def _capture_thread(self, dest: Path) -> None:
-        """Pull a JPEG sample from the running preview's appsink.
+        """Pull the latest raw RGB frame from the appsink, encode to JPEG.
 
-        The preview pipeline already encodes JPEGs into an appsink (gated by a
-        valve set to drop=true).  We open the valve briefly, pull the next
-        sample, and close it again.  Because the camera has been streaming the
-        whole time, the captured frame is fully exposed — no black-image race.
+        The preview pipeline always consumes raw frames into a max-buffers=1
+        drop=true appsink, so the sensor stays warmed up and the freshest frame
+        is always immediately available.  We encode that frame to JPEG via
+        GdkPixbuf — no second GStreamer pipeline, no valve, no tee-stall risk.
         """
         Gst = self._Gst
-        sink = self._jpeg_sink
-        valve = self._cap_valve
+        sink = self._raw_sink
 
-        if Gst is None or sink is None or valve is None:
-            log.debug("Camera capture: appsink branch unavailable")
+        if Gst is None or sink is None:
+            log.debug("Camera capture: raw appsink unavailable")
             GLib.idle_add(self._on_capture_failed)
             return
 
         try:
-            # Drain any stale JPEG that might already be in the appsink so we
-            # only return a sample produced after the valve opens (i.e. a fresh
-            # frame, not one buffered before the user clicked the shutter).
-            while True:
-                stale = sink.emit("try-pull-sample", 0)
-                if stale is None:
-                    break
-
-            valve.set_property("drop", False)
-            # Pull the next encoded JPEG.  5 s gives slow Halium pipelines (where
-            # droidcamsrc takes a moment to deliver after a quiet period) enough
-            # time without hanging the UI on a stuck camera.
-            sample = sink.emit("try-pull-sample", 5 * Gst.SECOND)
-            valve.set_property("drop", True)
-
+            # Wait up to 2 s for a fresh sample.  On a healthy pipeline the
+            # newest frame is already sitting in the appsink, so this returns
+            # immediately.
+            sample = sink.emit("try-pull-sample", 2 * Gst.SECOND)
             if sample is None:
-                log.warning("Camera capture: no JPEG sample received within timeout")
+                log.warning("Camera capture: no raw sample within timeout")
+                GLib.idle_add(self._on_capture_failed)
+                return
+
+            caps = sample.get_caps()
+            structure = caps.get_structure(0) if caps else None
+            if structure is None:
+                log.warning("Camera capture: sample has no caps")
+                GLib.idle_add(self._on_capture_failed)
+                return
+            ok_w, width = structure.get_int("width")
+            ok_h, height = structure.get_int("height")
+            if not (ok_w and ok_h and width > 0 and height > 0):
+                log.warning("Camera capture: invalid dimensions w=%s h=%s", width, height)
                 GLib.idle_add(self._on_capture_failed)
                 return
 
             buf = sample.get_buffer()
             ok, mi = buf.map(Gst.MapFlags.READ)
             if not ok:
-                log.warning("Camera capture: could not map JPEG buffer")
+                log.warning("Camera capture: could not map raw buffer")
                 GLib.idle_add(self._on_capture_failed)
                 return
             try:
-                dest.write_bytes(bytes(mi.data))
+                # Copy out of the mapped GStreamer buffer before we unmap.
+                raw_bytes = bytes(mi.data)
             finally:
                 buf.unmap(mi)
+
+            from gi.repository import GdkPixbuf
+            gbytes = GLib.Bytes.new(raw_bytes)
+            pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(
+                gbytes,
+                GdkPixbuf.Colorspace.RGB,
+                False,        # has_alpha
+                8,            # bits_per_sample
+                width,
+                height,
+                width * 3,    # rowstride (RGB = 3 bytes/pixel)
+            )
+            pixbuf.savev(str(dest), "jpeg", ["quality"], ["92"])
         except Exception:
             log.exception("Camera capture failed")
-            try:
-                valve.set_property("drop", True)
-            except Exception:
-                log.debug("could not re-close capture valve", exc_info=True)
             GLib.idle_add(self._on_capture_failed)
             return
 
@@ -943,5 +950,4 @@ class CameraPhotoDialog:
             except Exception:
                 log.debug("Gst pipeline state-reset failed", exc_info=True)
             self._pipeline = None
-        self._jpeg_sink = None
-        self._cap_valve = None
+        self._raw_sink = None
