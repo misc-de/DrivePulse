@@ -371,13 +371,16 @@ class MapTourActionsMixin:
             and loaded_trip_id is not None
             and int(meta["id"]) == loaded_trip_id
         )
-        if is_loaded:
-            icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
-            icon.add_css_class("dp-tour-loaded-icon")
-        elif meta["kind"] == "tour":
+        # Keep the kind-specific icon shape even when loaded; only tint
+        # it green via the dp-tour-loaded-icon CSS class. Swapping to
+        # emblem-ok-symbolic for the loaded row was unreliable on some
+        # icon themes (icon failed to render → row looked blank).
+        if meta["kind"] == "tour":
             icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
         else:
             icon = Gtk.Image.new_from_icon_name("distance-symbolic")
+        if is_loaded:
+            icon.add_css_class("dp-tour-loaded-icon")
         action_row.add_prefix(icon)
 
         edit_btn = Gtk.Button(icon_name="document-edit-symbolic")
@@ -743,11 +746,14 @@ class MapTourActionsMixin:
             return row
 
         loaded_id = getattr(self, "_loaded_tour_id", None)
+        icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
         if loaded_id is not None and int(tour["id"]) == loaded_id:
-            icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+            # Same icon as the unloaded state, just tinted via the
+            # dp-tour-loaded-icon CSS class. Using a different icon name
+            # here (emblem-ok-symbolic) was unreliable across icon
+            # themes — on some setups the icon simply didn't render,
+            # so the loaded row ended up blank.
             icon.add_css_class("dp-tour-loaded-icon")
-        else:
-            icon = Gtk.Image.new_from_icon_name("dp-tour-plan-symbolic")
         row.add_prefix(icon)
 
         sync_getter = getattr(self, "get_sync_client", None)
