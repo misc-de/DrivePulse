@@ -13,6 +13,7 @@ from typing import Any
 from drivepulse_app.diagnostics import get_logger
 
 log = get_logger(__name__)
+_GST_ERRORS = (AttributeError, TypeError, RuntimeError)
 
 # ── GStreamer (optional) ────────────────────────────────────────────────────────
 # Used for in-process recording so preview and capture share one pipeline,
@@ -25,7 +26,7 @@ try:
     from gi.repository import Gst as _Gst
     _Gst.init(None)
     _GST_OK = True
-except Exception:
+except (ImportError, ValueError, RuntimeError):
     _Gst = None
     _GLib = None
 
@@ -192,7 +193,7 @@ class DashcamRecorder:
                     shutil.copy2(src, dst)
                     saved.append(dst)
                     log.info("Event saved: %s", dst)
-                except Exception as exc:
+                except OSError as exc:
                     log.warning("Could not save event clip %s: %s", src, exc)
         return saved
 
@@ -209,7 +210,7 @@ class DashcamRecorder:
     def delete_protected(self, path: Path) -> None:
         try:
             path.unlink(missing_ok=True)
-        except Exception as exc:
+        except OSError as exc:
             log.warning("Could not delete %s: %s", path, exc)
 
     # ── Status helpers ────────────────────────────────────────────────────────
@@ -340,11 +341,11 @@ class DashcamRecorder:
                                 r["paintable"] = paintable
                                 if self.on_preview_ready and paintable:
                                     self.on_preview_ready(paintable)
-                            except Exception:
+                            except _GST_ERRORS:
                                 log.debug("Could not wire dashcam preview paintable", exc_info=True)
                         p.set_state(_Gst.State.PLAYING)
                         r["pipeline"] = p
-                    except Exception as exc:
+                    except _GST_ERRORS as exc:
                         r["exc"] = exc
                         log.debug("gst init failed: %s", exc)
                     finally:
@@ -550,7 +551,7 @@ class DashcamRecorder:
             return True
         except FileNotFoundError:
             return False
-        except Exception as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             log.debug("proc error: %s", exc)
             return False
         finally:
@@ -559,9 +560,11 @@ class DashcamRecorder:
     def _kill_proc(self) -> None:
         proc = self._proc
         if proc and proc.poll() is None:
-            proc.send_signal(signal.SIGINT)
             try:
+                proc.send_signal(signal.SIGINT)
                 proc.wait(timeout=5)
+            except OSError:
+                log.debug("Could not signal dashcam process", exc_info=True)
             except subprocess.TimeoutExpired:
                 proc.kill()
 

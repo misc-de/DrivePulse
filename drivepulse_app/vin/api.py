@@ -97,7 +97,7 @@ def _fetch_autodev(
     on_request: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     url = _AUTODEV_URL.format(urllib.parse.quote(vin.upper(), safe=""))
-    print(f"[VIN] auto.dev GET {url} key_len={len(api_key)} key_repr={repr(api_key[-10:])}", flush=True)
+    print(f"[VIN] auto.dev GET {url} key_len={len(api_key)} key_repr={api_key[-10:]!r}", flush=True)
     req = urllib.request.Request(
         url,
         headers={

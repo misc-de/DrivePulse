@@ -27,7 +27,6 @@ from drivepulse_app.cars.metadata import (
     _format_value_unit,
     _parse_profile_pid_key,
     _unit_display,
-    _wmi_to_brand,
 )
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
