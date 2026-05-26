@@ -182,7 +182,7 @@ class TripsMixin:
                 n = int(gap / fill_interval)
                 for j in range(1, n):
                     t = prev_ts + j * fill_interval
-                    row_values = [survivor_id, t]
+                    row_values: list[Any] = [survivor_id, t]
                     for c in sample_cols:
                         row_values.append(0.0 if c in zero_fill_cols else None)
                     fills.append(tuple(row_values))

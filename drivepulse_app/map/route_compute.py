@@ -15,6 +15,14 @@ log = get_logger(__name__)
 
 
 class MapRouteComputeMixin:
+    # Owning class (MapPage) initializes these in __init__. Annotated here so
+    # mypy doesn't infer them as non-Optional from the assignments below.
+    _start_coord: tuple[float, float] | None
+    _end_coord: tuple[float, float] | None
+    _step_min_dist: float | None
+    _snapped_lat: float | None
+    _snapped_lon: float | None
+
     def _compute_route(self, start_text: str, wp_texts: list[str], end_text: str) -> None:
         try:
             gps = (

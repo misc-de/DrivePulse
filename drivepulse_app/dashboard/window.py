@@ -669,7 +669,8 @@ class DashboardWindow(
         if page == self.PAGE_MAP:
             self._cancel_map_unload()
             self._ensure_map_page()
-            GLib.timeout_add(50, self.map_page.on_shown)
+            if self.map_page is not None:
+                GLib.timeout_add(50, self.map_page.on_shown)
         if page in self._GPS_REQUIRED_PAGES:
             self.gps_reader.ensure_active()
 

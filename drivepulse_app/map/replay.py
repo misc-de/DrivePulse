@@ -18,6 +18,11 @@ from drivepulse_app.common import _translate
 class MapReplayMixin:
     """Trip-replay info card, metric chart, polyline + marker on the live map."""
 
+    # Owning class (MapPage) initializes this in __init__ as int | None.
+    # Annotated here so mypy doesn't infer ``int`` from the assignment in
+    # ``_show_trip_replay`` further below.
+    _loaded_trip_id: int | None
+
     def _build_replay_info_overlay(self) -> Gtk.Widget:
         """Card showing the replayed trip's metadata (lives inside the tour-controls grid)."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)

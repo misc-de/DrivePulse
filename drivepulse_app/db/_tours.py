@@ -12,7 +12,7 @@ class ToursMixin:
                 (name, created_at, waypoints_json),
             )
             self._conn.commit()
-            return cur.lastrowid  # type: ignore[return-value]
+            return cur.lastrowid
 
     def get_saved_tour(self, tour_id: int) -> sqlite3.Row | None:
         with self._lock:

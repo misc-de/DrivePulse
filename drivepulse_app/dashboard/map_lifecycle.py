@@ -16,6 +16,14 @@ class DashboardMapLifecycleMixin:
     # Seconds of inactivity on any other tab before the map widget is destroyed.
     _MAP_IDLE_UNLOAD_S = 3 * 60
 
+    # Owning class (DashboardWindow) initializes these in __init__. Annotated
+    # here so mypy doesn't infer non-Optional types from the assignments
+    # inside the methods below.
+    map_page: MapPage | None
+    _map_unload_timer_id: int | None
+    _map_suspended_zoom: float | None
+    _map_suspended_follow: bool
+
     def _ensure_map_page(self) -> None:
         """Create MapPage on first use and restore any previously saved state."""
         if self.map_page is not None:
