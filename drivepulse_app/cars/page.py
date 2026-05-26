@@ -844,6 +844,7 @@ class CarsPage(
         self._update_trash_default()
         self._update_vin_refresh_visibility()
         self._update_rename_btn_visibility()
+        self._update_merge_btn_visibility()
         self._update_live_add_button()
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
@@ -969,6 +970,7 @@ class CarsPage(
         self._has_vin = False
         self._is_real_car = False
         self._vin_refresh_btn.set_visible(False)
+        self._detail_merge_btn.set_visible(False)
         self._update_photo_upload_btn_visibility()
         # User left the detail view — clear persisted state so the next
         # startup shows the list, not the previously open detail page.
@@ -1209,6 +1211,7 @@ class CarsPage(
             self._photo_select_mode = False
             self._photo_selected_ids = set()
         self._selected_category = new_cat
+        self._update_merge_btn_visibility()
         # Mark all "new via sync" items in this category as seen — the user
         # has the list in front of them, so the unread blue dot has done
         # its job. mark_all_seen_for_car is idempotent (NULL guard).
