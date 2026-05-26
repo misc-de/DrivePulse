@@ -25,6 +25,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "force_webkit_map": False,
     "dashcam_camera": "/dev/video0",
     "dashcam_resolution": "1280x720",
+    "dashcam_codec": "vp8",
     "dashcam_seg_minutes": 3,
     "dashcam_max_segments": 10,
     "dashcam_dim_timeout": 30,
@@ -83,6 +84,7 @@ _VALID_TTS_LANGUAGES = {"auto", "en", "de"}
 _VALID_TTS_VOICES = {"male", "female"}
 _VALID_TTS_QUALITIES = {"low", "medium", "high"}
 _VALID_MAP_LAYERS = {"map", "satellite", "dark", "grayscale"}
+_VALID_DASHCAM_CODECS = {"vp8", "vp9", "av1"}
 
 
 def _normalize_map_layer(value: Any) -> str:
@@ -147,6 +149,7 @@ def load_settings() -> dict[str, Any]:
         "last_update_check": data.get("last_update_check") or None,
         "dashcam_camera": data.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
         "dashcam_resolution": data.get("dashcam_resolution") or DEFAULT_SETTINGS["dashcam_resolution"],
+        "dashcam_codec": data.get("dashcam_codec") if data.get("dashcam_codec") in _VALID_DASHCAM_CODECS else DEFAULT_SETTINGS["dashcam_codec"],
         "dashcam_seg_minutes": _bounded_int(data.get("dashcam_seg_minutes"), 3, 1, 30),
         "dashcam_max_segments": _bounded_int(data.get("dashcam_max_segments"), 10, 2, 60),
         "dashcam_dim_timeout": _bounded_int(data.get("dashcam_dim_timeout"), 30, 0, 300),
@@ -258,6 +261,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "last_update_check": settings.get("last_update_check") or None,
                 "dashcam_camera": settings.get("dashcam_camera") or DEFAULT_SETTINGS["dashcam_camera"],
                 "dashcam_resolution": settings.get("dashcam_resolution") or DEFAULT_SETTINGS["dashcam_resolution"],
+                "dashcam_codec": settings.get("dashcam_codec") if settings.get("dashcam_codec") in _VALID_DASHCAM_CODECS else DEFAULT_SETTINGS["dashcam_codec"],
                 "dashcam_seg_minutes": _bounded_int(settings.get("dashcam_seg_minutes"), 3, 1, 30),
                 "dashcam_max_segments": _bounded_int(settings.get("dashcam_max_segments"), 10, 2, 60),
                 "dashcam_dim_timeout": _bounded_int(settings.get("dashcam_dim_timeout"), 30, 0, 300),
