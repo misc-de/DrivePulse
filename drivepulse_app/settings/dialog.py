@@ -1,8 +1,6 @@
 """Settings dialog for DrivePulse."""
 from __future__ import annotations
 
-import os
-import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -10,7 +8,6 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-import threading
 from datetime import datetime
 
 from gi.repository import (
@@ -26,6 +23,9 @@ from drivepulse_app.common import SUPPORTED_LANGUAGES, _normalize_language, _tra
 from drivepulse_app.obd.devices import scan_obd_devices
 from drivepulse_app.settings.bluetooth import SettingsBluetoothMixin
 from drivepulse_app.settings.dashcam import SettingsDashcamMixin
+from drivepulse_app.settings.tts import SettingsTtsMixin
+from drivepulse_app.settings.updates import SettingsUpdatesMixin
+from drivepulse_app.settings.vin_decoder import SettingsVinDecoderMixin
 from drivepulse_app.tts import service as tts_service
 from drivepulse_app.ui.gauge import all_theme_options
 
@@ -70,7 +70,14 @@ class _BtExpander:
         self._expander.set_expanded(value)
 
 
-class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.NavigationPage):
+class SettingsDialog(
+    SettingsBluetoothMixin,
+    SettingsDashcamMixin,
+    SettingsTtsMixin,
+    SettingsUpdatesMixin,
+    SettingsVinDecoderMixin,
+    Adw.NavigationPage,
+):
     __gtype_name__ = "SettingsDialog"
 
     def __init__(
@@ -1061,70 +1068,6 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
             mode = self._ROTATION_MODES[idx] if 0 <= idx < len(self._ROTATION_MODES) else self._ROTATION_MODES[0]
             self.on_rotation_mode_changed(mode)
 
-    def _on_tts_enabled_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
-        if self.on_tts_enabled_changed is not None:
-            self.on_tts_enabled_changed(row.get_active())
-
-    def _on_tts_backend_selected(self, *_args: Any) -> None:
-        idx = self.tts_backend_row.get_selected()
-        backend = self._TTS_BACKENDS[idx] if 0 <= idx < len(self._TTS_BACKENDS) else "espeak"
-        piper = backend == "piper"
-        self.tts_language_row.set_visible(piper)
-        self.tts_voice_row.set_visible(piper)
-        self.tts_quality_row.set_visible(piper)
-        if self.on_tts_backend_changed is not None:
-            self.on_tts_backend_changed(backend)
-
-    def _on_tts_language_selected(self, *_args: Any) -> None:
-        if self.on_tts_language_changed is not None:
-            idx = self.tts_language_row.get_selected()
-            lang = self._TTS_LANGUAGES[idx] if 0 <= idx < len(self._TTS_LANGUAGES) else "auto"
-            self.on_tts_language_changed(lang)
-
-    def _on_tts_voice_selected(self, *_args: Any) -> None:
-        if self.on_tts_voice_changed is not None:
-            idx = self.tts_voice_row.get_selected()
-            voice = self._TTS_VOICES[idx] if 0 <= idx < len(self._TTS_VOICES) else "female"
-            self.on_tts_voice_changed(voice)
-
-    def _on_tts_quality_selected(self, *_args: Any) -> None:
-        if self.on_tts_quality_changed is not None:
-            idx = self.tts_quality_row.get_selected()
-            quality = self._TTS_QUALITIES[idx] if 0 <= idx < len(self._TTS_QUALITIES) else "high"
-            self.on_tts_quality_changed(quality)
-
-    def _on_tts_volume_changed(self, *_args: Any) -> None:
-        if self.on_tts_volume_pct_changed is not None:
-            self.on_tts_volume_pct_changed(int(self.tts_volume_row.get_value()))
-
-    def _on_tts_duck_pct_changed(self, *_args: Any) -> None:
-        if self.on_tts_duck_pct_changed is not None:
-            self.on_tts_duck_pct_changed(int(self.tts_duck_row.get_value()))
-
-    def _on_tts_duck_pre_ms_changed(self, *_args: Any) -> None:
-        if self.on_tts_duck_pre_ms_changed is not None:
-            self.on_tts_duck_pre_ms_changed(int(self.tts_duck_pre_row.get_value()))
-
-    def _on_piper_dl_progress(self, model_name: str, fraction: float) -> None:
-        """Callback from tts_service — runs on GLib main loop."""
-        if fraction == 2.0:
-            self._piper_dl_row.set_visible(False)
-            self._piper_dl_bar.set_fraction(0.0)
-            self._piper_dl_bar.set_text(None)
-        elif fraction == -1.0:
-            self._piper_dl_row.set_visible(False)
-            self._piper_dl_bar.set_text(None)
-        else:
-            self._piper_dl_row.set_title(f"Piper: {model_name}")
-            self._piper_dl_bar.set_fraction(max(0.0, min(1.0, fraction)))
-            pct = int(fraction * 100)
-            self._piper_dl_bar.set_text(f"{pct} %")
-            self._piper_dl_row.set_visible(True)
-
-    def _on_piper_dl_cancel(self, _btn: Gtk.Button) -> None:
-        for model in tts_service.active_downloads():
-            tts_service.cancel_download(model)
-
     def _on_log_app_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_log_app_enabled_changed is not None:
             self.on_log_app_enabled_changed(row.get_active())
@@ -1144,171 +1087,4 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
     def _on_thumb_cache_changed(self, row: Adw.SpinRow, _param: Any) -> None:
         if self.on_photo_thumb_cache_max_mb_changed is not None:
             self.on_photo_thumb_cache_max_mb_changed(int(row.get_value()))
-
-    def _build_autodev_counter_row(self) -> Adw.ActionRow:
-        from datetime import datetime
-        # Prefer the live X-Usage-* numbers auto.dev returns on every call.
-        # Fall back to the locally counted monthly value when we've never
-        # spoken to the server (no api key yet, all calls failed, …).
-        live_used = self._autodev_usage_used
-        live_limit = self._autodev_usage_limit
-        live_paid = self._autodev_usage_paid
-        plan = self._autodev_usage_plan or ""
-        # "Starter" is auto.dev's free 1000/month tier; only for free plans
-        # does the "used / limit" framing actually mean something. Paid
-        # plans either bill per-call or include large allowances where the
-        # ratio is mostly meaningless — show just the absolute number.
-        is_free_plan = (not plan) or plan.lower() in ("starter", "free", "hobby")
-        has_live = live_used > 0 or live_limit > 0 or bool(plan)
-        if has_live:
-            parts: list[str] = []
-            if is_free_plan and live_limit > 0:
-                parts.append(f"{live_used} / {live_limit}")
-            else:
-                parts.append(str(live_used))
-            if plan:
-                parts.append(plan)
-            if live_paid > 0:
-                parts.append(
-                    _translate(self.language, "settings.vin_decoder.autodev.paid",
-                               n=live_paid)
-                )
-            subtitle = " · ".join(parts)
-        else:
-            count = self._autodev_month_count
-            month_key = self._autodev_month
-            if month_key:
-                try:
-                    dt = datetime.strptime(month_key, "%Y-%m")
-                    if self.language.startswith("de"):
-                        _MONTHS_DE = [
-                            "", "Januar", "Februar", "März", "April", "Mai", "Juni",
-                            "Juli", "August", "September", "Oktober", "November", "Dezember",
-                        ]
-                        month_label = f"{_MONTHS_DE[dt.month]} {dt.year}"
-                    else:
-                        month_label = dt.strftime("%B %Y")
-                except ValueError:
-                    month_label = month_key
-                subtitle = f"{count} / 1000 · {month_label}"
-            else:
-                subtitle = _translate(self.language, "settings.vin_decoder.autodev.no_requests")
-        row = Adw.ActionRow(
-            title=_translate(self.language, "settings.vin_decoder.autodev.requests"),
-            subtitle=subtitle,
-        )
-        return row
-
-    def _on_autodev_key_changed(self, row: Adw.EntryRow) -> None:
-        if self.on_autodev_api_key_changed is not None:
-            self.on_autodev_api_key_changed(row.get_text().strip())
-
-    def _on_vd_api_key_changed(self, row: Adw.EntryRow) -> None:
-        if self.on_vindecoder_api_key_changed is not None:
-            self.on_vindecoder_api_key_changed(row.get_text().strip())
-
-    def _on_vd_secret_changed(self, row: Adw.EntryRow) -> None:
-        if self.on_vindecoder_secret_key_changed is not None:
-            self.on_vindecoder_secret_key_changed(row.get_text().strip())
-
-    # ── Update check ──────────────────────────────────────────────────────────
-
-    def _on_check_update(self, _btn: Gtk.Button) -> None:
-        self._cancel_no_update_reset()
-        self._update_btn.set_label(_translate(self.language, "settings.app.checking"))
-        self._update_btn.set_sensitive(False)
-        threading.Thread(target=self._do_check, daemon=True).start()
-
-    def _cancel_no_update_reset(self) -> None:
-        src = getattr(self, "_no_update_reset_src", 0)
-        if src:
-            GLib.source_remove(src)
-            self._no_update_reset_src = 0
-
-    def _reset_check_btn_to_idle(self) -> bool:
-        self._no_update_reset_src = 0
-        self._update_btn.set_label(_translate(self.language, "settings.app.check_btn"))
-        self._update_btn.set_sensitive(True)
-        return False
-
-    def _do_check(self) -> None:
-        info = updater.check_for_update()
-        now_iso = datetime.now().astimezone().isoformat(timespec="seconds")
-        GLib.idle_add(self._on_check_done, info, now_iso)
-
-    def _on_check_done(self, info: updater.UpdateInfo, now_iso: str) -> bool:
-        # Persist timestamp
-        if self.on_last_check_updated is not None:
-            self.on_last_check_updated(now_iso)
-        try:
-            dt = datetime.fromisoformat(now_iso)
-            check_str = _translate(self.language, "settings.app.last_check.prefix") + \
-                        dt.strftime("%d.%m.%Y %H:%M")
-        except ValueError:
-            check_str = now_iso
-        self._update_row.set_subtitle(
-            f"v{updater.get_current_version()}  ·  {check_str}"
-        )
-        if info.available:
-            ver = info.remote_version or "?"
-            label = _translate(self.language, "settings.app.update_btn").format(version=ver)
-            self._update_btn.set_label(label)
-            self._update_btn.add_css_class("suggested-action")
-            self._remote_version = info.remote_version
-            self._update_btn.set_sensitive(True)
-            self._update_btn.disconnect_by_func(self._on_check_update)
-            self._update_btn.connect("clicked", self._on_apply_update)
-        else:
-            self._update_btn.set_label(_translate(self.language, "settings.app.no_update"))
-            self._update_btn.set_sensitive(False)
-            self._cancel_no_update_reset()
-            self._no_update_reset_src = GLib.timeout_add_seconds(
-                10, self._reset_check_btn_to_idle
-            )
-        return False
-
-    def _on_apply_update(self, _btn: Gtk.Button) -> None:
-        self._update_btn.set_label(_translate(self.language, "settings.app.updating"))
-        self._update_btn.set_sensitive(False)
-        threading.Thread(target=self._do_apply, daemon=True).start()
-
-    def _do_apply(self) -> None:
-        ok = updater.apply_update()
-        GLib.idle_add(self._on_apply_done, ok)
-
-    def _on_apply_done(self, ok: bool) -> bool:
-        if ok:
-            new_ver = updater.get_current_version()
-            subtitle = self._update_row.get_subtitle() or ""
-            prefix = subtitle.split("·")[1].strip() if "·" in subtitle else ""
-            self._update_row.set_subtitle(f"v{new_ver}  ·  {prefix}")
-            self._update_btn.set_label(_translate(self.language, "settings.app.restart_required"))
-            self._update_btn.set_sensitive(True)
-            try:
-                self._update_btn.disconnect_by_func(self._on_apply_update)
-            except TypeError:
-                pass
-            self._update_btn.connect("clicked", self._show_restart_dialog)
-            self._show_restart_dialog(None)
-        else:
-            self._update_btn.set_label(_translate(self.language, "settings.app.update_error"))
-            self._update_btn.set_sensitive(False)
-        return False
-
-    def _show_restart_dialog(self, _btn) -> None:
-        dialog = Adw.AlertDialog(
-            heading=_translate(self.language, "settings.app.restart_dialog.title"),
-            body=_translate(self.language, "settings.app.restart_dialog.body"),
-        )
-        dialog.add_response("no", _translate(self.language, "settings.app.restart_dialog.no"))
-        dialog.add_response("yes", _translate(self.language, "settings.app.restart_dialog.yes"))
-        dialog.set_response_appearance("yes", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("yes")
-        dialog.set_close_response("no")
-        dialog.connect("response", self._on_restart_response)
-        dialog.present(self.get_root())
-
-    def _on_restart_response(self, _dialog, response: str) -> None:
-        if response == "yes":
-            os.execv(sys.executable, [sys.executable, *sys.argv])
 
