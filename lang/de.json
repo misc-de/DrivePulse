@@ -138,6 +138,8 @@
   "dashcam.settings.title": "Aufnahme-Einstellungen",
   "dashcam.settings.camera": "Kamera",
   "dashcam.settings.resolution": "Auflösung",
+  "dashcam.settings.codec": "Video-Codec",
+  "dashcam.settings.codec_sub": "VP8 empfohlen — VP9/AV1 brauchen mehr CPU",
   "dashcam.settings.seg_len": "Segmentlänge",
   "dashcam.settings.seg_len_sub": "Minuten pro Datei",
   "dashcam.settings.max_seg": "Max. Segmente",

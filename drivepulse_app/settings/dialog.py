@@ -102,6 +102,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         on_dashcam_camera_changed: Callable[[str], None] | None = None,
         current_dashcam_resolution: str = "1280x720",
         on_dashcam_resolution_changed: Callable[[str], None] | None = None,
+        current_dashcam_codec: str = "vp8",
+        on_dashcam_codec_changed: Callable[[str], None] | None = None,
         current_dashcam_fps: int = 25,
         on_dashcam_fps_changed: Callable[[int], None] | None = None,
         current_dashcam_seg_minutes: int = 3,
@@ -175,6 +177,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self.on_last_check_updated = on_last_check_updated
         self.on_dashcam_camera_changed = on_dashcam_camera_changed
         self.on_dashcam_resolution_changed = on_dashcam_resolution_changed
+        self.on_dashcam_codec_changed = on_dashcam_codec_changed
+        self._current_dashcam_codec = current_dashcam_codec
         self.on_dashcam_fps_changed = on_dashcam_fps_changed
         self._current_dashcam_fps = current_dashcam_fps
         self.on_dashcam_seg_minutes_changed = on_dashcam_seg_minutes_changed
@@ -757,6 +761,26 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         )
         self._dc_fps_row.connect("notify::selected", self._on_dc_fps_changed)
         dc_group.add(self._dc_fps_row)
+
+        # Codec — VP8 / VP9 / AV1 (Flathub-friendly royalty-free codecs)
+        self._dc_codec_ids = ["vp8", "vp9", "av1"]
+        codec_model = Gtk.StringList()
+        for cid in self._dc_codec_ids:
+            codec_model.append(cid.upper())
+        self._dc_codec_row = Adw.ComboRow(
+            title=_translate(self.language, "dashcam.settings.codec"),
+        )
+        self._dc_codec_row.set_subtitle(
+            _translate(self.language, "dashcam.settings.codec_sub"),
+        )
+        self._dc_codec_row.set_model(codec_model)
+        codec_idx = (
+            self._dc_codec_ids.index(self._current_dashcam_codec)
+            if self._current_dashcam_codec in self._dc_codec_ids else 0
+        )
+        self._dc_codec_row.set_selected(codec_idx)
+        self._dc_codec_row.connect("notify::selected", self._on_dc_codec_changed)
+        dc_group.add(self._dc_codec_row)
 
         # Populate resolution+fps from camera query (or static fallback)
         self._dc_cam_modes: dict[str, list[int]] = {}
