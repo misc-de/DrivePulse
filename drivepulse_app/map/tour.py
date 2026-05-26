@@ -239,26 +239,20 @@ class MapTourMixin:
         for btn in (self._zoom_in_btn, self._zoom_out_btn, self._steps_toggle_btn):
             if btn is not None:
                 btn.set_visible(visible)
-        # Replay-info card + chart card and their restore icons + the coord
-        # chip have no role during turn-by-turn navigation. Hide them when
-        # a tour starts; when navigation ends only the coord chip pops back
-        # — the replay panels are tied to a trip-replay session and stay
-        # hidden until the user opens a replay again.
+        # Replay-info card + chart card and their restore icons have no role
+        # during turn-by-turn navigation. Hide them when a tour starts; the
+        # replay panels are tied to a trip-replay session and stay hidden
+        # until the user opens a replay again.
         if not visible:
             for w_name in (
                 "_replay_info_overlay",
                 "_replay_info_restore_btn",
                 "_replay_chart_overlay",
                 "_replay_chart_restore_btn",
-                "_coord_chip",
             ):
                 w = getattr(self, w_name, None)
                 if w is not None:
                     w.set_visible(False)
-        else:
-            chip = getattr(self, "_coord_chip", None)
-            if chip is not None and self._backend == "shumate":
-                chip.set_visible(True)
 
     def _set_tour_controls_visible(self, visible: bool) -> None:
         if self._tour_controls_box is not None:

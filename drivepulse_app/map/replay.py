@@ -165,29 +165,22 @@ class MapReplayMixin:
         self._replay_chart_minimized = minimized
         if getattr(self, "_replay_chart_overlay", None) is not None:
             self._replay_chart_overlay.set_visible(not minimized)
-        if getattr(self, "_replay_chart_restore_btn", None) is not None:
-            self._replay_chart_restore_btn.set_visible(minimized)
+        # Chart-restore icon stays visible throughout replay; only the
+        # _update_left_chrome_visibility gate (chart_has_data) can hide it.
         if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_visible"):
             self._shumate_set_scale_visible(minimized)
         self._refresh_fab_visibility()
-        # Expanded chart hides the trash icon; minimised chart restores
-        # both trash and the chart-restore icon (subject to other rules).
+        # Expanded chart hides the trash icon; minimised chart restores it.
         if hasattr(self, "_update_left_chrome_visibility"):
             self._update_left_chrome_visibility()
 
     def _refresh_fab_visibility(self) -> None:
-        """Hide the bottom-right map options only while the (now unused) coord
-        chip is expanded — the replay chart no longer hides the FAB column."""
+        """Map options FAB column is always visible; the previous coord-chip
+        suppression no longer applies."""
         fab = getattr(self, "_fab", None)
         if fab is None:
             return
-        coord_lbl = getattr(self, "_coord_lbl", None)
-        coord_expanded = (
-            self._backend == "shumate"
-            and coord_lbl is not None
-            and coord_lbl.get_visible()
-        )
-        fab.set_visible(not coord_expanded)
+        fab.set_visible(True)
 
     def _populate_replay_info(self, meta: dict, ended_at: str | None) -> None:
         """Fill the top-left info card with car + trip metadata."""
@@ -389,41 +382,13 @@ class MapReplayMixin:
             self._js(f"mapSetReplayMarker({lat},{lon})")
         elif getattr(self, "_shumate_map", None) is not None:
             self._shumate_set_replay_marker(lat, lon)
-        # Mirror the cursor coordinate in the bottom-left chip so trip replay
-        # gets the same readout as the live GPS path.
-        if self._coord_lbl is not None:
-            ns = "N" if lat >= 0 else "S"
-            ew = "E" if lon >= 0 else "W"
-            self._coord_lbl.set_label(
-                f"{abs(lat):.5f}° {ns}  {abs(lon):.5f}° {ew}"
-            )
-            if not self._coord_lbl.get_visible():
-                # Expand: show label, stretch chip to full width, hide scale.
-                self._coord_lbl.set_visible(True)
-                if self._coord_chip is not None:
-                    self._coord_chip.set_halign(Gtk.Align.FILL)
-                if self._backend == "shumate":
-                    self._shumate_set_scale_visible(False)
-            # Always sync FAB visibility — not just on first expand — so the
-            # FAB stays hidden for the entire duration the chip is expanded,
-            # regardless of which other code paths may have toggled it.
-            self._refresh_fab_visibility()
 
     def _map_clear_replay_marker(self) -> None:
         if self._backend == "webkit":
             self._js("mapClearReplayMarker()")
         elif getattr(self, "_shumate_map", None) is not None:
             self._shumate_clear_replay_marker()
-        coord_lbl = getattr(self, "_coord_lbl", None)
-        if coord_lbl is not None and coord_lbl.get_visible():
-            # Minimize: hide label, shrink chip back to icon-only width.
-            coord_lbl.set_visible(False)
-            if getattr(self, "_coord_chip", None) is not None:
-                self._coord_chip.set_halign(Gtk.Align.START)
-            if self._backend == "shumate":
-                self._shumate_set_scale_visible(True)
         self._step_preview_row = None
-        self._refresh_fab_visibility()
 
     def _show_trip_replay(self, meta: dict) -> None:
         """Render a recorded trip's polyline + metadata on the live map."""

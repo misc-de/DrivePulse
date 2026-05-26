@@ -13,7 +13,7 @@ from drivepulse_app.map.services import MAP_ICONS, MAP_LABEL_KEYS, MAP_TYPES
 class MapLayoutMixin:
     """Map area construction: backend selection (WebKit/Shumate/placeholder),
     floating action button column, zoom controls, maneuver banner, and the
-    miscellaneous overlays (route loading spinner, GPS coord chip, speed sign,
+    miscellaneous overlays (route loading spinner, speed sign,
     map-state debug label, tour-controls grid)."""
 
     # ── Map area ──────────────────────────────────────────────────────────────
@@ -246,10 +246,10 @@ class MapLayoutMixin:
         btn.add_css_class("circular")
         btn.set_halign(Gtk.Align.START)
         btn.set_valign(Gtk.Align.END)
-        btn.set_margin_start(7)
+        btn.set_margin_start(12)
         # Scale ruler sits at margin_bottom=36; the trash icon stacks above
         # it with enough gap for the 40px button + a small breathing space.
-        btn.set_margin_bottom(78)
+        btn.set_margin_bottom(48)
         btn.set_size_request(40, 40)
         btn.set_tooltip_text(_translate(self.language, "map.tour_reset.tooltip"))
         btn.set_visible(False)
@@ -262,6 +262,11 @@ class MapLayoutMixin:
         # clears entries, route, tour state, overlays, hides controls.
         if hasattr(self, "_on_clear_clicked"):
             self._on_clear_clicked(None)
+        # Job done — force-hide the trash regardless of any lingering state
+        # _update_left_chrome_visibility might still consider truthy.
+        btn = getattr(self, "_tour_reset_btn", None)
+        if btn is not None:
+            btn.set_visible(False)
         self._update_left_chrome_visibility()
 
     def _update_left_chrome_visibility(self) -> None:
@@ -291,15 +296,12 @@ class MapLayoutMixin:
 
         btn = getattr(self, "_tour_reset_btn", None)
         if btn is not None:
-            btn.set_visible(has_tour and not chart_expanded)
+            btn.set_visible(has_tour and not chart_expanded and not info_expanded)
 
         chart_restore = getattr(self, "_replay_chart_restore_btn", None)
-        chart_minimized = bool(getattr(self, "_replay_chart_minimized", False))
         chart_has_data = bool(getattr(self, "_replay_chart_widget", None))
         if chart_restore is not None:
-            chart_restore.set_visible(
-                chart_has_data and chart_minimized and not info_expanded
-            )
+            chart_restore.set_visible(chart_has_data)
 
     def _build_route_info_overlay(self) -> Gtk.Widget:
         """Route info is now embedded in the tour-controls icon row.
@@ -361,36 +363,6 @@ class MapLayoutMixin:
 
         self._map_state_overlay = wrap
         return wrap
-
-    def _build_coord_overlay(self) -> Gtk.Widget:
-        # Minimized (default, shumate only): icon only, natural width.
-        # Expanded (during replay scrubbing): icon + label, full width.
-        # chip is the direct Overlay child so GTK Overlay's halign=FILL
-        # allocation gives it the exact screen width minus margins without
-        # needing an intermediate wrapper Box.
-        chip = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        chip.add_css_class("dp-coord-chip")
-        chip.set_halign(Gtk.Align.START)
-        chip.set_valign(Gtk.Align.END)
-        chip.set_margin_start(8)
-        chip.set_margin_end(8)
-        chip.set_margin_bottom(36)
-        chip.set_can_target(False)
-        chip.set_visible(False)  # shown for shumate in _apply_initial_overlay_state
-
-        icon = Gtk.Image.new_from_icon_name("kstars_satellites-symbolic")
-        icon.set_pixel_size(14)
-        chip.append(icon)
-
-        lbl = Gtk.Label(label="")
-        lbl.set_xalign(0.0)
-        lbl.set_visible(False)  # hidden in minimized state
-        chip.append(lbl)
-
-        self._coord_overlay = chip
-        self._coord_chip = chip
-        self._coord_lbl = lbl
-        return chip
 
     def _build_speed_zone_overlay(self) -> Gtk.Widget:
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)

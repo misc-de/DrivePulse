@@ -93,7 +93,6 @@ class MapShumateMixin:
         self._shumate_osd_default_margins = {
             "fab": 41,
             "scale": 36,
-            "coord_chip": 36,
             "map_state": 36,
             "speed_zone": 86,
             "replay_chart": 36,
@@ -254,7 +253,6 @@ class MapShumateMixin:
         adjustments = [
             (getattr(self, "_fab", None), defaults.get("fab", 41)),
             (scale, defaults.get("scale", 36)),
-            (getattr(self, "_coord_chip", None), defaults.get("coord_chip", 36)),
             (getattr(self, "_map_state_overlay", None), defaults.get("map_state", 36)),
             (getattr(self, "_speed_zone_overlay", None), defaults.get("speed_zone", 36)),
             (getattr(self, "_replay_chart_overlay", None), defaults.get("replay_chart", 36)),

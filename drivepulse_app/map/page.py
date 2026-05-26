@@ -139,8 +139,6 @@ class MapPage(
 
         self._gps_lat: float | None = None
         self._gps_lon: float | None = None
-        self._coord_overlay: Gtk.Box | None = None
-        self._coord_lbl: Gtk.Label | None = None
         self._gps_heading: float = 0.0
         self._gps_heading_valid: bool = False
         self._gps_speed_mps: float = 0.0
@@ -363,9 +361,6 @@ class MapPage(
         elif self._backend == "shumate":
             self._shumate_set_poi_visible(self._poi_visible)
             self._shumate_set_traffic_visible(self._traffic_visible)
-            coord_overlay = getattr(self, "_coord_overlay", None)
-            if coord_overlay is not None:
-                coord_overlay.set_visible(True)
             self._shumate_apply_attribution()
         if self._traffic_visible and not self._traffic_loaded:
             self._traffic_loaded = True
