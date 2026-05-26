@@ -360,11 +360,16 @@ class MapTourActionsMixin:
             )
             return action_row
 
-        loaded_id = getattr(self, "_loaded_tour_id", None)
+        loaded_tour_id = getattr(self, "_loaded_tour_id", None)
+        loaded_trip_id = getattr(self, "_loaded_trip_id", None)
         is_loaded = (
             meta["kind"] == "tour"
-            and loaded_id is not None
-            and int(meta["id"]) == loaded_id
+            and loaded_tour_id is not None
+            and int(meta["id"]) == loaded_tour_id
+        ) or (
+            meta["kind"] == "trip"
+            and loaded_trip_id is not None
+            and int(meta["id"]) == loaded_trip_id
         )
         if is_loaded:
             icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
