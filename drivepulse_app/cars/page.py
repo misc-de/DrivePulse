@@ -174,6 +174,11 @@ class CarsPage(
         self.on_open_trip_as_route: Callable[
             [list[list[float]], float | None, float | None, str | None], None
         ] | None = None
+        # Tap-on-trip → full replay on the map (speed-coloured polyline,
+        # info card, speed/RPM chart). Receives the trip id plus a meta
+        # dict shaped like the map page's own history entries so the
+        # replay machinery can be reused verbatim.
+        self.on_show_trip_replay_on_map: Callable[[int, dict], None] | None = None
         # Invoked with a single argument: a callback that receives the
         # boolean success result on the GTK thread once Mode-04 finished.
         self.on_clear_dtcs: Callable[[Callable[[bool], None]], None] | None = None
