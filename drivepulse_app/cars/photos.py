@@ -52,6 +52,8 @@ _SHUTTER_CSS = b"""
     background-image: none;
     min-width: 60px;
     min-height: 60px;
+    max-width: 60px;
+    max-height: 60px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.5);
 }
 .dp-cam-thumb:hover { border-color: #e0e0e0; }
