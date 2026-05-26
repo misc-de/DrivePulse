@@ -137,6 +137,7 @@ class DashboardWindow(
         self.autodev_usage_paid: int = max(0, int(self.settings.get("autodev_usage_paid") or 0))
         self.autodev_usage_plan: str = self.settings.get("autodev_usage_plan") or ""
         self.autodev_usage_updated: str = self.settings.get("autodev_usage_updated") or ""
+        self.photo_thumb_cache_max_mb: int = int(self.settings.get("photo_thumb_cache_max_mb") or 200)
         self.last_cars_source: str | None = self.settings.get("last_cars_source") or None
         self.last_cars_category: str | None = self.settings.get("last_cars_category") or None
         _raw_scan_id = self.settings.get("last_cars_scan_id")

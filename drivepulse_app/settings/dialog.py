@@ -160,6 +160,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         current_autodev_usage_limit: int = 0,
         current_autodev_usage_paid: int = 0,
         current_autodev_usage_plan: str = "",
+        current_photo_thumb_cache_max_mb: int = 200,
+        on_photo_thumb_cache_max_mb_changed: Callable[[int], None] | None = None,
     ) -> None:
         super().__init__(tag="settings")
         self.language = _normalize_language(current_language)
@@ -218,6 +220,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self._autodev_usage_limit = current_autodev_usage_limit
         self._autodev_usage_paid = current_autodev_usage_paid
         self._autodev_usage_plan = current_autodev_usage_plan
+        self.on_photo_thumb_cache_max_mb_changed = on_photo_thumb_cache_max_mb_changed
+        self._current_photo_thumb_cache_max_mb = current_photo_thumb_cache_max_mb
         self._remote_version: str | None = None
         self._closing = False
         self.set_title(_translate(self.language, "settings.title"))
@@ -572,6 +576,15 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         logging_group.add(self.log_obd_row)
         logging_group.add(self.obd_auto_record_row)
         app_page.add(logging_group)
+
+        self._thumb_cache_row = Adw.SpinRow.new_with_range(10, 2000, 50)
+        self._thumb_cache_row.set_title(_translate(self.language, "settings.photos.thumb_cache_max_mb"))
+        self._thumb_cache_row.set_subtitle(_translate(self.language, "settings.photos.thumb_cache_max_mb.desc"))
+        self._thumb_cache_row.set_value(float(self._current_photo_thumb_cache_max_mb))
+        self._thumb_cache_row.connect("notify::value", self._on_thumb_cache_changed)
+        photos_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.photos.group"))
+        photos_group.add(self._thumb_cache_row)
+        app_page.add(photos_group)
 
         # VIN decoder — one group per provider so each option has its own
         # description (per-option blurb instead of a collective intro).
@@ -1127,6 +1140,10 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
     def _on_nhtsa_enabled_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_nhtsa_enabled_changed is not None:
             self.on_nhtsa_enabled_changed(row.get_active())
+
+    def _on_thumb_cache_changed(self, row: Adw.SpinRow, _param: Any) -> None:
+        if self.on_photo_thumb_cache_max_mb_changed is not None:
+            self.on_photo_thumb_cache_max_mb_changed(int(row.get_value()))
 
     def _build_autodev_counter_row(self) -> Adw.ActionRow:
         from datetime import datetime
