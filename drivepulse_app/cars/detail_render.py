@@ -772,7 +772,7 @@ class CarsDetailRenderMixin:
             arrow.set_pixel_size(14)
             arrow.set_valign(Gtk.Align.CENTER)
             arrow.set_halign(Gtk.Align.CENTER)
-            arrow.set_hexpand(False)
+            arrow.set_hexpand(True)
             chevron_col.append(arrow)
             outer.append(chevron_col)
 
