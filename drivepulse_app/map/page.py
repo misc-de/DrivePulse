@@ -305,6 +305,10 @@ class MapPage(
         self._tour_listbox: Gtk.ListBox | None = None
         self._loaded_tour_id: int | None = None
         self._loaded_tour_name: str | None = None
+        # Trip-replay equivalent of _loaded_tour_id — tracks the recorded
+        # trip currently being shown on the map so the Recent-Tours list
+        # can mark it with the green emblem just like loaded tours.
+        self._loaded_trip_id: int | None = None
 
         # NavigationView wraps all map content — enables sub-page push/pop
         self._nav_view: Adw.NavigationView = Adw.NavigationView()
