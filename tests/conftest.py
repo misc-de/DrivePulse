@@ -567,6 +567,7 @@ def _build_gi_stub_modules() -> tuple[types.ModuleType, types.ModuleType]:
         ComboRow=_ComboRow,
         Dialog=_Widget,
         EntryRow=_EntryRow,
+        PasswordEntryRow=_EntryRow,  # behaves like EntryRow in tests
         ExpanderRow=_ExpanderRow,
         HeaderBar=_Widget,
         MessageDialog=_Widget,

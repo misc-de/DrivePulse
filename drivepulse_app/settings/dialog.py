@@ -549,7 +549,9 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         )
         nhtsa_group.add(self._nhtsa_row)
 
-        self._autodev_row = Adw.EntryRow(
+        # PasswordEntryRow gives bullets + the built-in eye-toggle next to
+        # the edit pencil, so the user can peek at the key when needed.
+        self._autodev_row = Adw.PasswordEntryRow(
             title=_translate(self.language, "settings.vin_decoder.autodev_key"),
         )
         self._autodev_row.set_text(current_autodev_api_key or "")
@@ -561,13 +563,13 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         autodev_group.add(self._autodev_row)
         autodev_group.add(self._build_autodev_counter_row())
 
-        self._vd_api_key_row = Adw.EntryRow(
+        self._vd_api_key_row = Adw.PasswordEntryRow(
             title=_translate(self.language, "settings.vin_decoder.api_key"),
         )
         self._vd_api_key_row.set_text(current_vindecoder_api_key or "")
         self._vd_api_key_row.connect("changed", self._on_vd_api_key_changed)
 
-        self._vd_secret_row = Adw.EntryRow(
+        self._vd_secret_row = Adw.PasswordEntryRow(
             title=_translate(self.language, "settings.vin_decoder.secret_key"),
         )
         self._vd_secret_row.set_text(current_vindecoder_secret_key or "")
