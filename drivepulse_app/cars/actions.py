@@ -242,15 +242,15 @@ class CarsActionsMixin:
         dialog = VinFetchDialog(vin=vin, active_sources=active_sources, language=self.language)
 
         def _on_dialog_response(d: VinFetchDialog, response: str) -> None:
-            if response == "proceed":
-                sources = d.get_result_sources()
-                if sources:
-                    self._vin_review_queue.append((car_id, vin, sources))
-                    self._maybe_show_next_review()
-                else:
-                    # Fetch returned nothing usable — clean up the snapshot
-                    # so it doesn't leak into a later refresh.
-                    self._vin_refetch_existing.pop(car_id, None)
+            # User closed the progress dialog mid-fetch (the only response
+            # they can trigger themselves — _on_vin_refetch_dialog_done
+            # now drives the post-fetch transition automatically). Drop
+            # the snapshot if no sources came back so it doesn't leak
+            # into a later refresh; if data already arrived it's been
+            # routed via _maybe_show_next_review and the snapshot was
+            # already consumed there.
+            if not d.get_result_sources():
+                self._vin_refetch_existing.pop(car_id, None)
 
         dialog.connect("response", _on_dialog_response)
         root = self.get_root()

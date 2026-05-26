@@ -139,6 +139,12 @@ class CarsPage(
         # existing dict rather than replacing it wholesale. Keyed by
         # car_id; cleared after the review is closed.
         self._vin_refetch_existing: dict[int, dict] = {}
+        # New-car prompt: tracks which car_ids we've already asked about
+        # this session and which are queued waiting for the dialog to
+        # become free again.
+        self._vin_new_car_prompted: set[int] = set()
+        self._vin_new_car_prompt_queue: list[int] = []
+        self._vin_new_car_prompt_open: bool = False
         self._latest_live: dict[str, Any] = {}
         self._live_identity: dict[str, str] = {}
         self._live_session_stats: dict[str, dict] = {}
@@ -325,6 +331,12 @@ class CarsPage(
         self._schedule_vin_fetches()
 
     def _schedule_vin_fetches(self) -> None:
+        """For each car the user has just added that still has no VIN
+        data on file, queue a one-off prompt asking whether to look the
+        VIN up online. The app never auto-fetches anymore — the user
+        decides per car, and either the fetched data or an explicit
+        decline is recorded so the prompt doesn't reappear next start.
+        """
         if self.db is None:
             return
         for entry in self._profiles:
@@ -333,45 +345,78 @@ class CarsPage(
             if not car_id or not vin or len(vin) < 11:
                 continue
             if entry.get("vin_data_fetched"):
-                print(f"[VIN] car_id={car_id} already fetched, skipping", flush=True)
+                # Either real data on file or the user previously declined
+                # (stored as "{}") — both count as "already decided".
+                continue
+            if car_id in self._vin_new_car_prompted:
                 continue
             if car_id in self._vin_fetch_pending:
-                print(f"[VIN] car_id={car_id} fetch already pending, skipping", flush=True)
                 continue
-            print(
-                f"[VIN] scheduling fetch car_id={car_id} vin=...{vin[-6:]} "
-                f"nhtsa={self._nhtsa_enabled} autodev={bool(self._autodev_api_key)} "
-                f"vindecoder={bool(self._vindecoder_api_key)}",
-                flush=True,
-            )
-            self._vin_fetch_pending.add(car_id)
-            threading.Thread(
-                target=self._fetch_vin_data_thread,
-                args=(car_id, vin),
-                daemon=True,
-            ).start()
+            self._vin_new_car_prompted.add(car_id)
+            self._vin_new_car_prompt_queue.append(car_id)
+        self._maybe_show_next_new_car_prompt()
 
-    def _fetch_vin_data_thread(self, car_id: int, vin: str) -> None:
-        print(
-            f"[VIN] thread start car_id={car_id} nhtsa={self._nhtsa_enabled} "
-            f"autodev={bool(self._autodev_api_key)} vindecoder={bool(self._vindecoder_api_key)}",
-            flush=True,
+    def _maybe_show_next_new_car_prompt(self) -> None:
+        if self._vin_new_car_prompt_open or not self._vin_new_car_prompt_queue:
+            return
+        car_id = self._vin_new_car_prompt_queue.pop(0)
+        entry = next((e for e in self._profiles if e.get("car_id") == car_id), None)
+        if entry is None or entry.get("vin_data_fetched"):
+            # Profile disappeared or has been decided meanwhile — skip.
+            self._maybe_show_next_new_car_prompt()
+            return
+        vin = str(entry.get("vin") or "")
+        if not vin:
+            self._maybe_show_next_new_car_prompt()
+            return
+
+        label = (
+            entry.get("label")
+            or entry.get("brand")
+            or _translate(self.language, "cars.unknown")
         )
-        try:
-            data = fetch_vin_data(
-                vin,
-                autodev_api_key=self._autodev_api_key,
-                vindecoder_api_key=self._vindecoder_api_key,
-                vindecoder_secret_key=self._vindecoder_secret_key,
-                nhtsa_enabled=self._nhtsa_enabled,
-                on_autodev_call=self._on_autodev_call,
-            )
-        except Exception:
-            log.warning("VIN lookup failed for car_id=%s", car_id, exc_info=True)
-            print(f"[VIN] thread exception car_id={car_id}", flush=True)
-            data = {}
-        print(f"[VIN] thread done car_id={car_id} sources={list(data.keys())}", flush=True)
-        GLib.idle_add(self._on_vin_data_ready, car_id, vin, data)
+        vin_tail = f"…{vin[-5:]}" if len(vin) > 5 else vin
+        dialog = Adw.AlertDialog()
+        dialog.set_heading(_translate(self.language, "cars.vin_new_car.heading"))
+        dialog.set_body(_translate(
+            self.language, "cars.vin_new_car.body", label=label, vin=vin_tail,
+        ))
+        dialog.add_response("decline", _translate(self.language, "cars.vin_new_car.cancel"))
+        dialog.add_response("fetch", _translate(self.language, "cars.vin_new_car.ok"))
+        dialog.set_default_response("fetch")
+        dialog.set_close_response("decline")
+        dialog.set_response_appearance("fetch", Adw.ResponseAppearance.SUGGESTED)
+        self._vin_new_car_prompt_open = True
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            self._vin_new_car_prompt_open = False
+            if response == "fetch":
+                # Reuse the explicit-refresh pipeline — its progress
+                # dialog + review flow is exactly what we want here.
+                self._start_vin_refresh(car_id, vin, entry)
+            else:
+                # User declined for this car — write an empty marker so
+                # vin_data_fetched flips to True and we never re-ask.
+                if self.db is not None:
+                    try:
+                        self.db.update_car_vin_data(car_id, "{}")
+                    except sqlite3.Error:
+                        log.warning("Could not persist decline for car_id=%s",
+                                    car_id, exc_info=True)
+                try:
+                    self._profiles = _load_profiles(self.db)
+                except Exception:
+                    log.debug("Could not reload profiles after decline", exc_info=True)
+            # Drain the next prompt if any cars are still pending.
+            self._maybe_show_next_new_car_prompt()
+
+        dialog.connect("response", _on_response)
+        root = self.get_root()
+        if root:
+            dialog.present(root)
+        else:
+            # No window yet — defer to the next idle.
+            GLib.idle_add(lambda: (dialog.present(self), False)[1])
 
     def _start_refetch_with_dialog(self, car_id: int, vin: str, dialog: Any) -> None:
         threading.Thread(
@@ -421,48 +466,23 @@ class CarsPage(
             except Exception:
                 log.warning("Could not save autodev raw for car_id=%s", car_id, exc_info=True)
         sources.pop("auto.dev_error", None)  # already shown in dialog row
-        # NOTE: We no longer wipe vin_data_json when the fetch returns
-        # nothing usable. The refresh is an additive operation now —
-        # existing data stays put on a failed/empty fetch, and gets
-        # merged with any new fields when there are some.
-        dialog.set_all_done(sources)
-        return False
-
-    def _on_vin_data_ready(self, car_id: int, vin: str, sources: dict) -> bool:
-        print(f"[VIN] data ready car_id={car_id} raw_sources={list(sources.keys())}", flush=True)
-        self._vin_fetch_pending.discard(car_id)
-        raw = sources.pop("auto.dev_raw", None)
-        if raw and self.db is not None:
-            try:
-                self.db.save_autodev_raw(car_id, raw)
-                print(f"[VIN] auto.dev raw saved for car_id={car_id} keys={list(raw.keys())}", flush=True)
-            except Exception:
-                log.warning("Could not save autodev raw for car_id=%s", car_id, exc_info=True)
-        error_entry = sources.pop("auto.dev_error", None)
-        if error_entry:
-            status = error_entry.get("_status", 0)
-            print(f"[VIN] auto.dev error status={status} msg={error_entry.get('_error')}", flush=True)
-            code = error_entry.get("_code", "")
-            if status in (401, 403):
-                msg = _translate(self.language, "vin.autodev.error.auth")
-            elif status == 404:
-                msg = _translate(self.language, "vin.autodev.error.not_found")
-            elif code == "INVALID_VIN_FORMAT":
-                msg = _translate(self.language, "vin.autodev.error.vin_format")
-            else:
-                msg = _translate(self.language, "vin.autodev.error.generic")
-            self._show_toast(msg)
-        if not sources:
-            # No usable data came back — leave the existing vin_data_json
-            # alone (additive refresh), just drop the snapshot and notify
-            # the user. The silent live-car path lands here too; the
-            # toast is harmless and informative in either case.
+        # The user already confirmed they want to refresh in the
+        # pre-confirm dialog — a second "Weiter"-click on the progress
+        # dialog after the fetch finishes is redundant. Auto-close it
+        # and route the result to the review (or no-changes toast)
+        # immediately.
+        try:
+            dialog.close()
+        except Exception:
+            log.debug("Could not auto-close VIN fetch dialog", exc_info=True)
+        if sources:
+            self._vin_review_queue.append((car_id, vin, sources))
+            self._maybe_show_next_review()
+        else:
+            # Nothing came back — leave existing vin_data_json alone,
+            # drop the snapshot and tell the user.
             self._vin_refetch_existing.pop(car_id, None)
             self._show_toast(_translate(self.language, "cars.vin_refresh.no_changes"))
-            return False
-        print(f"[VIN] car_id={car_id}: sources with data={list(sources.keys())}", flush=True)
-        self._vin_review_queue.append((car_id, vin, sources))
-        self._maybe_show_next_review()
         return False
 
     def _show_toast(self, msg: str) -> None:
