@@ -27,6 +27,7 @@ from drivepulse_app.cars.metadata import (
     _format_value_unit,
     _parse_profile_pid_key,
     _unit_display,
+    localize_vehicle_type,
 )
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
@@ -177,6 +178,8 @@ class CarsDetailRenderMixin:
         for field_key, special_key in VIN_DATA_SPECIAL_KEYS.items():
             val = (data.get("vin_data") or {}).get(field_key)
             if val:
+                if field_key == "vehicle_type":
+                    val = localize_vehicle_type(str(val), self.language)
                 out[special_key] = str(val)
         return out
 

@@ -11,6 +11,7 @@ from drivepulse_app.cars.metadata import (
     _parse_profile_pid_key,
     _unit_display,
     _wmi_to_brand,
+    localize_vehicle_type,
 )
 
 # ─── _unit_display ────────────────────────────────────────────────────────────
@@ -136,3 +137,27 @@ def test_format_value_unit_unitless_payload_has_no_trailing_space():
     # space at the end of the formatted string.
     out = _format_value_unit({"value": 0.5, "unit": "ratio"})
     assert out == "0.50"
+
+
+# ─── localize_vehicle_type ────────────────────────────────────────────────────
+
+def test_localize_vehicle_type_german_known_values():
+    # NHTSA returns upper-case English; the German UI displays the colloquial
+    # short form drivers actually use.
+    assert localize_vehicle_type("PASSENGER CAR", "de") == "PKW"
+    assert localize_vehicle_type("TRUCK", "de") == "LKW"
+    assert localize_vehicle_type("MOTORCYCLE", "de") == "Motorrad"
+
+
+def test_localize_vehicle_type_english_passes_through():
+    assert localize_vehicle_type("PASSENGER CAR", "en") == "PASSENGER CAR"
+
+
+def test_localize_vehicle_type_unknown_value_returned_unchanged():
+    # Defensive: don't drop a value the decoder gave us just because we
+    # haven't seen it before.
+    assert localize_vehicle_type("HOVERCRAFT", "de") == "HOVERCRAFT"
+
+
+def test_localize_vehicle_type_empty_string_returns_empty():
+    assert localize_vehicle_type("", "de") == ""

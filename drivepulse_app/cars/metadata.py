@@ -29,6 +29,7 @@ _SPECIAL_ADAPTER_V = "__ATRV__"
 
 _SPECIAL_VIN_MODEL = "__VIN_MODEL__"
 _SPECIAL_VIN_YEAR = "__VIN_YEAR__"
+_SPECIAL_VIN_TYPE = "__VIN_TYPE__"
 _SPECIAL_VIN_BODY = "__VIN_BODY__"
 _SPECIAL_VIN_FUEL = "__VIN_FUEL__"
 _SPECIAL_VIN_DRIVE = "__VIN_DRIVE__"
@@ -41,6 +42,7 @@ _SPECIAL_VIN_COUNTRY = "__VIN_COUNTRY__"
 VIN_DATA_SPECIAL_KEYS: dict[str, str] = {
     "model":        _SPECIAL_VIN_MODEL,
     "year":         _SPECIAL_VIN_YEAR,
+    "vehicle_type": _SPECIAL_VIN_TYPE,
     "body":         _SPECIAL_VIN_BODY,
     "fuel":         _SPECIAL_VIN_FUEL,
     "drive":        _SPECIAL_VIN_DRIVE,
@@ -71,6 +73,7 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
         (_SPECIAL_VIN_MANUFACTURER, "cars.pid.VIN_MANUFACTURER"),
         (_SPECIAL_VIN_MODEL,        "cars.pid.VIN_MODEL"),
         (_SPECIAL_VIN_YEAR,         "cars.pid.VIN_YEAR"),
+        (_SPECIAL_VIN_TYPE,         "cars.pid.VIN_TYPE"),
         (_SPECIAL_VIN_BODY,         "cars.pid.VIN_BODY"),
         (_SPECIAL_VIN_FUEL,         "cars.pid.VIN_FUEL"),
         (_SPECIAL_VIN_DRIVE,        "cars.pid.VIN_DRIVE"),
@@ -200,6 +203,31 @@ def _extract_inner_string(raw: Any) -> str:
 
 def _wmi_to_brand(vin: str) -> str:
     return _WMI_BRANDS.get(vin[:3], "")
+
+
+# Maps the raw "Vehicle Type" string from VIN decoders (NHTSA returns
+# upper-case English) to the short German abbreviation drivers expect.
+# English UI keeps the original NHTSA wording, only the German UI gets
+# the colloquial PKW/LKW shorthand.
+_VIN_TYPE_LOCALIZE_DE: dict[str, str] = {
+    "PASSENGER CAR": "PKW",
+    "TRUCK": "LKW",
+    "MULTIPURPOSE PASSENGER VEHICLE (MPV)": "SUV/Van",
+    "MULTIPURPOSE PASSENGER VEHICLE": "SUV/Van",
+    "BUS": "Bus",
+    "MOTORCYCLE": "Motorrad",
+    "TRAILER": "Anhänger",
+    "INCOMPLETE VEHICLE": "Unvollständiges Fahrzeug",
+    "LOW SPEED VEHICLE (LSV)": "Langsamfahrzeug",
+}
+
+
+def localize_vehicle_type(raw: str, language: str) -> str:
+    if not raw:
+        return raw
+    if language != "de":
+        return raw
+    return _VIN_TYPE_LOCALIZE_DE.get(raw.strip().upper(), raw)
 
 
 def _parse_profile_pid_key(key: str) -> str:
