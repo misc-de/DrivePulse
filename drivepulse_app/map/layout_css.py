@@ -101,6 +101,19 @@ _MANEUVER_CSS = b"""
   font-weight: 500;
   padding: 1px 0;
 }
+/* Abort-tour button -- destructive action that should clearly stand out
+   from the translucent .osd background everywhere else on the map. */
+.dp-abort-tour {
+  background-color: rgba(192, 28, 40, 0.95);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.dp-abort-tour:hover {
+  background-color: rgba(212, 38, 50, 0.98);
+}
+.dp-abort-tour:active {
+  background-color: rgba(170, 22, 34, 1.0);
+}
 /* Speed-limit sign - classic European round white/red circle */
 .dp-speed-sign {
   background-color: #ffffff;

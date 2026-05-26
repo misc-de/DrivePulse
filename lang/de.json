@@ -178,6 +178,7 @@
   "map.tour_stop": "Tour stoppen",
   "map.tour_resume": "Tour fortfahren",
   "map.tour_abort": "Tour abbrechen",
+  "map.tour_reset.tooltip": "Tour bzw. Planung verwerfen",
   "map.next_waypoint": "Nächstes Ziel",
   "map.speed_warn.on": "Tempowarnung aktiv",
   "map.speed_warn.off": "Tempowarnung deaktiviert",

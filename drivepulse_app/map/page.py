@@ -855,6 +855,8 @@ class MapPage(
             self._js("mapClearRoute()")
         else:
             self._shumate_clear_route_layers()
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
     def set_nav_visible(self, visible: bool) -> None:
         if self._tour_topnav is not None:
@@ -1108,6 +1110,8 @@ class MapPage(
             self._tour_save_btn.set_visible(
                 getattr(self, "_loaded_tour_id", None) is None
             )
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
         if self._steps_toggle_btn is not None and self._steps_toggle_btn.get_active():
             self._rebuild_steps_list()
             if self._steps_panel is not None:
@@ -1202,6 +1206,8 @@ class MapPage(
             self._set_steps_panel_visible(False)
         if self._steps_toggle_btn is not None:
             self._steps_toggle_btn.set_active(False)
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
         lats = [c[1] for c in coords]
         lons = [c[0] for c in coords]

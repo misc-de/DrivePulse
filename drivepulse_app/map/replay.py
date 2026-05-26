@@ -78,6 +78,10 @@ class MapReplayMixin:
             self._replay_info_overlay.set_visible(not minimized)
         if getattr(self, "_replay_info_restore_btn", None) is not None:
             self._replay_info_restore_btn.set_visible(minimized)
+        # Info card and chart-restore icon share the upper-left column;
+        # let the central helper decide which one wins right now.
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
     def _build_replay_chart_overlay(self) -> Gtk.Widget:
         """Bottom-left container for the speed chart shown during replay."""
@@ -161,6 +165,10 @@ class MapReplayMixin:
         if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_visible"):
             self._shumate_set_scale_visible(minimized)
         self._refresh_fab_visibility()
+        # Expanded chart hides the trash icon; minimised chart restores
+        # both trash and the chart-restore icon (subject to other rules).
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
     def _refresh_fab_visibility(self) -> None:
         """Hide the bottom-right map options only while the (now unused) coord
