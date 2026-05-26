@@ -228,8 +228,19 @@ def localize_vehicle_type(raw: str, language: str) -> str:
 
 
 def _parse_profile_pid_key(key: str) -> str:
+    # Real OBD scanner stores keys as the repr of a bytes object, e.g.
+    # "b'010C'" embedded in something like
+    # "OBDCommand: ENGINE_LOAD - b'010C'". We extract the hex payload.
     m = re.search(r"b['\"]([0-9A-Fa-f]+)['\"]", key)
-    return m.group(1).upper() if m else ""
+    if m:
+        return m.group(1).upper()
+    # Some consumers (mock data, direct writers) skip python-obd's
+    # command-repr step and just use the bare hex PID as the dict key.
+    # Accept that form as well so the scan-chart sees those samples.
+    s = key.strip()
+    if re.fullmatch(r"[0-9A-Fa-f]{4,6}", s):
+        return s.upper()
+    return ""
 
 
 def _format_status_string(value: str) -> str:
