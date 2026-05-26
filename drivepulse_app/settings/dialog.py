@@ -102,6 +102,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         on_dashcam_camera_changed: Callable[[str], None] | None = None,
         current_dashcam_resolution: str = "1280x720",
         on_dashcam_resolution_changed: Callable[[str], None] | None = None,
+        current_dashcam_codec: str = "vp8",
+        on_dashcam_codec_changed: Callable[[str], None] | None = None,
         current_dashcam_fps: int = 25,
         on_dashcam_fps_changed: Callable[[int], None] | None = None,
         current_dashcam_seg_minutes: int = 3,
@@ -175,6 +177,8 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self.on_last_check_updated = on_last_check_updated
         self.on_dashcam_camera_changed = on_dashcam_camera_changed
         self.on_dashcam_resolution_changed = on_dashcam_resolution_changed
+        self.on_dashcam_codec_changed = on_dashcam_codec_changed
+        self._current_dashcam_codec = current_dashcam_codec
         self.on_dashcam_fps_changed = on_dashcam_fps_changed
         self._current_dashcam_fps = current_dashcam_fps
         self.on_dashcam_seg_minutes_changed = on_dashcam_seg_minutes_changed
