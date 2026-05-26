@@ -177,6 +177,15 @@ class SettingsDashcamMixin:
         if self.on_dashcam_fps_changed:
             self.on_dashcam_fps_changed(fps)
 
+    def _on_dc_codec_changed(self, row: Adw.ComboRow, _pspec: Any) -> None:
+        idx = row.get_selected()
+        if idx < 0 or idx >= len(self._dc_codec_ids):
+            return
+        codec = self._dc_codec_ids[idx]
+        self._current_dashcam_codec = codec
+        if self.on_dashcam_codec_changed:
+            self.on_dashcam_codec_changed(codec)
+
     def _on_dc_seg_minutes_changed(self, spin: Gtk.SpinButton) -> None:
         if self.on_dashcam_seg_minutes_changed:
             self.on_dashcam_seg_minutes_changed(int(spin.get_value()))
