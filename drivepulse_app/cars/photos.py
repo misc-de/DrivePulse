@@ -576,6 +576,7 @@ class CameraPhotoDialog:
         self._status_lbl.add_css_class("dim-label")
 
         self._thumb_pic = Gtk.Picture()
+        self._thumb_pic.set_size_request(60, 60)
         self._thumb_pic.set_can_shrink(True)
         self._thumb_pic.set_content_fit(Gtk.ContentFit.COVER)
         self._thumb_pic.set_hexpand(False)
