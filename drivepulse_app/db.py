@@ -898,6 +898,29 @@ class DriveDB:
             )
             self._conn.commit()
 
+    def mark_all_seen_for_car(self, car_id: int, kind: str) -> int:
+        """Clear the unread-dot for every row of *kind* on *car_id*.
+        Returns the number of rows that were actually flipped to seen,
+        so the caller can decide whether the UI needs a refresh.
+        """
+        tables = {
+            "trips":           "trips",
+            "scans":           "scans",
+            "stopwatch_runs":  "acceleration_runs",
+            "photos":          "car_photos",
+        }
+        table = tables.get(kind)
+        if table is None:
+            return 0
+        now = datetime.now(UTC).isoformat()
+        with self._lock:
+            cur = self._conn.execute(
+                f"UPDATE {table} SET seen_at=? WHERE car_id=? AND seen_at IS NULL",
+                (now, car_id),
+            )
+            self._conn.commit()
+            return cur.rowcount or 0
+
     # ---------------------------------------------------------- share conflicts
 
     def count_share_conflicts(self) -> int:
