@@ -240,19 +240,13 @@ class CarsActionsMixin:
 
         from drivepulse_app.vin.fetch_dialog import VinFetchDialog
         dialog = VinFetchDialog(vin=vin, active_sources=active_sources, language=self.language)
-
-        def _on_dialog_response(d: VinFetchDialog, response: str) -> None:
-            # User closed the progress dialog mid-fetch (the only response
-            # they can trigger themselves — _on_vin_refetch_dialog_done
-            # now drives the post-fetch transition automatically). Drop
-            # the snapshot if no sources came back so it doesn't leak
-            # into a later refresh; if data already arrived it's been
-            # routed via _maybe_show_next_review and the snapshot was
-            # already consumed there.
-            if not d.get_result_sources():
-                self._vin_refetch_existing.pop(car_id, None)
-
-        dialog.connect("response", _on_dialog_response)
+        # Don't attach a response handler here anymore. The post-fetch
+        # transition is driven entirely by _on_vin_refetch_dialog_done
+        # (which closes the dialog itself), and snapshot cleanup happens
+        # in the consumers (_maybe_show_next_review on review accept/
+        # cancel, _on_vin_refetch_dialog_done on empty result). An earlier
+        # close-handler popped the snapshot too eagerly and wiped good
+        # vin_data when the user cancelled the subsequent review.
         root = self.get_root()
         if root:
             dialog.present(root)

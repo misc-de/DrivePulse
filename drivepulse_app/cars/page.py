@@ -527,15 +527,22 @@ class CarsPage(
 
         def _on_response(d: VinReviewDialog, response: str) -> None:
             self._vin_review_open = False
-            if response == "accept":
-                accepted = d.get_accepted_data()
-            else:
-                accepted = {}
+            existing_snap = self._vin_refetch_existing.pop(car_id, {})
+            if response != "accept":
+                # Cancel: leave the DB alone. Crucially we do NOT write
+                # the snapshot back — if it was somehow empty (defensive)
+                # that would wipe perfectly good existing data.
+                self._profiles = _load_profiles(self.db)
+                self._rebuild_list()
+                if self._detail_pushed:
+                    self._render_detail()
+                self._maybe_show_next_review()
+                return
+            accepted = d.get_accepted_data()
             # Merge accepted fields into the snapshot so existing values
             # the user already curated stay intact when the refresh only
             # touches a subset of fields.
-            existing_snap = self._vin_refetch_existing.pop(car_id, {})
-            merged = {**existing_snap, **accepted} if accepted else existing_snap
+            merged = {**existing_snap, **accepted}
             if self.db is not None:
                 try:
                     self.db.update_car_vin_data(car_id, json.dumps(merged))
