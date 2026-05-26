@@ -590,7 +590,8 @@ class CameraPhotoDialog:
         # rectangle the full width of the row.
         self._thumb_pic = Gtk.Picture()
         self._thumb_pic.set_can_shrink(True)
-        self._thumb_pic.set_content_fit(Gtk.ContentFit.COVER)
+        # FILL stretches the picture to the 60×60 tile; user accepts distortion.
+        self._thumb_pic.set_content_fit(Gtk.ContentFit.FILL)
 
         self._thumb_btn = Gtk.Button()
         self._thumb_btn.add_css_class("dp-cam-thumb")
@@ -598,17 +599,17 @@ class CameraPhotoDialog:
         self._thumb_btn.set_size_request(60, 60)
         self._thumb_btn.set_hexpand(False)
         self._thumb_btn.set_vexpand(False)
-        self._thumb_btn.set_halign(Gtk.Align.CENTER)
-        self._thumb_btn.set_valign(Gtk.Align.CENTER)
+        self._thumb_btn.set_halign(Gtk.Align.START)
+        self._thumb_btn.set_valign(Gtk.Align.END)
+        self._thumb_btn.set_margin_start(12)
+        self._thumb_btn.set_margin_bottom(12)
         self._thumb_btn.set_overflow(Gtk.Overflow.HIDDEN)  # clip picture to the rounded tile
         self._thumb_btn.set_visible(False)
         self._thumb_btn.connect("clicked", lambda _b: self._show_viewer())
 
         # --- Status + shutter row ----------------------------------------------
-        # Layout: [thumb 60×60] [shutter 80×80] [spacer 60×60]
-        # Symmetric spacer keeps the shutter visually centred on the screen
-        # even before the first capture (when the thumbnail is hidden but its
-        # 60×60 slot is still reserved).
+        # Shutter sits centered on its own; the thumbnail is overlaid on the
+        # preview at bottom-left so it doesn't push the shutter off-center.
         self._status_lbl = Gtk.Label(label="")
         self._status_lbl.add_css_class("dim-label")
 
@@ -619,27 +620,22 @@ class CameraPhotoDialog:
         self._capture_btn.set_valign(Gtk.Align.CENTER)
         self._capture_btn.connect("clicked", lambda _b: self._do_capture())
 
-        thumb_slot = Gtk.Box()
-        thumb_slot.set_size_request(60, 60)
-        thumb_slot.set_valign(Gtk.Align.CENTER)
-        thumb_slot.append(self._thumb_btn)
-
-        spacer = Gtk.Box()
-        spacer.set_size_request(60, 60)
-
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         btn_row.set_halign(Gtk.Align.CENTER)
         btn_row.set_margin_top(8)
         btn_row.set_margin_bottom(60)
-        btn_row.append(thumb_slot)
         btn_row.append(self._capture_btn)
-        btn_row.append(spacer)
+
+        # Overlay the thumbnail on the live preview at bottom-left.
+        preview_overlay = Gtk.Overlay()
+        preview_overlay.set_child(self._preview_picture)
+        preview_overlay.add_overlay(self._thumb_btn)
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         main_box.set_margin_top(8)
         main_box.set_margin_start(8)
         main_box.set_margin_end(8)
-        main_box.append(self._preview_picture)
+        main_box.append(preview_overlay)
         main_box.append(self._status_lbl)
         main_box.append(btn_row)
 
