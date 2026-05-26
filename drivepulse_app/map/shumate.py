@@ -32,7 +32,7 @@ class MapShumateMixin:
         self._shumate_map.set_vexpand(True)
 
         viewport = self._shumate_map.get_viewport()
-        viewport.set_zoom_level(13.0)
+        viewport.set_zoom_level(self._initial_zoom if self._initial_zoom is not None else 13.0)
         viewport.set_location(48.137, 11.576)
 
         registry = Shumate.MapSourceRegistry.new_with_defaults()

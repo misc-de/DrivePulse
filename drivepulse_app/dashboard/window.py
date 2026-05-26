@@ -317,43 +317,18 @@ class DashboardWindow(
 
         self.mock_tour_sim = MockTourSimulator(self._update_from_payload)
         self._pending_sim_start_id: int | None = None
-        self.map_page = MapPage(
-            self.language,
-            force_webkit=self.force_webkit_map,
-            units=self.units,
-            mock_mode=self.mock_mode,
-            poi_visible=False,
-            traffic_visible=self.map_traffic_visible,
-            traffic_bundesweit=self.map_traffic_bundesweit,
-            traffic_nrw=self.map_traffic_nrw,
-            map_3d_view=self.map_3d_view,
-            map_layer=self.map_layer,
-            map_heading_up=self.map_heading_up,
-            on_traffic_visible_changed=self._set_map_traffic_visible,
-            on_3d_view_changed=self._set_map_3d_view,
-            on_map_layer_changed=self._set_map_layer,
-            on_heading_up_changed=self._set_map_heading_up,
-            on_tour_started=self._on_tour_started,
-            on_tour_stopped=self._on_tour_stopped,
-            on_tour_resumed=self._on_tour_resumed,
-            on_tts_enabled_changed=self._set_tts_enabled,
-            on_map_tapped=lambda: self._set_nav_visible(not self._nav_visible),
-            db=self.db,
-            get_sync_client=self._get_active_sync_client,
-        )
+        # MapPage is created lazily when the map tab is first opened.
+        self.map_page: MapPage | None = None
+        self._map_unload_timer_id: int | None = None
+        self._map_suspended_zoom: float | None = None
+        self._map_suspended_follow: bool = True
         from drivepulse_app.tts import service as _tts_svc
         _tts_svc.set_backend(self.tts_backend)
         _tts_svc.set_download_callback(self._on_piper_dl_progress)
         self._piper_dl_current_model: str | None = None
         if self.tts_backend == "piper":
             _tts_svc.ensure_models(self.tts_language, self.tts_voice, self.tts_quality)
-        self.map_page.set_tts_enabled(self.tts_enabled)
-        self.map_page.set_speed_warn_enabled(self.speed_limit_warn)
-        self.map_page.set_tts_language(self.tts_language)
-        self.map_page.set_tts_voice(self.tts_voice)
-        self.map_page.set_tts_quality(self.tts_quality)
         self._map_rotator = RotatedContainer()
-        self._map_rotator.set_child(self.map_page)
         self._map_rotator.set_hexpand(True)
         self._map_rotator.set_vexpand(True)
 
@@ -658,7 +633,7 @@ class DashboardWindow(
         self.header.set_visible(visible)
         self.switcher_bar.set_visible(visible)
         self.footer.set_visible(visible)
-        if self.view_stack.get_visible_child_name() == self.PAGE_MAP:
+        if self.view_stack.get_visible_child_name() == self.PAGE_MAP and self.map_page is not None:
             self.map_page.set_nav_visible(visible)
 
     _GPS_REQUIRED_PAGES = frozenset(["dashboard", "stopwatch", "map"])
@@ -668,6 +643,8 @@ class DashboardWindow(
         if page == self.PAGE_CARS and not self._nav_visible:
             self._set_nav_visible(True)
         if page == self.PAGE_MAP:
+            self._cancel_map_unload()
+            self._ensure_map_page()
             GLib.timeout_add(50, self.map_page.on_shown)
         if page in self._GPS_REQUIRED_PAGES:
             self.gps_reader.ensure_active()
@@ -676,6 +653,8 @@ class DashboardWindow(
         # the tab — except the recorder keeps running across tab switches so a
         # tour is recorded end-to-end regardless of which tab is in front.
         prev = getattr(self, "_last_visible_page", None)
+        if prev == self.PAGE_MAP and page != self.PAGE_MAP:
+            self._schedule_map_unload()
         if page == self.PAGE_DASHCAM:
             self.dashcam_page.on_shown()
         elif prev == self.PAGE_DASHCAM:
@@ -760,14 +739,17 @@ class DashboardWindow(
         label: str | None,
     ) -> None:
         """Switch to the Map tab and draw a recorded trip's polyline as the route."""
-        if not hasattr(self, "map_page") or not coords_lonlat:
+        if not coords_lonlat:
             return
+        self._cancel_map_unload()
+        self._ensure_map_page()
         self.view_stack.set_visible_child_name(self.PAGE_MAP)
 
         def _load_and_remove() -> bool:
-            self.map_page.load_trip_as_route(
-                coords_lonlat, distance_km, duration_s, label
-            )
+            if self.map_page is not None:
+                self.map_page.load_trip_as_route(
+                    coords_lonlat, distance_km, duration_s, label
+                )
             return False
 
         GLib.idle_add(_load_and_remove)
@@ -1006,7 +988,7 @@ class DashboardWindow(
         if hasattr(self, "cars_page") and hasattr(self.cars_page, "set_collapsed"):
             self.cars_page.set_collapsed(ff == "mobile")
         # Map page: nudges replay-info overlay below the top-left info button.
-        if hasattr(self, "map_page") and hasattr(self.map_page, "set_form_factor"):
+        if self.map_page is not None and hasattr(self.map_page, "set_form_factor"):
             self.map_page.set_form_factor(ff)
 
     def _apply_window_theme(self, theme: str) -> None:
@@ -1035,7 +1017,81 @@ class DashboardWindow(
         else:
             self._theme_css_provider.load_from_data(b"")
 
+    # ── Map lazy-load / auto-unload ──────────────────────────────────────────
+
+    # Seconds of inactivity on any other tab before the map widget is destroyed.
+    _MAP_IDLE_UNLOAD_S = 3 * 60
+
+    def _ensure_map_page(self) -> None:
+        """Create MapPage on first use and restore any previously saved state."""
+        if self.map_page is not None:
+            return
+        from drivepulse_app.tts import service as _tts_svc
+        self.map_page = MapPage(
+            self.language,
+            force_webkit=self.force_webkit_map,
+            units=self.units,
+            mock_mode=self.mock_mode,
+            poi_visible=False,
+            traffic_visible=self.map_traffic_visible,
+            traffic_bundesweit=self.map_traffic_bundesweit,
+            traffic_nrw=self.map_traffic_nrw,
+            map_3d_view=self.map_3d_view,
+            map_layer=self.map_layer,
+            map_heading_up=self.map_heading_up,
+            on_traffic_visible_changed=self._set_map_traffic_visible,
+            on_3d_view_changed=self._set_map_3d_view,
+            on_map_layer_changed=self._set_map_layer,
+            on_heading_up_changed=self._set_map_heading_up,
+            on_tour_started=self._on_tour_started,
+            on_tour_stopped=self._on_tour_stopped,
+            on_tour_resumed=self._on_tour_resumed,
+            on_tts_enabled_changed=self._set_tts_enabled,
+            on_map_tapped=lambda: self._set_nav_visible(not self._nav_visible),
+            db=self.db,
+            get_sync_client=self._get_active_sync_client,
+            initial_zoom=self._map_suspended_zoom,
+        )
+        self.map_page.set_tts_enabled(self.tts_enabled)
+        self.map_page.set_speed_warn_enabled(self.speed_limit_warn)
+        self.map_page.set_tts_language(self.tts_language)
+        self.map_page.set_tts_voice(self.tts_voice)
+        self.map_page.set_tts_quality(self.tts_quality)
+        if not self._map_suspended_follow:
+            self.map_page._follow_gps = False
+        ff = getattr(self, "form_factor", None)
+        if ff and hasattr(self.map_page, "set_form_factor"):
+            self.map_page.set_form_factor(ff)
+        self._map_rotator.set_child(self.map_page)
+
+    def _schedule_map_unload(self) -> None:
+        self._cancel_map_unload()
+        self._map_unload_timer_id = GLib.timeout_add_seconds(
+            self._MAP_IDLE_UNLOAD_S, self._unload_map_page
+        )
+
+    def _cancel_map_unload(self) -> None:
+        if self._map_unload_timer_id is not None:
+            GLib.source_remove(self._map_unload_timer_id)
+            self._map_unload_timer_id = None
+
+    def _unload_map_page(self) -> bool:
+        self._map_unload_timer_id = None
+        if self.map_page is None:
+            return False
+        # Keep alive during active navigation or while the tab is open.
+        if getattr(self.map_page, "_tour_active", False) or getattr(self.map_page, "_tour_paused", False):
+            return False
+        if self.view_stack.get_visible_child_name() == self.PAGE_MAP:
+            return False
+        self._map_suspended_zoom = getattr(self.map_page, "_map_zoom", None)
+        self._map_suspended_follow = getattr(self.map_page, "_follow_gps", True)
+        self._map_rotator.set_child(Gtk.Box())
+        self.map_page = None
+        return False
+
     def close(self) -> bool:
+        self._cancel_map_unload()
         self.reader.stop()
         self.gps_reader.stop()
         self.orientation_reader.stop()
