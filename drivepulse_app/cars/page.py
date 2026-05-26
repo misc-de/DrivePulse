@@ -453,6 +453,21 @@ class CarsPage(
                     self.db.update_car_vin_data(car_id, json.dumps(accepted))
                 except sqlite3.Error:
                     log.warning("Could not persist VIN data for car_id=%s", car_id, exc_info=True)
+                # Promote the decoded manufacturer into the permanent brand
+                # column when the car has none yet — brand is the single
+                # non-editable manufacturer field shown to the user and
+                # survives later vin_data_json resets.
+                decoded_manufacturer = (accepted.get("manufacturer") or "").strip()
+                if decoded_manufacturer:
+                    try:
+                        existing = self.db.get_car(car_id)
+                        if existing is not None and not (existing["brand"] or "").strip():
+                            self.db.update_car_brand(car_id, decoded_manufacturer)
+                    except sqlite3.Error:
+                        log.warning(
+                            "Could not promote VIN manufacturer to brand for car_id=%s",
+                            car_id, exc_info=True,
+                        )
             self._profiles = _load_profiles(self.db)
             self._rebuild_list()
             if self._detail_pushed:

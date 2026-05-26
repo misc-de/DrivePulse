@@ -36,7 +36,6 @@ _SPECIAL_VIN_DRIVE = "__VIN_DRIVE__"
 _SPECIAL_VIN_CYLINDERS = "__VIN_CYLINDERS__"
 _SPECIAL_VIN_DISPLACEMENT = "__VIN_DISPLACEMENT__"
 _SPECIAL_VIN_TRANSMISSION = "__VIN_TRANSMISSION__"
-_SPECIAL_VIN_MANUFACTURER = "__VIN_MANUFACTURER__"
 _SPECIAL_VIN_COUNTRY = "__VIN_COUNTRY__"
 
 VIN_DATA_SPECIAL_KEYS: dict[str, str] = {
@@ -49,7 +48,6 @@ VIN_DATA_SPECIAL_KEYS: dict[str, str] = {
     "cylinders":    _SPECIAL_VIN_CYLINDERS,
     "displacement": _SPECIAL_VIN_DISPLACEMENT,
     "transmission": _SPECIAL_VIN_TRANSMISSION,
-    "manufacturer": _SPECIAL_VIN_MANUFACTURER,
     "plant_country": _SPECIAL_VIN_COUNTRY,
 }
 
@@ -70,7 +68,6 @@ CATEGORIES: tuple[tuple[str, str, str, tuple[tuple[str, str], ...]], ...] = (
     ("vehicle", "cars.category.vehicle", "info-symbolic", (
         (_SPECIAL_VIN,              "cars.pid.VIN"),
         (_SPECIAL_BRAND,            "cars.pid.BRAND"),
-        (_SPECIAL_VIN_MANUFACTURER, "cars.pid.VIN_MANUFACTURER"),
         (_SPECIAL_VIN_MODEL,        "cars.pid.VIN_MODEL"),
         (_SPECIAL_VIN_YEAR,         "cars.pid.VIN_YEAR"),
         (_SPECIAL_VIN_TYPE,         "cars.pid.VIN_TYPE"),
