@@ -79,7 +79,10 @@ class CarsTripsMixin:
             chk.set_valign(Gtk.Align.CENTER)
             chk.connect("toggled", lambda c, tid=trip_id: self._on_trip_checkbox_toggled(tid, c.get_active()))
             row.add_prefix(chk)
-            row.set_activatable(False)
+            # Tapping anywhere on the row toggles selection — the checkbox
+            # alone is too small a hit target on touchscreens.
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, c=chk: c.set_active(not c.get_active()))
         else:
             icon = Gtk.Image.new_from_icon_name("distance-symbolic")
             row.add_prefix(icon)

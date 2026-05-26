@@ -62,7 +62,8 @@ class CarsScansMixin:
             chk.set_valign(Gtk.Align.CENTER)
             chk.connect("toggled", lambda c, s=sid: self._on_scan_checkbox_toggled(s, c.get_active()))
             row.add_prefix(chk)
-            row.set_activatable(False)
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, c=chk: c.set_active(not c.get_active()))
         else:
             icon = Gtk.Image.new_from_icon_name("library-symbolic")
             if self._selected_scan_id is not None and int(self._selected_scan_id) == sid:

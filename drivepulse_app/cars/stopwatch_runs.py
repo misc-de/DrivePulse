@@ -68,7 +68,8 @@ class CarsStopWatchRunsMixin:
             chk.set_valign(Gtk.Align.CENTER)
             chk.connect("toggled", lambda c, rid=run_id: self._on_run_checkbox_toggled(rid, c.get_active()))
             row.add_prefix(chk)
-            row.set_activatable(False)
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, c=chk: c.set_active(not c.get_active()))
         else:
             icon = Gtk.Image.new_from_icon_name("stopwatch-symbolic")
             row.add_prefix(icon)
