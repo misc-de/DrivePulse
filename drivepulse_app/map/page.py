@@ -99,6 +99,7 @@ class MapPage(
         on_map_tapped: Callable[[], None] | None = None,
         db: DriveDB | None = None,
         get_sync_client: Callable | None = None,
+        initial_zoom: float | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
@@ -109,6 +110,7 @@ class MapPage(
         self.force_webkit = force_webkit
         self.units = units if units in {"metric", "imperial"} else "metric"
         self.mock_mode = bool(mock_mode)
+        self._initial_zoom: float | None = initial_zoom
         # Latest map view state pushed from the JS side (zoom/pitch/bearing).
         # Rendered into the status row above the map AND a bottom-left overlay
         # whenever mock_mode is on.

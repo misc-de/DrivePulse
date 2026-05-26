@@ -82,6 +82,9 @@ class MapWebKitMixin:
         # LoadEvent.FINISHED == 3 in both WebKit 6 and WebKit2
         if int(load_event) == 3:
             GLib.timeout_add(150, self._do_map_resize)
+            zoom = getattr(self, "_initial_zoom", None)
+            if zoom is not None:
+                GLib.timeout_add(500, self._js, f"typeof map !== 'undefined' && map.setZoom({zoom})")
 
     def _js(self, code: str) -> None:
         if self._webview is None:
