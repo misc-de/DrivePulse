@@ -39,7 +39,7 @@ class CarsStopWatchRunsMixin:
         seen_at = run["seen_at"] if "seen_at" in keys else None
         if shared_at and not seen_at:
             dot = Gtk.Label(label="●")
-            dot.add_css_class("accent")
+            dot.add_css_class("dp-new-dot")
             dot.set_valign(Gtk.Align.CENTER)
             row.add_prefix(dot)
 

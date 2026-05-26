@@ -144,7 +144,7 @@ class CarsPhotosMixin:
             overlay = Gtk.Overlay()
             overlay.set_child(tile)
             dot = Gtk.Label(label="●")
-            dot.add_css_class("accent")
+            dot.add_css_class("dp-new-dot")
             dot.set_valign(Gtk.Align.START)
             dot.set_halign(Gtk.Align.END)
             dot.set_margin_top(4)

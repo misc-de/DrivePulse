@@ -13,7 +13,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from drivepulse_app.cars.actions import CarsActionsMixin
 from drivepulse_app.cars.detail_render import CarsDetailRenderMixin
@@ -56,6 +56,28 @@ def _extract_session_number(v: Any) -> float | None:
 # ---------------------------------------------------------------------------
 
 
+_DP_NEW_DOT_CSS = b".dp-new-dot { color: #3584e4; }"
+_dp_new_dot_css_installed = False
+
+
+def _install_new_dot_css() -> None:
+    """Force a reliable blue for the unread-item dot — the previous
+    Adwaita .accent class fell back to grey on themes without a strong
+    accent colour, which the user explicitly does not want."""
+    global _dp_new_dot_css_installed
+    if _dp_new_dot_css_installed:
+        return
+    display = Gdk.Display.get_default()
+    if display is None:
+        return
+    provider = Gtk.CssProvider()
+    provider.load_from_data(_DP_NEW_DOT_CSS)
+    Gtk.StyleContext.add_provider_for_display(
+        display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+    _dp_new_dot_css_installed = True
+
+
 class CarsPage(
     CarsActionsMixin,
     CarsLayoutMixin,
@@ -89,6 +111,7 @@ class CarsPage(
         on_state_changed: Callable[[str | None, str | None, int | None], None] | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        _install_new_dot_css()
         self.language = _normalize_language(language)
         self.db = db
         self._sidebar_side: str = sidebar_side
@@ -1186,6 +1209,19 @@ class CarsPage(
             self._photo_select_mode = False
             self._photo_selected_ids = set()
         self._selected_category = new_cat
+        # Mark all "new via sync" items in this category as seen — the user
+        # has the list in front of them, so the unread blue dot has done
+        # its job. mark_all_seen_for_car is idempotent (NULL guard).
+        if (
+            new_cat in {"trips", "scans", "stopwatch_runs", "photos"}
+            and self._selected_car_id is not None
+            and self.db is not None
+        ):
+            try:
+                self.db.mark_all_seen_for_car(self._selected_car_id, new_cat)
+            except sqlite3.Error:
+                log.debug("Could not bulk-mark seen for car=%s cat=%s",
+                          self._selected_car_id, new_cat, exc_info=True)
         self._update_trash_default()
         self._update_vin_refresh_visibility()
         self._update_rename_btn_visibility()
