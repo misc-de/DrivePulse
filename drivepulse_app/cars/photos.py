@@ -338,13 +338,14 @@ class CarsPhotosMixin:
             except Exception:
                 pass
 
-        def _on_captured(jpeg_path: Path) -> None:
+        def _on_captured(jpeg_path: Path) -> Path | None:
             try:
-                self._import_camera_jpeg(car_id, jpeg_path)
+                gallery_path = self._import_camera_jpeg(car_id, jpeg_path)
             except Exception:
                 log.exception("Could not save camera photo")
-                return
+                return None
             GLib.idle_add(self._after_camera_import)
+            return gallery_path
 
         CameraPhotoDialog(self.language, self.get_root(), _on_captured, last_photo_path)
 
@@ -352,7 +353,7 @@ class CarsPhotosMixin:
         if self._detail_pushed and self._selected_category == "photos":
             self._render_detail()
 
-    def _import_camera_jpeg(self, car_id: int, src: Path) -> None:
+    def _import_camera_jpeg(self, car_id: int, src: Path) -> Path:
         dest_dir = PHOTOS_DIR / str(car_id)
         dest_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(UTC)
@@ -365,6 +366,7 @@ class CarsPhotosMixin:
         shutil.copy2(str(src), str(dest))
         if self.db is not None:
             self.db.add_car_photo(car_id, dest.name, ts.isoformat())
+        return dest
 
     # ---------------------------------------------------------------- photo viewer
 
@@ -527,7 +529,7 @@ class CameraPhotoDialog:
         self,
         language: str,
         parent: Gtk.Widget | None,
-        on_captured: Callable[[Path], None],
+        on_captured: Callable[[Path], Path | None],
         last_photo_path: Path | None = None,
     ) -> None:
         self._language = language
@@ -554,7 +556,7 @@ class CameraPhotoDialog:
     def _build_ui(self, parent: Gtk.Widget | None) -> None:
         win = Gtk.Window()
         win.set_title(self._t("cars.photos.camera_title"))
-        win.set_default_size(640, 520)
+        win.set_default_size(640, 800)
         win.set_modal(True)
         if parent is not None:
             root = parent.get_root() if hasattr(parent, "get_root") else parent
@@ -671,7 +673,8 @@ class CameraPhotoDialog:
         for src_name in sources:
             try:
                 desc = (
-                    f"{src_name} ! videoconvert ! tee name=t "
+                    f"{src_name} ! videoconvert ! videoscale "
+                    f"! video/x-raw,width=1280,height=720 ! tee name=t "
                     f"{preview_branch} "
                     f"{cap_branch}"
                 )
@@ -792,6 +795,7 @@ class CameraPhotoDialog:
                 width * 3,    # rowstride (RGB = 3 bytes/pixel)
             )
             pixbuf.savev(str(dest), "jpeg", ["quality"], ["92"])
+            del pixbuf, gbytes, raw_bytes
         except Exception:
             log.exception("Camera capture failed")
             GLib.idle_add(self._on_capture_failed)
@@ -803,12 +807,13 @@ class CameraPhotoDialog:
             GLib.idle_add(self._on_capture_failed)
 
     def _on_capture_done(self, path: Path) -> None:
+        gallery_path: Path | None = None
         try:
-            self._on_captured(path)
+            gallery_path = self._on_captured(path)
         except Exception:
             log.exception("Camera on_captured callback failed")
         self._session_paths.append(path)
-        self._refresh_thumbnail(path)
+        self._refresh_thumbnail(gallery_path or path)
         if self._capture_btn:
             self._capture_btn.set_sensitive(True)
 
