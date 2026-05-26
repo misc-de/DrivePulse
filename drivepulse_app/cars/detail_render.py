@@ -412,13 +412,34 @@ class CarsDetailRenderMixin:
 
         for entry in entries:
             code, desc = _dtc_parts(entry)
-            r = Adw.ActionRow()
-            r.set_title(GLib.markup_escape_text(code or "?"))
-            if desc:
-                r.set_subtitle(GLib.markup_escape_text(desc))
-                r.set_subtitle_lines(0)
-            r.add_css_class("error")
+            r = Gtk.ListBoxRow()
             r.set_activatable(False)
+            r.set_selectable(False)
+
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            box.set_margin_top(10)
+            box.set_margin_bottom(10)
+            box.set_margin_start(14)
+            box.set_margin_end(14)
+
+            # Code stays in the error accent so it pops, description renders
+            # in the normal text colour for readability.
+            code_lbl = Gtk.Label(label=code or "?", xalign=0.0)
+            code_lbl.set_halign(Gtk.Align.START)
+            code_lbl.add_css_class("error")
+            code_lbl.add_css_class("heading")
+            box.append(code_lbl)
+
+            if desc:
+                desc_lbl = Gtk.Label(label=desc, xalign=0.0)
+                desc_lbl.set_halign(Gtk.Align.START)
+                desc_lbl.set_hexpand(True)
+                desc_lbl.set_wrap(True)
+                desc_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                desc_lbl.set_selectable(True)
+                box.append(desc_lbl)
+
+            r.set_child(box)
             rows.append(r)
         return rows
 
