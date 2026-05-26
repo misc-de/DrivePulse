@@ -18,7 +18,6 @@ _AUTODEV_URL = "https://api.auto.dev/vin/{}"
 _VINDECODER_URL = "https://api.vindecoder.eu/3.2/{}/{}/decode/{}.json"
 
 _NHTSA_FIELDS: dict[str, str] = {
-    "Make":                        "make",
     "Model":                       "model",
     "Model Year":                  "year",
     "Vehicle Type":                "vehicle_type",
@@ -33,7 +32,6 @@ _NHTSA_FIELDS: dict[str, str] = {
 }
 
 _AUTODEV_FIELDS: dict[str, str] = {
-    "make":          "make",
     "model":         "model",
     "trim":          "trim",
     "style":         "style",
@@ -44,7 +42,6 @@ _AUTODEV_FIELDS: dict[str, str] = {
 }
 
 _VINDECODER_FIELDS: dict[str, str] = {
-    "Make":                        "make",
     "Model":                       "model",
     "Model Year":                  "year",
     "Body":                        "body",
