@@ -119,15 +119,6 @@ class MapGpsFilterMixin:
             if self._follow_gps:
                 self._goto(display_lat, display_lon)
 
-        if self._coord_lbl is not None:
-            ns = "N" if lat >= 0 else "S"
-            ew = "E" if lon >= 0 else "W"
-            self._coord_lbl.set_label(
-                f"{abs(lat):.5f}° {ns}  {abs(lon):.5f}° {ew}"
-            )
-            if self._coord_overlay is not None:
-                self._coord_overlay.set_visible(True)
-
         if self._tour_active or self._tour_paused:
             self._update_maneuver_overlay()
             self._check_waypoint_proximity()

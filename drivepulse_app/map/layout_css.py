@@ -73,19 +73,6 @@ _MANEUVER_CSS = b"""
 .dp-lane-valid image { color: #ffffff; }
 /* Green icon for the currently-loaded tour entry in Recent/Load-Tour lists */
 .dp-tour-loaded-icon { color: #3db065; }
-/* GPS coordinate chip - transparent icon, box background shows through */
-.dp-coord-chip {
-  background-color: rgba(20, 24, 32, 0.72);
-  border-radius: 8px;
-  padding: 3px 8px;
-}
-.dp-coord-chip label {
-  color: #ffffff;
-  font-family: monospace;
-  font-size: 12px;
-  background-color: transparent;
-}
-.dp-coord-chip image { color: rgba(255, 255, 255, 0.80); }
 /* Route info card (duration + distance) -- matches the translucent OSD
    styling of the neighbouring "Start Tour" button so the two cards
    read as a single control cluster. Values stack vertically. */
