@@ -571,6 +571,7 @@
   "settings.vin_decoder.autodev_key": "auto.dev API-Schlüssel",
   "settings.vin_decoder.autodev.requests": "Monatliche Anfragen",
   "settings.vin_decoder.autodev.no_requests": "Noch keine Anfragen",
+  "settings.vin_decoder.autodev.paid": "{n} kostenpflichtig",
   "settings.vin_decoder.vindecoder": "vindecoder.eu",
   "settings.vin_decoder.vindecoder.desc": "Beste Datenqualität für EU-Fahrzeuge, kostenpflichtig. Erfordert genau 17 Stellen — ältere Fahrzeuge mit kürzerer VIN werden nicht unterstützt. Benötigt API- und Secret-Schlüssel von vindecoder.eu.",
   "settings.vin_decoder.api_key": "vindecoder.eu API-Schlüssel",

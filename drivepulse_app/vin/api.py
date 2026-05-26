@@ -89,13 +89,55 @@ class AutodevError(Exception):
         self.status = status
 
 
+def _parse_autodev_usage(headers: Any, body: dict[str, Any] | None) -> dict[str, Any]:
+    """Pull the X-Usage-* headers plus the plan name out of an auto.dev
+    response. Returns an empty dict when nothing usable was found.
+
+    auto.dev ships ``X-Usage-Limit``, ``X-Usage-Used`` and
+    ``X-Usage-Remaining`` on every successful call, plus a ``user.plan``
+    string in the JSON body (e.g. ``"Starter"`` for the free tier). The
+    paid-request count is derived: anything above the limit is billed."""
+    out: dict[str, Any] = {}
+
+    def _hget(name: str) -> str | None:
+        if headers is None:
+            return None
+        try:
+            return headers.get(name)
+        except Exception:
+            return None
+
+    try:
+        lim = int(_hget("X-Usage-Limit") or "")
+        out["limit"] = lim
+    except (ValueError, TypeError):
+        pass
+    try:
+        out["used"] = int(_hget("X-Usage-Used") or "")
+    except (ValueError, TypeError):
+        pass
+    try:
+        out["remaining"] = int(_hget("X-Usage-Remaining") or "")
+    except (ValueError, TypeError):
+        pass
+    if "used" in out and "limit" in out:
+        out["paid"] = max(0, out["used"] - out["limit"])
+    if isinstance(body, dict):
+        user = body.get("user") or {}
+        if isinstance(user, dict):
+            plan = user.get("plan")
+            if plan:
+                out["plan"] = str(plan)
+    return out
+
+
 def _fetch_autodev(
     vin: str,
     api_key: str,
-    on_request: Callable[[], None] | None = None,
+    on_request: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     url = _AUTODEV_URL.format(urllib.parse.quote(vin.upper(), safe=""))
-    print(f"[VIN] auto.dev GET {url} key_len={len(api_key)} key_repr={api_key[-10:]!r}", flush=True)
+    log.debug("auto.dev GET %s (key …%s)", url, api_key[-6:])
     req = urllib.request.Request(
         url,
         headers={
@@ -105,54 +147,24 @@ def _fetch_autodev(
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            if on_request:
-                on_request()
-            # Diagnose: dump the response headers that look quota/rate-limit
-            # related, plus the user/api/billing meta blocks once. We strip
-            # them later anyway, but log them here so we can wire a real
-            # usage display once we know the schema auto.dev actually ships.
-            try:
-                _hdr_items = list(resp.headers.items())  # type: ignore[attr-defined]
-            except Exception:
-                _hdr_items = []
-            quota_headers = {
-                name: value
-                for name, value in _hdr_items
-                if any(token in name.lower() for token in (
-                    "ratelimit", "rate-limit", "quota", "usage", "remaining",
-                    "x-request", "x-billing",
-                ))
-            }
-            if quota_headers:
-                print(f"[VIN] auto.dev quota headers: {quota_headers}", flush=True)
-            elif _hdr_items:
-                print(f"[VIN] auto.dev quota headers: <none>  (all headers: {[n for n, _ in _hdr_items]})", flush=True)
             payload = resp.read().decode("utf-8")
             data = json.loads(payload)
-        meta_blocks = {
-            k: data.get(k) for k in ("user", "api", "actions", "links", "discover")
-            if data.get(k) is not None
-        }
-        if meta_blocks:
-            # Bounded preview so we don't flood the log if the blocks are huge.
-            preview = {
-                k: (v if isinstance(v, dict) else str(v))
-                for k, v in meta_blocks.items()
-            }
-            print(f"[VIN] auto.dev meta blocks: {json.dumps(preview, default=str)[:1500]}", flush=True)
-        print(f"[VIN] auto.dev OK fields={[k for k in data if not k.startswith('_') and k not in ('api','links','examples','photos','discover','actions','user')]}", flush=True)
-    except urllib.error.HTTPError as exc:
+            usage = _parse_autodev_usage(getattr(resp, "headers", None), data)
+        if usage:
+            log.info("auto.dev usage: %s", usage)
         if on_request:
-            on_request()
+            on_request(usage)
+    except urllib.error.HTTPError as exc:
+        usage = _parse_autodev_usage(getattr(exc, "headers", None), None)
+        if on_request:
+            on_request(usage)
         try:
             body = exc.read().decode("utf-8", errors="replace")
         except Exception:
             body = ""
-        print(f"[VIN] auto.dev HTTP {exc.code} for {vin}: {body[:200]}", flush=True)
         log.warning("auto.dev HTTP %s for VIN %s: %s", exc.code, vin, body[:200])
         raise AutodevError(exc.code, f"HTTP {exc.code}") from exc
     except Exception as exc:
-        print(f"[VIN] auto.dev exception for {vin}: {exc}", flush=True)
         log.warning("auto.dev fetch failed for VIN %s: %s", vin, exc)
         raise AutodevError(0, str(exc)) from exc
 

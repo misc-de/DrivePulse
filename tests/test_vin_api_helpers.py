@@ -4,7 +4,12 @@ exercised here — they're integration points already covered indirectly by
 test_vin_api and would require live API access otherwise."""
 from __future__ import annotations
 
-from drivepulse_app.vin.api import _clean, merge_sources, strip_source_keys
+from drivepulse_app.vin.api import (
+    _clean,
+    _parse_autodev_usage,
+    merge_sources,
+    strip_source_keys,
+)
 
 # ─── _clean: normalise empty-ish strings ─────────────────────────────────────
 
@@ -94,3 +99,56 @@ def test_strip_source_keys_passes_through_unrelated_keys():
 
 def test_strip_source_keys_empty_dict():
     assert strip_source_keys({}) == {}
+
+
+# ─── _parse_autodev_usage: live quota headers + plan ─────────────────────────
+
+
+class _FakeHeaders:
+    """Minimal stand-in for http.client.HTTPMessage — only .get() is used."""
+
+    def __init__(self, data: dict[str, str]) -> None:
+        self._data = data
+
+    def get(self, key: str) -> str | None:
+        return self._data.get(key)
+
+
+def test_parse_autodev_usage_free_tier_starter():
+    # Real-world response captured from auto.dev — X-Usage-* headers plus
+    # user.plan in the JSON body.
+    headers = _FakeHeaders({
+        "X-Usage-Limit": "1000",
+        "X-Usage-Remaining": "991",
+        "X-Usage-Used": "9",
+    })
+    body = {"user": {"plan": "Starter"}}
+    out = _parse_autodev_usage(headers, body)
+    assert out["limit"] == 1000
+    assert out["used"] == 9
+    assert out["remaining"] == 991
+    assert out["paid"] == 0      # within the 1000-cap → nothing billed yet
+    assert out["plan"] == "Starter"
+
+
+def test_parse_autodev_usage_paid_overage():
+    # 5500 used against a 1000 limit → 4500 paid requests.
+    headers = _FakeHeaders({
+        "X-Usage-Limit": "1000",
+        "X-Usage-Used": "5500",
+        "X-Usage-Remaining": "0",
+    })
+    out = _parse_autodev_usage(headers, {"user": {"plan": "Starter"}})
+    assert out["paid"] == 4500
+
+
+def test_parse_autodev_usage_missing_headers_returns_empty():
+    # When the response has no usage headers we don't fabricate numbers.
+    out = _parse_autodev_usage(_FakeHeaders({}), {})
+    assert out == {}
+
+
+def test_parse_autodev_usage_none_headers_is_safe():
+    # Failed call before headers were available — used for the local
+    # fallback path; must not crash.
+    assert _parse_autodev_usage(None, None) == {}
