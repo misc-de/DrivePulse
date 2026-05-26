@@ -34,6 +34,12 @@ _VIDEOS_DIR = Path.home() / "Videos" / "Dashcam"
 
 RESOLUTIONS = ["1920x1080", "1280x720", "854x480", "640x480"]
 FPS_OPTIONS  = [30, 25, 15]
+# Royalty-free codecs only — Flathub forbids x264/x265 in the runtime stack.
+# VP8 = best realtime/compatibility tradeoff, VP9 = better compression at higher
+# CPU cost, AV1 = future-proof but encode cost is high (desktop / fast SoCs only).
+CODECS = ["vp8", "vp9", "av1"]
+_SEGMENT_GLOBS = ("dc_*.webm", "dc_*.mp4")
+_PROTECTED_GLOBS = ("*.webm", "*.mp4")
 
 
 def list_cameras() -> list[str]:
@@ -117,6 +123,7 @@ class DashcamRecorder:
         self.camera:          str  = "/dev/video0"
         self.resolution:      str  = "1280x720"
         self.fps:             int  = 25
+        self.codec:           str  = "vp8"
         self.segment_minutes: int  = 3
         self.max_segments:    int  = 10
         self.rolling_dir:     Path = _VIDEOS_DIR / "tmp"
@@ -161,7 +168,12 @@ class DashcamRecorder:
             self._segments.clear()
             # Adopt files left by previous sessions so _prune() can enforce
             # max_segments across restarts and clean up stale files immediately.
-            self._segments.extend(sorted(self.rolling_dir.glob("dc_*.mp4")))
+            # Both extensions are listed so older .mp4 segments are pruned even
+            # after the user switches to a WebM codec.
+            adopted: list[Path] = []
+            for pattern in _SEGMENT_GLOBS:
+                adopted.extend(self.rolling_dir.glob(pattern))
+            self._segments.extend(sorted(adopted))
         self._prune()
         self.is_recording = True
         self._thread = threading.Thread(target=self._record_loop, daemon=True, name="dashcam")
@@ -237,7 +249,10 @@ class DashcamRecorder:
     @property
     def protected_clips(self) -> list[Path]:
         try:
-            return sorted(self.protected_dir.glob("*.mp4"))
+            clips: list[Path] = []
+            for pattern in _PROTECTED_GLOBS:
+                clips.extend(self.protected_dir.glob(pattern))
+            return sorted(clips)
         except OSError:
             log.debug("Could not list protected dir %s", self.protected_dir, exc_info=True)
             return []
@@ -269,8 +284,8 @@ class DashcamRecorder:
         """In-process GStreamer recording with optional live preview via tee.
 
         Tries two pipeline variants per camera source:
-          1. tee → gtk4paintablesink (preview) + x264enc → splitmuxsink (recording)
-          2. x264enc → splitmuxsink only (recording without preview)
+          1. tee → gtk4paintablesink (preview) + <vp8/vp9/av1>enc → splitmuxsink
+          2. <vp8/vp9/av1>enc → splitmuxsink only (recording without preview)
 
         Pipeline creation and gtk4paintablesink setup run on the GTK main thread
         (via GLib.idle_add) so the GL rendering context is correct.  The recording
@@ -291,11 +306,12 @@ class DashcamRecorder:
             "autovideosrc",
         ]
         seg_ns = self.segment_minutes * 60 * 1_000_000_000  # nanoseconds
+        enc_chain, muxer_factory, _muxer_props = self._gst_encoder_tail()
+        ext = self._container_ext()
         rec_tail = (
-            f"! x264enc tune=zerolatency speed-preset=ultrafast bitrate=2000 "
-            f"! h264parse ! splitmuxsink name=mux async-finalize=true "
-            f"max-size-time={seg_ns} muxer-factory=mp4mux "
-            f"location={self.rolling_dir}/dc_%05d.mp4"
+            f"{enc_chain} ! splitmuxsink name=mux async-finalize=true "
+            f"max-size-time={seg_ns} muxer-factory={muxer_factory} "
+            f"location={self.rolling_dir}/dc_%05d.{ext}"
         )
 
         for src in sources:
@@ -325,13 +341,14 @@ class DashcamRecorder:
                         p = _Gst.parse_launch(pl)
                         mux = p.get_by_name("mux")
                         mux.connect("format-location", self._on_gst_format_location)
-                        # Fragmented MP4: write a self-contained moof/mdat every 2 s.
-                        # Each fragment is independently decodable, so a crash or
-                        # power cut leaves at most ~2 s of the current segment unplayable.
-                        frag_props = _Gst.Structure.new_from_string(
-                            "props,fragment-duration=(uint)2000"
-                        )
-                        mux.set_property("muxer-properties", frag_props)
+                        # WebM: streamable=true makes webmmux flush clusters as
+                        # they're produced and skip seek-back to the head, so a
+                        # crash or power cut leaves the file playable up to the
+                        # last cluster (~1 s) instead of zero bytes.
+                        _, _, props_str = self._gst_encoder_tail()
+                        if props_str:
+                            mux_props = _Gst.Structure.new_from_string(props_str)
+                            mux.set_property("muxer-properties", mux_props)
                         if wp:
                             try:
                                 paintable = (
@@ -433,7 +450,38 @@ class DashcamRecorder:
 
     def _next_segment_path(self) -> Path:
         ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
-        return self.rolling_dir / f"dc_{ts}.mp4"
+        return self.rolling_dir / f"dc_{ts}.{self._container_ext()}"
+
+    def _container_ext(self) -> str:
+        # All supported codecs (VP8/VP9/AV1) ship in WebM.
+        return "webm"
+
+    def _gst_encoder_tail(self) -> tuple[str, str, str]:
+        """Return (encoder_chain, muxer_factory, muxer_props_struct) for current codec.
+
+        encoder_chain starts with '!' and ends just before the muxer/splitmuxsink.
+        muxer_props_struct is a Gst.Structure-parseable string applied to
+        splitmuxsink's child mux via the muxer-properties property.
+        """
+        if self.codec == "vp9":
+            enc = "! vp9enc deadline=1 cpu-used=8 target-bitrate=2000000"
+        elif self.codec == "av1":
+            # svtav1enc target-bitrate is in kbit/s; preset 10 ≈ realtime on x86.
+            enc = "! svtav1enc preset=10 target-bitrate=2000 ! av1parse"
+        else:
+            enc = "! vp8enc deadline=1 cpu-used=4 target-bitrate=2000000"
+        # streamable=true makes webmmux flush clusters as they're written so the
+        # file stays playable after a crash without needing seek-back to the head.
+        return enc, "webmmux", "props,streamable=(boolean)true"
+
+    def _ffmpeg_encoder_args(self) -> list[str]:
+        if self.codec == "vp9":
+            return ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8",
+                    "-b:v", "2M", "-an"]
+        if self.codec == "av1":
+            return ["-c:v", "libsvtav1", "-preset", "10", "-b:v", "2M", "-an"]
+        return ["-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "4",
+                "-b:v", "2M", "-an"]
 
     def _run_segment(self, out: Path) -> bool:
         """Record one segment. Tries GStreamer sources first, then FFmpeg V4L2."""
@@ -461,18 +509,19 @@ class DashcamRecorder:
             f"v4l2src device={self.camera}",
             "autovideosrc",
         ]
+        enc_chain, muxer_factory, _ = self._gst_encoder_tail()
         for src in gst_sources:
             if self._stop_event.is_set():
                 return False
             pipeline = (
                 f"{src} ! videoconvert ! videoflip method=0"
                 f"{osd_elements}"
-                f" ! x264enc tune=zerolatency speed-preset=ultrafast bitrate=2000"
-                f" ! h264parse ! mp4mux fragment-duration=2000"
+                f" {enc_chain}"
+                f" ! {muxer_factory} streamable=true"
                 f" ! filesink location={out}"
             )
             cmd = ["gst-launch-1.0", "-e", *pipeline.split()]
-            log.debug("gst attempt src=%s", src)
+            log.debug("gst attempt src=%s codec=%s", src, self.codec)
             ok = self._run_proc(cmd, duration_s, use_sigint=True)
             if ok:
                 return True
@@ -486,12 +535,13 @@ class DashcamRecorder:
             self._osd_txt = osd_txt
             self._refresh_osd_file()
 
+        # WebM/Matroska doesn't carry the MP4 rotate display-matrix tag, but the
+        # GStreamer path already applies rotation via videoflip — for the FFmpeg
+        # fallback we drop the metadata since players would ignore it.
         base_out = [
             "-t", str(duration_s),
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-            "-maxrate", "2000k", "-bufsize", "4000k",
-            "-movflags", "+empty_moov+default_base_moof", "-frag_duration", "2000000", "-an",
-            "-metadata:s:v:0", f"rotate={self.rotation}",
+            *self._ffmpeg_encoder_args(),
+            "-f", "webm",
         ]
         lat, lon = self.lat, self.lon
         if lat is not None and lon is not None:

@@ -32,7 +32,7 @@ def test_dashcam_segment_paths_include_subsecond_precision(tmp_path):
 
     assert first != second
     assert first.name.startswith("dc_")
-    assert first.suffix == ".mp4"
+    assert first.suffix == ".webm"
 
 
 def test_dashcam_run_proc_returns_false_when_executable_missing(monkeypatch):
