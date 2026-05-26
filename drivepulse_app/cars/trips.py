@@ -133,9 +133,9 @@ class CarsTripsMixin:
         on_show_replay = getattr(self, "on_show_trip_replay_on_map", None)
         if has_gps and on_show_replay is not None:
             keys = trip.keys() if hasattr(trip, "keys") else []
-            distance_km = trip["distance_km"] if "distance_km" in keys else None  # noqa: SIM118
-            duration_s = trip["duration_s"] if "duration_s" in keys else None  # noqa: SIM118
-            started_at = trip["started_at"] if "started_at" in keys else None  # noqa: SIM118
+            distance_km = trip["distance_km"] if "distance_km" in keys else None
+            duration_s = trip["duration_s"] if "duration_s" in keys else None
+            started_at = trip["started_at"] if "started_at" in keys else None
             label = self._trip_detail_title(trip)
             car_entry = next(
                 (e for e in self._profiles if e.get("car_id") == self._selected_car_id),

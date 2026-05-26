@@ -470,12 +470,13 @@ class CarsPage(
         btn = getattr(self, "_detail_merge_btn", None)
         if btn is None:
             return
-        show = False
-        if not self.mock_mode:
-            if self._scan_select_mode and len(self._scan_selected_ids) >= 2:
-                show = True
-            elif self._trip_select_mode and len(self._trip_selected_ids) >= 2:
-                show = True
+        show = (
+            not self.mock_mode
+            and (
+                (self._scan_select_mode and len(self._scan_selected_ids) >= 2)
+                or (self._trip_select_mode and len(self._trip_selected_ids) >= 2)
+            )
+        )
         btn.set_visible(show)
 
     def _on_merge_btn_clicked(self) -> None:

@@ -18,9 +18,9 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
 from drivepulse_app.cars.metadata import _parse_profile_pid_key, _unit_display
 from drivepulse_app.chart._helpers import (
+    _CHART_H,
     _COLOR_MAIN,
     _DEFAULT_COMPARE_COLORS,
-    _CHART_H,
     _compute_stats_for_car,
     _draw_chart,
     _fmt,
@@ -28,11 +28,6 @@ from drivepulse_app.chart._helpers import (
     _fmt_scan_label,
     _fmt_ts,
     _lookup_card_bg,
-    _PAD_B,
-    _PAD_L,
-    _PAD_R,
-    _PAD_R_VAL2,
-    _PAD_T,
     _rgb_to_hex,
     _safe_pids_count,
 )
@@ -41,6 +36,23 @@ from drivepulse_app.diagnostics import atomic_write_text, get_logger
 
 _log = get_logger(__name__)
 _PREFS_FILE = LOG_DIR / "scan_chart_prefs.json"
+
+# Re-exports for tests/callers. ScanChartContent is the public widget; the
+# underscore-prefixed names stay reachable through ``scan_chart.<name>`` so
+# tests/test_scan_chart_helpers.py keeps importing them from here, and
+# ``monkeypatch.setattr(scan_chart, "_PREFS_FILE", …)`` keeps working.
+__all__ = [
+    "_PREFS_FILE",
+    "ScanChartContent",
+    "_compute_stats_for_car",
+    "_fmt",
+    "_fmt_scan_label",
+    "_fmt_ts",
+    "_prefs_load",
+    "_prefs_save",
+    "_rgb_to_hex",
+    "_safe_pids_count",
+]
 
 
 def _prefs_load() -> dict:

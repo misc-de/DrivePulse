@@ -199,8 +199,8 @@ def _draw_gps_track(cr: Any, width: int, height: int, points: list[tuple[float, 
 # Re-exports for callers that still import these via trip_visuals (tests +
 # trip_widgets + map.replay). Done after the helpers above are defined so a
 # future from-import in the private modules wouldn't trigger a circular load.
-from drivepulse_app.cars._osm_map import _build_osm_map_widget  # noqa: E402
-from drivepulse_app.cars._trip_chart import _build_chart_widget  # noqa: E402
+from drivepulse_app.cars._osm_map import _build_osm_map_widget
+from drivepulse_app.cars._trip_chart import _build_chart_widget
 
 __all__ = [
     "_build_chart_widget",

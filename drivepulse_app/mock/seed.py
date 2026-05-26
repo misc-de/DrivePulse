@@ -527,8 +527,9 @@ def _seed_scan_samples(
       scan_idx 2 — spirited mixed (longer accel phases up to ~4500 rpm
                    and 160 km/h, deeper throttle excursions)
     """
-    from drivepulse_app.obd.recorder import _KEY_TO_PID
     import math
+
+    from drivepulse_app.obd.recorder import _KEY_TO_PID
 
     base_ts = scanned_at.timestamp()
     interval = 5.0          # seconds between samples
