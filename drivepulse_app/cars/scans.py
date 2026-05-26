@@ -150,19 +150,6 @@ class CarsScansMixin:
             return
         self._update_merge_btn_visibility()
 
-    def _update_merge_btn_visibility(self) -> None:
-        # Merge needs at least two selected scans and is only meaningful
-        # while the scan select-mode is active; mock data must never be
-        # mutated either.
-        btn = getattr(self, "_detail_merge_btn", None)
-        if btn is None:
-            return
-        btn.set_visible(
-            self._scan_select_mode
-            and not self.mock_mode
-            and len(self._scan_selected_ids) >= 2
-        )
-
     def _on_merge_selected_scans_clicked(self) -> None:
         ids = sorted(self._scan_selected_ids)
         if len(ids) < 2 or self.db is None:
