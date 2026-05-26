@@ -454,6 +454,9 @@ class DashcamPage(Gtk.Box):
     def set_resolution(self, resolution: str) -> None:
         self._recorder.resolution = resolution
 
+    def set_codec(self, codec: str) -> None:
+        self._recorder.codec = codec
+
     def set_segment_minutes(self, minutes: int) -> None:
         self._recorder.segment_minutes = minutes
 

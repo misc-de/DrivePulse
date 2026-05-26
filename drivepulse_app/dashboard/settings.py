@@ -50,6 +50,7 @@ class DashboardSettingsMixin:
                 "last_update_check": getattr(self, "last_update_check", None),
                 "dashcam_camera": getattr(self, "dashcam_camera", "/dev/video0"),
                 "dashcam_resolution": getattr(self, "dashcam_resolution", "1280x720"),
+                "dashcam_codec": getattr(self, "dashcam_codec", "vp8"),
                 "dashcam_fps": getattr(self, "dashcam_fps", 25),
                 "dashcam_seg_minutes": getattr(self, "dashcam_seg_minutes", 3),
                 "dashcam_max_segments": getattr(self, "dashcam_max_segments", 10),
@@ -144,6 +145,8 @@ class DashboardSettingsMixin:
             on_dashcam_camera_changed=self._set_dashcam_camera,
             current_dashcam_resolution=getattr(self, "dashcam_resolution", "1280x720"),
             on_dashcam_resolution_changed=self._set_dashcam_resolution,
+            current_dashcam_codec=getattr(self, "dashcam_codec", "vp8"),
+            on_dashcam_codec_changed=self._set_dashcam_codec,
             current_dashcam_fps=getattr(self, "dashcam_fps", 25),
             on_dashcam_fps_changed=self._set_dashcam_fps,
             current_dashcam_seg_minutes=getattr(self, "dashcam_seg_minutes", 3),
@@ -218,6 +221,11 @@ class DashboardSettingsMixin:
         self.dashcam_resolution = value
         self._save_settings()
         self.dashcam_page.set_resolution(value)
+
+    def _set_dashcam_codec(self, value: str) -> None:
+        self.dashcam_codec = value
+        self._save_settings()
+        self.dashcam_page.set_codec(value)
 
     def _set_dashcam_fps(self, value: int) -> None:
         self.dashcam_fps = value
