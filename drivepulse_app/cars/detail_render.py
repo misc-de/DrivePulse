@@ -760,16 +760,17 @@ class CarsDetailRenderMixin:
             chevron_col = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
             chevron_col.add_css_class("dp-value-chevron")
             chevron_col.set_valign(Gtk.Align.FILL)
-            # Fix the column at exactly 30 px wide. Both min + max via
+            # Fix the column at exactly 40 px wide. Both min + max via
             # size_request AND an explicit hexpand=False so we don't
             # inherit any expand-flag from the child icon and end up
             # competing with the content box for slack.
-            chevron_col.set_size_request(30, -1)
+            chevron_col.set_size_request(40, -1)
             chevron_col.set_hexpand(False)
             arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
             arrow.set_pixel_size(14)
             arrow.set_valign(Gtk.Align.CENTER)
             arrow.set_halign(Gtk.Align.CENTER)
+            arrow.set_vexpand(True)
             arrow.set_hexpand(False)
             chevron_col.append(arrow)
             outer.append(chevron_col)
