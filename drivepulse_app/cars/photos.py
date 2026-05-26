@@ -132,10 +132,6 @@ class CarsPhotosMixin:
         outer.set_hexpand(True)
         outer.set_vexpand(True)
         outer.append(flow)
-
-        if self._photo_select_mode:
-            outer.append(self._build_photo_action_bar())
-
         self._value_scroll.set_child(outer)
 
     def _make_photo_tile(self, photo: Any) -> Gtk.FlowBoxChild:
@@ -462,39 +458,6 @@ class CarsPhotosMixin:
             self.nav_view.pop()
             self._photo_detail_page = None
         self._render_detail()
-
-    # ---------------------------------------------------------------- action bar (multi-select)
-
-    def _build_photo_action_bar(self) -> Gtk.Box:
-        n = len(self._photo_selected_ids)
-        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        bar.add_css_class("toolbar")
-        bar.set_margin_top(4)
-        bar.set_margin_bottom(4)
-        bar.set_margin_start(8)
-        bar.set_margin_end(8)
-
-        lbl = Gtk.Label(label=_translate(self.language, "cars.photos.selected_count", n=n))
-        lbl.set_hexpand(True)
-        lbl.set_xalign(0.0)
-        lbl.add_css_class("dim-label")
-        bar.append(lbl)
-
-        if self._is_sync_active():
-            share_btn = Gtk.Button(icon_name="share-alt-symbolic")
-            share_btn.add_css_class("flat")
-            share_btn.set_tooltip_text(_translate(self.language, "cars.photos.share_selected"))
-            share_btn.connect("clicked", lambda _b: self._share_selected_photos())
-            bar.append(share_btn)
-
-        del_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        del_btn.add_css_class("flat")
-        del_btn.add_css_class("destructive-action")
-        del_btn.set_tooltip_text(_translate(self.language, "cars.photos.delete_selected"))
-        del_btn.connect("clicked", lambda _b: self._confirm_delete_selected_photos())
-        bar.append(del_btn)
-
-        return bar
 
     # ---------------------------------------------------------------- multi-select
 
