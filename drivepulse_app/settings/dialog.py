@@ -762,6 +762,26 @@ class SettingsDialog(SettingsBluetoothMixin, SettingsDashcamMixin, Adw.Navigatio
         self._dc_fps_row.connect("notify::selected", self._on_dc_fps_changed)
         dc_group.add(self._dc_fps_row)
 
+        # Codec — VP8 / VP9 / AV1 (Flathub-friendly royalty-free codecs)
+        self._dc_codec_ids = ["vp8", "vp9", "av1"]
+        codec_model = Gtk.StringList()
+        for cid in self._dc_codec_ids:
+            codec_model.append(cid.upper())
+        self._dc_codec_row = Adw.ComboRow(
+            title=_translate(self.language, "dashcam.settings.codec"),
+        )
+        self._dc_codec_row.set_subtitle(
+            _translate(self.language, "dashcam.settings.codec_sub"),
+        )
+        self._dc_codec_row.set_model(codec_model)
+        codec_idx = (
+            self._dc_codec_ids.index(self._current_dashcam_codec)
+            if self._current_dashcam_codec in self._dc_codec_ids else 0
+        )
+        self._dc_codec_row.set_selected(codec_idx)
+        self._dc_codec_row.connect("notify::selected", self._on_dc_codec_changed)
+        dc_group.add(self._dc_codec_row)
+
         # Populate resolution+fps from camera query (or static fallback)
         self._dc_cam_modes: dict[str, list[int]] = {}
         self._dc_current_res = current_dashcam_resolution
