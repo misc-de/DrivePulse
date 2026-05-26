@@ -384,7 +384,15 @@ class CarsDetailRenderMixin:
                             avg_str = f"{avg:.2f}"
                         value_text = f"{avg_str} {unit}".strip()
                         is_unknown = False
-                    if stats and len(stats.get("values") or []) > 1:
+                    # A single scan with intra-sample data is still
+                    # chartable — only suppress the click when there is
+                    # literally nothing to plot. The previous "> 1" gate
+                    # broke the chart whenever multiple scans had been
+                    # merged into one (so values collapsed to len 1).
+                    if stats and (
+                        (stats.get("values") or [])
+                        or (stats.get("intra_series") or {})
+                    ):
                         def on_click(_lbl=label, _pk=pid_key, _st=self._scan_pid_stats, _pl=_pid_labels, _lg=_lang):
                             return self._push_scan_chart(_lbl, _pk, _st, _pl, _lg)
                     else:
