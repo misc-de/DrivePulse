@@ -788,6 +788,9 @@ class CarsPage(
         item-detail handlers still call _set_trash() themselves to install
         their own action.
         """
+        if self._photo_select_mode:
+            self._set_trash(self._confirm_delete_selected_photos)
+            return
         if (
             self._is_real_car
             and not self.mock_mode
