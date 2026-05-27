@@ -90,6 +90,7 @@ class MapTourMixin:
             self._pending_trip_trace_args = None
             if self._tour_start_btn is not None:
                 self._tour_start_btn.set_sensitive(False)
+            self._set_route_loading(True)
             coords, label, distance_km, duration_s, *rest = pending
             timestamps = rest[0] if rest else None
             log.info("trip_trace_start coords=%d label=%r", len(coords), label)

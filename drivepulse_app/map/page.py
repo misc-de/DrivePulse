@@ -836,6 +836,7 @@ class MapPage(
         orig_distance_km: float | None,
         orig_duration_s: float | None,
     ) -> bool:
+        self._set_route_loading(False)
         self._set_tour_button("start" if result is not None else "calculate")
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_sensitive(True)
