@@ -1276,18 +1276,34 @@ def route_via_gps_waypoints(
             merged_dur += dur_r
             merged_dist += dist_r
             merged_steps.extend(steps_r)
+
+        # Validate: Valhalla map-matching can silently "shortcut" loops or
+        # detours when GPS points are sparse, returning a plausible-looking
+        # route that bypasses streets the driver actually used.  Reject the
+        # match if the GPS trace diverges from the route, or if the route
+        # passes through territory with no GPS support.
+        deviations = _gps_route_deviations(coords_lonlat, merged_coords)
+        orphans = _route_orphan_corrections(merged_coords, coords_lonlat)
+        if deviations or orphans:
+            write_diagnostic_log(
+                __name__, logging.INFO,
+                "route_via_gps_waypoints map_match_diverged "
+                "deviations=%d orphans=%d dist_km=%.1f fallback_to_waypoints",
+                len(deviations), len(orphans), merged_dist / 1000.0,
+            )
+        else:
+            write_diagnostic_log(
+                __name__, logging.INFO,
+                "route_via_gps_waypoints map_match_ok legs=%d dist_km=%.1f",
+                len(leg_results), merged_dist / 1000.0,
+            )
+            return merged_coords, merged_dur, merged_dist, merged_steps
+    else:
         write_diagnostic_log(
             __name__, logging.INFO,
-            "route_via_gps_waypoints map_match_ok legs=%d dist_km=%.1f",
-            len(leg_results), merged_dist / 1000.0,
+            "route_via_gps_waypoints map_match_failed fallback_to_waypoints pts=%d",
+            len(coords_lonlat),
         )
-        return merged_coords, merged_dur, merged_dist, merged_steps
-
-    write_diagnostic_log(
-        __name__, logging.INFO,
-        "route_via_gps_waypoints map_match_failed fallback_to_waypoints pts=%d",
-        len(coords_lonlat),
-    )
 
     # Fallback: waypoint extraction + routing + U-turn correction.
     cleaned, stop_indices = _clean_gps_trace(coords_lonlat, timestamps=timestamps)
