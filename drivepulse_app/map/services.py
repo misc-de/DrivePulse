@@ -533,6 +533,80 @@ def _trace_bodies(shape: list[dict[str, float | str]]) -> list[tuple[str, dict[s
     ]
 
 
+def extract_turn_waypoints(
+    coords_lonlat: list[list[float]],
+    min_turn_deg: float = 30.0,
+    min_segment_m: float = 150.0,
+    max_waypoints: int = 25,
+) -> list[tuple[float, float]]:
+    """Extract start, significant turns, and end as (lat, lon) waypoints.
+
+    Accumulates GPS points into segments of at least *min_segment_m* before
+    computing each segment bearing — this filters per-point GPS noise before
+    turn detection.  A waypoint is added when adjacent segment bearings differ
+    by at least *min_turn_deg* degrees.
+    """
+    if len(coords_lonlat) < 2:
+        return [(c[1], c[0]) for c in coords_lonlat]
+
+    waypoints: list[tuple[float, float]] = [(coords_lonlat[0][1], coords_lonlat[0][0])]
+    seg_start_idx = 0
+    seg_dist = 0.0
+    prev_seg_bearing: float | None = None
+
+    for i in range(1, len(coords_lonlat)):
+        a, b = coords_lonlat[i - 1], coords_lonlat[i]
+        seg_dist += haversine(a[1], a[0], b[1], b[0])
+        if seg_dist < min_segment_m:
+            continue
+
+        s = coords_lonlat[seg_start_idx]
+        curr_bearing = bearing(s[1], s[0], b[1], b[0])
+
+        if prev_seg_bearing is not None:
+            diff = abs(curr_bearing - prev_seg_bearing) % 360.0
+            if diff > 180.0:
+                diff = 360.0 - diff
+            if diff >= min_turn_deg:
+                waypoints.append((b[1], b[0]))
+
+        prev_seg_bearing = curr_bearing
+        seg_start_idx = i
+        seg_dist = 0.0
+
+    last = (coords_lonlat[-1][1], coords_lonlat[-1][0])
+    if waypoints[-1] != last:
+        waypoints.append(last)
+
+    if len(waypoints) > max_waypoints:
+        step = (len(waypoints) - 1) / (max_waypoints - 1)
+        sampled = [waypoints[round(i * step)] for i in range(max_waypoints - 1)]
+        waypoints = sampled + [last]
+
+    return waypoints
+
+
+def route_via_gps_waypoints(
+    coords_lonlat: list[list[float]],
+    http_get_fn: HttpGet = http_get,
+) -> tuple[list[list[float]], float, float, list[dict]] | None:
+    """Compute a road-snapped route from a noisy GPS trace.
+
+    Detects significant turns in the GPS trace as waypoints and routes
+    between them via compute_route().  More robust than map-matching APIs
+    for GPS traces with noise or gaps.
+    """
+    if len(coords_lonlat) < 2:
+        return None
+    waypoints = extract_turn_waypoints(coords_lonlat)
+    write_diagnostic_log(
+        __name__, logging.INFO,
+        "route_via_gps_waypoints pts=%d waypoints=%d",
+        len(coords_lonlat), len(waypoints),
+    )
+    return compute_route(waypoints, http_get_fn=http_get_fn)
+
+
 def osrm_match_route(
     coords_lonlat: list[list[float]],
     http_get_fn: HttpGet = http_get,
