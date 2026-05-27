@@ -437,6 +437,12 @@ class MapReplayMixin:
         # The info card lives inside the tour-controls grid, so the grid must
         # be visible for the card to appear.
         self._set_tour_controls_visible(True)
+        # Store coords so "Tour berechnen" can trigger load_trip_as_route on click.
+        lonlat_coords = [[lon, lat] for lat, lon, _ in latlon_speed]
+        if len(lonlat_coords) >= 2:
+            self._replay_nav_coords: list | None = lonlat_coords
+            self._replay_nav_meta: dict | None = meta
+        self._set_tour_button("calculate")
         # Start minimized — only the notepad icon shows; user opens the card on demand.
         self._set_replay_info_minimized(True)
         if self._replay_chart_widget is not None:
@@ -483,6 +489,8 @@ class MapReplayMixin:
     def _clear_replay_overlays(self) -> None:
         """Hide the replay info + chart overlays and clear the polyline + marker."""
         self._loaded_trip_id = None
+        self._replay_nav_coords = None
+        self._replay_nav_meta = None
         if getattr(self, "_replay_info_overlay", None) is not None:
             self._replay_info_overlay.set_visible(False)
         if getattr(self, "_replay_info_restore_btn", None) is not None:

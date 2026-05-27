@@ -855,6 +855,8 @@ class MapPage(
             if self._steps_panel is not None:
                 self._rebuild_steps_list()
                 self._set_steps_panel_visible(bool(steps))
+        if getattr(self, "_pending_route_draw", False):
+            self._push_route_to_map()
         return False
 
     def _push_route_to_map(self) -> None:
