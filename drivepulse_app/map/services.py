@@ -533,6 +533,32 @@ def _trace_bodies(shape: list[dict[str, float | str]]) -> list[tuple[str, dict[s
     ]
 
 
+def _remap_speed_to_route(
+    route_coords: list[list[float]],
+    latlon_speed: list[tuple[float, float, float | None]],
+) -> list[tuple[float, float, float | None]]:
+    """Project GPS speed values onto calculated route coordinates.
+
+    For each route point, picks the nearest original GPS sample by
+    flat-earth squared distance and carries over its speed value.
+    Returns a list of (lat, lon, speed_or_None) matching route_coords.
+    """
+    result: list[tuple[float, float, float | None]] = []
+    for lon, lat in route_coords:
+        best_speed: float | None = None
+        best_d2 = float("inf")
+        cos_lat = math.cos(math.radians(lat))
+        for g_lat, g_lon, speed in latlon_speed:
+            dlat = lat - g_lat
+            dlon = (lon - g_lon) * cos_lat
+            d2 = dlat * dlat + dlon * dlon
+            if d2 < best_d2:
+                best_d2 = d2
+                best_speed = speed
+        result.append((lat, lon, best_speed))
+    return result
+
+
 def extract_turn_waypoints(
     coords_lonlat: list[list[float]],
     min_turn_deg: float = 30.0,
