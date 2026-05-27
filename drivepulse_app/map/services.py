@@ -712,12 +712,38 @@ def route_via_gps_waypoints(
 ) -> tuple[list[list[float]], float, float, list[dict]] | None:
     """Compute a road-snapped route from a noisy GPS trace.
 
-    Detects significant turns in the GPS trace as waypoints and routes
-    between them via compute_route().  More robust than map-matching APIs
-    for GPS traces with noise or gaps.
+    Tries Valhalla map-matching (trace_route) first — it sends the full
+    GPS shape and returns the exact roads driven.  Falls back to the
+    waypoint-extraction approach (turn detection + routing) if
+    map-matching is unavailable or fails.
     """
     if len(coords_lonlat) < 2:
         return None
+
+    # Primary: map-matching via Valhalla trace_route.
+    # Use spike-cleaned coords so a single GPS bounce doesn't corrupt
+    # the match, but skip cluster-collapse — those intermediate points
+    # tell Valhalla which exact road the car was on.
+    cleaned_for_match, _ = _clean_gps_trace(
+        coords_lonlat, timestamps=timestamps,
+        cluster_radius_m=0.0,   # no cluster collapse for map-matching
+    )
+    match_result = valhalla_trace_route(cleaned_for_match)
+    if match_result is not None:
+        write_diagnostic_log(
+            __name__, logging.INFO,
+            "route_via_gps_waypoints map_match_ok pts=%d dist_km=%.1f",
+            len(coords_lonlat), match_result[2] / 1000.0,
+        )
+        return match_result
+
+    write_diagnostic_log(
+        __name__, logging.INFO,
+        "route_via_gps_waypoints map_match_failed fallback_to_waypoints pts=%d",
+        len(coords_lonlat),
+    )
+
+    # Fallback: waypoint extraction + routing + deviation correction.
     cleaned, stop_indices = _clean_gps_trace(coords_lonlat, timestamps=timestamps)
 
     # Split at stop-gap boundaries so each leg is routed independently.
