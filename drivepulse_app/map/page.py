@@ -856,11 +856,10 @@ class MapPage(
                 self._prerender_upcoming_steps(0, 2)
             except Exception:
                 pass
-            if self._steps_toggle_btn is not None:
-                self._steps_toggle_btn.set_active(True)
-            if self._steps_panel is not None:
-                self._rebuild_steps_list()
-                self._set_steps_panel_visible(bool(steps))
+            if self._steps_toggle_btn is not None and self._steps_toggle_btn.get_active():
+                self._steps_toggle_btn.set_active(False)
+            elif self._steps_panel is not None:
+                self._set_steps_panel_visible(False)
         if result is None:
             write_diagnostic_log(
                 __name__,
