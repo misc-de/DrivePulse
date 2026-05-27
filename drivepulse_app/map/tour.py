@@ -225,11 +225,12 @@ class MapTourMixin:
             self._update_left_chrome_visibility()
 
     def _set_tour_button(self, mode: str) -> None:
-        """mode: 'start' | 'stop' | 'resume'."""
+        """mode: 'start' | 'calculate' | 'stop' | 'resume'."""
         label_key = {
-            "start":  "map.tour_start",
-            "stop":   "map.tour_stop",
-            "resume": "map.tour_resume",
+            "start":     "map.tour_start",
+            "calculate": "map.tour_calculate",
+            "stop":      "map.tour_stop",
+            "resume":    "map.tour_resume",
         }.get(mode, "map.tour_start")
         icon_name = "media-playback-stop-symbolic" if mode == "stop" else "media-playback-start-symbolic"
         if self._tour_start_lbl is not None:

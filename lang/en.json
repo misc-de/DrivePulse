@@ -177,6 +177,7 @@
   "map.follow": "Follow GPS",
   "map.poi": "Show places (POI)",
   "map.tour_start": "Start tour",
+  "map.tour_calculate": "Calculate tour",
   "map.tour_stop": "Stop tour",
   "map.tour_resume": "Resume tour",
   "map.tour_abort": "Abort tour",
