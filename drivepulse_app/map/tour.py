@@ -149,10 +149,9 @@ class MapTourMixin:
             self._js(f"mapStartTour({lat}, {lon})")
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
-            self._setting_pos = True
-            viewport.set_zoom_level(min(self._TOUR_ZOOM, self._shumate_max_zoom()))
-            viewport.set_location(lat, lon)
-            self._setting_pos = False
+            with self._viewport_lock():
+                viewport.set_zoom_level(min(self._TOUR_ZOOM, self._shumate_max_zoom()))
+                viewport.set_location(lat, lon)
         if self._gps_lat is not None and self._gps_lon is not None:
             dist = haversine(self._gps_lat, self._gps_lon, lat, lon)
             if dist > 200:

@@ -21,7 +21,8 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import gi
@@ -407,13 +408,26 @@ class MapPage(
 
     # ── Follow / viewport ─────────────────────────────────────────────────────
 
+    @contextmanager
+    def _viewport_lock(self) -> Iterator[None]:
+        """Block ``_on_viewport_moved`` while we mutate the Shumate viewport.
+
+        Resets ``_setting_pos`` in a finally — without this, an exception
+        from set_location/set_zoom_level/set_rotation would leave the flag
+        stuck and the viewport-moved signal would drop every later user pan.
+        """
+        self._setting_pos = True
+        try:
+            yield
+        finally:
+            self._setting_pos = False
+
     def _goto(self, lat: float, lon: float) -> None:
         if self._backend == "webkit":
             self._js(f"mapSetCar({lat}, {lon}, {self._gps_heading})")
         elif self._shumate_map is not None:
-            self._setting_pos = True
-            self._shumate_map.get_viewport().set_location(lat, lon)
-            self._setting_pos = False
+            with self._viewport_lock():
+                self._shumate_map.get_viewport().set_location(lat, lon)
 
     # ── Follow / viewport ─────────────────────────────────────────────────────
 
@@ -448,10 +462,9 @@ class MapPage(
             self._js(f"mapGoTo({self._gps_lat}, {self._gps_lon}, 17)")
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
-            self._setting_pos = True
-            viewport.set_location(self._gps_lat, self._gps_lon)
-            viewport.set_zoom_level(17.0)
-            self._setting_pos = False
+            with self._viewport_lock():
+                viewport.set_location(self._gps_lat, self._gps_lon)
+                viewport.set_zoom_level(17.0)
 
     def _on_layer_clicked(self, _btn: Gtk.Button) -> None:
         self._map_type_idx = (self._map_type_idx + 1) % len(MAP_TYPES)
@@ -527,9 +540,8 @@ class MapPage(
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
             current = viewport.get_zoom_level()
-            self._setting_pos = True
-            viewport.set_zoom_level(max(1.0, min(self._shumate_max_zoom(), current + delta)))
-            self._setting_pos = False
+            with self._viewport_lock():
+                viewport.set_zoom_level(max(1.0, min(self._shumate_max_zoom(), current + delta)))
 
     # ── Route ─────────────────────────────────────────────────────────────────
 

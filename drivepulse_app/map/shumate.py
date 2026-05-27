@@ -168,10 +168,9 @@ class MapShumateMixin:
         lon = getattr(self, "_gps_lon", None)
         if lat is not None and lon is not None and self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
-            self._setting_pos = True
-            viewport.set_location(lat, lon)
-            viewport.set_zoom_level(17.0)
-            self._setting_pos = False
+            with self._viewport_lock():
+                viewport.set_location(lat, lon)
+                viewport.set_zoom_level(17.0)
 
     def _update_shumate_gps(self, lat: float, lon: float) -> None:
         if self._car_marker is None:
@@ -336,10 +335,9 @@ class MapShumateMixin:
             px_h = max(alloc.height, 600)
             zoom = zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
             viewport = self._shumate_map.get_viewport()
-            self._setting_pos = True
-            viewport.set_zoom_level(zoom)
-            viewport.set_location(clat, clon)
-            self._setting_pos = False
+            with self._viewport_lock():
+                viewport.set_zoom_level(zoom)
+                viewport.set_location(clat, clon)
 
     def _shumate_set_traffic_visible(self, visible: bool) -> None:
         if self._traffic_layer is not None:
@@ -519,10 +517,9 @@ class MapShumateMixin:
         px_w = max(alloc.width, 400)
         px_h = max(alloc.height, 600)
         zoom = zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
-        self._setting_pos = True
-        viewport.set_zoom_level(zoom)
-        viewport.set_location(clat, clon)
-        self._setting_pos = False
+        with self._viewport_lock():
+            viewport.set_zoom_level(zoom)
+            viewport.set_location(clat, clon)
 
     def _shumate_clear_colored_track(self) -> None:
         self._replay_track_points = []
