@@ -814,7 +814,13 @@ class MapPage(
                 len(snapped), len(steps), dist / 1000.0, dur / 60.0,
             )
         else:
-            log.warning("trip_trace_osrm_match_failed pts=%d label=%r", len(coords), label)
+            write_diagnostic_log(
+                __name__,
+                logging.WARNING,
+                "trip_trace_osrm_match_failed pts=%d label=%r",
+                len(coords),
+                label,
+            )
         GLib.idle_add(
             self._trip_trace_result, result, coords, label, distance_km, duration_s
         )

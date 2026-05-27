@@ -552,14 +552,25 @@ def osrm_match_route(
         "?overview=full&geometries=geojson&steps=true"
     )
     data = http_get_fn(url)
-    if not data or data.get("code") != "Ok":
-        log.warning(
-            "osrm_match_route failed code=%r",
-            (data or {}).get("code") if isinstance(data, dict) else None,
+    code = (data or {}).get("code") if isinstance(data, dict) else None
+    if not data or code != "Ok":
+        write_diagnostic_log(
+            __name__,
+            logging.WARNING,
+            "osrm_match_route failed code=%r message=%r pts=%d sampled_pts=%d",
+            code,
+            (data or {}).get("message") if isinstance(data, dict) else None,
+            len(coords_lonlat),
+            len(pts),
         )
         return None
     matchings = data.get("matchings") or []
     if not matchings:
+        write_diagnostic_log(
+            __name__, logging.WARNING,
+            "osrm_match_route no matchings pts=%d sampled_pts=%d",
+            len(coords_lonlat), len(pts),
+        )
         return None
     coords: list[list[float]] = []
     duration_s = 0.0
