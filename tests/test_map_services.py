@@ -219,3 +219,28 @@ def test_snap_to_route_fallback_no_coords():
 
     assert slat == 48.0
     assert slon == 11.0
+
+
+def test_valhalla_trace_route_uses_public_trace_host_and_break_via_types(monkeypatch):
+    from drivepulse_app.map import services
+
+    seen: list[tuple[str, dict]] = []
+
+    def fake_post(url: str, body: dict):
+        seen.append((url, body))
+        return None
+
+    monkeypatch.setattr(services, "_log_valhalla_trace_failure", lambda *a, **k: None)
+
+    result = services.valhalla_trace_route(
+        [[7.0, 50.0], [7.1, 50.1], [7.2, 50.2]],
+        http_post_json_fn=fake_post,
+    )
+
+    assert result is None
+    assert seen[0][0] == "https://valhalla1.openstreetmap.de/trace_route"
+    assert seen[1][0] == "https://valhalla.openstreetmap.de/trace_route"
+    shape = seen[0][1]["shape"]
+    assert [p["type"] for p in shape] == ["break", "via", "break"]
+    assert seen[0][1]["shape_match"] == "map_snap"
+    assert seen[0][1]["costing"] == "auto"

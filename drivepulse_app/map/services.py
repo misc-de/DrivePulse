@@ -25,7 +25,10 @@ GeocodeFn = Callable[[str], tuple[float, float] | None]
 ROUTING_BACKENDS = ["osrm", "valhalla"]
 
 _VALHALLA_URL = "https://valhalla.openstreetmap.de/route"
-_VALHALLA_TRACE_URL = "https://valhalla.openstreetmap.de/trace_route"
+_VALHALLA_TRACE_URLS = [
+    "https://valhalla1.openstreetmap.de/trace_route",
+    "https://valhalla.openstreetmap.de/trace_route",
+]
 _OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 # Named maxspeed tags used by OSM / Valhalla (→ km/h)
@@ -519,7 +522,10 @@ def valhalla_trace_route(
         return None
     pts = _subsample_coords(coords_lonlat, 500)
     try:
-        shape = [{"lat": float(c[1]), "lon": float(c[0])} for c in pts]
+        shape = []
+        for idx, c in enumerate(pts):
+            point_type = "break" if idx in {0, len(pts) - 1} else "via"
+            shape.append({"lat": float(c[1]), "lon": float(c[0]), "type": point_type})
     except (IndexError, TypeError, ValueError) as exc:
         _log_valhalla_trace_failure("Valhalla trace_route invalid input: %s", exc)
         return None
@@ -529,7 +535,17 @@ def valhalla_trace_route(
         "shape_match": "map_snap",
         "directions_options": {"units": "kilometers"},
     }
-    data = http_post_json_fn(_VALHALLA_TRACE_URL, body)
+    data = None
+    for url in _VALHALLA_TRACE_URLS:
+        data = http_post_json_fn(url, body)
+        if data:
+            break
+        _log_valhalla_trace_failure(
+            "Valhalla trace_route endpoint failed url=%s pts=%d sampled_pts=%d",
+            url,
+            len(coords_lonlat),
+            len(shape),
+        )
     if not data:
         _log_valhalla_trace_failure(
             "Valhalla trace_route failed: no response pts=%d sampled_pts=%d",
