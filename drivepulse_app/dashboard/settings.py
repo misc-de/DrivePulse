@@ -688,24 +688,22 @@ class DashboardSettingsMixin:
             self.gps_reader.set_mock_mode(mock_mode)
         if hasattr(self, "map_page"):
             self.map_page.set_mock_mode(mock_mode)
-        if hasattr(self, "cars_page"):
-            self.cars_page.set_mock_mode(mock_mode)
+        # Seed/remove the DB BEFORE notifying cars_page so its single
+        # rebuild reflects the final mock state in one pass.
         if mock_mode:
             try:
                 from drivepulse_app.mock.seed import seed_mock_data
-                added = seed_mock_data(self.db)
-                if added and hasattr(self, "cars_page"):
-                    self.cars_page.refresh()
+                seed_mock_data(self.db)
             except Exception:
                 log.exception("Could not seed mock vehicle data")
         else:
             try:
                 from drivepulse_app.mock.seed import remove_mock_data
-                removed = remove_mock_data(self.db)
-                if removed and hasattr(self, "cars_page"):
-                    self.cars_page.refresh()
+                remove_mock_data(self.db)
             except Exception:
                 log.exception("Could not remove mock vehicle data")
+        if hasattr(self, "cars_page"):
+            self.cars_page.set_mock_mode(mock_mode)
 
     def _set_sidebar_side(self, side: str) -> None:
         if side == self.sidebar_side:
