@@ -741,7 +741,137 @@ def route_via_gps_waypoints(
         "route_via_gps_waypoints pts=%d cleaned=%d stops=%d waypoints=%d",
         len(coords_lonlat), len(cleaned), len(stop_indices), len(all_waypoints),
     )
-    return compute_route(all_waypoints, http_get_fn=http_get_fn)
+    result = compute_route(all_waypoints, http_get_fn=http_get_fn)
+
+    # Deviation correction: compare cleaned GPS against the computed route and
+    # inject extra waypoints where the route diverges significantly.
+    if result is not None:
+        for _iter in range(3):
+            corrections = _gps_route_deviations(cleaned, result[0])
+            if not corrections:
+                break
+            write_diagnostic_log(
+                __name__, logging.INFO,
+                "route_via_gps_waypoints correction_iter=%d corrections=%d",
+                _iter + 1, len(corrections),
+            )
+            all_waypoints = _insert_correction_waypoints(
+                all_waypoints, corrections, cleaned
+            )
+            new_result = compute_route(all_waypoints, http_get_fn=http_get_fn)
+            if new_result is None:
+                break
+            result = new_result
+
+    return result
+
+
+def _gps_route_deviations(
+    gps_coords: list[list[float]],
+    route_coords: list[list[float]],
+    threshold_m: float = 50.0,
+    min_streak: int = 3,
+) -> list[tuple[int, tuple[float, float]]]:
+    """Find GPS points that deviate significantly from the computed route.
+
+    Returns a list of ``(gps_index, (lat, lon))`` — one entry per consecutive
+    run of *min_streak* or more GPS points that are all farther than
+    *threshold_m* from the route.  The returned point is the one with the
+    maximum deviation within each run.
+    """
+    if len(route_coords) < 2 or not gps_coords:
+        return []
+
+    cos_lat = math.cos(math.radians(
+        sum(c[1] for c in gps_coords) / len(gps_coords)
+    ))
+
+    def _dist_to_route(lon: float, lat: float) -> float:
+        best_d2 = float("inf")
+        px, py = lon * cos_lat, lat
+        for i in range(len(route_coords) - 1):
+            ax = route_coords[i][0] * cos_lat
+            ay = route_coords[i][1]
+            bx = route_coords[i + 1][0] * cos_lat
+            by = route_coords[i + 1][1]
+            abx, aby = bx - ax, by - ay
+            ab2 = abx * abx + aby * aby
+            if ab2 > 0.0:
+                t = max(0.0, min(1.0, ((px - ax) * abx + (py - ay) * aby) / ab2))
+            else:
+                t = 0.0
+            dx = px - (ax + t * abx)
+            dy = py - (ay + t * aby)
+            d2 = dx * dx + dy * dy
+            if d2 < best_d2:
+                best_d2 = d2
+        return math.sqrt(best_d2) * 111_000.0
+
+    corrections: list[tuple[int, tuple[float, float]]] = []
+    streak_start: int | None = None
+    worst_idx: int | None = None
+    worst_dist = 0.0
+
+    def _flush(end: int) -> None:
+        nonlocal streak_start, worst_idx, worst_dist
+        if streak_start is not None and worst_idx is not None:
+            if end - streak_start >= min_streak:
+                c = gps_coords[worst_idx]
+                corrections.append((worst_idx, (c[1], c[0])))
+        streak_start = None
+        worst_idx = None
+        worst_dist = 0.0
+
+    for i, coord in enumerate(gps_coords):
+        d = _dist_to_route(coord[0], coord[1])
+        if d > threshold_m:
+            if streak_start is None:
+                streak_start = i
+            if d > worst_dist:
+                worst_idx = i
+                worst_dist = d
+        else:
+            _flush(i)
+
+    _flush(len(gps_coords))
+    return corrections
+
+
+def _insert_correction_waypoints(
+    waypoints: list[tuple[float, float]],
+    corrections: list[tuple[int, tuple[float, float]]],
+    gps_coords: list[list[float]],
+) -> list[tuple[float, float]]:
+    """Merge GPS correction points into an ordered waypoint list.
+
+    Each existing waypoint is mapped to its nearest GPS index; the corrections
+    (also GPS indices) are then interleaved so the combined list stays in
+    route order.  Points closer than 5 m to an already-present waypoint are
+    dropped to avoid duplicates.
+    """
+    if not corrections:
+        return waypoints
+
+    # Map each waypoint to the nearest GPS point index
+    wp_gps: list[tuple[int, tuple[float, float]]] = []
+    for wp_lat, wp_lon in waypoints:
+        best_i, best_d = 0, float("inf")
+        for i, c in enumerate(gps_coords):
+            d = haversine(wp_lat, wp_lon, c[1], c[0])
+            if d < best_d:
+                best_d = d
+                best_i = i
+        wp_gps.append((best_i, (wp_lat, wp_lon)))
+
+    combined = wp_gps + corrections
+    combined.sort(key=lambda x: x[0])
+
+    result: list[tuple[float, float]] = []
+    for _, wp in combined:
+        if not result or haversine(result[-1][0], result[-1][1], wp[0], wp[1]) > 5.0:
+            result.append(wp)
+
+    return result
 
 
 def osrm_match_route(
