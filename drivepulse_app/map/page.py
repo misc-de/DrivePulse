@@ -582,6 +582,7 @@ class MapPage(
         self._tour_steps = []
         self._tour_step_idx = 0
         self._tour_coords = []
+        self._route_coords = []
         self._pending_route_draw = False
         self._loaded_tour_id = None
         self._loaded_tour_name = None
