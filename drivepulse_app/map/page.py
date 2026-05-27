@@ -857,6 +857,11 @@ class MapPage(
             dialog.set_default_response("ok")
             dialog.present(self.get_root())
         if result is not None or getattr(self, "_pending_route_draw", False):
+            if result is not None:
+                if self._backend == "webkit":
+                    self._js("mapClearColoredTrack()")
+                elif getattr(self, "_shumate_map", None) is not None and hasattr(self, "_shumate_clear_colored_track"):
+                    self._shumate_clear_colored_track()
             self._push_route_to_map()
         return False
 
