@@ -15,6 +15,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map._list_helpers import make_bulk_select_header, make_empty_dim_row
 
 log = get_logger(__name__)
 
@@ -60,26 +61,14 @@ class MapTourSavedMixin:
 
         self._tour_listbox = listbox
 
-        header = Adw.HeaderBar()
-        trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        trash_btn.add_css_class("destructive-action")
-        trash_btn.set_tooltip_text(
-            _translate(self.language, "map.history.delete_selected_tooltip")
+        header, trash_btn, share_btn = make_bulk_select_header(
+            trash_tooltip=_translate(self.language, "map.history.delete_selected_tooltip"),
+            share_tooltip=_translate(self.language, "map.history.share_selected_tooltip"),
+            on_trash=self._on_saved_tour_trash_clicked,
+            on_share=self._on_saved_tour_share_clicked,
         )
-        trash_btn.set_visible(False)
-        trash_btn.connect("clicked", self._on_saved_tour_trash_clicked)
         self._saved_tour_trash_btn = trash_btn
-        header.pack_end(trash_btn)
-
-        share_btn = Gtk.Button(icon_name="share-alt-symbolic")
-        share_btn.add_css_class("flat")
-        share_btn.set_tooltip_text(
-            _translate(self.language, "map.history.share_selected_tooltip")
-        )
-        share_btn.set_visible(False)
-        share_btn.connect("clicked", self._on_saved_tour_share_clicked)
         self._saved_tour_share_btn = share_btn
-        header.pack_end(share_btn)
 
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(header)
@@ -171,15 +160,9 @@ class MapTourSavedMixin:
         self._saved_tour_metas = [dict(t) for t in tours]
 
         if not tours:
-            row = Gtk.ListBoxRow()
-            row.set_activatable(False)
-            row.set_selectable(False)
-            lbl = Gtk.Label(label=_translate(self.language, "map.tours.empty"))
-            lbl.add_css_class("dim-label")
-            lbl.set_margin_top(14)
-            lbl.set_margin_bottom(14)
-            row.set_child(lbl)
-            self._tour_listbox.append(row)
+            self._tour_listbox.append(
+                make_empty_dim_row(_translate(self.language, "map.tours.empty"))
+            )
             return
 
         for tour in self._saved_tour_metas:

@@ -13,6 +13,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map._list_helpers import make_bulk_select_header, make_empty_dim_row
 
 log = get_logger(__name__)
 
@@ -61,26 +62,14 @@ class MapTourHistoryMixin:
         scrolled.set_child(inner)
         scrolled.connect("edge-reached", self._on_tour_history_edge_reached)
 
-        header = Adw.HeaderBar()
-        trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        trash_btn.add_css_class("destructive-action")
-        trash_btn.set_tooltip_text(
-            _translate(self.language, "map.history.delete_selected_tooltip")
+        header, trash_btn, share_btn = make_bulk_select_header(
+            trash_tooltip=_translate(self.language, "map.history.delete_selected_tooltip"),
+            share_tooltip=_translate(self.language, "map.history.share_selected_tooltip"),
+            on_trash=self._on_history_trash_clicked,
+            on_share=self._on_history_share_clicked,
         )
-        trash_btn.set_visible(False)
-        trash_btn.connect("clicked", self._on_history_trash_clicked)
         self._tour_history_trash_btn = trash_btn
-        header.pack_end(trash_btn)
-
-        share_btn = Gtk.Button(icon_name="share-alt-symbolic")
-        share_btn.add_css_class("flat")
-        share_btn.set_tooltip_text(
-            _translate(self.language, "map.history.share_selected_tooltip")
-        )
-        share_btn.set_visible(False)
-        share_btn.connect("clicked", self._on_history_share_clicked)
         self._tour_history_share_btn = share_btn
-        header.pack_end(share_btn)
 
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(header)
@@ -125,15 +114,9 @@ class MapTourHistoryMixin:
         listbox = getattr(self, "_tour_history_listbox", None)
         if listbox is None or self._tour_history_empty_row is not None:
             return
-        row = Gtk.ListBoxRow()
-        row.set_activatable(False)
-        row.set_selectable(False)
-        lbl = Gtk.Label(label=_translate(self.language, "map.history.empty"))
-        lbl.add_css_class("dim-label")
-        lbl.set_margin_top(18)
-        lbl.set_margin_bottom(18)
-        lbl.set_wrap(True)
-        row.set_child(lbl)
+        row = make_empty_dim_row(
+            _translate(self.language, "map.history.empty"), margin=18,
+        )
         listbox.append(row)
         self._tour_history_empty_row = row
 
