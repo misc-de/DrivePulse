@@ -721,6 +721,7 @@ class MapPage(
         distance_km: float | None = None,
         duration_s: float | None = None,
         label: str | None = None,
+        timestamps: list[float] | None = None,
     ) -> None:
         """Prepare a recorded trip's driven GPS polyline for tour calculation.
 
@@ -796,7 +797,7 @@ class MapPage(
             if hasattr(self, "_shumate_clear_route_layers"):
                 self._shumate_clear_route_layers()
 
-        self._pending_trip_trace_args = (coords, label, distance_km, duration_s)
+        self._pending_trip_trace_args = (coords, label, distance_km, duration_s, timestamps)
         self._set_tour_button("calculate")
 
     def _fetch_trip_trace(
@@ -805,9 +806,10 @@ class MapPage(
         label: str | None,
         distance_km: float | None,
         duration_s: float | None,
+        timestamps: list[float] | None = None,
     ) -> None:
         log.info("trip_trace_route_call pts=%d", len(coords))
-        result = route_via_gps_waypoints(coords)
+        result = route_via_gps_waypoints(coords, timestamps=timestamps)
         if result is not None:
             snapped, dur, dist, steps = result
             log.info(

@@ -561,10 +561,18 @@ def _remap_speed_to_route(
 
 def _clean_gps_trace(
     coords: list[list[float]],
+    timestamps: list[float] | None = None,
     spike_min_m: float = 30.0,
     cluster_radius_m: float = 15.0,
-) -> list[list[float]]:
+    stop_gap_s: float = 60.0,
+) -> tuple[list[list[float]], list[int]]:
     """Remove GPS artefacts before waypoint extraction.
+
+    Returns ``(cleaned_coords, stop_indices)`` where *stop_indices* is a list
+    of indices in *cleaned_coords* at which a new leg begins (the first point
+    after a stop gap).  Callers should split the trace at these indices so
+    that each leg is routed independently and the stop boundary is guaranteed
+    to appear as a waypoint.
 
     Pass 1 – spikes: a point that jumps far from both neighbours while the
     neighbours remain close to each other (classic multipath bounce).
@@ -573,14 +581,20 @@ def _clean_gps_trace(
 
     Pass 2 – clusters: consecutive points within *cluster_radius_m* of the
     last committed point (e.g. maneuvering on a forecourt) are collapsed to
-    just the cluster entry and exit, so the router is not confused by dense
-    back-and-forth loops.
+    just the cluster entry and exit.  When *timestamps* are supplied a gap
+    of more than *stop_gap_s* seconds within a cluster is treated as a
+    deliberate stop (e.g. engine off for refuelling): both the last point
+    before the gap and the first point after are kept and the post-gap index
+    is added to *stop_indices*.
     """
     if len(coords) < 3:
-        return list(coords)
+        return list(coords), []
 
-    # Pass 1: spike removal
+    ts = timestamps  # parallel array; may be None
+
+    # Pass 1: spike removal — carry timestamps in a parallel array
     no_spikes: list[list[float]] = [coords[0]]
+    no_spikes_ts: list[float] = [ts[0] if ts else 0.0]
     i = 1
     while i < len(coords) - 1:
         prev = no_spikes[-1]
@@ -594,29 +608,48 @@ def _clean_gps_trace(
             i += 1
             continue
         no_spikes.append(curr)
+        no_spikes_ts.append(ts[i] if ts else 0.0)
         i += 1
     no_spikes.append(coords[-1])
+    no_spikes_ts.append(ts[-1] if ts else 0.0)
 
     if len(no_spikes) < 2:
-        return no_spikes
+        return no_spikes, []
 
-    # Pass 2: cluster collapse
+    # Pass 2: cluster collapse with stop-gap detection
     result: list[list[float]] = [no_spikes[0]]
+    stop_indices: list[int] = []
     last_skipped: list[float] | None = None
-    for pt in no_spikes[1:]:
+    last_skipped_ts: float = 0.0
+
+    for i in range(1, len(no_spikes)):
+        pt = no_spikes[i]
+        pt_ts = no_spikes_ts[i]
+
+        # Stop gap within a cluster: end-of-leg / start-of-leg boundary
+        if (last_skipped is not None and ts is not None
+                and pt_ts - last_skipped_ts > stop_gap_s):
+            result.append(last_skipped)      # last point before engine-off
+            result.append(pt)               # first point after engine-on
+            stop_indices.append(len(result) - 1)
+            last_skipped = None
+            continue
+
         anchor = result[-1]
         d = haversine(anchor[1], anchor[0], pt[1], pt[0])
         if d < cluster_radius_m:
             last_skipped = pt
+            last_skipped_ts = pt_ts
         else:
             if last_skipped is not None:
                 result.append(last_skipped)
                 last_skipped = None
             result.append(pt)
+
     if last_skipped is not None:
         result.append(last_skipped)
 
-    return result
+    return result, stop_indices
 
 
 def extract_turn_waypoints(
@@ -674,6 +707,7 @@ def extract_turn_waypoints(
 
 def route_via_gps_waypoints(
     coords_lonlat: list[list[float]],
+    timestamps: list[float] | None = None,
     http_get_fn: HttpGet = http_get,
 ) -> tuple[list[list[float]], float, float, list[dict]] | None:
     """Compute a road-snapped route from a noisy GPS trace.
@@ -684,14 +718,30 @@ def route_via_gps_waypoints(
     """
     if len(coords_lonlat) < 2:
         return None
-    cleaned = _clean_gps_trace(coords_lonlat)
-    waypoints = extract_turn_waypoints(cleaned)
+    cleaned, stop_indices = _clean_gps_trace(coords_lonlat, timestamps=timestamps)
+
+    # Split at stop-gap boundaries so each leg is routed independently.
+    # extract_turn_waypoints always includes segment start and end, which
+    # guarantees the stop boundary points appear in the final waypoint list.
+    boundaries = [0] + stop_indices + [len(cleaned)]
+    all_waypoints: list[tuple[float, float]] = []
+    for k in range(len(boundaries) - 1):
+        seg = cleaned[boundaries[k]:boundaries[k + 1]]
+        if len(seg) < 2:
+            if seg:
+                all_waypoints.append((seg[0][1], seg[0][0]))
+            continue
+        wps = extract_turn_waypoints(seg)
+        if all_waypoints and wps and all_waypoints[-1] == wps[0]:
+            wps = wps[1:]
+        all_waypoints.extend(wps)
+
     write_diagnostic_log(
         __name__, logging.INFO,
-        "route_via_gps_waypoints pts=%d cleaned=%d waypoints=%d",
-        len(coords_lonlat), len(cleaned), len(waypoints),
+        "route_via_gps_waypoints pts=%d cleaned=%d stops=%d waypoints=%d",
+        len(coords_lonlat), len(cleaned), len(stop_indices), len(all_waypoints),
     )
-    return compute_route(waypoints, http_get_fn=http_get_fn)
+    return compute_route(all_waypoints, http_get_fn=http_get_fn)
 
 
 def osrm_match_route(
