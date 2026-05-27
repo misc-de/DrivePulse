@@ -27,7 +27,6 @@ ROUTING_BACKENDS = ["osrm", "valhalla"]
 _VALHALLA_URL = "https://valhalla.openstreetmap.de/route"
 _VALHALLA_TRACE_URLS = [
     "https://valhalla1.openstreetmap.de/trace_route",
-    "https://valhalla.openstreetmap.de/trace_route",
 ]
 _OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
@@ -526,9 +525,11 @@ def _trace_bodies(shape: list[dict[str, float | str]]) -> list[tuple[str, dict[s
         },
     }
     untyped_shape = [{"lat": p["lat"], "lon": p["lon"]} for p in shape]
+    walk_or_snap_base = {**base, "shape_match": "walk_or_snap"}
     return [
         ("typed_map_snap", {"shape": shape, **base}),
         ("untyped_map_snap", {"shape": untyped_shape, **base}),
+        ("walk_or_snap", {"shape": untyped_shape, **walk_or_snap_base}),
     ]
 
 
