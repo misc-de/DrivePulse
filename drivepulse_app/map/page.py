@@ -797,6 +797,8 @@ class MapPage(
         self._pending_route_draw = True
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_sensitive(False)
+        self._set_tour_button("calculate")
+        log.info("trip_trace_start coords=%d label=%r", len(coords), label)
         threading.Thread(
             target=self._fetch_trip_trace,
             args=(coords, label, distance_km, duration_s),
@@ -810,7 +812,16 @@ class MapPage(
         distance_km: float | None,
         duration_s: float | None,
     ) -> None:
+        log.info("trip_trace_valhalla_call pts=%d", len(coords))
         result = valhalla_trace_route(coords)
+        if result is None:
+            log.warning("trip_trace_valhalla_failed pts=%d label=%r", len(coords), label)
+        else:
+            snapped, dur, dist, steps = result
+            log.info(
+                "trip_trace_valhalla_ok snapped_pts=%d steps=%d dist_km=%.1f dur_min=%.0f",
+                len(snapped), len(steps), dist / 1000.0, dur / 60.0,
+            )
         GLib.idle_add(self._trip_trace_result, result, label, distance_km, duration_s)
 
     def _trip_trace_result(
@@ -820,6 +831,7 @@ class MapPage(
         orig_distance_km: float | None,
         orig_duration_s: float | None,
     ) -> bool:
+        self._set_tour_button("start")
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_sensitive(True)
         if result is not None:
