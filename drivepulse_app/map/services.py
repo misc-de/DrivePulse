@@ -743,11 +743,15 @@ def route_via_gps_waypoints(
     )
     result = compute_route(all_waypoints, http_get_fn=http_get_fn)
 
-    # Deviation correction: compare cleaned GPS against the computed route and
+    # Deviation correction: compare raw GPS against the computed route and
     # inject extra waypoints where the route diverges significantly.
+    # Raw coords are used here (not cleaned) so that points suppressed by
+    # cluster-collapse — e.g. slow city driving — still contribute to
+    # streak detection.  Single-sample spikes are harmless: min_streak
+    # requires at least 3 consecutive points beyond the threshold.
     if result is not None:
         for _iter in range(3):
-            corrections = _gps_route_deviations(cleaned, result[0], threshold_m=40.0)
+            corrections = _gps_route_deviations(coords_lonlat, result[0], threshold_m=40.0)
             if not corrections:
                 break
             write_diagnostic_log(
@@ -756,7 +760,7 @@ def route_via_gps_waypoints(
                 _iter + 1, len(corrections),
             )
             all_waypoints = _insert_correction_waypoints(
-                all_waypoints, corrections, cleaned
+                all_waypoints, corrections, coords_lonlat
             )
             new_result = compute_route(all_waypoints, http_get_fn=http_get_fn)
             if new_result is None:
