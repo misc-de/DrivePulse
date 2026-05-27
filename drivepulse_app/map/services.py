@@ -975,42 +975,60 @@ def _uturn_physically_impossible(
     step: dict,
     speed_threshold_kmh: float = 20.0,
     position_threshold_m: float = 150.0,
-    window: int = 3,
+    dense_radius_m: float = 25.0,
+    dense_count_threshold: int = 5,
+    speed_window: int = 7,
 ) -> bool:
     """Decide whether an OSRM U-turn step could not correspond to a real maneuver.
 
-    A real U-turn requires the car to slow down to a near-stop.  If the actual
-    GPS track shows the car going briskly (>speed_threshold_kmh) at the U-turn
-    position, the maneuver is OSRM's interpretation, not something the driver
-    did.  Likewise if the nearest GPS point is far away (>position_threshold_m)
-    the U-turn happens at a phantom location the car never visited.
+    Three checks, applied in priority:
+
+    1. **Dense GPS coverage** (≥ *dense_count_threshold* points within
+       *dense_radius_m*): the driver demonstrably drove right here — even if
+       the windowed speed seems high, the U-turn is real.  This is the
+       "GPS-data-insists-it-happened" rule.
+    2. **Phantom position** (nearest GPS > *position_threshold_m*): no GPS
+       evidence at all → artifact.
+    3. **No slowdown** (minimum windowed speed > *speed_threshold_kmh*): a
+       real U-turn requires braking; if the GPS never dropped below the
+       threshold around the U-turn position, the car kept driving and the
+       OSRM U-turn is its routing interpretation.
     """
     if not raw_coords or not raw_timestamps or len(raw_coords) != len(raw_timestamps):
         return False
     target_lat, target_lon = step.get("lat", 0.0), step.get("lon", 0.0)
+    dense_count = 0
     best_i, best_d = 0, float("inf")
     for i, c in enumerate(raw_coords):
         d = haversine(target_lat, target_lon, c[1], c[0])
+        if d < dense_radius_m:
+            dense_count += 1
         if d < best_d:
             best_d = d
             best_i = i
+    if dense_count >= dense_count_threshold:
+        return False  # the car physically drove through this location
     if best_d > position_threshold_m:
         return True  # phantom location — no real GPS evidence here
-    lo = max(0, best_i - window)
-    hi = min(len(raw_coords) - 1, best_i + window)
-    if hi - lo < 1:
+    lo = max(1, best_i - speed_window)
+    hi = min(len(raw_coords) - 1, best_i + speed_window)
+    if hi <= lo:
         return False
-    dist_m = 0.0
-    for j in range(lo + 1, hi + 1):
-        dist_m += haversine(
+    min_speed_kmh = float("inf")
+    for j in range(lo, hi + 1):
+        dt = raw_timestamps[j] - raw_timestamps[j - 1]
+        if dt <= 0:
+            continue
+        seg = haversine(
             raw_coords[j - 1][1], raw_coords[j - 1][0],
             raw_coords[j][1], raw_coords[j][0],
         )
-    dt = raw_timestamps[hi] - raw_timestamps[lo]
-    if dt <= 0:
+        kmh = (seg / dt) * 3.6
+        if kmh < min_speed_kmh:
+            min_speed_kmh = kmh
+    if min_speed_kmh == float("inf"):
         return False
-    speed_kmh = (dist_m / dt) * 3.6
-    return speed_kmh > speed_threshold_kmh
+    return min_speed_kmh > speed_threshold_kmh
 
 
 def _remove_uturn_waypoints(
