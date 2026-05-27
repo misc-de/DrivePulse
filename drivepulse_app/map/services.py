@@ -707,6 +707,7 @@ def extract_turn_waypoints(
 
 def _prune_bad_waypoints(
     waypoints: list[tuple[float, float]],
+    protected: set[int] | None = None,
     save_threshold_m: float = 200.0,
     http_get_fn: HttpGet = http_get,
 ) -> list[tuple[float, float]]:
@@ -718,14 +719,30 @@ def _prune_bad_waypoints(
     metres, the waypoint is removed (it is likely placing the router onto a
     one-way street or dead-end that forces a large detour).
 
+    *protected* is a set of waypoint indices that must never be removed —
+    use this to preserve stop-gap boundary points (e.g. the gas-station
+    turnaround) that are genuine visited locations, not routing artefacts.
+
     Iterates until no further savings above the threshold are found.
     """
     wps = list(waypoints)
+    # Build a parallel array of original-index-based protected flags.
+    # As elements are removed the flags shift; we track them as a list.
+    prot: list[bool] = [False] * len(wps)
+    prot[0] = True
+    prot[-1] = True
+    if protected:
+        for idx in protected:
+            if 0 <= idx < len(prot):
+                prot[idx] = True
+
     changed = True
     while changed and len(wps) > 2:
         changed = False
         best_i, best_save = -1, 0.0
         for i in range(1, len(wps) - 1):
+            if prot[i]:
+                continue
             r_prev = compute_route([wps[i - 1], wps[i]], http_get_fn=http_get_fn)
             r_next = compute_route([wps[i], wps[i + 1]], http_get_fn=http_get_fn)
             r_skip = compute_route([wps[i - 1], wps[i + 1]], http_get_fn=http_get_fn)
@@ -742,8 +759,69 @@ def _prune_bad_waypoints(
                 best_i, wps[best_i][0], wps[best_i][1], best_save,
             )
             wps.pop(best_i)
+            prot.pop(best_i)
             changed = True
     return wps
+
+
+def _deduplicate_close_waypoints(
+    waypoints: list[tuple[float, float]],
+    min_dist_m: float = 20.0,
+) -> list[tuple[float, float]]:
+    """Drop consecutive inner waypoints within min_dist_m of the previous one.
+
+    Always preserves the first and last waypoint.  Removes duplicated
+    stop-boundary pairs (e.g. last-before-stop and first-after-stop that
+    are both on the same gas-station forecourt 13 m apart).
+    """
+    if len(waypoints) <= 2:
+        return waypoints
+    result = [waypoints[0]]
+    for wp in waypoints[1:-1]:
+        if haversine(result[-1][0], result[-1][1], wp[0], wp[1]) >= min_dist_m:
+            result.append(wp)
+    result.append(waypoints[-1])
+    return result
+
+
+def _expand_turn_waypoints(
+    turn_waypoints: list[tuple[float, float]],
+    seg_coords: list[list[float]],
+    window: int = 2,
+) -> list[tuple[float, float]]:
+    """Widen each turn apex to a ±window band of neighbouring GPS points.
+
+    A single GPS apex at a turn may land on the wrong side of a one-way
+    street, forcing a large routing detour.  Adding the neighbouring GPS
+    points gives the router directional context so it can pick the correct
+    approach road.  Points within 5 m of each other are deduplicated.
+    """
+    if window <= 0 or not turn_waypoints or not seg_coords:
+        return turn_waypoints
+
+    n = len(seg_coords)
+    added: set[int] = set()
+    result: list[tuple[int, tuple[float, float]]] = []
+
+    for wp_lat, wp_lon in turn_waypoints:
+        best_i, best_d = 0, float("inf")
+        for j, c in enumerate(seg_coords):
+            d = haversine(wp_lat, wp_lon, c[1], c[0])
+            if d < best_d:
+                best_d = d
+                best_i = j
+        for j in range(max(0, best_i - window), min(n, best_i + window + 1)):
+            if j not in added:
+                added.add(j)
+                c = seg_coords[j]
+                result.append((j, (c[1], c[0])))
+
+    result.sort(key=lambda x: x[0])
+    out: list[tuple[float, float]] = []
+    for _, wp in result:
+        if not out or haversine(out[-1][0], out[-1][1], wp[0], wp[1]) > 5.0:
+            out.append(wp)
+    return out
 
 
 def route_via_gps_waypoints(
@@ -818,23 +896,38 @@ def route_via_gps_waypoints(
     # guarantees the stop boundary points appear in the final waypoint list.
     boundaries = [0] + stop_indices + [len(cleaned)]
     all_waypoints: list[tuple[float, float]] = []
+    # Track indices of stop-gap boundary waypoints so pruning never removes them.
+    # These are the segment start/end points that mark genuine visited locations
+    # (e.g. a gas station turnaround) — NOT routing artefacts.
+    protected_wp_indices: set[int] = set()
     for k in range(len(boundaries) - 1):
         seg = cleaned[boundaries[k]:boundaries[k + 1]]
         if len(seg) < 2:
             if seg:
+                protected_wp_indices.add(len(all_waypoints))
                 all_waypoints.append((seg[0][1], seg[0][0]))
             continue
         wps = extract_turn_waypoints(seg)
+        seg_start_idx = len(all_waypoints)
+        seg_end_idx = seg_start_idx + len(wps) - 1
+        protected_wp_indices.add(seg_start_idx)
+        protected_wp_indices.add(seg_end_idx)
         if all_waypoints and wps and all_waypoints[-1] == wps[0]:
             wps = wps[1:]
+            seg_end_idx = seg_start_idx + len(wps) - 1
+            protected_wp_indices.discard(seg_start_idx)
+            protected_wp_indices.add(seg_end_idx)
         all_waypoints.extend(wps)
 
     write_diagnostic_log(
         __name__, logging.INFO,
-        "route_via_gps_waypoints pts=%d cleaned=%d stops=%d waypoints=%d",
-        len(coords_lonlat), len(cleaned), len(stop_indices), len(all_waypoints),
+        "route_via_gps_waypoints pts=%d cleaned=%d stops=%d waypoints=%d protected=%d",
+        len(coords_lonlat), len(cleaned), len(stop_indices),
+        len(all_waypoints), len(protected_wp_indices),
     )
-    all_waypoints = _prune_bad_waypoints(all_waypoints, http_get_fn=http_get_fn)
+    all_waypoints = _prune_bad_waypoints(
+        all_waypoints, protected=protected_wp_indices, http_get_fn=http_get_fn
+    )
     result = compute_route(all_waypoints, http_get_fn=http_get_fn)
 
     # Deviation correction: two complementary checks per iteration.
@@ -865,6 +958,14 @@ def route_via_gps_waypoints(
             )
             new_result = compute_route(all_waypoints, http_get_fn=http_get_fn)
             if new_result is None:
+                break
+            if new_result[2] >= result[2]:
+                write_diagnostic_log(
+                    __name__, logging.INFO,
+                    "route_via_gps_waypoints correction did not improve route "
+                    "(%.0fm >= %.0fm), stopping",
+                    new_result[2], result[2],
+                )
                 break
             result = new_result
 
