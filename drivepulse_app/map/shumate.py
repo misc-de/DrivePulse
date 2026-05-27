@@ -561,19 +561,68 @@ class MapShumateMixin:
             area.queue_draw()
 
     def _make_wp_marker(self, lat: float, lon: float, role: str) -> Any:
-        if role == "start":
-            fill, border = (0.18, 0.80, 0.44, 1.0), (0.10, 0.54, 0.27, 1.0)
-        elif role == "end":
-            fill, border = (0.91, 0.30, 0.24, 1.0), (0.60, 0.15, 0.10, 1.0)
-        else:
-            fill, border = (0.95, 0.65, 0.10, 1.0), (0.70, 0.45, 0.00, 1.0)
         da = Gtk.DrawingArea()
-        da.set_size_request(14, 14)
-        da.set_draw_func(self._draw_dot, (fill, border))
+        if role == "start":
+            da.set_size_request(44, 44)
+            da.set_draw_func(self._draw_start_arrow, None)
+        elif role == "end":
+            da.set_size_request(22, 30)
+            da.set_draw_func(self._draw_destination_flag, None)
+        else:
+            da.set_size_request(14, 14)
+            da.set_draw_func(self._draw_dot, ((0.95, 0.65, 0.10, 1.0), (0.70, 0.45, 0.00, 1.0)))
         marker = Shumate.Marker.new()
         marker.set_child(da)
         marker.set_location(lat, lon)
         return marker
+
+    def _draw_start_arrow(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
+        """Static nav arrow for the trip start waypoint — same shape as _draw_car."""
+        cx, cy = width / 2.0, height / 2.0
+        cr.set_source_rgba(0.16, 0.50, 0.73, 0.20)
+        cr.arc(cx, cy, 18, 0, 2 * math.pi)
+        cr.fill()
+        cr.save()
+        cr.translate(cx, cy)
+        cr.move_to(0, -18)
+        cr.line_to(12, 14)
+        cr.line_to(0, 8)
+        cr.line_to(-12, 14)
+        cr.close_path()
+        cr.set_source_rgb(1.0, 1.0, 1.0)
+        cr.set_line_width(5.0)
+        cr.set_line_join(1)
+        cr.stroke_preserve()
+        cr.set_source_rgb(0.12, 0.53, 0.90)
+        cr.fill()
+        cr.move_to(0, -12)
+        cr.line_to(6, 8)
+        cr.line_to(0, 5)
+        cr.line_to(-6, 8)
+        cr.close_path()
+        cr.set_source_rgb(0.26, 0.65, 0.96)
+        cr.fill()
+        cr.restore()
+
+    def _draw_destination_flag(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
+        """Destination flag: vertical pole with a red pennant at the top."""
+        pole_x = width * 0.35
+        pole_top = 1.0
+        pole_bot = float(height) - 1.0
+        cr.set_source_rgb(0.35, 0.35, 0.35)
+        cr.set_line_width(2.0)
+        cr.move_to(pole_x, pole_top)
+        cr.line_to(pole_x, pole_bot)
+        cr.stroke()
+        flag_h = (pole_bot - pole_top) * 0.48
+        flag_w = width - pole_x - 2.0
+        cr.set_source_rgb(0.91, 0.30, 0.24)
+        cr.rectangle(pole_x, pole_top, flag_w, flag_h)
+        cr.fill()
+        cr.set_source_rgb(0.60, 0.15, 0.10)
+        cr.set_line_width(1.0)
+        cr.rectangle(pole_x, pole_top, flag_w, flag_h)
+        cr.stroke()
 
     def _draw_dot(self, _da: Any, cr: Any, w: int, h: int, data: tuple) -> None:
         fill, border = data
