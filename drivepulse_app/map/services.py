@@ -533,6 +533,53 @@ def _trace_bodies(shape: list[dict[str, float | str]]) -> list[tuple[str, dict[s
     ]
 
 
+def osrm_match_route(
+    coords_lonlat: list[list[float]],
+    http_get_fn: HttpGet = http_get,
+) -> tuple[list[list[float]], float, float, list[dict]] | None:
+    """Map-match a GPS trace to roads via the OSRM /match service.
+
+    Subsamples to ≤ 100 points (public-server limit).  Merges all
+    returned matchings into a single (coords, duration_s, distance_m,
+    steps) result so callers stay backend-agnostic.
+    """
+    if len(coords_lonlat) < 2:
+        return None
+    pts = _subsample_coords(coords_lonlat, 100)
+    coord_str = ";".join(f"{c[0]},{c[1]}" for c in pts)
+    url = (
+        f"https://router.project-osrm.org/match/v1/driving/{coord_str}"
+        "?overview=full&geometries=geojson&steps=true"
+    )
+    data = http_get_fn(url)
+    if not data or data.get("code") != "Ok":
+        log.warning(
+            "osrm_match_route failed code=%r",
+            (data or {}).get("code") if isinstance(data, dict) else None,
+        )
+        return None
+    matchings = data.get("matchings") or []
+    if not matchings:
+        return None
+    coords: list[list[float]] = []
+    duration_s = 0.0
+    distance_m = 0.0
+    steps: list[dict] = []
+    for m in matchings:
+        try:
+            m_coords = m["geometry"]["coordinates"]
+            if isinstance(m_coords, list):
+                coords.extend(m_coords)
+            duration_s += float(m.get("duration") or 0)
+            distance_m += float(m.get("distance") or 0)
+        except (KeyError, TypeError, ValueError):
+            continue
+        steps.extend(_flatten_route_steps(m.get("legs") or []))
+    if not coords:
+        return None
+    return coords, duration_s, distance_m, steps
+
+
 def valhalla_trace_route(
     coords_lonlat: list[list[float]],
     http_post_json_fn=http_post_json_result,
