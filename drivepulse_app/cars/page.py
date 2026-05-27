@@ -879,7 +879,7 @@ class CarsPage(
         return (entry.get("vin") or "") in MOCK_VINS
 
     def _is_sync_active(self) -> bool:
-        if self.mock_mode:
+        if self._is_selected_car_mock():
             return False
         return callable(self.get_sync_client) and self.get_sync_client() is not None
 
