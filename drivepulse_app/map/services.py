@@ -747,7 +747,7 @@ def route_via_gps_waypoints(
     # inject extra waypoints where the route diverges significantly.
     if result is not None:
         for _iter in range(3):
-            corrections = _gps_route_deviations(cleaned, result[0])
+            corrections = _gps_route_deviations(cleaned, result[0], threshold_m=40.0)
             if not corrections:
                 break
             write_diagnostic_log(
