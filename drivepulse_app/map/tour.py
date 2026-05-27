@@ -90,6 +90,8 @@ class MapTourMixin:
     def _begin_tour(self) -> None:
         if self._start_coord is None:
             return
+        if getattr(self, "_pending_route_draw", False) and hasattr(self, "_push_route_to_map"):
+            self._push_route_to_map()
         lat, lon = self._start_coord
         self._tour_active = True
         self._tour_paused = False
@@ -113,6 +115,8 @@ class MapTourMixin:
         self._prerender_upcoming_steps(0, 5)
         self._set_nav_chrome_visible(False)
         self._set_tour_button("stop")
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
         self._update_maneuver_overlay()
         self._highlight_active_step()
         if self._on_tour_started is not None and self._tour_coords:
@@ -152,6 +156,8 @@ class MapTourMixin:
         # instruction while paused.
         if self._on_tour_stopped is not None:
             self._on_tour_stopped()
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
     def _resume_tour(self) -> None:
         """Resume a paused tour without recomputing or recentring."""
@@ -164,6 +170,8 @@ class MapTourMixin:
         self._update_maneuver_overlay()
         if self._on_tour_resumed is not None:
             self._on_tour_resumed()
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
     def _abort_tour(self) -> None:
         """Full reset — used when the route is cleared or replaced."""

@@ -45,6 +45,7 @@ from drivepulse_app.map.services import (
     MAP_ICONS,
     MAP_LABEL_KEYS,
     MAP_TYPES,
+    valhalla_trace_route,
 )
 from drivepulse_app.map.shumate import MapShumateMixin
 from drivepulse_app.map.state_poll import MapStatePollMixin
@@ -165,6 +166,10 @@ class MapPage(
         self._tour_steps: list[dict] = []
         self._tour_step_idx: int = 0
         self._tour_coords: list[list[float]] = []
+        # True when a trip-based route has been matched but not yet drawn on
+        # the map — the polyline is pushed at Tour-Start instead of at load
+        # time so the map stays clean while the user reviews the steps list.
+        self._pending_route_draw: bool = False
         # Minimum (closest) distance seen for the current step's maneuver point.
         # Detecting "passed" via minimum-distance + growth is more reliable than
         # tracking only the last distance: sparse GPS can jump from 60 m to 80 m
@@ -577,6 +582,7 @@ class MapPage(
         self._tour_steps = []
         self._tour_step_idx = 0
         self._tour_coords = []
+        self._pending_route_draw = False
         self._loaded_tour_id = None
         self._loaded_tour_name = None
         self._abort_tour()
@@ -778,10 +784,75 @@ class MapPage(
         if hasattr(self, "_update_left_chrome_visibility"):
             self._update_left_chrome_visibility()
 
-        lats = [c[1] for c in coords]
-        lons = [c[0] for c in coords]
         self._set_follow(False)
 
+        # Clear any previous route from the map but don't draw the new one
+        # yet — it will be pushed at Tour-Start after Valhalla has snapped it.
+        if self._backend == "webkit":
+            self._js("mapClearRoute()")
+        elif self._shumate_map is not None:
+            if hasattr(self, "_shumate_clear_route_layers"):
+                self._shumate_clear_route_layers()
+
+        self._pending_route_draw = True
+        if self._tour_start_btn is not None:
+            self._tour_start_btn.set_sensitive(False)
+        threading.Thread(
+            target=self._fetch_trip_trace,
+            args=(coords, label, distance_km, duration_s),
+            daemon=True,
+        ).start()
+
+    def _fetch_trip_trace(
+        self,
+        coords: list[list[float]],
+        label: str | None,
+        distance_km: float | None,
+        duration_s: float | None,
+    ) -> None:
+        result = valhalla_trace_route(coords)
+        GLib.idle_add(self._trip_trace_result, result, label, distance_km, duration_s)
+
+    def _trip_trace_result(
+        self,
+        result: tuple[list[list[float]], float, float, list[dict]] | None,
+        label: str | None,
+        orig_distance_km: float | None,
+        orig_duration_s: float | None,
+    ) -> bool:
+        if self._tour_start_btn is not None:
+            self._tour_start_btn.set_sensitive(True)
+        if result is not None:
+            snapped_coords, duration_s, distance_m, steps = result
+            self._tour_coords = snapped_coords
+            self._tour_steps = steps
+            self._tour_step_idx = 0
+            self._step_min_dist = None
+            self._gps_route_idx = 0
+            self._snapped_lat = None
+            self._snapped_lon = None
+            self._snapped_cum_m = 0.0
+            self._compute_route_progress_tables()
+            self._populate_trip_route_info(label, distance_m / 1000.0, duration_s)
+            try:
+                self._prerender_upcoming_steps(0, 2)
+            except Exception:
+                pass
+            if self._steps_toggle_btn is not None:
+                self._steps_toggle_btn.set_active(True)
+            if self._steps_panel is not None:
+                self._rebuild_steps_list()
+                self._set_steps_panel_visible(bool(steps))
+        return False
+
+    def _push_route_to_map(self) -> None:
+        """Draw the pending Valhalla-matched route on the map and fit bounds."""
+        coords = self._tour_coords
+        if not coords:
+            return
+        self._pending_route_draw = False
+        lats = [c[1] for c in coords]
+        lons = [c[0] for c in coords]
         if self._backend == "webkit":
             self._js(f"mapSetRoute({json.dumps(coords)})")
             pts_js = json.dumps([[p[0], p[1]] for p in self._tour_waypoints])

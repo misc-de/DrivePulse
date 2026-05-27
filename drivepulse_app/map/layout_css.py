@@ -104,7 +104,7 @@ _MANEUVER_CSS = b"""
 /* Speed-limit sign - classic European round white/red circle */
 .dp-speed-sign {
   background-color: #ffffff;
-  border: 6px solid #cc0000;
+  border: 12px solid #cc0000;
   border-radius: 9999px;
   min-width: 130px;
   min-height: 130px;
@@ -114,7 +114,7 @@ _MANEUVER_CSS = b"""
   color: #111111;
   font-size: 54px;
   font-weight: 900;
-  padding-top: 8px;
+  padding-top: 3px;
 }
 """
 _maneuver_css_installed = False
