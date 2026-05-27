@@ -143,6 +143,7 @@ class MapLayoutMixin:
         self._tts_btn.add_css_class("circular")
         self._tts_btn.add_css_class("osd")
         self._tts_btn.set_active(self._tts_enabled)
+        self._tts_btn.set_visible(False)
         self._refresh_tts_btn()
         self._tts_btn.connect("toggled", self._on_tts_btn_toggled)
 
@@ -304,6 +305,10 @@ class MapLayoutMixin:
             btn.set_visible(
                 has_tour and not tour_running and not chart_expanded and not steps_expanded
             )
+
+        tts_btn = getattr(self, "_tts_btn", None)
+        if tts_btn is not None:
+            tts_btn.set_visible(has_tour)
 
         speed_warn_btn = getattr(self, "_speed_warn_btn", None)
         if speed_warn_btn is not None:
