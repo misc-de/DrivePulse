@@ -238,16 +238,15 @@ def test_valhalla_trace_route_uses_public_trace_host_and_break_via_types(monkeyp
     )
 
     assert result is None
-    assert [url for url, _ in seen] == [
-        "https://valhalla1.openstreetmap.de/trace_route",
-        "https://valhalla1.openstreetmap.de/trace_route",
-        "https://valhalla.openstreetmap.de/trace_route",
-        "https://valhalla.openstreetmap.de/trace_route",
-    ]
+    # All attempts go to the single trace host; each max_pts iteration tries
+    # three body variants (typed map_snap → untyped map_snap → walk_or_snap).
+    assert all(url == "https://valhalla1.openstreetmap.de/trace_route" for url, _ in seen)
+    assert len(seen) >= 3
     shape = seen[0][1]["shape"]
     assert [p["type"] for p in shape] == ["break", "via", "break"]
     assert "type" not in seen[1][1]["shape"][0]
     assert seen[0][1]["shape_match"] == "map_snap"
+    assert seen[2][1]["shape_match"] == "walk_or_snap"
     assert seen[0][1]["costing"] == "auto"
     assert seen[0][1]["trace_options"]["search_radius"] == 50
 

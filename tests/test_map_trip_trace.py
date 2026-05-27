@@ -50,7 +50,7 @@ def test_load_trip_as_route_waits_for_calculate_click():
     coords = [[7.0, 50.0], [7.1, 50.1]]
     page.load_trip_as_route(coords, distance_km=12.3, duration_s=456.0, label="Trip")
 
-    assert page._pending_trip_trace_args == (coords, "Trip", 12.3, 456.0)
+    assert page._pending_trip_trace_args == (coords, "Trip", 12.3, 456.0, None)
     assert page._button_modes == ["calculate"]
     assert page._js_calls == ["mapClearRoute()"]
 
