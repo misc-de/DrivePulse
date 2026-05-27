@@ -287,7 +287,7 @@ class DashboardSettingsMixin:
     def _set_tts_enabled(self, enabled: bool) -> None:
         self.tts_enabled = enabled
         self._save_settings()
-        if hasattr(self, "map_page"):
+        if getattr(self, "map_page", None) is not None:
             self.map_page.set_tts_enabled(enabled)
 
     def _set_tts_backend(self, backend: str) -> None:
@@ -304,7 +304,7 @@ class DashboardSettingsMixin:
     def _set_tts_language(self, language: str) -> None:
         self.tts_language = language
         self._save_settings()
-        if hasattr(self, "map_page"):
+        if getattr(self, "map_page", None) is not None:
             self.map_page.set_tts_language(language)
         if getattr(self, "tts_backend", "espeak") == "piper":
             from drivepulse_app.tts import service as tts_service
@@ -313,7 +313,7 @@ class DashboardSettingsMixin:
     def _set_tts_voice(self, voice: str) -> None:
         self.tts_voice = voice
         self._save_settings()
-        if hasattr(self, "map_page"):
+        if getattr(self, "map_page", None) is not None:
             self.map_page.set_tts_voice(voice)
         if getattr(self, "tts_backend", "espeak") == "piper":
             from drivepulse_app.tts import service as tts_service
@@ -322,7 +322,7 @@ class DashboardSettingsMixin:
     def _set_tts_quality(self, quality: str) -> None:
         self.tts_quality = quality
         self._save_settings()
-        if hasattr(self, "map_page"):
+        if getattr(self, "map_page", None) is not None:
             self.map_page.set_tts_quality(quality)
         if getattr(self, "tts_backend", "espeak") == "piper":
             from drivepulse_app.tts import service as tts_service
@@ -470,9 +470,9 @@ class DashboardSettingsMixin:
         self._notify_pages_sync_changed()
 
     def _notify_pages_sync_changed(self) -> None:
-        if hasattr(self, "cars_page"):
+        if getattr(self, "cars_page", None) is not None:
             self.cars_page.notify_sync_changed()
-        if hasattr(self, "map_page"):
+        if getattr(self, "map_page", None) is not None:
             self.map_page.notify_sync_changed()
 
     def _push_sync_status_page(self) -> None:
@@ -638,7 +638,7 @@ class DashboardSettingsMixin:
         self._save_units()
         self.dashboard_canvas.set_units(units)
         self.dashcam_page.set_units(units)
-        if hasattr(self, "map_page"):
+        if getattr(self, "map_page", None) is not None:
             self.map_page.set_units(units)
 
         if self.units == "metric":
@@ -686,7 +686,7 @@ class DashboardSettingsMixin:
         self.reader.set_force_mock(mock_mode)
         if hasattr(self, "gps_reader"):
             self.gps_reader.set_mock_mode(mock_mode)
-        if hasattr(self, "map_page"):
+        if getattr(self, "map_page", None) is not None:
             self.map_page.set_mock_mode(mock_mode)
         # Seed/remove the DB BEFORE notifying cars_page so its single
         # rebuild reflects the final mock state in one pass.
@@ -755,7 +755,7 @@ class DashboardSettingsMixin:
             return
         self.map_traffic_bundesweit = enabled
         self._save_settings()
-        if hasattr(self, "map_page"):
+        if getattr(self, "map_page", None) is not None:
             self.map_page.set_traffic_sources(
                 bundesweit=enabled,
                 nrw=getattr(self, "map_traffic_nrw", False),
@@ -766,7 +766,7 @@ class DashboardSettingsMixin:
             return
         self.map_traffic_nrw = enabled
         self._save_settings()
-        if hasattr(self, "map_page"):
+        if getattr(self, "map_page", None) is not None:
             self.map_page.set_traffic_sources(
                 bundesweit=getattr(self, "map_traffic_bundesweit", True),
                 nrw=enabled,
@@ -795,7 +795,8 @@ class DashboardSettingsMixin:
         self.map_stack_page.set_title(_translate(self.language, "nav.map"))
         self.dashcam_stack_page.set_title(_translate(self.language, "nav.dashcam"))
         self.stopwatch_page.set_language(self.language)
-        self.map_page.set_language(self.language)
+        if self.map_page is not None:
+            self.map_page.set_language(self.language)
         self.dashcam_page.set_language(self.language)
         self.dashboard_canvas.set_language(self.language)
         self.cars_page.set_language(self.language)
