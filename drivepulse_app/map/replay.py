@@ -414,10 +414,13 @@ class MapReplayMixin:
         # hadn't acquired one yet) — otherwise the polyline shoots across the
         # globe to (0,0) and Shumate ends up centred on the Atlantic with
         # nothing in cache.
-        latlon_speed: list[tuple[float, float, float | None]] = [
-            (s["lat"], s["lon"], s["speed_kmh"]) for s in samples
+        filtered_samples = [
+            s for s in samples
             if s["lat"] is not None and s["lon"] is not None
             and not (s["lat"] == 0.0 and s["lon"] == 0.0)
+        ]
+        latlon_speed: list[tuple[float, float, float | None]] = [
+            (s["lat"], s["lon"], s["speed_kmh"]) for s in filtered_samples
         ]
         if not latlon_speed:
             return
@@ -434,12 +437,14 @@ class MapReplayMixin:
         # Set up route first — load_trip_as_route calls _clear_replay_overlays
         # internally, so populate info/chart AFTER to avoid being wiped.
         lonlat_coords = [[lon, lat] for lat, lon, _ in latlon_speed]
+        lonlat_timestamps = [float(s["ts"]) for s in filtered_samples]
         if len(lonlat_coords) >= 2:
             self.load_trip_as_route(
                 lonlat_coords,
                 distance_km=meta.get("distance_km"),
                 duration_s=meta.get("duration_s"),
                 label=meta.get("trip_label"),
+                timestamps=lonlat_timestamps,
             )
 
         # Populate info card and chart after the overlay clear.
