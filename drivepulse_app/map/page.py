@@ -720,12 +720,11 @@ class MapPage(
         duration_s: float | None = None,
         label: str | None = None,
     ) -> None:
-        """Display a recorded trip's driven GPS polyline as the active route.
+        """Prepare a recorded trip's driven GPS polyline for tour calculation.
 
-        Unlike `_route_result`, no OSRM/Valhalla call is made — the polyline
-        is taken verbatim from the trip samples. Tour controls (start + info)
-        become visible; the info panel will be empty because there are no
-        turn-by-turn maneuvers for a recorded track.
+        No OSRM/Valhalla call is made here. The recorded points are kept as a
+        pending trace and only map-matched after the user clicks Calculate
+        tour, so opening a trip never triggers routing work by itself.
         """
         if not coords_lonlat or len(coords_lonlat) < 2:
             return
@@ -797,7 +796,6 @@ class MapPage(
 
         self._pending_trip_trace_args = (coords, label, distance_km, duration_s)
         self._set_tour_button("calculate")
-        self._push_route_to_map()
 
     def _fetch_trip_trace(
         self,
