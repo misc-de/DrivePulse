@@ -884,6 +884,8 @@ class MapPage(
                     self._js("mapClearColoredTrack()")
                 elif getattr(self, "_shumate_map", None) is not None and hasattr(self, "_shumate_clear_colored_track"):
                     self._shumate_clear_colored_track()
+                if hasattr(self, "_set_replay_info_minimized"):
+                    self._set_replay_info_minimized(True)
             self._push_route_to_map()
         return False
 
