@@ -327,7 +327,13 @@ class MapLayoutMixin:
         chart_restore = getattr(self, "_replay_chart_restore_btn", None)
         chart_has_data = bool(getattr(self, "_replay_chart_widget", None))
         if chart_restore is not None:
-            chart_restore.set_visible(chart_has_data and not steps_expanded)
+            chart_restore.set_visible(
+                chart_has_data and not steps_expanded and not has_navigable_tour
+            )
+
+        info_restore = getattr(self, "_replay_info_restore_btn", None)
+        if info_restore is not None and has_navigable_tour:
+            info_restore.set_visible(False)
 
     def _build_route_info_overlay(self) -> Gtk.Widget:
         """Route info is now embedded in the tour-controls icon row.
