@@ -170,6 +170,8 @@ class SettingsDialog(
         current_autodev_usage_plan: str = "",
         current_photo_thumb_cache_max_mb: int = 200,
         on_photo_thumb_cache_max_mb_changed: Callable[[int], None] | None = None,
+        current_sync_access: str = "lan_only",
+        on_sync_access_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(tag="settings")
         self.language = _normalize_language(current_language)
@@ -230,6 +232,8 @@ class SettingsDialog(
         self._autodev_usage_plan = current_autodev_usage_plan
         self.on_photo_thumb_cache_max_mb_changed = on_photo_thumb_cache_max_mb_changed
         self._current_photo_thumb_cache_max_mb = current_photo_thumb_cache_max_mb
+        self.on_sync_access_changed = on_sync_access_changed
+        self._current_sync_access = current_sync_access if current_sync_access in {"off", "lan_only", "any"} else "lan_only"
         self._remote_version: str | None = None
         self._closing = False
         self.set_title(_translate(self.language, "settings.title"))
@@ -639,6 +643,20 @@ class SettingsDialog(
         )
         vindecoder_group.add(self._vd_api_key_row)
         vindecoder_group.add(self._vd_secret_row)
+
+        # ── Sync group ──────────────────────────────────────────────────────
+        self._SYNC_ACCESS_MODES = ["off", "lan_only", "any"]
+        sync_model = Gtk.StringList()
+        for key in self._SYNC_ACCESS_MODES:
+            sync_model.append(_translate(self.language, f"settings.sync.access.{key}"))
+        self._sync_access_row = Adw.ComboRow(title=_translate(self.language, "settings.sync.access"))
+        self._sync_access_row.set_subtitle(_translate(self.language, "settings.sync.access.subtitle"))
+        self._sync_access_row.set_model(sync_model)
+        self._sync_access_row.set_selected(self._SYNC_ACCESS_MODES.index(self._current_sync_access))
+        self._sync_access_row.connect("notify::selected", self._on_sync_access_selected)
+        sync_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.sync.group"))
+        sync_group.add(self._sync_access_row)
+        app_page.add(sync_group)
 
         # OBD group
         app_page.add(obd_group)

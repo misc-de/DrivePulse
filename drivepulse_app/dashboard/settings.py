@@ -206,6 +206,8 @@ class DashboardSettingsMixin:
             current_autodev_usage_plan=getattr(self, "autodev_usage_plan", ""),
             current_photo_thumb_cache_max_mb=getattr(self, "photo_thumb_cache_max_mb", 200),
             on_photo_thumb_cache_max_mb_changed=self._set_photo_thumb_cache_max_mb,
+            current_sync_access=getattr(self, "sync_access", "lan_only"),
+            on_sync_access_changed=self._set_sync_access,
         )
 
         def _on_page_hidden(_p: object) -> None:
@@ -433,6 +435,11 @@ class DashboardSettingsMixin:
             return
         if self.nav_view.find_page("sync") is not None:
             return
+        access = getattr(self, "sync_access", "lan_only")
+        if access == "off":
+            from gi.repository import Adw
+            self.add_toast(Adw.Toast(title=_translate(self.language, "settings.sync.disabled.toast")))
+            return
         from drivepulse_app.sync.dialog import SyncDialog
 
         def _on_sync_complete() -> None:
@@ -449,6 +456,7 @@ class DashboardSettingsMixin:
             on_connected=self._on_sync_connected,
             on_disconnected=self._on_sync_disconnected,
             on_vin_review_pending=_on_vin_review_pending,
+            access_mode=access,
         )
         self._active_sync_dialog: SyncDialog | None = page
         self.nav_view.push(page)
@@ -774,6 +782,14 @@ class DashboardSettingsMixin:
 
     def _set_last_update_check(self, timestamp: str) -> None:
         self.last_update_check = timestamp
+        self._save_settings()
+
+    def _set_sync_access(self, mode: str) -> None:
+        if mode not in {"off", "lan_only", "any"}:
+            return
+        if mode == getattr(self, "sync_access", "lan_only"):
+            return
+        self.sync_access = mode
         self._save_settings()
 
     def _set_language(self, language: str) -> None:

@@ -74,6 +74,7 @@ class SyncDialog(Adw.NavigationPage):
         on_connected: Callable[[str, str], None] | None = None,
         on_disconnected: Callable[[], None] | None = None,
         on_vin_review_pending: Callable[[list], None] | None = None,
+        access_mode: str = "lan_only",
     ) -> None:
         super().__init__(tag="sync")
         self._language = language
@@ -82,6 +83,7 @@ class SyncDialog(Adw.NavigationPage):
         self._on_connected = on_connected
         self._on_disconnected = on_disconnected
         self._on_vin_review_pending = on_vin_review_pending
+        self._access_mode = access_mode if access_mode in {"off", "lan_only", "any"} else "lan_only"
         self._server: SyncServer | None = None
         self._server_lock = threading.RLock()
         self._server_start_requested = False
@@ -374,6 +376,7 @@ class SyncDialog(Adw.NavigationPage):
                 on_timeout_cb=_on_timeout,
                 on_vehicle_check_fn=_on_vehicle_check,
                 on_share_import_fn=_on_share_import,
+                access_mode=self._access_mode,
             )
             with self._server_lock:
                 if self._closed or (

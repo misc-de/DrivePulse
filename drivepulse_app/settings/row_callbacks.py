@@ -139,6 +139,13 @@ class SettingsRowCallbacksMixin:
         if self.on_traffic_nrw_changed is not None:
             self.on_traffic_nrw_changed(self.traffic_nrw_switch.get_active())
 
+    def _on_sync_access_selected(self, *_args: Any) -> None:
+        if self.on_sync_access_changed is None:
+            return
+        idx = self._sync_access_row.get_selected()
+        if 0 <= idx < len(self._SYNC_ACCESS_MODES):
+            self.on_sync_access_changed(self._SYNC_ACCESS_MODES[idx])
+
     # ── Logging + recording toggles + photo thumbnail cache size ─────────────
 
     def _on_log_app_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:

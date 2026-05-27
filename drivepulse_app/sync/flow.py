@@ -32,14 +32,19 @@ def parse_pairing_url(url_text: str, default_port: int, now: float | None = None
         raise ValueError("Invalid port")
     spki_fp = (params.get("fp") or [""])[0]
     pairing_token = (params.get("t") or [""])[0]
+    expiry_raw = (params.get("exp") or [""])[0]
+    if not expiry_raw:
+        raise ValueError("Invalid QR data")
     try:
-        expiry = int((params.get("exp") or ["0"])[0])
+        expiry = int(expiry_raw)
     except (TypeError, ValueError) as exc:
         raise ValueError("Invalid expiry") from exc
+    if expiry <= 0:
+        raise ValueError("Invalid expiry")
 
     if not host or not spki_fp or not pairing_token:
         raise ValueError("Invalid QR data")
-    if expiry and (now if now is not None else time.time()) > expiry:
+    if (now if now is not None else time.time()) > expiry:
         raise TimeoutError("QR code expired")
     return PairingInfo(host, port, spki_fp, pairing_token, expiry)
 
