@@ -557,7 +557,7 @@
   "settings.log_app": "App-Log",
   "settings.log_app.subtitle": "drivepulse.log schreiben (Warnungen, Fehler)",
   "settings.log_obd": "OBD-Log",
-  "settings.log_obd.subtitle": "connection-log.jsonl und obd-log.jsonl schreiben (hohes Volumen)",
+  "settings.log_obd.subtitle": "drivepulse-log.jsonl und obd-log.jsonl schreiben (hohes Volumen)",
   "settings.obd_auto_record": "Fahrt automatisch aufzeichnen",
   "settings.obd_auto_record.subtitle": "Alle Sensorwerte während der Fahrt speichern (startet bei Motorbetrieb, endet beim Ausschalten)",
   "settings.photos.group": "Fotos",
