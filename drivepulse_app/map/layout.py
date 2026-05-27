@@ -306,13 +306,14 @@ class MapLayoutMixin:
                 has_tour and not tour_running and not chart_expanded and not steps_expanded
             )
 
+        is_trip_replay = bool(getattr(self, "_loaded_trip_id", None))
         has_navigable_tour = bool(
             getattr(self, "_tour_active", False)
             or getattr(self, "_tour_paused", False)
             or getattr(self, "_tour_plan_active", False)
             or getattr(self, "_loaded_tour_id", None) is not None
-            or (getattr(self, "_tour_coords", None) or [])
-            or (getattr(self, "_route_coords", None) or [])
+            or (not is_trip_replay and (getattr(self, "_tour_coords", None) or []))
+            or (not is_trip_replay and (getattr(self, "_route_coords", None) or []))
         )
 
         tts_btn = getattr(self, "_tts_btn", None)
