@@ -105,6 +105,10 @@ class MapTourMixin:
             return
         if getattr(self, "_pending_route_draw", False) and hasattr(self, "_push_route_to_map"):
             self._push_route_to_map()
+        if self._backend == "webkit":
+            self._js("mapClearColoredTrack()")
+        elif getattr(self, "_shumate_map", None) is not None and hasattr(self, "_shumate_clear_colored_track"):
+            self._shumate_clear_colored_track()
         lat, lon = self._start_coord
         self._tour_active = True
         self._tour_paused = False
