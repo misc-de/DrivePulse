@@ -47,7 +47,6 @@ from drivepulse_app.map.services import (
     MAP_LABEL_KEYS,
     MAP_TYPES,
     osrm_match_route,
-    valhalla_trace_route,
 )
 from drivepulse_app.map.shumate import MapShumateMixin
 from drivepulse_app.map.state_poll import MapStatePollMixin
@@ -816,16 +815,6 @@ class MapPage(
             )
         else:
             log.warning("trip_trace_osrm_match_failed pts=%d label=%r", len(coords), label)
-            log.info("trip_trace_valhalla_call pts=%d", len(coords))
-            result = valhalla_trace_route(coords)
-            if result is None:
-                log.warning("trip_trace_valhalla_failed pts=%d label=%r", len(coords), label)
-            else:
-                snapped, dur, dist, steps = result
-                log.info(
-                    "trip_trace_valhalla_ok snapped_pts=%d steps=%d dist_km=%.1f dur_min=%.0f",
-                    len(snapped), len(steps), dist / 1000.0, dur / 60.0,
-                )
         GLib.idle_add(
             self._trip_trace_result, result, coords, label, distance_km, duration_s
         )
