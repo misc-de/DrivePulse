@@ -743,21 +743,28 @@ def route_via_gps_waypoints(
     )
     result = compute_route(all_waypoints, http_get_fn=http_get_fn)
 
-    # Deviation correction: compare raw GPS against the computed route and
-    # inject extra waypoints where the route diverges significantly.
-    # Raw coords are used here (not cleaned) so that points suppressed by
-    # cluster-collapse — e.g. slow city driving — still contribute to
-    # streak detection.  Single-sample spikes are harmless: min_streak
-    # requires at least 3 consecutive points beyond the threshold.
+    # Deviation correction: two complementary checks per iteration.
+    #
+    # GPS→Route  (_gps_route_deviations): each raw GPS point measures its
+    #   distance to the route polyline.  Catches deviations where GPS data
+    #   exists at the wrong location.  Raw coords used so cluster-suppressed
+    #   slow-driving samples still contribute; min_streak=3 filters spikes.
+    #
+    # Route→GPS  (_route_orphan_corrections): each sampled route point
+    #   measures its distance to the nearest GPS point.  Catches route
+    #   segments that have *no* GPS support at all — i.e. roads the car
+    #   never drove.  GPS gaps at those sections are invisible to GPS→Route.
     if result is not None:
         for _iter in range(3):
-            corrections = _gps_route_deviations(coords_lonlat, result[0], threshold_m=40.0)
+            fwd = _gps_route_deviations(coords_lonlat, result[0], threshold_m=40.0)
+            rev = _route_orphan_corrections(result[0], coords_lonlat, threshold_m=40.0)
+            corrections = fwd + rev
             if not corrections:
                 break
             write_diagnostic_log(
                 __name__, logging.INFO,
-                "route_via_gps_waypoints correction_iter=%d corrections=%d",
-                _iter + 1, len(corrections),
+                "route_via_gps_waypoints correction_iter=%d fwd=%d rev=%d",
+                _iter + 1, len(fwd), len(rev),
             )
             all_waypoints = _insert_correction_waypoints(
                 all_waypoints, corrections, coords_lonlat
@@ -838,6 +845,91 @@ def _gps_route_deviations(
             _flush(i)
 
     _flush(len(gps_coords))
+    return corrections
+
+
+def _route_orphan_corrections(
+    route_coords: list[list[float]],
+    gps_coords: list[list[float]],
+    sample_m: float = 30.0,
+    threshold_m: float = 40.0,
+    min_orphan_m: float = 80.0,
+) -> list[tuple[int, tuple[float, float]]]:
+    """Find GPS correction points for route segments with no GPS support.
+
+    Walks the route in *sample_m* steps.  Where a consecutive run of
+    sample points all have no GPS point within *threshold_m*, the route
+    passes through territory the car never visited.  For each such orphan
+    segment longer than *min_orphan_m*, the nearest GPS point to the
+    segment midpoint is returned as a correction waypoint.
+
+    Return format matches _gps_route_deviations: list of
+    ``(gps_index, (lat, lon))``.
+    """
+    if len(route_coords) < 2 or not gps_coords:
+        return []
+
+    cos_lat = math.cos(math.radians(
+        sum(c[1] for c in route_coords) / len(route_coords)
+    ))
+
+    # Sample the route polyline at sample_m intervals
+    samples: list[tuple[float, float, float]] = []  # (cum_m, lat, lon)
+    cum = 0.0
+    remainder = 0.0
+    for i in range(len(route_coords) - 1):
+        a, b = route_coords[i], route_coords[i + 1]
+        seg_m = haversine(a[1], a[0], b[1], b[0])
+        t = remainder / seg_m if seg_m > 0 else 0.0
+        while t <= 1.0:
+            lat = a[1] + t * (b[1] - a[1])
+            lon = a[0] + t * (b[0] - a[0])
+            samples.append((cum + t * seg_m, lat, lon))
+            t += sample_m / seg_m if seg_m > 0 else 1.0
+        remainder = (t - 1.0) * seg_m if seg_m > 0 else 0.0
+        cum += seg_m
+
+    # For each sample, find distance to nearest GPS point
+    corrections: list[tuple[int, tuple[float, float]]] = []
+    orphan_start_cum: float | None = None
+    orphan_samples: list[tuple[float, float, float]] = []
+
+    def _flush_orphan() -> None:
+        if orphan_start_cum is None or not orphan_samples:
+            return
+        orphan_end_cum = orphan_samples[-1][0]
+        if orphan_end_cum - orphan_start_cum < min_orphan_m:
+            return
+        mid_idx = len(orphan_samples) // 2
+        _, mid_lat, mid_lon = orphan_samples[mid_idx]
+        best_gi, best_d = 0, float("inf")
+        for gi, g in enumerate(gps_coords):
+            d = haversine(mid_lat, mid_lon, g[1], g[0])
+            if d < best_d:
+                best_d = d
+                best_gi = gi
+        gc = gps_coords[best_gi]
+        corrections.append((best_gi, (gc[1], gc[0])))
+
+    for cum_m, lat, lon in samples:
+        px, py = lon * cos_lat, lat
+        best_d2 = float("inf")
+        for g in gps_coords:
+            gx, gy = g[0] * cos_lat, g[1]
+            d2 = (px - gx) ** 2 + (py - gy) ** 2
+            if d2 < best_d2:
+                best_d2 = d2
+        dist_m = math.sqrt(best_d2) * 111_000.0
+        if dist_m > threshold_m:
+            if orphan_start_cum is None:
+                orphan_start_cum = cum_m
+            orphan_samples.append((cum_m, lat, lon))
+        else:
+            _flush_orphan()
+            orphan_start_cum = None
+            orphan_samples = []
+
+    _flush_orphan()
     return corrections
 
 
