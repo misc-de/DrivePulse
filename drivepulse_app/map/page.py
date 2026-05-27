@@ -583,7 +583,11 @@ class MapPage(
         self._set_tour_controls_visible(False)
         if self._tour_save_btn is not None:
             self._tour_save_btn.set_visible(False)
-        if getattr(self, "_replay_info_overlay", None) is not None:
+        if getattr(self, "_loaded_trip_id", None) is not None and hasattr(
+            self, "_clear_replay_overlays"
+        ):
+            self._clear_replay_overlays()
+        elif getattr(self, "_replay_info_overlay", None) is not None:
             self._replay_info_overlay.set_visible(False)
         if self._backend == "webkit":
             self._js("mapClearRoute()")
@@ -591,6 +595,12 @@ class MapPage(
             self._shumate_clear_route_layers()
         if hasattr(self, "_update_left_chrome_visibility"):
             self._update_left_chrome_visibility()
+        # Refresh Recent + Load-Tours lists so the green "loaded" marker
+        # disappears once the trash has wiped the loaded tour/trip.
+        if hasattr(self, "_rebuild_tour_history_rows"):
+            self._rebuild_tour_history_rows()
+        if hasattr(self, "_rebuild_tour_list"):
+            self._rebuild_tour_list()
 
     def set_nav_visible(self, visible: bool) -> None:
         if self._tour_topnav is not None:
