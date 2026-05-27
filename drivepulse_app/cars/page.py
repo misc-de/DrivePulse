@@ -498,7 +498,7 @@ class CarsPage(
         item-detail handlers still call _set_trash() themselves to install
         their own action.
         """
-        if self._photo_select_mode:
+        if self._photo_select_mode or self._trip_select_mode or self._scan_select_mode or self._run_select_mode:
             self._set_trash(None)
             return
         if (
@@ -510,6 +510,23 @@ class CarsPage(
             self._set_trash(self._confirm_delete_vehicle)
         else:
             self._set_trash(None)
+
+    def _on_list_select_trash_clicked(self) -> None:
+        if self._trip_select_mode:
+            self._confirm_delete_selected_trips()
+        elif self._scan_select_mode:
+            self._confirm_delete_selected_scans()
+        elif self._run_select_mode:
+            self._confirm_delete_selected_runs()
+
+    def _update_list_select_buttons(self) -> None:
+        active = self._trip_select_mode or self._scan_select_mode or self._run_select_mode
+        trash_btn = getattr(self, "_list_select_trash_btn", None)
+        share_btn = getattr(self, "_list_select_share_btn", None)
+        if trash_btn is not None:
+            trash_btn.set_visible(active and not self.mock_mode)
+        if share_btn is not None:
+            share_btn.set_visible(active and self._is_sync_active())
 
     # ---------------------------------------------------- Detail-Navigation
 
@@ -928,6 +945,7 @@ class CarsPage(
         if self._photo_select_mode and new_cat == "photos":
             return
         self._selected_category = new_cat
+        self._update_list_select_buttons()
         self._update_merge_btn_visibility()
         # Mark all "new via sync" items in this category as seen — the user
         # has the list in front of them, so the unread blue dot has done
