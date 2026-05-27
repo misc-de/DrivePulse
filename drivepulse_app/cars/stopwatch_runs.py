@@ -289,12 +289,13 @@ class CarsStopWatchRunsMixin:
         self._run_select_mode = True
         self._run_selected_ids = {run_id}
         self._render_detail()
-        self._set_trash(self._confirm_delete_selected_runs)
+        self._update_list_select_buttons()
 
     def _exit_run_select_mode(self) -> None:
         self._run_select_mode = False
         self._run_selected_ids = set()
         self._render_detail()
+        self._update_list_select_buttons()
         self._update_trash_default()
 
     def _on_run_checkbox_toggled(self, run_id: int, active: bool) -> None:

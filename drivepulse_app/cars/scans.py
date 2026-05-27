@@ -130,13 +130,14 @@ class CarsScansMixin:
         self._scan_select_mode = True
         self._scan_selected_ids = {scan_id}
         self._render_detail()
-        self._set_trash(self._confirm_delete_selected_scans)
+        self._update_list_select_buttons()
         self._update_merge_btn_visibility()
 
     def _exit_scan_select_mode(self) -> None:
         self._scan_select_mode = False
         self._scan_selected_ids = set()
         self._render_detail()
+        self._update_list_select_buttons()
         self._update_trash_default()
         self._update_merge_btn_visibility()
 

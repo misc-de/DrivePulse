@@ -262,13 +262,14 @@ class CarsTripsMixin:
         self._trip_select_mode = True
         self._trip_selected_ids = {trip_id}
         self._render_detail()
-        self._set_trash(self._confirm_delete_selected_trips)
+        self._update_list_select_buttons()
         self._update_merge_btn_visibility()
 
     def _exit_trip_select_mode(self) -> None:
         self._trip_select_mode = False
         self._trip_selected_ids = set()
         self._render_detail()
+        self._update_list_select_buttons()
         self._update_trash_default()
         self._update_merge_btn_visibility()
 
