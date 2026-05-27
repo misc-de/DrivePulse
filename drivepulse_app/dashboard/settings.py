@@ -439,11 +439,16 @@ class DashboardSettingsMixin:
             self.cars_page.refresh_profiles()
             self._update_conflict_badge()
 
+        def _on_vin_review_pending(reviews: list) -> None:
+            if hasattr(self.cars_page, "queue_vin_reviews"):
+                self.cars_page.queue_vin_reviews(reviews)
+
         page = SyncDialog(
             self, self.language, self.db,
             on_sync_complete=_on_sync_complete,
             on_connected=self._on_sync_connected,
             on_disconnected=self._on_sync_disconnected,
+            on_vin_review_pending=_on_vin_review_pending,
         )
         self._active_sync_dialog: SyncDialog | None = page
         self.nav_view.push(page)

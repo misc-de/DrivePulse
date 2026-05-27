@@ -44,8 +44,9 @@ def parse_pairing_url(url_text: str, default_port: int, now: float | None = None
     return PairingInfo(host, port, spki_fp, pairing_token, expiry)
 
 
-def perform_sync(db: Any, client: Any, mode: str) -> dict[str, int]:
+def perform_sync(db: Any, client: Any, mode: str) -> dict:
     cars_imported = trips_imported = samples_imported = 0
+    vin_data_review: list = []
 
     def _import_to_server(data: dict) -> None:
         if not client.import_to_server(data):
@@ -64,6 +65,7 @@ def perform_sync(db: Any, client: Any, mode: str) -> dict[str, int]:
             cars_imported = result["cars_added"] + result["cars_updated"]
             trips_imported = result["trips_added"]
             samples_imported = result["samples_added"]
+            vin_data_review = result.get("vin_data_review") or []
         local_data = export_all(db)
         local_data["import_mode"] = "merge"
         _import_to_server(local_data)
@@ -74,6 +76,7 @@ def perform_sync(db: Any, client: Any, mode: str) -> dict[str, int]:
         cars_imported = result["cars_added"] + result["cars_updated"]
         trips_imported = result["trips_added"]
         samples_imported = result["samples_added"]
+        vin_data_review = result.get("vin_data_review") or []
 
     elif mode == "local_wins":
         local_data = export_all(db)
@@ -86,6 +89,7 @@ def perform_sync(db: Any, client: Any, mode: str) -> dict[str, int]:
         cars_imported = result["cars_added"] + result["cars_updated"]
         trips_imported = result["trips_added"]
         samples_imported = result["samples_added"]
+        vin_data_review = result.get("vin_data_review") or []
 
     elif mode == "local_wins_all":
         local_data = export_all(db)
@@ -99,4 +103,5 @@ def perform_sync(db: Any, client: Any, mode: str) -> dict[str, int]:
         "cars": cars_imported,
         "trips": trips_imported,
         "samples": samples_imported,
+        "vin_data_review": vin_data_review,
     }

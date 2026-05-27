@@ -664,7 +664,7 @@ class DashboardWindow(
 
     def _on_visible_page_changed(self, _stack: Adw.ViewStack, _pspec: Any) -> None:
         page = self.view_stack.get_visible_child_name()
-        if page == self.PAGE_CARS and not self._nav_visible:
+        if page in (self.PAGE_CARS, self.PAGE_MAP) and not self._nav_visible:
             self._set_nav_visible(True)
         if page == self.PAGE_MAP:
             self._cancel_map_unload()

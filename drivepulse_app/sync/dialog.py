@@ -73,6 +73,7 @@ class SyncDialog(Adw.NavigationPage):
         on_sync_complete: Callable[[], None] | None = None,
         on_connected: Callable[[str, str], None] | None = None,
         on_disconnected: Callable[[], None] | None = None,
+        on_vin_review_pending: Callable[[list], None] | None = None,
     ) -> None:
         super().__init__(tag="sync")
         self._language = language
@@ -80,6 +81,7 @@ class SyncDialog(Adw.NavigationPage):
         self._on_sync_complete = on_sync_complete
         self._on_connected = on_connected
         self._on_disconnected = on_disconnected
+        self._on_vin_review_pending = on_vin_review_pending
         self._server: SyncServer | None = None
         self._server_lock = threading.RLock()
         self._server_start_requested = False
@@ -322,6 +324,10 @@ class SyncDialog(Adw.NavigationPage):
                     GLib.idle_add(lambda: self._server_status_label.set_text(msg))
                     if self._on_sync_complete:
                         GLib.idle_add(self._on_sync_complete)
+                    reviews = result.get("vin_data_review") or []
+                    if reviews and self._on_vin_review_pending:
+                        _reviews = reviews
+                        GLib.idle_add(lambda: self._on_vin_review_pending(_reviews))  # type: ignore[misc]
                     def _stop_and_remove() -> bool:
                         self._stop_server()
                         return False
@@ -758,6 +764,10 @@ class SyncDialog(Adw.NavigationPage):
             GLib.idle_add(_done, msg)
             if self._on_sync_complete:
                 GLib.idle_add(self._on_sync_complete)
+            reviews = result.get("vin_data_review") or []
+            if reviews and self._on_vin_review_pending:
+                _reviews = reviews
+                GLib.idle_add(lambda: self._on_vin_review_pending(_reviews))  # type: ignore[misc]
             if close_after:
                 GLib.timeout_add(1500, self._close_sync_dialog)
 

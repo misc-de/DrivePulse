@@ -48,6 +48,13 @@ def export_all(db: DriveDB) -> dict[str, Any]:
                 "samples_count": trip["samples_count"],
                 "samples": samples_out,
             })
+        vin_data_raw = car["vin_data_json"] if "vin_data_json" in car.keys() else None
+        vin_data: dict | None = None
+        if vin_data_raw is not None:
+            try:
+                vin_data = json.loads(vin_data_raw)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
         cars_out.append({
             "vin": car["vin"],
             "brand": car["brand"],
@@ -58,6 +65,7 @@ def export_all(db: DriveDB) -> dict[str, Any]:
             "profile_path": car["profile_path"],
             "first_seen": car["first_seen"],
             "last_seen": car["last_seen"],
+            "vin_data": vin_data,
             "trips": trips_out,
         })
 
@@ -88,6 +96,7 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
     cars_updated = 0
     trips_added = 0
     samples_added = 0
+    vin_data_review: list[dict[str, Any]] = []
 
     for car in _payload_list(data.get("cars"), field="cars"):
         if not isinstance(car, dict):
@@ -125,6 +134,35 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
             cars_added += 1
         else:
             cars_updated += 1
+
+        incoming_vin_data = car.get("vin_data")
+        if incoming_vin_data is not None:
+            try:
+                local_row = db.get_car(car_id)
+                local_raw = (
+                    local_row["vin_data_json"]
+                    if local_row and "vin_data_json" in local_row.keys()
+                    else None
+                )
+                if local_raw is None:
+                    db.update_car_vin_data(car_id, json.dumps(incoming_vin_data))
+                elif isinstance(incoming_vin_data, dict) and incoming_vin_data:
+                    try:
+                        local_vin: dict = json.loads(local_raw)
+                    except (json.JSONDecodeError, ValueError):
+                        local_vin = {}
+                    new_fields = {
+                        k: v for k, v in incoming_vin_data.items()
+                        if local_vin.get(k) != v
+                    }
+                    if new_fields:
+                        vin_data_review.append({
+                            "car_id": car_id,
+                            "vin": vin or "",
+                            "fields": new_fields,
+                        })
+            except Exception:
+                log.warning("Could not process vin_data for car_id=%s", car_id, exc_info=True)
 
         if mode in ("replace", "replace_all"):
             with db._lock:
@@ -189,6 +227,7 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
         "cars_updated": cars_updated,
         "trips_added": trips_added,
         "samples_added": samples_added,
+        "vin_data_review": vin_data_review,
     }
 
 
