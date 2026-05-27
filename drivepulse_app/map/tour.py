@@ -78,6 +78,17 @@ class MapTourMixin:
 
     def _on_tour_start_clicked(self, _btn: object) -> None:
         if self._start_coord is None:
+            coords = getattr(self, "_replay_nav_coords", None)
+            if coords:
+                meta = getattr(self, "_replay_nav_meta", None) or {}
+                self._replay_nav_coords = None
+                self._replay_nav_meta = None
+                self.load_trip_as_route(
+                    coords,
+                    meta.get("distance_km"),
+                    meta.get("duration_s"),
+                    meta.get("trip_label"),
+                )
             return
         if self._tour_active:
             self._pause_tour()
