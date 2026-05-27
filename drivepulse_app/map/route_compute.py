@@ -85,6 +85,7 @@ class MapRouteComputeMixin:
         self._status_lbl.set_text("")
         self._show_route_info(duration_s, distance_m)
         self._set_tour_controls_visible(True)
+        self._set_tour_button("start")
         if self._tour_save_btn is not None:
             self._tour_save_btn.set_visible(
                 getattr(self, "_loaded_tour_id", None) is None

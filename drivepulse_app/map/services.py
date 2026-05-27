@@ -720,18 +720,67 @@ def extract_turn_waypoints(
     return waypoints
 
 
+def _waypoint_bearings_from_track(
+    waypoints: list[tuple[float, float]],
+    cleaned_track: list[list[float]],
+    lookahead_m: float = 40.0,
+) -> list[float | None]:
+    """Compute the direction of travel (0-360°) at each waypoint.
+
+    Finds the nearest GPS point in *cleaned_track* to each waypoint, then
+    looks ahead *lookahead_m* metres to get a stable bearing.  Returns None
+    when the track is too short to compute a bearing.
+    """
+    def _bearing_at(idx: int) -> float | None:
+        cumulative = 0.0
+        for j in range(idx + 1, len(cleaned_track)):
+            prev, curr = cleaned_track[j - 1], cleaned_track[j]
+            cumulative += haversine(prev[1], prev[0], curr[1], curr[0])
+            if cumulative >= lookahead_m:
+                return bearing(
+                    cleaned_track[idx][1], cleaned_track[idx][0],
+                    curr[1], curr[0],
+                )
+        # Not enough track ahead — try looking back instead
+        cumulative = 0.0
+        for j in range(idx - 1, -1, -1):
+            prev, curr = cleaned_track[j], cleaned_track[j + 1]
+            cumulative += haversine(prev[1], prev[0], curr[1], curr[0])
+            if cumulative >= lookahead_m:
+                return bearing(prev[1], prev[0], cleaned_track[idx][1], cleaned_track[idx][0])
+        return None
+
+    result: list[float | None] = []
+    for wp in waypoints:
+        best_i = min(
+            range(len(cleaned_track)),
+            key=lambda i: haversine(wp[0], wp[1], cleaned_track[i][1], cleaned_track[i][0]),
+        )
+        result.append(_bearing_at(best_i))
+    return result
+
+
 def _snap_waypoints_to_road(
     waypoints: list[tuple[float, float]],
+    bearings: list[float | None] | None = None,
+    bearing_range: int = 30,
     http_get_fn: HttpGet = http_get,
 ) -> list[tuple[float, float]]:
     """Snap each (lat, lon) waypoint to the nearest driveable road.
 
-    Uses OSRM /nearest.  Falls back to the original coordinate if the
-    request fails.  Calls are issued in parallel to keep latency low.
+    Uses OSRM /nearest.  When *bearings* is provided (same length as
+    *waypoints*), each non-None bearing is passed as a heading constraint so
+    OSRM snaps to the road segment that matches the direction of travel —
+    preventing wrong-lane snapping on one-way streets.  Falls back to the
+    original coordinate if the request fails.  Calls are issued in parallel.
     """
-    def _snap_one(wp: tuple[float, float]) -> tuple[float, float]:
+    def _snap_one(args: tuple[int, tuple[float, float]]) -> tuple[float, float]:
+        i, wp = args
         lat, lon = wp
         url = f"https://router.project-osrm.org/nearest/v1/driving/{lon},{lat}"
+        if bearings and i < len(bearings) and bearings[i] is not None:
+            b = int(round(bearings[i])) % 360
+            url += f"?bearings={b},{bearing_range}"
         try:
             data = http_get_fn(url)
             loc = data["waypoints"][0]["location"]  # [lon, lat]
@@ -740,7 +789,7 @@ def _snap_waypoints_to_road(
             return wp
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        return list(pool.map(_snap_one, waypoints))
+        return list(pool.map(_snap_one, enumerate(waypoints)))
 
 
 def _subsample_cleaned_track(
@@ -904,6 +953,74 @@ def _deduplicate_close_waypoints(
     return result
 
 
+def _remove_uturn_waypoints(
+    waypoints: list[tuple[float, float]],
+    protected_coords: set[tuple[float, float]] | None = None,
+    max_iters: int = 5,
+    protection_radius_m: float = 200.0,
+    max_saving_pct: float = 0.15,
+    http_get_fn: HttpGet = http_get,
+) -> list[tuple[float, float]]:
+    """Iteratively remove waypoints that force spurious U-turns in the routed result.
+
+    After each routing call, finds waypoints nearest to U-turn steps and considers
+    removing them.  Two guards prevent over-removal:
+
+    1. *protected_coords* (stop-gap positions): waypoints within *protection_radius_m*
+       of a motor-off stop are preserved — they mark genuine direction reversals.
+    2. *max_saving_pct*: if removing the bad set would shorten the route by more than
+       this fraction of the total distance, the removal is skipped — a large saving
+       means the waypoints are on a real detour (e.g. gas-station approach), not GPS
+       noise on a one-way street.
+    """
+    wps = list(waypoints)
+    for _ in range(max_iters):
+        if len(wps) <= 2:
+            break
+        r = compute_route(wps, http_get_fn=http_get_fn)
+        if r is None:
+            break
+        _rc, _dur, current_dist, steps = r
+        uturn_steps = [
+            s for s in steps
+            if "uturn" in (s.get("modifier", "") + s.get("type", "")).lower()
+        ]
+        if not uturn_steps:
+            break
+        bad_indices: set[int] = set()
+        for s in uturn_steps:
+            best_i, best_d = None, float("inf")
+            for i, wp in enumerate(wps[1:-1], 1):  # never touch first/last
+                d = haversine(s["lat"], s["lon"], wp[0], wp[1])
+                if d < best_d:
+                    best_d = d
+                    best_i = i
+            if best_i is None or best_d >= protection_radius_m:
+                continue
+            # Skip waypoints near genuine reversals (stop-gap protected coords)
+            if protected_coords:
+                wp = wps[best_i]
+                if any(
+                    haversine(pc[0], pc[1], wp[0], wp[1]) < protection_radius_m
+                    for pc in protected_coords
+                ):
+                    continue
+            bad_indices.add(best_i)
+        if not bad_indices:
+            break
+        candidate = [wps[i] for i in range(len(wps)) if i not in bad_indices]
+        r_candidate = compute_route(candidate, http_get_fn=http_get_fn)
+        if r_candidate is None:
+            break
+        new_dist = r_candidate[2]
+        # A large distance saving means these waypoints are on a genuine detour
+        # (e.g. gas-station approach), not GPS-noise artifacts on a one-way street.
+        if current_dist > 0 and (current_dist - new_dist) / current_dist > max_saving_pct:
+            break
+        wps = candidate
+    return wps
+
+
 def _expand_turn_waypoints(
     turn_waypoints: list[tuple[float, float]],
     seg_coords: list[list[float]],
@@ -1008,16 +1125,25 @@ def route_via_gps_waypoints(
         len(coords_lonlat),
     )
 
-    # Fallback: waypoint extraction + routing + deviation correction.
-    cleaned, _stop_indices = _clean_gps_trace(coords_lonlat, timestamps=timestamps)
+    # Fallback: waypoint extraction + routing + U-turn correction.
+    cleaned, stop_indices = _clean_gps_trace(coords_lonlat, timestamps=timestamps)
 
-    # Treat the entire trip as one continuous route.  Splitting at stop-gap
-    # boundaries caused OSRM to emit arrive/depart steps at each via-point,
-    # producing spurious "destination reached" markers mid-trip.  Genuine
-    # U-turns (gas station etc.) are preserved by the reversal-protection below.
+    # Collect GPS positions of motor-off stop gaps (e.g. tank stops).  These are
+    # genuine direction reversals and must not be removed by the U-turn loop.
+    stop_gap_coords: set[tuple[float, float]] = set()
+    for si in stop_indices:
+        if si < len(cleaned):
+            c = cleaned[si]
+            stop_gap_coords.add((c[1], c[0]))  # (lat, lon)
+
     wps = extract_turn_waypoints(cleaned, min_segment_m=30.0, max_waypoints=60)
     all_waypoints: list[tuple[float, float]] = list(wps)
     protected_wp_indices: set[int] = {0, len(all_waypoints) - 1}
+    # Also protect pruner indices near stop gaps so the tank-stop waypoints
+    # survive the distance-based pruner as well.
+    for i, wp in enumerate(all_waypoints):
+        if any(haversine(sc[0], sc[1], wp[0], wp[1]) < 200.0 for sc in stop_gap_coords):
+            protected_wp_indices.add(i)
 
     write_diagnostic_log(
         __name__, logging.INFO,
@@ -1029,8 +1155,22 @@ def route_via_gps_waypoints(
         all_waypoints, protected=protected_wp_indices,
         save_threshold_m=100.0, http_get_fn=http_get_fn
     )
-    all_waypoints = _snap_waypoints_to_road(all_waypoints, http_get_fn=http_get_fn)
+    # Compute direction-of-travel bearings after pruning so we snap each
+    # surviving waypoint to the road segment matching the actual travel direction.
+    # This prevents wrong-lane snapping on one-way streets.
+    # Start and end are kept unconstrained — they must snap to the nearest road
+    # regardless of heading (parking spot might face any direction).
+    wp_bearings = _waypoint_bearings_from_track(all_waypoints, cleaned)
+    if wp_bearings:
+        wp_bearings[0] = None
+        wp_bearings[-1] = None
+    all_waypoints = _snap_waypoints_to_road(
+        all_waypoints, bearings=wp_bearings, http_get_fn=http_get_fn
+    )
     all_waypoints = _deduplicate_close_waypoints(all_waypoints, min_dist_m=50.0)
+    all_waypoints = _remove_uturn_waypoints(
+        all_waypoints, protected_coords=stop_gap_coords, http_get_fn=http_get_fn
+    )
     return compute_route(all_waypoints, http_get_fn=http_get_fn)
 
 
