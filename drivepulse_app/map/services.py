@@ -559,6 +559,66 @@ def _remap_speed_to_route(
     return result
 
 
+def _clean_gps_trace(
+    coords: list[list[float]],
+    spike_min_m: float = 30.0,
+    cluster_radius_m: float = 15.0,
+) -> list[list[float]]:
+    """Remove GPS artefacts before waypoint extraction.
+
+    Pass 1 – spikes: a point that jumps far from both neighbours while the
+    neighbours remain close to each other (classic multipath bounce).
+    Condition: d(prev→curr) > spike_min_m AND d(curr→next) > spike_min_m
+               AND d(prev→next) < 0.5 * max(d(prev→curr), d(curr→next)).
+
+    Pass 2 – clusters: consecutive points within *cluster_radius_m* of the
+    last committed point (e.g. maneuvering on a forecourt) are collapsed to
+    just the cluster entry and exit, so the router is not confused by dense
+    back-and-forth loops.
+    """
+    if len(coords) < 3:
+        return list(coords)
+
+    # Pass 1: spike removal
+    no_spikes: list[list[float]] = [coords[0]]
+    i = 1
+    while i < len(coords) - 1:
+        prev = no_spikes[-1]
+        curr = coords[i]
+        nxt = coords[i + 1]
+        d_prev = haversine(prev[1], prev[0], curr[1], curr[0])
+        d_next = haversine(curr[1], curr[0], nxt[1], nxt[0])
+        d_skip = haversine(prev[1], prev[0], nxt[1], nxt[0])
+        if (d_prev > spike_min_m and d_next > spike_min_m
+                and d_skip < max(d_prev, d_next) * 0.5):
+            i += 1
+            continue
+        no_spikes.append(curr)
+        i += 1
+    no_spikes.append(coords[-1])
+
+    if len(no_spikes) < 2:
+        return no_spikes
+
+    # Pass 2: cluster collapse
+    result: list[list[float]] = [no_spikes[0]]
+    last_skipped: list[float] | None = None
+    for pt in no_spikes[1:]:
+        anchor = result[-1]
+        d = haversine(anchor[1], anchor[0], pt[1], pt[0])
+        if d < cluster_radius_m:
+            last_skipped = pt
+        else:
+            if last_skipped is not None:
+                result.append(last_skipped)
+                last_skipped = None
+            result.append(pt)
+    if last_skipped is not None:
+        result.append(last_skipped)
+
+    return result
+
+
 def extract_turn_waypoints(
     coords_lonlat: list[list[float]],
     min_turn_deg: float = 30.0,
@@ -624,11 +684,12 @@ def route_via_gps_waypoints(
     """
     if len(coords_lonlat) < 2:
         return None
-    waypoints = extract_turn_waypoints(coords_lonlat)
+    cleaned = _clean_gps_trace(coords_lonlat)
+    waypoints = extract_turn_waypoints(cleaned)
     write_diagnostic_log(
         __name__, logging.INFO,
-        "route_via_gps_waypoints pts=%d waypoints=%d",
-        len(coords_lonlat), len(waypoints),
+        "route_via_gps_waypoints pts=%d cleaned=%d waypoints=%d",
+        len(coords_lonlat), len(cleaned), len(waypoints),
     )
     return compute_route(waypoints, http_get_fn=http_get_fn)
 
