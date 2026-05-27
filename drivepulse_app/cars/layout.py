@@ -318,8 +318,6 @@ class CarsLayoutMixin:
         on_share: Callable[[], None] | None = None,
         on_delete: Callable[[], None] | None = None,
         on_back: Callable[[], None] | None = None,
-        on_show_map: Callable[[], None] | None = None,
-        on_calculate_tour: Callable[[], None] | None = None,
     ) -> Gtk.Widget:
         """Wrap content with a title + back-button header for sub-pages (trip, scan, accel run).
 
@@ -346,18 +344,6 @@ class CarsLayoutMixin:
         title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         head.append(back_btn)
         head.append(title_lbl)
-        if on_show_map is not None:
-            map_btn = Gtk.Button(icon_name="media-playback-start-symbolic")
-            map_btn.add_css_class("flat")
-            map_btn.set_tooltip_text(_translate(self.language, "cars.trip.show_on_map"))
-            map_btn.connect("clicked", lambda _b: on_show_map())
-            head.append(map_btn)
-        if on_calculate_tour is not None:
-            tour_btn = Gtk.Button(icon_name="find-location-symbolic")
-            tour_btn.add_css_class("flat")
-            tour_btn.set_tooltip_text(_translate(self.language, "cars.trip.calculate_tour"))
-            tour_btn.connect("clicked", lambda _b: on_calculate_tour())
-            head.append(tour_btn)
         if on_rename is not None:
             rename_btn = Gtk.Button(icon_name="document-edit-symbolic")
             rename_btn.add_css_class("flat")

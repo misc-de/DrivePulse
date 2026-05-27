@@ -380,8 +380,6 @@
   "cars.trip.delete_cancel": "Abbrechen",
   "cars.trip.delete_multi_body": "{n} Fahrten und alle aufgezeichneten Daten werden dauerhaft gelöscht.",
   "cars.trip.selected_count": "{n} ausgewählt",
-  "cars.trip.show_on_map": "Auf Karte anzeigen",
-  "cars.trip.calculate_tour": "Tour berechnen",
   "cars.trip.rename_title": "Fahrt umbenennen",
   "cars.trip.rename_placeholder": "Name (optional)",
   "cars.trip.rename_confirm": "Speichern",
