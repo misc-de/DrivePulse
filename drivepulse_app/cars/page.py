@@ -450,7 +450,7 @@ class CarsPage(
         self._vin_refresh_btn.set_visible(
             self._is_real_car
             and self._has_vin
-            and not self.mock_mode
+            and not self._is_selected_car_mock()
             and self._selected_category == "vehicle"
         )
 
@@ -459,7 +459,7 @@ class CarsPage(
         # vehicle category — same scoping rule as the VIN refresh button.
         self._rename_btn.set_visible(
             self._is_real_car
-            and not self.mock_mode
+            and not self._is_selected_car_mock()
             and self._detail_pushed
             and self._selected_category == "vehicle"
         )
@@ -471,7 +471,7 @@ class CarsPage(
         if btn is None:
             return
         show = (
-            not self.mock_mode
+            not self._is_selected_car_mock()
             and (
                 (self._scan_select_mode and len(self._scan_selected_ids) >= 2)
                 or (self._trip_select_mode and len(self._trip_selected_ids) >= 2)
@@ -503,7 +503,7 @@ class CarsPage(
             return
         if (
             self._is_real_car
-            and not self.mock_mode
+            and not self._is_selected_car_mock()
             and self._detail_pushed
             and self._selected_category == "vehicle"
         ):
@@ -524,7 +524,7 @@ class CarsPage(
         trash_btn = getattr(self, "_list_select_trash_btn", None)
         share_btn = getattr(self, "_list_select_share_btn", None)
         if trash_btn is not None:
-            trash_btn.set_visible(active and not self.mock_mode)
+            trash_btn.set_visible(active and not self._is_selected_car_mock())
         if share_btn is not None:
             share_btn.set_visible(active and self._is_sync_active())
 
@@ -868,6 +868,16 @@ class CarsPage(
             # switches to the three-line stack.
             self._render_detail()
 
+    def _is_selected_car_mock(self) -> bool:
+        """True only if the currently selected car is a seeded demo vehicle."""
+        if not self.mock_mode or self._selected_car_id is None:
+            return False
+        from drivepulse_app.mock.seed import MOCK_VINS
+        entry = next((e for e in self._profiles if e.get("car_id") == self._selected_car_id), None)
+        if entry is None:
+            return False
+        return (entry.get("vin") or "") in MOCK_VINS
+
     def _is_sync_active(self) -> bool:
         if self.mock_mode:
             return False
@@ -914,9 +924,8 @@ class CarsPage(
         if self._detail_trash_handler is not None:
             btn.disconnect(self._detail_trash_handler)
             self._detail_trash_handler = None
-        # Mock mode: never expose a destructive action — the seeded vehicles
-        # and their records must stay intact.
-        if self.mock_mode:
+        # Seeded demo cars: never expose destructive actions on their records.
+        if self._is_selected_car_mock():
             action_fn = None
         if action_fn is not None:
             self._detail_trash_handler = btn.connect("clicked", lambda _b: action_fn())

@@ -226,7 +226,7 @@ class CarsStopWatchRunsMixin:
         load_btn.connect("clicked", lambda _b: self._load_run_in_stopwatch(data))
         box.append(load_btn)
 
-        if not self.mock_mode:
+        if not self._is_selected_car_mock():
             del_btn = Gtk.Button(label=_translate(self.language, "cars.stopwatch_run.delete_title"))
             del_btn.add_css_class("destructive-action")
             del_btn.set_margin_top(4)

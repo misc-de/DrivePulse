@@ -103,16 +103,34 @@ def test_trash_visible_when_run_mode_active(drivepulse_module):
     assert page._list_select_trash_btn.get_visible() is True
 
 
-def test_trash_hidden_in_mock_mode_even_when_trip_mode_active(drivepulse_module):
+def test_trash_hidden_for_seeded_mock_car_in_mock_mode(drivepulse_module):
+    from drivepulse_app.cars.page import CarsPage
+    from drivepulse_app.mock.seed import MOCK_VINS
+
+    page = _make_page(drivepulse_module)
+    page._trip_select_mode = True
+    page.mock_mode = True
+    page._selected_car_id = 99
+    page._profiles = [{"car_id": 99, "vin": MOCK_VINS[0]}]
+
+    CarsPage._update_list_select_buttons(page)
+
+    assert page._list_select_trash_btn.get_visible() is False
+
+
+def test_trash_visible_for_own_car_even_in_mock_mode(drivepulse_module):
+    """Regression: eigene Autos müssen auch im Mock-Modus löschbar sein."""
     from drivepulse_app.cars.page import CarsPage
 
     page = _make_page(drivepulse_module)
     page._trip_select_mode = True
     page.mock_mode = True
+    page._selected_car_id = 7
+    page._profiles = [{"car_id": 7, "vin": "OWNCAR0000001"}]  # nicht in MOCK_VINS
 
     CarsPage._update_list_select_buttons(page)
 
-    assert page._list_select_trash_btn.get_visible() is False
+    assert page._list_select_trash_btn.get_visible() is True
 
 
 def test_share_visible_when_mode_active_and_sync_active(drivepulse_module):

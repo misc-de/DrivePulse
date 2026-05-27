@@ -176,11 +176,11 @@ class CarsTripsMixin:
         def _on_rename(title_lbl: Gtk.Label) -> None:
             self._open_trip_rename_dialog(trip_id, title_lbl, page_ref)
 
-        # Mock mode hides edit/share/delete affordances entirely so demo data
-        # never leaves the device and can't be removed.
-        rename_cb = None if self.mock_mode else _on_rename
+        # Seeded demo cars hide edit/share/delete so their data stays intact.
+        is_mock = self._is_selected_car_mock()
+        rename_cb = None if is_mock else _on_rename
         share_cb = (lambda: self._share_trip(trip_id)) if self._is_sync_active() else None
-        delete_cb = None if self.mock_mode else (lambda: self._confirm_delete_trip(trip_id))
+        delete_cb = None if is_mock else (lambda: self._confirm_delete_trip(trip_id))
 
         # Desktop (split view uncollapsed): show the trip detail inline inside
         # the same value-scroll area where the list lives, instead of pushing
