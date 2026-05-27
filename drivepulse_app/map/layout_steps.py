@@ -62,6 +62,8 @@ class MapStepsPanelMixin:
             self._steps_panel.set_visible(visible)
         if self._backend == "shumate" and hasattr(self, "_shumate_set_scale_visible"):
             self._shumate_set_scale_visible(not visible)
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
 
     def _on_step_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         lat = getattr(row, "_step_lat", None)

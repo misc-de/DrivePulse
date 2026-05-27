@@ -157,7 +157,12 @@ class MapReplayMixin:
         btn.set_size_request(40, 40)
         btn.set_tooltip_text(_translate(self.language, "map.replay.chart_restore"))
         btn.set_visible(False)
-        btn.connect("clicked", lambda _b: self._set_replay_chart_minimized(False))
+        btn.connect(
+            "clicked",
+            lambda _b: self._set_replay_chart_minimized(
+                not bool(getattr(self, "_replay_chart_minimized", False))
+            ),
+        )
         self._replay_chart_restore_btn = btn
         return btn
 
@@ -503,3 +508,5 @@ class MapReplayMixin:
             self._shumate_clear_route_layers()
             if hasattr(self, "_shumate_set_scale_visible"):
                 self._shumate_set_scale_visible(True)
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()

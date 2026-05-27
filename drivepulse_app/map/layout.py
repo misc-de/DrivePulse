@@ -275,28 +275,28 @@ class MapLayoutMixin:
 
           - Trash → only when a tour or plan exists AND the chart is
             not currently expanded (would clash visually).
-          - Chart-restore icon → only when the chart is minimised AND
-            the info card isn't expanded.
+          - Chart-restore icon → always visible while replay chart data exists.
 
         Called from set_replay_*_minimized, route load/clear paths, and
         the tour state-machine transitions."""
         chart_overlay = getattr(self, "_replay_chart_overlay", None)
         chart_expanded = bool(chart_overlay is not None and chart_overlay.get_visible())
-        info_overlay = getattr(self, "_replay_info_overlay", None)
-        info_expanded = bool(info_overlay is not None and info_overlay.get_visible())
+        steps_panel = getattr(self, "_steps_panel", None)
+        steps_expanded = bool(steps_panel is not None and steps_panel.get_visible())
 
         has_tour = bool(
             getattr(self, "_tour_active", False)
             or getattr(self, "_tour_paused", False)
             or getattr(self, "_tour_plan_active", False)
             or getattr(self, "_loaded_tour_id", None) is not None
+            or getattr(self, "_loaded_trip_id", None) is not None
             or (getattr(self, "_tour_coords", None) or [])
             or (getattr(self, "_route_coords", None) or [])
         )
 
         btn = getattr(self, "_tour_reset_btn", None)
         if btn is not None:
-            btn.set_visible(has_tour and not chart_expanded and not info_expanded)
+            btn.set_visible(has_tour and not chart_expanded and not steps_expanded)
 
         chart_restore = getattr(self, "_replay_chart_restore_btn", None)
         chart_has_data = bool(getattr(self, "_replay_chart_widget", None))
