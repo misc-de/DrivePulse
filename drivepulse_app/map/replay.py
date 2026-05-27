@@ -431,22 +431,30 @@ class MapReplayMixin:
         except Exception:
             ended_at = None
 
-        self._map_show_track(latlon_speed)
+        # Populate info card and chart first (data survives the overlay clear below).
         self._populate_replay_info(meta, ended_at)
         self._populate_replay_chart(samples)
-        # The info card lives inside the tour-controls grid, so the grid must
-        # be visible for the card to appear.
-        self._set_tour_controls_visible(True)
-        # Store coords so "Tour berechnen" can trigger load_trip_as_route on click.
+
+        # Road-snap the GPS trace via Valhalla (starts in background).
+        # load_trip_as_route clears replay overlays internally; we restore the
+        # info card and chart below so the user can still see trip metadata
+        # while the calculation runs.
         lonlat_coords = [[lon, lat] for lat, lon, _ in latlon_speed]
         if len(lonlat_coords) >= 2:
-            self._replay_nav_coords: list | None = lonlat_coords
-            self._replay_nav_meta: dict | None = meta
-        self._set_tour_button("calculate")
-        # Start minimized — only the notepad icon shows; user opens the card on demand.
+            self.load_trip_as_route(
+                lonlat_coords,
+                distance_km=meta.get("distance_km"),
+                duration_s=meta.get("duration_s"),
+                label=meta.get("trip_label"),
+            )
+
+        # load_trip_as_route → _clear_replay_overlays resets _loaded_trip_id;
+        # restore it so the Recent-Tours list can highlight this entry.
+        self._loaded_trip_id = trip_id
+
+        # Re-show info card and chart in minimized state.
         self._set_replay_info_minimized(True)
         if self._replay_chart_widget is not None:
-            # Start minimized — only the restore icon shows; user opens the chart on demand.
             self._set_replay_chart_minimized(True)
         self._refresh_fab_visibility()
 
@@ -489,8 +497,6 @@ class MapReplayMixin:
     def _clear_replay_overlays(self) -> None:
         """Hide the replay info + chart overlays and clear the polyline + marker."""
         self._loaded_trip_id = None
-        self._replay_nav_coords = None
-        self._replay_nav_meta = None
         if getattr(self, "_replay_info_overlay", None) is not None:
             self._replay_info_overlay.set_visible(False)
         if getattr(self, "_replay_info_restore_btn", None) is not None:

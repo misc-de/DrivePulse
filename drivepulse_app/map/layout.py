@@ -306,13 +306,22 @@ class MapLayoutMixin:
                 has_tour and not tour_running and not chart_expanded and not steps_expanded
             )
 
+        has_navigable_tour = bool(
+            getattr(self, "_tour_active", False)
+            or getattr(self, "_tour_paused", False)
+            or getattr(self, "_tour_plan_active", False)
+            or getattr(self, "_loaded_tour_id", None) is not None
+            or (getattr(self, "_tour_coords", None) or [])
+            or (getattr(self, "_route_coords", None) or [])
+        )
+
         tts_btn = getattr(self, "_tts_btn", None)
         if tts_btn is not None:
-            tts_btn.set_visible(has_tour)
+            tts_btn.set_visible(has_navigable_tour)
 
         speed_warn_btn = getattr(self, "_speed_warn_btn", None)
         if speed_warn_btn is not None:
-            speed_warn_btn.set_visible(has_tour)
+            speed_warn_btn.set_visible(has_navigable_tour)
 
         chart_restore = getattr(self, "_replay_chart_restore_btn", None)
         chart_has_data = bool(getattr(self, "_replay_chart_widget", None))
