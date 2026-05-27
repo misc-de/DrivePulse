@@ -529,8 +529,7 @@ class CarsPage(
             share_btn.set_visible(active and self._is_sync_active())
 
     def _reapply_list_select_ui(self) -> bool:
-        if self._trip_select_mode or self._scan_select_mode or self._run_select_mode:
-            self._update_list_select_buttons()
+        self._update_list_select_buttons()
         return False
 
     # ---------------------------------------------------- Detail-Navigation
@@ -799,6 +798,8 @@ class CarsPage(
         self._photo_select_mode = False
         self._photo_selected_ids = set()
         self._photo_detail_page = None
+        self._update_list_select_buttons()
+        self._update_photo_select_buttons()
         self._set_trash(None)
         self._rename_btn.set_visible(False)
         self._has_vin = False
