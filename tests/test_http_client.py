@@ -96,3 +96,30 @@ def test_http_get_passes_timeout_through_to_session(monkeypatch):
     monkeypatch.setattr(http_client, "_session", _Session)
     http_client.http_get("https://api.example.com/x", timeout=7)
     assert seen["timeout"] == 7
+
+
+def test_http_post_json_logs_error_response_body(monkeypatch):
+    seen: dict = {}
+
+    class _Resp:
+        status_code = 400
+        text = '{"error":"No suitable edges near location"}'
+
+        def raise_for_status(self):
+            err = requests.exceptions.HTTPError("400 Client Error")
+            err.response = self
+            raise err
+
+    class _Session:
+        def post(self, *_args, **_kwargs):
+            return _Resp()
+
+    def fake_warning(message, *args, **_kwargs):
+        seen["message"] = message % args
+
+    monkeypatch.setattr(http_client, "_session", _Session)
+    monkeypatch.setattr(http_client.log, "warning", fake_warning)
+
+    assert http_client.http_post_json("https://api.example.com/x", {"ok": True}) is None
+    assert "status=400" in seen["message"]
+    assert "No suitable edges" in seen["message"]

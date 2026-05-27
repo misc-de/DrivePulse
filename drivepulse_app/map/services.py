@@ -484,6 +484,18 @@ def _subsample_coords(
     return result
 
 
+def _valhalla_error_summary(data: Any) -> str:
+    if not isinstance(data, dict):
+        return f"unexpected response type {type(data).__name__}"
+    for key in ("error", "error_message", "message", "status"):
+        value = data.get(key)
+        if value:
+            return str(value)
+    if "trip" not in data:
+        return f"missing trip in response keys={sorted(data.keys())}"
+    return "malformed trip response"
+
+
 def valhalla_trace_route(
     coords_lonlat: list[list[float]],
     http_post_json_fn=http_post_json,
@@ -495,9 +507,17 @@ def valhalla_trace_route(
     (coords, duration_s, distance_m, steps) tuple as valhalla_route.
     """
     if len(coords_lonlat) < 2:
+        log.warning(
+            "Valhalla trace_route skipped: need at least 2 points, got %d",
+            len(coords_lonlat),
+        )
         return None
     pts = _subsample_coords(coords_lonlat, 500)
-    shape = [{"lat": float(c[1]), "lon": float(c[0])} for c in pts]
+    try:
+        shape = [{"lat": float(c[1]), "lon": float(c[0])} for c in pts]
+    except (IndexError, TypeError, ValueError) as exc:
+        log.warning("Valhalla trace_route invalid input: %s", exc)
+        return None
     body: dict[str, Any] = {
         "shape": shape,
         "costing": "auto",
@@ -506,6 +526,10 @@ def valhalla_trace_route(
     }
     data = http_post_json_fn(_VALHALLA_TRACE_URL, body)
     if not data:
+        log.warning(
+            "Valhalla trace_route failed: no response pts=%d sampled_pts=%d",
+            len(coords_lonlat), len(shape),
+        )
         return None
     try:
         trip = data["trip"]
@@ -517,10 +541,26 @@ def valhalla_trace_route(
         for leg in legs:
             coords.extend(_decode_polyline(leg.get("shape", "")))
         if not coords:
+            log.warning(
+                "Valhalla trace_route failed: decoded empty shape pts=%d "
+                "sampled_pts=%d reason=%s",
+                len(coords_lonlat),
+                len(shape),
+                _valhalla_error_summary(data),
+            )
             return None
         steps = _flatten_valhalla_maneuvers(legs)
         return coords, duration_s, distance_m, steps
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError) as exc:
+        log.warning(
+            "Valhalla trace_route failed: parse error pts=%d sampled_pts=%d "
+            "reason=%s error=%s",
+            len(coords_lonlat),
+            len(shape),
+            _valhalla_error_summary(data),
+            exc,
+            exc_info=True,
+        )
         return None
 
 

@@ -814,11 +814,14 @@ class MapPage(
                 "trip_trace_valhalla_ok snapped_pts=%d steps=%d dist_km=%.1f dur_min=%.0f",
                 len(snapped), len(steps), dist / 1000.0, dur / 60.0,
             )
-        GLib.idle_add(self._trip_trace_result, result, label, distance_km, duration_s)
+        GLib.idle_add(
+            self._trip_trace_result, result, coords, label, distance_km, duration_s
+        )
 
     def _trip_trace_result(
         self,
         result: tuple[list[list[float]], float, float, list[dict]] | None,
+        orig_coords: list[list[float]],
         label: str | None,
         orig_distance_km: float | None,
         orig_duration_s: float | None,
@@ -848,6 +851,9 @@ class MapPage(
                 self._rebuild_steps_list()
                 self._set_steps_panel_visible(bool(steps))
         if result is None:
+            self._pending_trip_trace_args = (
+                orig_coords, label, orig_distance_km, orig_duration_s
+            )
             dialog = Adw.AlertDialog(
                 heading=_translate(self.language, "map.tour_calculate_failed.heading"),
                 body=_translate(self.language, "map.tour_calculate_failed.body"),
