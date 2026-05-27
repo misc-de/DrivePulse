@@ -123,3 +123,32 @@ def test_http_post_json_logs_error_response_body(monkeypatch):
     assert http_client.http_post_json("https://api.example.com/x", {"ok": True}) is None
     assert "status=400" in seen["message"]
     assert "No suitable edges" in seen["message"]
+
+
+def test_http_post_json_result_returns_json_error_body(monkeypatch):
+    class _Resp:
+        status_code = 400
+        text = '{"error_code":443,"error":"Exact route match algorithm failed"}'
+
+        def json(self):
+            return {"error_code": 443, "error": "Exact route match algorithm failed"}
+
+        def raise_for_status(self):
+            err = requests.exceptions.HTTPError("400 Client Error")
+            err.response = self
+            raise err
+
+    class _Session:
+        def post(self, *_args, **_kwargs):
+            return _Resp()
+
+    monkeypatch.setattr(http_client, "_session", _Session)
+    monkeypatch.setattr(http_client, "write_diagnostic_log", lambda *a, **k: None)
+
+    data, status = http_client.http_post_json_result(
+        "https://api.example.com/x",
+        {"ok": True},
+    )
+
+    assert status == 400
+    assert data == {"error_code": 443, "error": "Exact route match algorithm failed"}

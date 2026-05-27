@@ -238,9 +238,50 @@ def test_valhalla_trace_route_uses_public_trace_host_and_break_via_types(monkeyp
     )
 
     assert result is None
-    assert seen[0][0] == "https://valhalla1.openstreetmap.de/trace_route"
-    assert seen[1][0] == "https://valhalla.openstreetmap.de/trace_route"
+    assert [url for url, _ in seen] == [
+        "https://valhalla1.openstreetmap.de/trace_route",
+        "https://valhalla1.openstreetmap.de/trace_route",
+        "https://valhalla.openstreetmap.de/trace_route",
+        "https://valhalla.openstreetmap.de/trace_route",
+    ]
     shape = seen[0][1]["shape"]
     assert [p["type"] for p in shape] == ["break", "via", "break"]
+    assert "type" not in seen[1][1]["shape"][0]
     assert seen[0][1]["shape_match"] == "map_snap"
     assert seen[0][1]["costing"] == "auto"
+    assert seen[0][1]["trace_options"]["search_radius"] == 50
+
+
+def test_valhalla_trace_route_retries_untyped_shape_after_edge_walk_error(monkeypatch):
+    from drivepulse_app.map import services
+
+    seen: list[tuple[str, dict]] = []
+
+    def fake_post(url: str, body: dict):
+        seen.append((url, body))
+        if len(seen) == 1:
+            return {
+                "error_code": 443,
+                "error": "Exact route match algorithm failed to find path",
+            }, 400
+        return {
+            "trip": {
+                "summary": {"time": 12.0, "length": 0.1},
+                "legs": [{"shape": "_p~iF~ps|U_ulLnnqC"}],
+            }
+        }, 200
+
+    monkeypatch.setattr(services, "_log_valhalla_trace_failure", lambda *a, **k: None)
+
+    result = services.valhalla_trace_route(
+        [[-120.2, 38.5], [-120.95, 40.7]],
+        http_post_json_fn=fake_post,
+    )
+
+    assert result is not None
+    coords, duration_s, distance_m, _steps = result
+    assert coords
+    assert duration_s == 12.0
+    assert distance_m == 100.0
+    assert "type" in seen[0][1]["shape"][0]
+    assert "type" not in seen[1][1]["shape"][0]

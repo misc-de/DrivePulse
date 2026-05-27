@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from drivepulse_app.diagnostics import get_logger, write_diagnostic_log
-from drivepulse_app.http_client import http_get, http_post, http_post_json
+from drivepulse_app.http_client import http_get, http_post, http_post_json_result
 
 log = get_logger(__name__)
 
@@ -504,9 +504,37 @@ def _valhalla_error_summary(data: Any) -> str:
     return "malformed trip response"
 
 
+def _trace_shape(coords: list[list[float]], *, typed: bool) -> list[dict[str, float | str]]:
+    shape: list[dict[str, float | str]] = []
+    for idx, c in enumerate(coords):
+        point: dict[str, float | str] = {"lat": float(c[1]), "lon": float(c[0])}
+        if typed:
+            point["type"] = "break" if idx in {0, len(coords) - 1} else "via"
+        shape.append(point)
+    return shape
+
+
+def _trace_bodies(shape: list[dict[str, float | str]]) -> list[tuple[str, dict[str, Any]]]:
+    base: dict[str, Any] = {
+        "costing": "auto",
+        "shape_match": "map_snap",
+        "directions_options": {"units": "kilometers"},
+        "trace_options": {
+            "gps_accuracy": 30,
+            "search_radius": 50,
+            "breakage_distance": 2_000,
+        },
+    }
+    untyped_shape = [{"lat": p["lat"], "lon": p["lon"]} for p in shape]
+    return [
+        ("typed_map_snap", {"shape": shape, **base}),
+        ("untyped_map_snap", {"shape": untyped_shape, **base}),
+    ]
+
+
 def valhalla_trace_route(
     coords_lonlat: list[list[float]],
-    http_post_json_fn=http_post_json,
+    http_post_json_fn=http_post_json_result,
 ) -> tuple[list[list[float]], float, float, list[dict]] | None:
     """Map-match a GPS trace to roads via Valhalla trace_route.
 
@@ -522,30 +550,33 @@ def valhalla_trace_route(
         return None
     pts = _subsample_coords(coords_lonlat, 500)
     try:
-        shape = []
-        for idx, c in enumerate(pts):
-            point_type = "break" if idx in {0, len(pts) - 1} else "via"
-            shape.append({"lat": float(c[1]), "lon": float(c[0]), "type": point_type})
+        shape = _trace_shape(pts, typed=True)
     except (IndexError, TypeError, ValueError) as exc:
         _log_valhalla_trace_failure("Valhalla trace_route invalid input: %s", exc)
         return None
-    body: dict[str, Any] = {
-        "shape": shape,
-        "costing": "auto",
-        "shape_match": "map_snap",
-        "directions_options": {"units": "kilometers"},
-    }
     data = None
     for url in _VALHALLA_TRACE_URLS:
-        data = http_post_json_fn(url, body)
-        if data:
+        for variant, body in _trace_bodies(shape):
+            response = http_post_json_fn(url, body)
+            if isinstance(response, tuple):
+                data, status = response
+            else:
+                data, status = response, None
+            if data and not (isinstance(data, dict) and data.get("error_code")):
+                break
+            reason = _valhalla_error_summary(data)
+            _log_valhalla_trace_failure(
+                "Valhalla trace_route endpoint failed url=%s variant=%s "
+                "status=%r pts=%d sampled_pts=%d reason=%s",
+                url,
+                variant,
+                status,
+                len(coords_lonlat),
+                len(shape),
+                reason,
+            )
+        if data and not (isinstance(data, dict) and data.get("error_code")):
             break
-        _log_valhalla_trace_failure(
-            "Valhalla trace_route endpoint failed url=%s pts=%d sampled_pts=%d",
-            url,
-            len(coords_lonlat),
-            len(shape),
-        )
     if not data:
         _log_valhalla_trace_failure(
             "Valhalla trace_route failed: no response pts=%d sampled_pts=%d",
