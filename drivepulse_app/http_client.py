@@ -100,5 +100,14 @@ def http_post_json(url: str, payload: Any, timeout: int = 45) -> Any:
             resp.raise_for_status()
             return resp.json()
         except Exception as exc:
-            log.warning("HTTP POST JSON failed %s — %s", url, exc)
+            resp = getattr(exc, "response", None)
+            status = getattr(resp, "status_code", None)
+            body = (getattr(resp, "text", "") or "").strip()
+            if body:
+                log.warning(
+                    "HTTP POST JSON failed %s status=%s body=%r — %s",
+                    url, status, body[:500], exc,
+                )
+            else:
+                log.warning("HTTP POST JSON failed %s — %s", url, exc)
             return None

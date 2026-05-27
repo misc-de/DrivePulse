@@ -9,7 +9,15 @@ class _Text:
         self.value = value
 
 
-def test_load_trip_as_route_waits_for_calculate_click(monkeypatch):
+class _Button:
+    def __init__(self) -> None:
+        self.sensitive = True
+
+    def set_sensitive(self, sensitive: bool) -> None:
+        self.sensitive = sensitive
+
+
+def test_load_trip_as_route_waits_for_calculate_click():
     from drivepulse_app.map.page import MapPage
 
     page = MapPage.__new__(MapPage)
@@ -45,3 +53,21 @@ def test_load_trip_as_route_waits_for_calculate_click(monkeypatch):
     assert page._pending_trip_trace_args == (coords, "Trip", 12.3, 456.0)
     assert page._button_modes == ["calculate"]
     assert page._js_calls == ["mapClearRoute()"]
+
+
+def test_failed_trip_trace_keeps_calculate_retry_available():
+    from drivepulse_app.map.page import MapPage
+
+    page = MapPage.__new__(MapPage)
+    page.language = "en"
+    page._tour_start_btn = _Button()
+    page._button_modes = []
+    page._set_tour_button = page._button_modes.append
+    page.get_root = lambda: None
+
+    coords = [[7.0, 50.0], [7.1, 50.1]]
+    assert page._trip_trace_result(None, coords, "Trip", 12.3, 456.0) is False
+
+    assert page._pending_trip_trace_args == (coords, "Trip", 12.3, 456.0)
+    assert page._button_modes == ["calculate"]
+    assert page._tour_start_btn.sensitive is True
