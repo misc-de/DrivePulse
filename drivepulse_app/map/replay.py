@@ -447,6 +447,10 @@ class MapReplayMixin:
         self._populate_replay_info(meta, ended_at)
         self._populate_replay_chart(samples)
 
+        # Keep the raw GPS speed data so _trip_trace_result can re-map it onto
+        # the calculated route once Tour berechnen completes.
+        self._loaded_trip_latlon_speed: list[tuple[float, float, float | None]] = latlon_speed
+
         # Draw the speed-coloured GPS track so the user can see speed values
         # on the map while reviewing the trip (before clicking Tour berechnen).
         self._map_show_track(latlon_speed)

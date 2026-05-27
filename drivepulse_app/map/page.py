@@ -46,6 +46,7 @@ from drivepulse_app.map.services import (
     MAP_ICONS,
     MAP_LABEL_KEYS,
     MAP_TYPES,
+    _remap_speed_to_route,
     route_via_gps_waypoints,
 )
 from drivepulse_app.map.shumate import MapShumateMixin
@@ -879,8 +880,16 @@ class MapPage(
             dialog.set_default_response("ok")
             dialog.present(self.get_root())
         if result is not None or getattr(self, "_pending_route_draw", False):
-            if result is not None and hasattr(self, "_set_replay_info_minimized"):
-                self._set_replay_info_minimized(True)
+            if result is not None:
+                if hasattr(self, "_set_replay_info_minimized"):
+                    self._set_replay_info_minimized(True)
+                if hasattr(self, "_set_replay_chart_minimized"):
+                    self._set_replay_chart_minimized(True)
+                latlon_speed = getattr(self, "_loaded_trip_latlon_speed", None)
+                if latlon_speed and self._tour_coords:
+                    remapped = _remap_speed_to_route(self._tour_coords, latlon_speed)
+                    if hasattr(self, "_map_show_track"):
+                        self._map_show_track(remapped)
             self._push_route_to_map()
         return False
 
