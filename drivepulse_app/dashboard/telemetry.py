@@ -1,6 +1,8 @@
 """Telemetry, scan and trip handlers for DashboardWindow."""
 from __future__ import annotations
 
+import json
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -8,13 +10,34 @@ from typing import Any
 from gi.repository import GLib
 
 from drivepulse_app.cars.profiles import _load_profiles
-from drivepulse_app.common import _detect_language, _normalize_language, _translate
+from drivepulse_app.common import LOG_DIR, _detect_language, _normalize_language, _translate
 from drivepulse_app.dashboard.data import obd_sample_fields, scan_identity_from_payload, scan_profile_dashboard_data
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.obd.recorder import ObdRecorder
 from drivepulse_app.telemetry_utils import display_speed, has_obd_data, plain_number
 
 log = get_logger(__name__)
+
+_CAR_PROFILES_DIR = LOG_DIR / "car_profiles"
+_FILENAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _dump_profile_json(profile: dict[str, Any]) -> None:
+    """Persist the full scan profile as JSON, keyed by VIN or identity.
+
+    Overwrites any previous file for the same vehicle so the on-disk snapshot
+    always reflects the latest known capability set (supported PIDs, DTCs,
+    vehicle info, adapter metadata).
+    """
+    vin = (profile.get("vin") or "").strip()
+    key = vin or str(profile.get("identity") or "unknown")
+    safe = _FILENAME_SAFE.sub("_", key).strip("._") or "unknown"
+    try:
+        _CAR_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+        target = _CAR_PROFILES_DIR / f"{safe}.json"
+        target.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        log.exception("Could not write car profile JSON for key=%s", key)
 
 
 class DashboardTelemetryMixin:
@@ -131,6 +154,7 @@ class DashboardTelemetryMixin:
         except Exception:
             log.exception("Could not save scan profile to database")
             return
+        _dump_profile_json(profile)
         auto_record = getattr(self, "settings", {}).get("obd_auto_record", True)
         if auto_record and self.db is not None and self._obd_recorder is None:
             self._start_obd_recorder(scan_id)
