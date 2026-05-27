@@ -114,7 +114,8 @@ _MANEUVER_CSS = b"""
   color: #111111;
   font-size: 54px;
   font-weight: 900;
-  padding-top: 3px;
+  margin-top: -5px;
+  margin-left: 5px;
 }
 """
 _maneuver_css_installed = False
