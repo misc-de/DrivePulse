@@ -150,6 +150,7 @@ class MapLayoutMixin:
         self._speed_warn_btn.add_css_class("circular")
         self._speed_warn_btn.add_css_class("osd")
         self._speed_warn_btn.set_active(self._speed_warn_enabled)
+        self._speed_warn_btn.set_visible(False)
         self._refresh_speed_warn_btn()
         self._speed_warn_btn.connect("toggled", self._on_speed_warn_toggled)
 
@@ -298,10 +299,14 @@ class MapLayoutMixin:
         if btn is not None:
             btn.set_visible(has_tour and not chart_expanded and not steps_expanded)
 
+        speed_warn_btn = getattr(self, "_speed_warn_btn", None)
+        if speed_warn_btn is not None:
+            speed_warn_btn.set_visible(has_tour)
+
         chart_restore = getattr(self, "_replay_chart_restore_btn", None)
         chart_has_data = bool(getattr(self, "_replay_chart_widget", None))
         if chart_restore is not None:
-            chart_restore.set_visible(chart_has_data)
+            chart_restore.set_visible(chart_has_data and not steps_expanded)
 
     def _build_route_info_overlay(self) -> Gtk.Widget:
         """Route info is now embedded in the tour-controls icon row.
