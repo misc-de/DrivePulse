@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
-from drivepulse_app.http_client import http_get, http_post
+from drivepulse_app.http_client import http_get, http_post, http_post_json
 
 log = get_logger(__name__)
 
@@ -20,6 +20,7 @@ GeocodeFn = Callable[[str], tuple[float, float] | None]
 ROUTING_BACKENDS = ["osrm", "valhalla"]
 
 _VALHALLA_URL = "https://valhalla.openstreetmap.de/route"
+_VALHALLA_TRACE_URL = "https://valhalla.openstreetmap.de/trace_route"
 _OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 # Named maxspeed tags used by OSM / Valhalla (→ km/h)
@@ -469,6 +470,58 @@ def valhalla_route(
             return None
 
     return _try()
+
+
+def _subsample_coords(
+    coords: list[list[float]], max_pts: int
+) -> list[list[float]]:
+    """Return at most *max_pts* evenly-spaced points, always keeping first and last."""
+    if len(coords) <= max_pts:
+        return coords
+    stride = (len(coords) - 1) / (max_pts - 1)
+    result = [coords[round(i * stride)] for i in range(max_pts - 1)]
+    result.append(coords[-1])
+    return result
+
+
+def valhalla_trace_route(
+    coords_lonlat: list[list[float]],
+    http_post_json_fn=http_post_json,
+) -> tuple[list[list[float]], float, float, list[dict]] | None:
+    """Map-match a GPS trace to roads via Valhalla trace_route.
+
+    Subsamples the input to ≤ 500 points so the request stays within
+    Valhalla's default shape limit.  Returns the same
+    (coords, duration_s, distance_m, steps) tuple as valhalla_route.
+    """
+    if len(coords_lonlat) < 2:
+        return None
+    pts = _subsample_coords(coords_lonlat, 500)
+    shape = [{"lat": float(c[1]), "lon": float(c[0])} for c in pts]
+    body: dict[str, Any] = {
+        "shape": shape,
+        "costing": "auto",
+        "shape_match": "map_snap",
+        "directions_options": {"units": "kilometers"},
+    }
+    data = http_post_json_fn(_VALHALLA_TRACE_URL, body)
+    if not data:
+        return None
+    try:
+        trip = data["trip"]
+        summary = trip["summary"]
+        duration_s = float(summary["time"])
+        distance_m = float(summary["length"]) * 1000.0
+        legs = trip.get("legs") or []
+        coords: list[list[float]] = []
+        for leg in legs:
+            coords.extend(_decode_polyline(leg.get("shape", "")))
+        if not coords:
+            return None
+        steps = _flatten_valhalla_maneuvers(legs)
+        return coords, duration_s, distance_m, steps
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _flatten_valhalla_maneuvers(legs: list[dict]) -> list[dict]:

@@ -295,9 +295,15 @@ class MapLayoutMixin:
             or (getattr(self, "_route_coords", None) or [])
         )
 
+        tour_running = bool(
+            getattr(self, "_tour_active", False)
+            or getattr(self, "_tour_paused", False)
+        )
         btn = getattr(self, "_tour_reset_btn", None)
         if btn is not None:
-            btn.set_visible(has_tour and not chart_expanded and not steps_expanded)
+            btn.set_visible(
+                has_tour and not tour_running and not chart_expanded and not steps_expanded
+            )
 
         speed_warn_btn = getattr(self, "_speed_warn_btn", None)
         if speed_warn_btn is not None:

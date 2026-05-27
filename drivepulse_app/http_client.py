@@ -89,3 +89,16 @@ def http_post(url: str, data: str, timeout: int = 45) -> Any:
         except Exception as exc:
             log.warning("HTTP POST failed %s — %s", url, exc)
             return None
+
+
+def http_post_json(url: str, payload: Any, timeout: int = 45) -> Any:
+    """POST JSON *payload* to *url* and return parsed JSON, or None on error."""
+    sem = _host_sem(url)
+    with sem:
+        try:
+            resp = _session().post(url, json=payload, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            log.warning("HTTP POST JSON failed %s — %s", url, exc)
+            return None
