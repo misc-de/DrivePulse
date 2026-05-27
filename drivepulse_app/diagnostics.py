@@ -160,6 +160,37 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
+def write_diagnostic_log(
+    name: str,
+    level: int,
+    message: str,
+    *args: Any,
+    exc_info: Any = None,
+) -> None:
+    """Write an operational diagnostic even when app logging is disabled.
+
+    The settings switch raises the package logger level to ``CRITICAL`` so
+    routine logs stay quiet. Some user-triggered failures, such as route
+    calculation errors, still need a forensic breadcrumb. Building the record
+    directly and handing it to the configured package logger keeps the same
+    rotating file handler and format while bypassing the package-level gate.
+    """
+    _configure_root_logger()
+    logger = logging.getLogger(name)
+    record = logger.makeRecord(
+        name,
+        level,
+        fn="",
+        lno=0,
+        msg=message,
+        args=args,
+        exc_info=exc_info,
+        func=None,
+        extra=None,
+    )
+    logging.getLogger(_ROOT_LOGGER_NAME).handle(record)
+
+
 def set_log_enabled(enabled: bool) -> None:
     """Enable or disable file logging for all drivepulse_app loggers."""
     level = logging.INFO if enabled else logging.CRITICAL

@@ -19,6 +19,7 @@ Mixins:
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -31,7 +32,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language, _translate
 from drivepulse_app.db import DriveDB
-from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.diagnostics import get_logger, write_diagnostic_log
 from drivepulse_app.map.gps_filter import MapGpsFilterMixin
 from drivepulse_app.map.layout import MapLayoutMixin
 from drivepulse_app.map.layout_search import MapSearchBarMixin
@@ -851,6 +852,16 @@ class MapPage(
                 self._rebuild_steps_list()
                 self._set_steps_panel_visible(bool(steps))
         if result is None:
+            write_diagnostic_log(
+                __name__,
+                logging.WARNING,
+                "trip_trace_calculation_failed pts=%d label=%r "
+                "orig_distance_km=%r orig_duration_s=%r retry_kept=True",
+                len(orig_coords),
+                label,
+                orig_distance_km,
+                orig_duration_s,
+            )
             self._pending_trip_trace_args = (
                 orig_coords, label, orig_distance_km, orig_duration_s
             )

@@ -73,6 +73,23 @@ def test_set_log_enabled_disables_all_child_loggers(monkeypatch, tmp_path):
     assert child.getEffectiveLevel() == logging.INFO
 
 
+def test_write_diagnostic_log_bypasses_disabled_app_logging(monkeypatch, tmp_path):
+    diag = _reload_diagnostics(monkeypatch, tmp_path)
+    diag._root_configured = False
+
+    diag.get_logger("drivepulse_app.route")
+    diag.set_log_enabled(False)
+    diag.write_diagnostic_log(
+        "drivepulse_app.route",
+        logging.WARNING,
+        "route failed: %s",
+        "valhalla",
+    )
+
+    content = (tmp_path / "drivepulse.log").read_text(encoding="utf-8")
+    assert "WARNING drivepulse_app.route: route failed: valhalla" in content
+
+
 def test_append_jsonl_writes_one_line_per_call(tmp_path):
     """Each payload becomes one JSON line. The file is created on demand."""
     from drivepulse_app.diagnostics import append_jsonl
