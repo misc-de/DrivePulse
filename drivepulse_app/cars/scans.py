@@ -132,6 +132,7 @@ class CarsScansMixin:
         self._render_detail()
         self._update_list_select_buttons()
         self._update_merge_btn_visibility()
+        GLib.idle_add(self._reapply_list_select_ui)
 
     def _exit_scan_select_mode(self) -> None:
         self._scan_select_mode = False

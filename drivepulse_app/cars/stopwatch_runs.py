@@ -290,6 +290,7 @@ class CarsStopWatchRunsMixin:
         self._run_selected_ids = {run_id}
         self._render_detail()
         self._update_list_select_buttons()
+        GLib.idle_add(self._reapply_list_select_ui)
 
     def _exit_run_select_mode(self) -> None:
         self._run_select_mode = False

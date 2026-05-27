@@ -528,6 +528,11 @@ class CarsPage(
         if share_btn is not None:
             share_btn.set_visible(active and self._is_sync_active())
 
+    def _reapply_list_select_ui(self) -> bool:
+        if self._trip_select_mode or self._scan_select_mode or self._run_select_mode:
+            self._update_list_select_buttons()
+        return False
+
     # ---------------------------------------------------- Detail-Navigation
 
     _LIVE_HIDDEN_CATS = frozenset({"trips", "stopwatch_runs", "scans", "photos"})
