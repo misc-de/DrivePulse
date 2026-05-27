@@ -431,14 +431,8 @@ class MapReplayMixin:
         except Exception:
             ended_at = None
 
-        # Populate info card and chart first (data survives the overlay clear below).
-        self._populate_replay_info(meta, ended_at)
-        self._populate_replay_chart(samples)
-
-        # Road-snap the GPS trace via Valhalla (starts in background).
-        # load_trip_as_route clears replay overlays internally; we restore the
-        # info card and chart below so the user can still see trip metadata
-        # while the calculation runs.
+        # Set up route first — load_trip_as_route calls _clear_replay_overlays
+        # internally, so populate info/chart AFTER to avoid being wiped.
         lonlat_coords = [[lon, lat] for lat, lon, _ in latlon_speed]
         if len(lonlat_coords) >= 2:
             self.load_trip_as_route(
@@ -448,6 +442,11 @@ class MapReplayMixin:
                 label=meta.get("trip_label"),
             )
 
+        # Populate info card and chart after the overlay clear.
+        # _populate_replay_chart expands the chart via _set_replay_chart_minimized(False).
+        self._populate_replay_info(meta, ended_at)
+        self._populate_replay_chart(samples)
+
         # Draw the speed-coloured GPS track so the user can see speed values
         # on the map while reviewing the trip (before clicking Tour berechnen).
         self._map_show_track(latlon_speed)
@@ -456,11 +455,7 @@ class MapReplayMixin:
         # restore it so the Recent-Tours list can highlight this entry.
         self._loaded_trip_id = trip_id
 
-        # Re-show info card minimized; show chart expanded so values are
-        # immediately visible.
         self._set_replay_info_minimized(True)
-        if self._replay_chart_widget is not None:
-            self._set_replay_chart_minimized(False)
         self._refresh_fab_visibility()
 
     def _map_show_track(self, latlon_speed: list[tuple[float, float, float | None]]) -> None:
@@ -515,6 +510,7 @@ class MapReplayMixin:
         if getattr(self, "_replay_chart_restore_btn", None) is not None:
             self._replay_chart_restore_btn.set_visible(False)
         self._replay_chart_minimized = False
+        self._replay_chart_widget = None
         self._refresh_fab_visibility()
         self._map_clear_replay_marker()
         if hasattr(self, "_hide_route_info"):
