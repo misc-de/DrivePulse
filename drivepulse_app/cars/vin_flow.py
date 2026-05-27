@@ -174,6 +174,24 @@ class CarsVinFlowMixin:
             self._show_toast(_translate(self.language, "cars.vin_refresh.no_changes"))
         return False
 
+    def queue_vin_reviews(self, reviews: list) -> None:
+        """Enqueue VIN review items arriving from a sync operation.
+
+        Each item: {"car_id": int, "vin": str, "fields": {field: value}}.
+        New fields are shown using the existing review dialog so the user
+        can accept or reject each one with a checkbox.
+        """
+        for item in reviews:
+            car_id = item.get("car_id")
+            vin = item.get("vin") or ""
+            fields = item.get("fields")
+            if not car_id or not isinstance(fields, dict) or not fields:
+                continue
+            sources = {"sync": fields}
+            self._vin_review_queue.append((car_id, vin, sources))
+        if reviews:
+            self._maybe_show_next_review()
+
     def _show_toast(self, msg: str) -> None:
         root = self.get_root()
         if root and hasattr(root, "add_toast"):
