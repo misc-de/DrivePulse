@@ -705,6 +705,47 @@ def extract_turn_waypoints(
     return waypoints
 
 
+def _prune_bad_waypoints(
+    waypoints: list[tuple[float, float]],
+    save_threshold_m: float = 200.0,
+    http_get_fn: HttpGet = http_get,
+) -> list[tuple[float, float]]:
+    """Remove inner waypoints that force excessive routing detours.
+
+    For each inner waypoint WP[i], compares the combined routing distance
+    WP[i-1]→WP[i] + WP[i]→WP[i+1]  against the direct segment
+    WP[i-1]→WP[i+1].  If skipping WP[i] saves more than *save_threshold_m*
+    metres, the waypoint is removed (it is likely placing the router onto a
+    one-way street or dead-end that forces a large detour).
+
+    Iterates until no further savings above the threshold are found.
+    """
+    wps = list(waypoints)
+    changed = True
+    while changed and len(wps) > 2:
+        changed = False
+        best_i, best_save = -1, 0.0
+        for i in range(1, len(wps) - 1):
+            r_prev = compute_route([wps[i - 1], wps[i]], http_get_fn=http_get_fn)
+            r_next = compute_route([wps[i], wps[i + 1]], http_get_fn=http_get_fn)
+            r_skip = compute_route([wps[i - 1], wps[i + 1]], http_get_fn=http_get_fn)
+            if r_prev is None or r_next is None or r_skip is None:
+                continue
+            save = (r_prev[2] + r_next[2]) - r_skip[2]
+            if save > best_save:
+                best_save = save
+                best_i = i
+        if best_i >= 0 and best_save > save_threshold_m:
+            write_diagnostic_log(
+                __name__, logging.INFO,
+                "_prune_bad_waypoints removed WP%d (%.1f,%.1f) saved=%.0fm",
+                best_i, wps[best_i][0], wps[best_i][1], best_save,
+            )
+            wps.pop(best_i)
+            changed = True
+    return wps
+
+
 def route_via_gps_waypoints(
     coords_lonlat: list[list[float]],
     timestamps: list[float] | None = None,
@@ -720,22 +761,48 @@ def route_via_gps_waypoints(
     if len(coords_lonlat) < 2:
         return None
 
-    # Primary: map-matching via Valhalla trace_route.
-    # Use spike-cleaned coords so a single GPS bounce doesn't corrupt
-    # the match, but skip cluster-collapse — those intermediate points
-    # tell Valhalla which exact road the car was on.
-    cleaned_for_match, _ = _clean_gps_trace(
-        coords_lonlat, timestamps=timestamps,
-        cluster_radius_m=0.0,   # no cluster collapse for map-matching
+    # Primary: map-matching via Valhalla trace_route, one leg at a time.
+    # The full GPS trace often fails map-matching because stationary GPS
+    # jitter (standing still = random drift in place) looks physically
+    # impossible for a car.  We therefore:
+    #   1. Clean the trace (spikes + cluster-collapse removes jitter).
+    #   2. Split at stop-gaps so each driving leg is matched independently.
+    #   3. Merge the per-leg results into a single route.
+    cleaned_legs, stop_indices_legs = _clean_gps_trace(
+        coords_lonlat, timestamps=timestamps
     )
-    match_result = valhalla_trace_route(cleaned_for_match)
-    if match_result is not None:
+    leg_boundaries = [0] + stop_indices_legs + [len(cleaned_legs)]
+    leg_results: list[tuple[list[list[float]], float, float, list[dict]]] = []
+    match_ok = True
+    for k in range(len(leg_boundaries) - 1):
+        leg = cleaned_legs[leg_boundaries[k]:leg_boundaries[k + 1]]
+        if len(leg) < 2:
+            match_ok = False
+            break
+        lr = valhalla_trace_route(leg)
+        if lr is None:
+            match_ok = False
+            break
+        leg_results.append(lr)
+
+    if match_ok and leg_results:
+        merged_coords: list[list[float]] = []
+        merged_dur = 0.0
+        merged_dist = 0.0
+        merged_steps: list[dict] = []
+        for coords_r, dur_r, dist_r, steps_r in leg_results:
+            if merged_coords and coords_r and merged_coords[-1] == coords_r[0]:
+                coords_r = coords_r[1:]
+            merged_coords.extend(coords_r)
+            merged_dur += dur_r
+            merged_dist += dist_r
+            merged_steps.extend(steps_r)
         write_diagnostic_log(
             __name__, logging.INFO,
-            "route_via_gps_waypoints map_match_ok pts=%d dist_km=%.1f",
-            len(coords_lonlat), match_result[2] / 1000.0,
+            "route_via_gps_waypoints map_match_ok legs=%d dist_km=%.1f",
+            len(leg_results), merged_dist / 1000.0,
         )
-        return match_result
+        return merged_coords, merged_dur, merged_dist, merged_steps
 
     write_diagnostic_log(
         __name__, logging.INFO,
@@ -767,6 +834,7 @@ def route_via_gps_waypoints(
         "route_via_gps_waypoints pts=%d cleaned=%d stops=%d waypoints=%d",
         len(coords_lonlat), len(cleaned), len(stop_indices), len(all_waypoints),
     )
+    all_waypoints = _prune_bad_waypoints(all_waypoints, http_get_fn=http_get_fn)
     result = compute_route(all_waypoints, http_get_fn=http_get_fn)
 
     # Deviation correction: two complementary checks per iteration.
