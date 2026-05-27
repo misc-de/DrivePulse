@@ -448,14 +448,19 @@ class MapReplayMixin:
                 label=meta.get("trip_label"),
             )
 
+        # Draw the speed-coloured GPS track so the user can see speed values
+        # on the map while reviewing the trip (before clicking Tour berechnen).
+        self._map_show_track(latlon_speed)
+
         # load_trip_as_route → _clear_replay_overlays resets _loaded_trip_id;
         # restore it so the Recent-Tours list can highlight this entry.
         self._loaded_trip_id = trip_id
 
-        # Re-show info card and chart in minimized state.
+        # Re-show info card minimized; show chart expanded so values are
+        # immediately visible.
         self._set_replay_info_minimized(True)
         if self._replay_chart_widget is not None:
-            self._set_replay_chart_minimized(True)
+            self._set_replay_chart_minimized(False)
         self._refresh_fab_visibility()
 
     def _map_show_track(self, latlon_speed: list[tuple[float, float, float | None]]) -> None:
