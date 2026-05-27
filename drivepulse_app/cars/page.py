@@ -910,10 +910,19 @@ class CarsPage(
             log.exception("Could not update share buttons after sync change")
 
     def refresh(self) -> None:
-        """Reload profiles and the current detail; safe no-op if not built."""
+        """Reload profiles, rebuild list, and refresh detail; safe no-op if not built."""
         try:
             if self.db is not None:
                 self._profiles = _load_profiles(self.db)
+            if hasattr(self, "_list_box"):
+                self._rebuild_list()
+                self._update_live_add_button()
+            if self._detail_pushed and self._selected_car_id is not None:
+                # Detail page open for a car that just disappeared (e.g. mock
+                # disabled): pop back to the list instead of rendering stale data.
+                if not any(e.get("car_id") == self._selected_car_id for e in self._profiles):
+                    self._on_detail_back()
+                    return
             if hasattr(self, "_render_detail") and self._detail_pushed:
                 self._render_detail()
         except Exception:
