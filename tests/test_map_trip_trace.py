@@ -55,8 +55,18 @@ def test_load_trip_as_route_waits_for_calculate_click():
     assert page._js_calls == ["mapClearRoute()"]
 
 
-def test_failed_trip_trace_keeps_calculate_retry_available():
+def test_failed_trip_trace_keeps_calculate_retry_available(monkeypatch):
+    from drivepulse_app.map import page as map_page
     from drivepulse_app.map.page import MapPage
+
+    diagnostics: list[str] = []
+    monkeypatch.setattr(
+        map_page,
+        "write_diagnostic_log",
+        lambda _name, _level, message, *args, **_kwargs: diagnostics.append(
+            message % args
+        ),
+    )
 
     page = MapPage.__new__(MapPage)
     page.language = "en"
@@ -71,3 +81,4 @@ def test_failed_trip_trace_keeps_calculate_retry_available():
     assert page._pending_trip_trace_args == (coords, "Trip", 12.3, 456.0)
     assert page._button_modes == ["calculate"]
     assert page._tour_start_btn.sensitive is True
+    assert "trip_trace_calculation_failed" in diagnostics[0]

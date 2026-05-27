@@ -9,7 +9,9 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from drivepulse_app.diagnostics import get_logger
+import logging
+
+from drivepulse_app.diagnostics import get_logger, write_diagnostic_log
 
 log = get_logger(__name__)
 
@@ -104,10 +106,17 @@ def http_post_json(url: str, payload: Any, timeout: int = 45) -> Any:
             status = getattr(resp, "status_code", None)
             body = (getattr(resp, "text", "") or "").strip()
             if body:
-                log.warning(
+                write_diagnostic_log(
+                    __name__,
+                    logging.WARNING,
                     "HTTP POST JSON failed %s status=%s body=%r — %s",
                     url, status, body[:500], exc,
                 )
             else:
-                log.warning("HTTP POST JSON failed %s — %s", url, exc)
+                write_diagnostic_log(
+                    __name__,
+                    logging.WARNING,
+                    "HTTP POST JSON failed %s — %s",
+                    url, exc,
+                )
             return None

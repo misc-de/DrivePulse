@@ -114,11 +114,11 @@ def test_http_post_json_logs_error_response_body(monkeypatch):
         def post(self, *_args, **_kwargs):
             return _Resp()
 
-    def fake_warning(message, *args, **_kwargs):
+    def fake_diagnostic(_name, _level, message, *args, **_kwargs):
         seen["message"] = message % args
 
     monkeypatch.setattr(http_client, "_session", _Session)
-    monkeypatch.setattr(http_client.log, "warning", fake_warning)
+    monkeypatch.setattr(http_client, "write_diagnostic_log", fake_diagnostic)
 
     assert http_client.http_post_json("https://api.example.com/x", {"ok": True}) is None
     assert "status=400" in seen["message"]
