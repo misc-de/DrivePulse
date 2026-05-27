@@ -1,6 +1,7 @@
 """Shared HTTP client with connection pooling and per-host rate limiting."""
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any
 from urllib.parse import urlparse
@@ -8,8 +9,6 @@ from urllib.parse import urlparse
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
-import logging
 
 from drivepulse_app.diagnostics import get_logger, write_diagnostic_log
 
@@ -120,3 +119,44 @@ def http_post_json(url: str, payload: Any, timeout: int = 45) -> Any:
                     url, exc,
                 )
             return None
+
+
+def http_post_json_result(url: str, payload: Any, timeout: int = 45) -> tuple[Any | None, int | None]:
+    """POST JSON and return ``(parsed_json, status_code)``.
+
+    Unlike :func:`http_post_json`, this keeps JSON error bodies available to
+    callers that want to branch on service-specific error codes.
+    """
+    sem = _host_sem(url)
+    with sem:
+        data = None
+        try:
+            resp = _session().post(url, json=payload, timeout=timeout)
+            status = getattr(resp, "status_code", None)
+            try:
+                data = resp.json()
+            except Exception:
+                data = None
+            resp.raise_for_status()
+            return data, status
+        except Exception as exc:
+            resp = getattr(exc, "response", None)
+            status = getattr(resp, "status_code", None)
+            body = (getattr(resp, "text", "") or "").strip()
+            if body:
+                write_diagnostic_log(
+                    __name__,
+                    logging.WARNING,
+                    "HTTP POST JSON failed %s status=%s body=%r — %s",
+                    url, status, body[:500], exc,
+                )
+            else:
+                write_diagnostic_log(
+                    __name__,
+                    logging.WARNING,
+                    "HTTP POST JSON failed %s — %s",
+                    url, exc,
+                )
+            if data is not None:
+                return data, status
+            return None, status
