@@ -270,13 +270,16 @@ class MapTourMixin:
         # Replay-info card + chart card and their restore icons have no role
         # during turn-by-turn navigation. Hide them when a tour starts; the
         # replay panels are tied to a trip-replay session and stay hidden
-        # until the user opens a replay again.
+        # until the user opens a replay again.  The route-info OSD (duration +
+        # distance) is also suppressed — the active turn-by-turn maneuver
+        # overlay supersedes that summary.
         if not visible:
             for w_name in (
                 "_replay_info_overlay",
                 "_replay_info_restore_btn",
                 "_replay_chart_overlay",
                 "_replay_chart_restore_btn",
+                "_route_info_overlay",
             ):
                 w = getattr(self, w_name, None)
                 if w is not None:

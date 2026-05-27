@@ -79,11 +79,11 @@ class MapRouteComputeMixin:
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
         self._tour_waypoints = list(all_points)
-        # Duration/Distance now sits on the map as a top-centered osd card
-        # instead of in the calculate-tour bar; status label only conveys
-        # transient routing-state messages ("searching", "error").
+        # The duration/distance OSD card is built but kept hidden after route
+        # calculation — the user did not want an info bar auto-appearing on the
+        # map.  The status label still conveys transient routing-state messages.
         self._status_lbl.set_text("")
-        self._show_route_info(duration_s, distance_m)
+        self._hide_route_info()
         self._set_tour_controls_visible(True)
         self._set_tour_button("start")
         if self._tour_save_btn is not None:
