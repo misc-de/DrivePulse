@@ -15,8 +15,8 @@ from drivepulse_app.http_client import http_get, http_post, http_post_json_resul
 log = get_logger(__name__)
 
 
-def _log_valhalla_trace_failure(message: str, *args: Any, exc_info: Any = None) -> None:
-    write_diagnostic_log(__name__, logging.WARNING, message, *args, exc_info=exc_info)
+def _log_valhalla_trace_failure(message: str, *args: Any, exc_info: Any = None, level: int = logging.WARNING) -> None:
+    write_diagnostic_log(__name__, level, message, *args, exc_info=exc_info)
 
 
 HttpGet = Callable[[str], Any]
@@ -628,6 +628,7 @@ def valhalla_trace_route(
                     len(coords_lonlat),
                     len(shape),
                     reason,
+                    level=logging.DEBUG,
                 )
             if data and not (isinstance(data, dict) and data.get("error_code")):
                 break
@@ -636,6 +637,7 @@ def valhalla_trace_route(
         _log_valhalla_trace_failure(
             "Valhalla trace_route all variants failed sampled_pts=%d retrying",
             len(shape),
+            level=logging.DEBUG,
         )
     if not data or (isinstance(data, dict) and data.get("error_code")):
         _log_valhalla_trace_failure(
