@@ -907,7 +907,7 @@ def route_via_gps_waypoints(
                 protected_wp_indices.add(len(all_waypoints))
                 all_waypoints.append((seg[0][1], seg[0][0]))
             continue
-        wps = extract_turn_waypoints(seg)
+        wps = extract_turn_waypoints(seg, min_segment_m=50.0, max_waypoints=60)
         seg_start_idx = len(all_waypoints)
         seg_end_idx = seg_start_idx + len(wps) - 1
         protected_wp_indices.add(seg_start_idx)
@@ -926,7 +926,8 @@ def route_via_gps_waypoints(
         len(all_waypoints), len(protected_wp_indices),
     )
     all_waypoints = _prune_bad_waypoints(
-        all_waypoints, protected=protected_wp_indices, http_get_fn=http_get_fn
+        all_waypoints, protected=protected_wp_indices,
+        save_threshold_m=100.0, http_get_fn=http_get_fn
     )
     result = compute_route(all_waypoints, http_get_fn=http_get_fn)
 
