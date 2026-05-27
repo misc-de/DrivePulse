@@ -639,9 +639,8 @@ class MapLayoutMixin:
         if self._shumate_map is None:
             return False
         viewport = self._shumate_map.get_viewport()
-        self._setting_pos = True
-        viewport.set_zoom_level(viewport.get_zoom_level())
-        viewport.set_location(viewport.get_latitude(), viewport.get_longitude())
-        self._setting_pos = False
+        with self._viewport_lock():
+            viewport.set_zoom_level(viewport.get_zoom_level())
+            viewport.set_location(viewport.get_latitude(), viewport.get_longitude())
         self._shumate_map.queue_resize()
         return False

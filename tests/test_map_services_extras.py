@@ -204,3 +204,31 @@ def test_mock_speed_kmh_alpha_prefix_does_not_match_autobahn():
     # "AB3" starts with "A" but the next char is alphabetic → treated as
     # generic (non-Autobahn).
     assert mock_speed_kmh("AB3") == 70.0
+
+
+def test_viewport_lock_resets_flag_on_exception():
+    from drivepulse_app.map.page import MapPage
+
+    page = MapPage.__new__(MapPage)
+    page._setting_pos = False
+
+    try:
+        with page._viewport_lock():
+            assert page._setting_pos is True
+            raise RuntimeError("viewport call blew up")
+    except RuntimeError:
+        pass
+
+    assert page._setting_pos is False
+
+
+def test_viewport_lock_resets_flag_on_normal_exit():
+    from drivepulse_app.map.page import MapPage
+
+    page = MapPage.__new__(MapPage)
+    page._setting_pos = False
+
+    with page._viewport_lock():
+        assert page._setting_pos is True
+
+    assert page._setting_pos is False
