@@ -1,7 +1,6 @@
 """Trip list, selection and detail helpers for CarsPage."""
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -122,23 +121,22 @@ class CarsTripsMixin:
         except Exception:
             log.exception("Could not mark trip seen id=%s", trip_id)
 
+        # Tap on a trip row → switch straight to the map and replay the
+        # recorded GPS polyline + speed/RPM chart + info card. Falls back
+        # to the in-page detail when there are no usable GPS points or
+        # the host hasn't wired up the callback.
         has_gps = any(
             s["lat"] is not None and s["lon"] is not None
             and not (s["lat"] == 0.0 and s["lon"] == 0.0)
             for s in samples
         )
-
-        keys = trip.keys() if hasattr(trip, "keys") else []
-        distance_km = trip["distance_km"] if "distance_km" in keys else None
-        duration_s = trip["duration_s"] if "duration_s" in keys else None
-        started_at = trip["started_at"] if "started_at" in keys else None
-        label = self._trip_detail_title(trip)
-
-        on_show_map_cb: Callable[[], None] | None = None
-        on_calculate_tour_cb: Callable[[], None] | None = None
-
         on_show_replay = getattr(self, "on_show_trip_replay_on_map", None)
         if has_gps and on_show_replay is not None:
+            keys = trip.keys() if hasattr(trip, "keys") else []
+            distance_km = trip["distance_km"] if "distance_km" in keys else None
+            duration_s = trip["duration_s"] if "duration_s" in keys else None
+            started_at = trip["started_at"] if "started_at" in keys else None
+            label = self._trip_detail_title(trip)
             car_entry = next(
                 (e for e in self._profiles if e.get("car_id") == self._selected_car_id),
                 None,
@@ -154,8 +152,8 @@ class CarsTripsMixin:
                 "car_brand": (car_entry or {}).get("brand"),
                 "car_vin":   (car_entry or {}).get("vin"),
             }
-            on_show_map_cb = lambda _meta=meta: on_show_replay(trip_id, _meta)
-
+            on_show_replay(trip_id, meta)
+            return
         on_open_as_route = getattr(self, "on_open_trip_as_route", None)
         if has_gps and on_open_as_route is not None:
             coords_lonlat = [
@@ -164,12 +162,14 @@ class CarsTripsMixin:
                 if s["lat"] is not None and s["lon"] is not None
             ]
             if len(coords_lonlat) >= 2:
-                on_calculate_tour_cb = lambda _c=coords_lonlat: on_open_as_route(
-                    _c, distance_km, duration_s, label
-                )
+                distance_km = trip["distance_km"] if "distance_km" in trip.keys() else None  # noqa: SIM118
+                duration_s = trip["duration_s"] if "duration_s" in trip.keys() else None  # noqa: SIM118
+                label = self._trip_detail_title(trip)
+                on_open_as_route(coords_lonlat, distance_km, duration_s, label)
+                return
 
         page_content = _build_trip_detail_widget(self.language, trip, samples)
-        title = label
+        title = self._trip_detail_title(trip)
 
         page_ref: list[Adw.NavigationPage | None] = [None]
 
@@ -193,8 +193,6 @@ class CarsTripsMixin:
                 on_share=share_cb,
                 on_delete=delete_cb,
                 on_back=self._render_detail,
-                on_show_map=on_show_map_cb,
-                on_calculate_tour=on_calculate_tour_cb,
             )
             self._value_scroll.set_child(inline)
             return
@@ -206,8 +204,6 @@ class CarsTripsMixin:
                 on_rename=rename_cb,
                 on_share=share_cb,
                 on_delete=delete_cb,
-                on_show_map=on_show_map_cb,
-                on_calculate_tour=on_calculate_tour_cb,
             ),
             title=title,
         )
