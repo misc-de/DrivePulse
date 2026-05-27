@@ -806,26 +806,26 @@ class MapPage(
         distance_km: float | None,
         duration_s: float | None,
     ) -> None:
-        log.info("trip_trace_valhalla_call pts=%d", len(coords))
-        result = valhalla_trace_route(coords)
-        if result is None:
-            log.warning("trip_trace_valhalla_failed pts=%d label=%r", len(coords), label)
-            log.info("trip_trace_osrm_match_call pts=%d", len(coords))
-            result = osrm_match_route(coords)
+        log.info("trip_trace_osrm_match_call pts=%d", len(coords))
+        result = osrm_match_route(coords)
+        if result is not None:
+            snapped, dur, dist, steps = result
+            log.info(
+                "trip_trace_osrm_match_ok snapped_pts=%d steps=%d dist_km=%.1f dur_min=%.0f",
+                len(snapped), len(steps), dist / 1000.0, dur / 60.0,
+            )
+        else:
+            log.warning("trip_trace_osrm_match_failed pts=%d label=%r", len(coords), label)
+            log.info("trip_trace_valhalla_call pts=%d", len(coords))
+            result = valhalla_trace_route(coords)
             if result is None:
-                log.warning("trip_trace_osrm_match_failed pts=%d label=%r", len(coords), label)
+                log.warning("trip_trace_valhalla_failed pts=%d label=%r", len(coords), label)
             else:
                 snapped, dur, dist, steps = result
                 log.info(
-                    "trip_trace_osrm_match_ok snapped_pts=%d steps=%d dist_km=%.1f dur_min=%.0f",
+                    "trip_trace_valhalla_ok snapped_pts=%d steps=%d dist_km=%.1f dur_min=%.0f",
                     len(snapped), len(steps), dist / 1000.0, dur / 60.0,
                 )
-        else:
-            snapped, dur, dist, steps = result
-            log.info(
-                "trip_trace_valhalla_ok snapped_pts=%d steps=%d dist_km=%.1f dur_min=%.0f",
-                len(snapped), len(steps), dist / 1000.0, dur / 60.0,
-            )
         GLib.idle_add(
             self._trip_trace_result, result, coords, label, distance_km, duration_s
         )
