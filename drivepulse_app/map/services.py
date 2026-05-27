@@ -548,36 +548,48 @@ def valhalla_trace_route(
             len(coords_lonlat),
         )
         return None
-    pts = _subsample_coords(coords_lonlat, 500)
-    try:
-        shape = _trace_shape(pts, typed=True)
-    except (IndexError, TypeError, ValueError) as exc:
-        _log_valhalla_trace_failure("Valhalla trace_route invalid input: %s", exc)
-        return None
     data = None
-    for url in _VALHALLA_TRACE_URLS:
-        for variant, body in _trace_bodies(shape):
-            response = http_post_json_fn(url, body)
-            if isinstance(response, tuple):
-                data, status = response
-            else:
-                data, status = response, None
+    shape: list[dict] = []
+    prev_sampled = 0
+    for max_pts in (500, 200):
+        pts = _subsample_coords(coords_lonlat, max_pts)
+        if len(pts) == prev_sampled:
+            break
+        prev_sampled = len(pts)
+        try:
+            shape = _trace_shape(pts, typed=True)
+        except (IndexError, TypeError, ValueError) as exc:
+            _log_valhalla_trace_failure("Valhalla trace_route invalid input: %s", exc)
+            return None
+        for url in _VALHALLA_TRACE_URLS:
+            for variant, body in _trace_bodies(shape):
+                response = http_post_json_fn(url, body)
+                if isinstance(response, tuple):
+                    data, status = response
+                else:
+                    data, status = response, None
+                if data and not (isinstance(data, dict) and data.get("error_code")):
+                    break
+                reason = _valhalla_error_summary(data)
+                _log_valhalla_trace_failure(
+                    "Valhalla trace_route endpoint failed url=%s variant=%s "
+                    "status=%r pts=%d sampled_pts=%d reason=%s",
+                    url,
+                    variant,
+                    status,
+                    len(coords_lonlat),
+                    len(shape),
+                    reason,
+                )
             if data and not (isinstance(data, dict) and data.get("error_code")):
                 break
-            reason = _valhalla_error_summary(data)
-            _log_valhalla_trace_failure(
-                "Valhalla trace_route endpoint failed url=%s variant=%s "
-                "status=%r pts=%d sampled_pts=%d reason=%s",
-                url,
-                variant,
-                status,
-                len(coords_lonlat),
-                len(shape),
-                reason,
-            )
         if data and not (isinstance(data, dict) and data.get("error_code")):
             break
-    if not data:
+        _log_valhalla_trace_failure(
+            "Valhalla trace_route all variants failed sampled_pts=%d retrying",
+            len(shape),
+        )
+    if not data or (isinstance(data, dict) and data.get("error_code")):
         _log_valhalla_trace_failure(
             "Valhalla trace_route failed: no response pts=%d sampled_pts=%d",
             len(coords_lonlat), len(shape),
