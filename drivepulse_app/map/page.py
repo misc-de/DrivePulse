@@ -794,9 +794,9 @@ class MapPage(
             if hasattr(self, "_shumate_clear_route_layers"):
                 self._shumate_clear_route_layers()
 
-        self._pending_route_draw = True
         self._pending_trip_trace_args = (coords, label, distance_km, duration_s)
         self._set_tour_button("calculate")
+        self._push_route_to_map()
 
     def _fetch_trip_trace(
         self,
@@ -856,7 +856,7 @@ class MapPage(
             dialog.add_response("ok", "OK")
             dialog.set_default_response("ok")
             dialog.present(self.get_root())
-        if getattr(self, "_pending_route_draw", False):
+        if result is not None or getattr(self, "_pending_route_draw", False):
             self._push_route_to_map()
         return False
 
