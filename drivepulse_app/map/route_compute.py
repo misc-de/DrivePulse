@@ -92,10 +92,13 @@ class MapRouteComputeMixin:
             )
         if hasattr(self, "_update_left_chrome_visibility"):
             self._update_left_chrome_visibility()
+        # Do not auto-open the steps panel after computing a route — the user
+        # opens it explicitly via the toggle. If it was left open from a previous
+        # tour, close it so the stale step list does not stay visible.
         if self._steps_toggle_btn is not None and self._steps_toggle_btn.get_active():
-            self._rebuild_steps_list()
-            if self._steps_panel is not None:
-                self._set_steps_panel_visible(bool(self._tour_steps))
+            self._steps_toggle_btn.set_active(False)
+        elif self._steps_panel is not None:
+            self._set_steps_panel_visible(False)
 
         if coords:
             lats = [c[1] for c in coords]
