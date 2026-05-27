@@ -78,7 +78,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "last_cars_category": None,
     "last_cars_scan_id": None,
     "photo_thumb_cache_max_mb": 200,
+    # Sync access policy: "off" disables sync entirely, "lan_only" accepts only
+    # connections from private/loopback addresses (default), "any" accepts all.
+    "sync_access": "lan_only",
 }
+
+_VALID_SYNC_ACCESS = {"off", "lan_only", "any"}
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
 _VALID_TTS_BACKENDS = {"espeak", "piper"}
@@ -187,6 +192,7 @@ def load_settings() -> dict[str, Any]:
         "last_cars_source": (str(data["last_cars_source"]) if data.get("last_cars_source") else None),
         "last_cars_category": (str(data["last_cars_category"]) if data.get("last_cars_category") else None),
         "photo_thumb_cache_max_mb": _bounded_int(data.get("photo_thumb_cache_max_mb"), 200, 10, 2000),
+        "sync_access": data.get("sync_access") if data.get("sync_access") in _VALID_SYNC_ACCESS else DEFAULT_SETTINGS["sync_access"],
     }
     # Pull secrets from the keyring when available — that path replaces
     # any value the JSON file may still carry (legacy installs). If the
@@ -299,6 +305,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "autodev_usage_updated": str(settings.get("autodev_usage_updated") or ""),
                 "last_cars_source": (str(settings["last_cars_source"]) if settings.get("last_cars_source") else None),
                 "last_cars_category": (str(settings["last_cars_category"]) if settings.get("last_cars_category") else None),
+                "sync_access": settings.get("sync_access") if settings.get("sync_access") in _VALID_SYNC_ACCESS else DEFAULT_SETTINGS["sync_access"],
             },
             indent=2,
         ),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import json
 import os
 import ssl
@@ -19,6 +20,22 @@ log = get_logger(__name__)
 PAIRING_TIMEOUT_S = 60
 SYNC_SESSION_TIMEOUT_S = 30  # seconds after last ping before session expires
 MAX_SYNC_BODY_BYTES = int(os.environ.get("DRIVEPULSE_SYNC_MAX_BODY_BYTES", str(100 * 1024 * 1024)))
+# Abort pairing after this many failed token attempts. A legitimate client
+# submits exactly one /pair request; anything more is a bruteforce attempt.
+MAX_FAILED_PAIR_ATTEMPTS = 5
+
+SYNC_ACCESS_OFF = "off"
+SYNC_ACCESS_LAN = "lan_only"
+SYNC_ACCESS_ANY = "any"
+
+
+def is_lan_address(ip: str) -> bool:
+    """True for private, loopback or link-local addresses (RFC1918 + IPv6 equivalents)."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return addr.is_private or addr.is_loopback or addr.is_link_local
 
 
 class SyncServer:
@@ -36,6 +53,7 @@ class SyncServer:
         on_timeout_cb: Callable[[], None] | None = None,
         on_vehicle_check_fn: Callable[[str], bool] | None = None,
         on_share_import_fn: Callable[[dict], dict] | None = None,
+        access_mode: str = SYNC_ACCESS_LAN,
     ) -> None:
         self._cert_path = cert_path
         self._key_path = key_path
@@ -60,6 +78,13 @@ class SyncServer:
         self.pending_sync_mode: str | None = None
         self._pending_share_payload: dict | None = None
         self._pending_share_lock = threading.Lock()
+        self._failed_pair_attempts = 0
+        self._pair_attempt_lock = threading.Lock()
+        if access_mode not in (SYNC_ACCESS_LAN, SYNC_ACCESS_ANY):
+            # Caller should refuse to start the server when access is "off";
+            # if a bad value slips through, fall back to the safe default.
+            access_mode = SYNC_ACCESS_LAN
+        self._access_mode = access_mode
 
     def set_pending_share(self, payload: dict) -> None:
         with self._pending_share_lock:
@@ -95,7 +120,7 @@ class SyncServer:
         if httpd is None:
             raise OSError(f"No free port found in range {self.PORT}–{self.PORT + 9}")
         self.actual_port = port
-        log.info("Sync server binding on 0.0.0.0:%s", port)
+        log.info("Sync server binding on 0.0.0.0:%s (access=%s)", port, self._access_mode)
 
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.minimum_version = ssl.TLSVersion.TLSv1_3
@@ -185,6 +210,15 @@ class _SyncHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         pass
 
+    def _client_allowed(self) -> bool:
+        if self._srv._access_mode == SYNC_ACCESS_ANY:
+            return True
+        ip = self.client_address[0] if self.client_address else ""
+        if is_lan_address(ip):
+            return True
+        log.warning("Sync request from %s rejected (access=%s)", ip or "?", self._srv._access_mode)
+        return False
+
     def _send_json(self, code: int, data: dict) -> None:
         body = json.dumps(data).encode()
         self.send_response(code)
@@ -214,6 +248,9 @@ class _SyncHandler(BaseHTTPRequestHandler):
         return self.rfile.read(length) if length > 0 else b""
 
     def do_POST(self) -> None:
+        if not self._client_allowed():
+            self._send_json(403, {"ok": False, "error": "not allowed"})
+            return
         if self.path == "/pair":
             body = self._read_body()
             if body is None:
@@ -226,8 +263,23 @@ class _SyncHandler(BaseHTTPRequestHandler):
             if not isinstance(data, dict):
                 self._send_json(400, {"ok": False, "error": "bad json"})
                 return
+            if self._srv._paired:
+                self._send_json(409, {"ok": False, "error": "already paired"})
+                return
             token = data.get("token", "")
             if not hmac.compare_digest(str(token), self._srv._pairing_token):
+                with self._srv._pair_attempt_lock:
+                    self._srv._failed_pair_attempts += 1
+                    attempts = self._srv._failed_pair_attempts
+                if attempts >= MAX_FAILED_PAIR_ATTEMPTS:
+                    log.warning(
+                        "Sync server: aborting after %d failed pairing attempts from %s",
+                        attempts,
+                        self.client_address[0] if self.client_address else "?",
+                    )
+                    self._send_json(429, {"ok": False, "error": "too many attempts"})
+                    threading.Thread(target=self._srv._on_timeout, daemon=True).start()
+                    return
                 self._send_json(403, {"ok": False, "error": "invalid token"})
                 return
             self._srv.mark_paired()
@@ -313,6 +365,9 @@ class _SyncHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "not found"})
 
     def do_GET(self) -> None:
+        if not self._client_allowed():
+            self._send_json(403, {"ok": False, "error": "not allowed"})
+            return
         if self.path == "/ping":
             if not self._check_bearer():
                 self._send_json(403, {"ok": False, "error": "unauthorized"})

@@ -89,6 +89,7 @@ def test_import_data_ignores_non_list_collections(tmp_path):
             "cars_updated": 0,
             "trips_added": 0,
             "samples_added": 0,
+            "vin_data_review": [],
         }
     finally:
         db.close()
@@ -447,13 +448,159 @@ def test_sync_handler_rejects_non_object_pairing_json():
     handler.headers = {"Content-Length": "2"}
     handler.rfile = BytesIO(b"[]")
     handler.client_address = ("127.0.0.1", 12345)
-    handler._srv = SimpleNamespace(_pairing_token="pair")
+    handler._srv = SimpleNamespace(_pairing_token="pair", _access_mode="any")
     responses = []
     handler._send_json = lambda code, data: responses.append((code, data))
 
     _SyncHandler.do_POST(handler)
 
     assert responses == [(400, {"ok": False, "error": "bad json"})]
+
+
+def test_parse_pairing_url_requires_expiry():
+    from drivepulse_app.sync.flow import parse_pairing_url
+
+    for url in (
+        "drivepulse://pair?v=1&h=192.0.2.10&p=8765&fp=fp&t=tok",
+        "drivepulse://pair?v=1&h=192.0.2.10&p=8765&fp=fp&t=tok&exp=",
+        "drivepulse://pair?v=1&h=192.0.2.10&p=8765&fp=fp&t=tok&exp=0",
+    ):
+        try:
+            parse_pairing_url(url, default_port=8765, now=100)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"URL without valid expiry should be rejected: {url}")
+
+
+def test_pair_handler_aborts_after_too_many_failed_attempts():
+    import json
+    import threading
+    import time
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from drivepulse_app.sync.server import MAX_FAILED_PAIR_ATTEMPTS, _SyncHandler
+
+    timeout_calls = []
+    srv = SimpleNamespace(
+        _pairing_token="correct",
+        _paired=False,
+        _failed_pair_attempts=0,
+        _pair_attempt_lock=threading.Lock(),
+        _on_timeout=lambda: timeout_calls.append(True),
+        _access_mode="any",
+    )
+
+    responses = []
+
+    def make_handler(body: bytes) -> _SyncHandler:
+        h = _SyncHandler.__new__(_SyncHandler)
+        h.path = "/pair"
+        h.headers = {"Content-Length": str(len(body))}
+        h.rfile = BytesIO(body)
+        h.client_address = ("127.0.0.1", 12345)
+        h._srv = srv
+        h._send_json = lambda code, data: responses.append((code, data))
+        return h
+
+    bad_body = json.dumps({"token": "wrong"}).encode()
+    for _ in range(MAX_FAILED_PAIR_ATTEMPTS - 1):
+        _SyncHandler.do_POST(make_handler(bad_body))
+    assert all(code == 403 for code, _ in responses)
+    assert timeout_calls == []
+
+    _SyncHandler.do_POST(make_handler(bad_body))
+    assert responses[-1][0] == 429
+    for _ in range(20):
+        if timeout_calls:
+            break
+        time.sleep(0.01)
+    assert timeout_calls == [True]
+
+
+def test_is_lan_address_recognises_private_loopback_and_link_local():
+    from drivepulse_app.sync.server import is_lan_address
+
+    for lan in ("127.0.0.1", "10.0.0.5", "172.16.1.1", "172.31.255.254",
+                "192.168.1.42", "169.254.10.10", "::1", "fe80::1"):
+        assert is_lan_address(lan), lan
+    for wan in ("8.8.8.8", "1.1.1.1", "172.32.0.1", "2001:4860:4860::8888", "not-an-ip"):
+        assert not is_lan_address(wan), wan
+
+
+def test_handler_rejects_non_lan_client_in_lan_only_mode():
+    import json
+    import threading
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from drivepulse_app.sync.server import SYNC_ACCESS_LAN, _SyncHandler
+
+    body = json.dumps({"token": "wrong"}).encode()
+
+    def _make(client_ip: str, mode: str = SYNC_ACCESS_LAN) -> tuple[_SyncHandler, list]:
+        # _pairing_token differs from the body's token → handler stops at the
+        # 403 "invalid token" branch, so we don't need mark_paired etc.
+        srv = SimpleNamespace(
+            _access_mode=mode,
+            _pairing_token="correct",
+            _paired=False,
+            _failed_pair_attempts=0,
+            _pair_attempt_lock=threading.Lock(),
+        )
+        h = _SyncHandler.__new__(_SyncHandler)
+        h.path = "/pair"
+        h.headers = {"Content-Length": str(len(body))}
+        h.rfile = BytesIO(body)
+        h.client_address = (client_ip, 12345)
+        h._srv = srv
+        responses: list = []
+        h._send_json = lambda code, data: responses.append((code, data))
+        return h, responses
+
+    h, responses = _make("8.8.8.8")
+    _SyncHandler.do_POST(h)
+    assert responses == [(403, {"ok": False, "error": "not allowed"})]
+
+    h, responses = _make("192.168.1.10")
+    _SyncHandler.do_POST(h)
+    assert (403, {"ok": False, "error": "not allowed"}) not in responses
+
+    h, responses = _make("8.8.8.8", mode="any")
+    _SyncHandler.do_POST(h)
+    assert (403, {"ok": False, "error": "not allowed"}) not in responses
+
+
+def test_pair_handler_rejects_second_pairing_when_already_paired():
+    import json
+    import threading
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from drivepulse_app.sync.server import _SyncHandler
+
+    srv = SimpleNamespace(
+        _pairing_token="correct",
+        _paired=True,
+        _failed_pair_attempts=0,
+        _pair_attempt_lock=threading.Lock(),
+        _access_mode="any",
+    )
+
+    body = json.dumps({"token": "correct", "device_id": "anything"}).encode()
+    handler = _SyncHandler.__new__(_SyncHandler)
+    handler.path = "/pair"
+    handler.headers = {"Content-Length": str(len(body))}
+    handler.rfile = BytesIO(body)
+    handler.client_address = ("127.0.0.1", 12345)
+    handler._srv = srv
+    responses = []
+    handler._send_json = lambda code, data: responses.append((code, data))
+
+    _SyncHandler.do_POST(handler)
+
+    assert responses == [(409, {"ok": False, "error": "already paired"})]
 
 
 def test_qr_scanner_element_available_handles_factory_errors():
@@ -761,10 +908,12 @@ def test_sync_handler_ping_rejects_unauthenticated_caller():
         reset_session_timer=lambda: reset_calls.append(1),
         pending_sync_mode=None,
         has_pending_share=lambda: False,
+        _access_mode="any",
     )
     handler = _SyncHandler.__new__(_SyncHandler)
     handler._srv = srv
     handler.path = "/ping"
+    handler.client_address = ("127.0.0.1", 12345)
     handler.headers = {}  # no Authorization
     responses = []
     handler._send_json = lambda code, data: responses.append((code, data))

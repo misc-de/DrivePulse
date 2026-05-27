@@ -95,6 +95,7 @@ class DashboardWindow(
         self.sidebar_side: str = self.settings.get("sidebar_side", "left")
         self.theme_mode: str = self.settings.get("theme_mode", "auto")
         self.force_webkit_map: bool = bool(self.settings.get("force_webkit_map", False))
+        self.sync_access: str = str(self.settings.get("sync_access", "lan_only"))
         # POIs are deliberately not persisted — they're a performance hit, so
         # the map always starts without POI loading until the user toggles it.
         self.map_traffic_visible: bool = bool(self.settings.get("map_traffic_visible", False))
