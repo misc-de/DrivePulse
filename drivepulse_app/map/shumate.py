@@ -145,7 +145,33 @@ class MapShumateMixin:
         inner.add_layer(self._poi_layer)
 
         viewport.connect("notify::latitude", self._on_viewport_moved)
+
+        dbl_tap = Gtk.GestureClick.new()
+        dbl_tap.connect("pressed", self._on_shumate_double_tap)
+        inner.add_controller(dbl_tap)
+
         return self._shumate_map
+
+    def _on_shumate_double_tap(self, gesture: Any, n_press: int, _x: float, _y: float) -> None:
+        if n_press != 2:
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self._shumate_refit_view()
+
+    def _shumate_refit_view(self) -> None:
+        """Zoom to fit the loaded route, or re-centre on GPS if no route."""
+        if getattr(self, "_tour_coords", None):
+            if hasattr(self, "_push_route_to_map"):
+                self._push_route_to_map()
+            return
+        lat = getattr(self, "_gps_lat", None)
+        lon = getattr(self, "_gps_lon", None)
+        if lat is not None and lon is not None and self._shumate_map is not None:
+            viewport = self._shumate_map.get_viewport()
+            self._setting_pos = True
+            viewport.set_location(lat, lon)
+            viewport.set_zoom_level(17.0)
+            self._setting_pos = False
 
     def _update_shumate_gps(self, lat: float, lon: float) -> None:
         if self._car_marker is None:
