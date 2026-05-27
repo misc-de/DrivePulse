@@ -46,7 +46,7 @@ from drivepulse_app.map.services import (
     MAP_ICONS,
     MAP_LABEL_KEYS,
     MAP_TYPES,
-    osrm_match_route,
+    route_via_gps_waypoints,
 )
 from drivepulse_app.map.shumate import MapShumateMixin
 from drivepulse_app.map.state_poll import MapStatePollMixin
@@ -805,19 +805,19 @@ class MapPage(
         distance_km: float | None,
         duration_s: float | None,
     ) -> None:
-        log.info("trip_trace_osrm_match_call pts=%d", len(coords))
-        result = osrm_match_route(coords)
+        log.info("trip_trace_route_call pts=%d", len(coords))
+        result = route_via_gps_waypoints(coords)
         if result is not None:
             snapped, dur, dist, steps = result
             log.info(
-                "trip_trace_osrm_match_ok snapped_pts=%d steps=%d dist_km=%.1f dur_min=%.0f",
+                "trip_trace_route_ok snapped_pts=%d steps=%d dist_km=%.1f dur_min=%.0f",
                 len(snapped), len(steps), dist / 1000.0, dur / 60.0,
             )
         else:
             write_diagnostic_log(
                 __name__,
                 logging.WARNING,
-                "trip_trace_osrm_match_failed pts=%d label=%r",
+                "trip_trace_route_failed pts=%d label=%r",
                 len(coords),
                 label,
             )
