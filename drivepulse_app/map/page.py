@@ -831,7 +831,7 @@ class MapPage(
         orig_distance_km: float | None,
         orig_duration_s: float | None,
     ) -> bool:
-        self._set_tour_button("calculate")
+        self._set_tour_button("start" if result is not None else "calculate")
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_sensitive(True)
         if result is not None:
@@ -855,6 +855,14 @@ class MapPage(
             if self._steps_panel is not None:
                 self._rebuild_steps_list()
                 self._set_steps_panel_visible(bool(steps))
+        if result is None:
+            dialog = Adw.AlertDialog(
+                heading=_translate(self.language, "map.tour_calculate_failed.heading"),
+                body=_translate(self.language, "map.tour_calculate_failed.body"),
+            )
+            dialog.add_response("ok", "OK")
+            dialog.set_default_response("ok")
+            dialog.present(self.get_root())
         if getattr(self, "_pending_route_draw", False):
             self._push_route_to_map()
         return False

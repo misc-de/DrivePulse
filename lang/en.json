@@ -178,6 +178,8 @@
   "map.poi": "Show places (POI)",
   "map.tour_start": "Start tour",
   "map.tour_calculate": "Calculate tour",
+  "map.tour_calculate_failed.heading": "Calculation failed",
+  "map.tour_calculate_failed.body": "The tour calculation was not possible.",
   "map.tour_stop": "Stop tour",
   "map.tour_resume": "Resume tour",
   "map.tour_abort": "Abort tour",
