@@ -969,9 +969,55 @@ def _is_dead_end_uturn(steps: list[dict], uturn_idx: int, short_m: float = 100.0
     return prev_d < short_m and next_d < short_m
 
 
+def _uturn_physically_impossible(
+    raw_coords: list[list[float]],
+    raw_timestamps: list[float],
+    step: dict,
+    speed_threshold_kmh: float = 20.0,
+    position_threshold_m: float = 150.0,
+    window: int = 3,
+) -> bool:
+    """Decide whether an OSRM U-turn step could not correspond to a real maneuver.
+
+    A real U-turn requires the car to slow down to a near-stop.  If the actual
+    GPS track shows the car going briskly (>speed_threshold_kmh) at the U-turn
+    position, the maneuver is OSRM's interpretation, not something the driver
+    did.  Likewise if the nearest GPS point is far away (>position_threshold_m)
+    the U-turn happens at a phantom location the car never visited.
+    """
+    if not raw_coords or not raw_timestamps or len(raw_coords) != len(raw_timestamps):
+        return False
+    target_lat, target_lon = step.get("lat", 0.0), step.get("lon", 0.0)
+    best_i, best_d = 0, float("inf")
+    for i, c in enumerate(raw_coords):
+        d = haversine(target_lat, target_lon, c[1], c[0])
+        if d < best_d:
+            best_d = d
+            best_i = i
+    if best_d > position_threshold_m:
+        return True  # phantom location — no real GPS evidence here
+    lo = max(0, best_i - window)
+    hi = min(len(raw_coords) - 1, best_i + window)
+    if hi - lo < 1:
+        return False
+    dist_m = 0.0
+    for j in range(lo + 1, hi + 1):
+        dist_m += haversine(
+            raw_coords[j - 1][1], raw_coords[j - 1][0],
+            raw_coords[j][1], raw_coords[j][0],
+        )
+    dt = raw_timestamps[hi] - raw_timestamps[lo]
+    if dt <= 0:
+        return False
+    speed_kmh = (dist_m / dt) * 3.6
+    return speed_kmh > speed_threshold_kmh
+
+
 def _remove_uturn_waypoints(
     waypoints: list[tuple[float, float]],
     protected_coords: set[tuple[float, float]] | None = None,
+    raw_coords: list[list[float]] | None = None,
+    raw_timestamps: list[float] | None = None,
     max_iters: int = 5,
     protection_radius_m: float = 200.0,
     max_saving_pct: float = 0.15,
@@ -987,9 +1033,14 @@ def _remove_uturn_waypoints(
     2. *max_saving_pct*: if removing the bad set would shorten the route by more than
        this fraction of the total distance, the removal is skipped — a large saving
        means the waypoints are on a real detour (e.g. gas-station approach), not GPS
-       noise on a one-way street.  EXCEPTION: dead-end U-turns (short→uturn→short)
-       bypass this guard — the pattern is unmistakably a GPS-noise artifact even
-       when it costs many metres of routing distance.
+       noise on a one-way street.
+
+    Two classes of artifact bypass the % guard and are removed unconditionally:
+
+    * Dead-end pattern (short→uturn→short): unmistakable noise artifact.
+    * Physically impossible U-turn (requires *raw_coords* + *raw_timestamps*):
+      GPS shows the car going too fast through the U-turn position, or the
+      position is far from any real GPS point.
     """
     def _find_bad_wp_index(wps: list[tuple[float, float]], step: dict) -> int | None:
         best_i, best_d = None, float("inf")
@@ -1024,42 +1075,95 @@ def _remove_uturn_waypoints(
         if not uturn_indices:
             break
 
-        # Two passes per iteration so the per-step "is this a dead-end" decision
-        # stays local — finding one dead-end U-turn must NOT license removing
-        # waypoints that happen to sit near a different, genuine U-turn elsewhere
-        # in the same route (Trip 5 lost its southern extent that way).
-        dead_end_bad: set[int] = set()
-        normal_bad: set[int] = set()
+        def _total_uturn_dist(route_steps: list[dict]) -> float:
+            return sum(
+                float(s.get("distance", 0) or 0)
+                for s in route_steps
+                if "uturn" in (s.get("modifier", "") + s.get("type", "")).lower()
+            )
+
+        current_uturn_dist = _total_uturn_dist(steps)
+
+        # Classify each U-turn locally — dead-end / physically-impossible are
+        # GPS-noise artifacts; everything else needs the % guard.  Keep them in
+        # a stable order so removal attempts are deterministic.
+        artifact_candidates: list[int] = []
+        normal_candidates: list[int] = []
+        seen: set[int] = set()
+        has_phantom_uturn = False
         for ui in uturn_indices:
+            is_artifact = _is_dead_end_uturn(steps, ui) or _uturn_physically_impossible(
+                raw_coords or [], raw_timestamps or [], steps[ui]
+            )
             bi = _find_bad_wp_index(wps, steps[ui])
             if bi is None:
+                # No waypoint within protection_radius_m of this U-turn.  When the
+                # U-turn is a phantom (far from any GPS) the offending waypoint can
+                # be on the *other side* of the U-turn — we fall back to trying
+                # every non-protected waypoint individually further below.
+                if is_artifact:
+                    has_phantom_uturn = True
                 continue
-            if _is_dead_end_uturn(steps, ui):
-                dead_end_bad.add(bi)
+            if bi in seen:
+                continue
+            seen.add(bi)
+            if is_artifact:
+                artifact_candidates.append(bi)
             else:
-                normal_bad.add(bi)
+                normal_candidates.append(bi)
 
-        # Pass 1: dead-end artifacts are removed unconditionally (no % guard).
-        if dead_end_bad:
-            candidate = [wps[i] for i in range(len(wps)) if i not in dead_end_bad]
+        # Phantom U-turn fallback: add every non-protected interior waypoint as
+        # an artifact candidate.  do-no-harm validation below will reject any
+        # removal that does not actually shorten the total U-turn distance.
+        if has_phantom_uturn:
+            for i in range(1, len(wps) - 1):
+                if i in seen:
+                    continue
+                wp = wps[i]
+                if protected_coords and any(
+                    haversine(pc[0], pc[1], wp[0], wp[1]) < protection_radius_m
+                    for pc in protected_coords
+                ):
+                    continue
+                seen.add(i)
+                artifact_candidates.append(i)
+
+        # Try each artifact removal individually, in order.  Accept the first one
+        # that does not increase the total U-turn distance — otherwise we would
+        # trade a known short artifact for a longer reroute-induced U-turn
+        # elsewhere (this happened on Trip 5's 21m + 17m pair when removed
+        # together).  Re-iterate after each accepted removal so the next pass
+        # sees the new routing reality.
+        accepted = False
+        for bi in artifact_candidates:
+            candidate = [wps[i] for i in range(len(wps)) if i != bi]
             r_candidate = compute_route(candidate, http_get_fn=http_get_fn)
             if r_candidate is None:
+                continue
+            if _total_uturn_dist(r_candidate[3]) <= current_uturn_dist:
+                wps = candidate
+                accepted = True
                 break
-            wps = candidate
-            continue  # re-route; remaining U-turns may shift after this removal
+        if accepted:
+            continue
 
-        # Pass 2: ordinary U-turn waypoints — only remove if the saving stays
-        # below max_saving_pct (otherwise it is probably a genuine detour).
-        if not normal_bad:
+        # Pass 2: ordinary U-turn waypoints — only remove if the % saving guard
+        # allows it (otherwise it is probably a genuine detour like a gas-station
+        # approach).  Also try individually to avoid coupled regressions.
+        for bi in normal_candidates:
+            candidate = [wps[i] for i in range(len(wps)) if i != bi]
+            r_candidate = compute_route(candidate, http_get_fn=http_get_fn)
+            if r_candidate is None:
+                continue
+            new_dist = r_candidate[2]
+            if current_dist > 0 and (current_dist - new_dist) / current_dist > max_saving_pct:
+                continue
+            if _total_uturn_dist(r_candidate[3]) <= current_uturn_dist:
+                wps = candidate
+                accepted = True
+                break
+        if not accepted:
             break
-        candidate = [wps[i] for i in range(len(wps)) if i not in normal_bad]
-        r_candidate = compute_route(candidate, http_get_fn=http_get_fn)
-        if r_candidate is None:
-            break
-        new_dist = r_candidate[2]
-        if current_dist > 0 and (current_dist - new_dist) / current_dist > max_saving_pct:
-            break
-        wps = candidate
     return wps
 
 
@@ -1211,7 +1315,11 @@ def route_via_gps_waypoints(
     )
     all_waypoints = _deduplicate_close_waypoints(all_waypoints, min_dist_m=50.0)
     all_waypoints = _remove_uturn_waypoints(
-        all_waypoints, protected_coords=stop_gap_coords, http_get_fn=http_get_fn
+        all_waypoints,
+        protected_coords=stop_gap_coords,
+        raw_coords=coords_lonlat,
+        raw_timestamps=timestamps,
+        http_get_fn=http_get_fn,
     )
     return compute_route(all_waypoints, http_get_fn=http_get_fn)
 
