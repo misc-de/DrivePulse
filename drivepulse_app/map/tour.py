@@ -85,6 +85,19 @@ class MapTourMixin:
         if self._tour_paused:
             self._resume_tour()
             return
+        pending = getattr(self, "_pending_trip_trace_args", None)
+        if pending is not None:
+            self._pending_trip_trace_args = None
+            if self._tour_start_btn is not None:
+                self._tour_start_btn.set_sensitive(False)
+            coords, label, distance_km, duration_s = pending
+            log.info("trip_trace_start coords=%d label=%r", len(coords), label)
+            threading.Thread(
+                target=self._fetch_trip_trace,
+                args=(coords, label, distance_km, duration_s),
+                daemon=True,
+            ).start()
+            return
         self._begin_tour()
 
     def _begin_tour(self) -> None:

@@ -795,15 +795,8 @@ class MapPage(
                 self._shumate_clear_route_layers()
 
         self._pending_route_draw = True
-        if self._tour_start_btn is not None:
-            self._tour_start_btn.set_sensitive(False)
+        self._pending_trip_trace_args = (coords, label, distance_km, duration_s)
         self._set_tour_button("calculate")
-        log.info("trip_trace_start coords=%d label=%r", len(coords), label)
-        threading.Thread(
-            target=self._fetch_trip_trace,
-            args=(coords, label, distance_km, duration_s),
-            daemon=True,
-        ).start()
 
     def _fetch_trip_trace(
         self,
