@@ -332,8 +332,12 @@ class ShareFlow:
         peer_hint.set_xalign(0.0)
         peer_hint.add_css_class("dim-label")
 
-        anon_check = Gtk.CheckButton(label=self._t("share.anonymize_toggle"))
+        anon_check = Gtk.CheckButton()
         anon_check.set_active(bool(anon))
+        anon_label = Gtk.Label(label=self._t("share.anonymize_toggle"))
+        anon_label.set_wrap(True)
+        anon_label.set_xalign(0.0)
+        anon_check.set_child(anon_label)
 
         group = Adw.PreferencesGroup()
 
