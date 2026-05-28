@@ -1,6 +1,9 @@
 """Turn-by-turn steps panel — list of maneuvers with active-step highlight + auto-scroll."""
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from gi.repository import GLib, Gtk
 
 from drivepulse_app.common import _translate
@@ -13,6 +16,18 @@ from drivepulse_app.map.services import (
 
 class MapStepsPanelMixin:
     """Side panel listing all turn-by-turn steps of the active tour."""
+
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    units: str
+    _backend: str
+    _tour_active: bool
+    _tour_paused: bool
+    _tour_steps: list[dict]
+    _tour_step_idx: int
+    _js: Callable[[str], None]
+    _map_set_replay_marker: Callable[..., Any]
+    _map_clear_replay_marker: Callable[..., Any]
 
     def _build_steps_panel(self) -> Gtk.Widget:
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)

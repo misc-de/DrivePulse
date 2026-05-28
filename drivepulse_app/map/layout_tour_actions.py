@@ -15,6 +15,23 @@ log = get_logger(__name__)
 
 
 class MapTourActionsMixin:
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    _map_db: Any
+    _map_content_box: Gtk.Box
+    _search_bar: Any
+    _tour_history_metas: list[Any]
+    _saved_tour_metas: list[Any]
+    get_root: Callable[[], Any]
+    _on_tour_history_clicked: Callable[..., Any]
+    _on_tour_load_clicked: Callable[..., Any]
+    _on_tour_save_clicked: Callable[..., Any]
+    _rebuild_tour_history_rows: Callable[..., None]
+    _rebuild_tour_list: Callable[..., None]
+    _exit_history_select_mode: Callable[..., None]
+    _exit_saved_tour_select_mode: Callable[..., None]
+    _nudge_map_resize: Callable[..., Any]
+
     """Top navigation bar above the map plus the bulk-share helpers reused by
     the saved-tour and history lists."""
 

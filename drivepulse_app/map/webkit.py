@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from typing import Any
 
 import gi
@@ -34,6 +35,8 @@ except (ValueError, ImportError):
 class MapWebKitMixin:
     _webview: Any
     _backend: str
+    _set_follow: Callable[[bool], bool]
+    _on_js_map_state: Callable[..., Any]
 
     def _setup_webview(self) -> Gtk.Widget:
         self._webview = WebKit.WebView()

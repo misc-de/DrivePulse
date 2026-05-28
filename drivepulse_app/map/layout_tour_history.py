@@ -7,6 +7,7 @@ header buttons and the sync-active check are shared with the saved-tour list."""
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 from gi.repository import Adw, GLib, Gtk
@@ -19,6 +20,14 @@ log = get_logger(__name__)
 
 
 class MapTourHistoryMixin:
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    get_root: Callable[[], Any]
+    _sync_active: Callable[[], bool]
+    _load_saved_tour: Callable[..., Any]
+    _show_trip_replay: Callable[..., Any]
+    _on_history_share_clicked: Callable[..., Any]
+
     # Pull this many history rows per fetch. Small enough to keep the first
     # render snappy, large enough that you don't trigger pagination on every
     # tiny scroll.

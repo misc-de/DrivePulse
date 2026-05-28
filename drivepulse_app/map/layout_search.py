@@ -1,6 +1,9 @@
 """Map page route-search bar — waypoint entries with drag-and-drop reordering."""
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from gi.repository import Gdk, GObject, Gtk
 
 from drivepulse_app.common import _translate
@@ -13,6 +16,12 @@ class MapSearchBarMixin:
     # the attribute on user actions. Owning class (MapPage) initialises the
     # concrete value in __init__.
     _loaded_tour_id: int | None
+
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    _entry_rows: list[tuple[Gtk.Box, Gtk.Entry, Gtk.Widget]]
+    _map_content_box: Gtk.Box
+    _on_route_clicked: Callable[..., Any]
 
     def _build_search_bar(self) -> None:
         bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)

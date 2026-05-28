@@ -9,6 +9,8 @@ speed."""
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
+from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map.services import bearing, haversine, snap_to_route
@@ -30,6 +32,39 @@ class MapGpsFilterMixin:
     _obd_speed_kmh: float | None
     _last_map_js_lat: float | None
     _last_map_js_lon: float | None
+
+    # More MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    _backend: str
+    _shumate_map: Any
+    _follow_gps: bool
+    _tour_active: bool
+    _tour_paused: bool
+    _tour_coords: list[list[float]]
+    _route_cum_m: list[float]
+    _gps_heading: float
+    _gps_heading_valid: bool
+    _gps_speed_mps: float
+    _last_map_js: float
+    _last_map_js_heading: float
+    _gps_route_idx: int
+    _snapped_cum_m: float
+    _gps_filt_heading: float
+    _gps_filt_speed_kmh: float
+    _gps_filt_time: float
+    _obd_speed_time: float
+
+    _MAP_JS_INTERVAL: float
+    _MAP_JS_MIN_DEG: float
+    _MAP_JS_MIN_HEADING: float
+    _MAP_JS_HEARTBEAT_S: float
+
+    _js: Callable[[str], None]
+    _goto: Callable[[float, float], None]
+    _set_follow: Callable[[bool], bool]
+    _update_shumate_gps: Callable[[float, float], None]
+    _update_maneuver_overlay: Callable[..., Any]
+    _check_off_route: Callable[..., Any]
+    _check_waypoint_proximity: Callable[..., Any]
 
     # ── GPS kinematic sanity filter ───────────────────────────────────────────
 
