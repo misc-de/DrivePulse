@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.4.186"
+version = "0.4.187"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
@@ -112,7 +112,6 @@ module = [
     "drivepulse_app.cars.stopwatch_runs",
     "drivepulse_app.cars.trips",
     "drivepulse_app.cars.vin_flow",
-    "drivepulse_app.dashboard.conflicts",
     "drivepulse_app.dashboard.layout",
     "drivepulse_app.dashboard.map_lifecycle",
     "drivepulse_app.dashboard.nav_routing",
