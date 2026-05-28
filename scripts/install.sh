@@ -25,6 +25,16 @@ if [ ${#svg_files[@]} -gt 0 ]; then
 fi
 
 mkdir -p "$(dirname "$DESKTOP_DEST")"
+
+# Legacy-Schutz: ältere Installer schrieben Exec=python3 .../drivepulse.py.
+# Dieser Einstiegspunkt existiert nicht mehr, sodass ein Alt-Launcher still
+# scheitert (Terminal=false). Vorhandene Alt-Datei vor dem Neuschreiben
+# wegräumen, damit kein toter Eintrag im Menü überlebt.
+if [ -f "$DESKTOP_DEST" ] && grep -q "drivepulse\.py" "$DESKTOP_DEST"; then
+    rm -f "$DESKTOP_DEST"
+    echo "  Alt-Launcher (drivepulse.py) entfernt"
+fi
+
 cat > "$DESKTOP_DEST" << EOF
 [Desktop Entry]
 Version=1.1
