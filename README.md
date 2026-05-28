@@ -2,12 +2,11 @@
 
 <img src="icons/icon.png" alt="DrivePulse" width="128"/>
 
+> **AI-assisted project, under active development.** Features, configuration and data formats may change without notice — not production-ready.
 
-⚠️ **AI-assisted project**
-> **⚠ Under active development — not ready for production use.**
-> Features, configuration and data formats may change at any time without notice.
+DrivePulse turns a Linux device into an in-car companion. Plug in an ELM327-class OBD-II adapter, optionally pair a GPS receiver and a webcam, and the same app gives you a live dashboard, navigation, dashcam, performance meter and trip log — without sending anything to the cloud.
 
-OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads vehicle data via the OBD-II interface. GPS speed is read in parallel via GeoClue2 or GPSD.
+It is designed to feel at home on a Linux phone (Phosh, Mobian) just as much as on a tablet or laptop: the UI adapts to portrait or landscape, day or night, real driving or replay. Trips, scans and runs live in a local SQLite file; two of your own devices can hand the database back and forth directly over local Wi-Fi using a QR-coded pairing.
 
 ---
 
@@ -26,41 +25,16 @@ OBD-II dashboard built on GTK4 / libadwaita. Connects to an OBD-Device and reads
 
 ---
 
-## Features
+## What's inside
 
-- Multiple dashboard themes (Analog, Cockpit, Digital, Modern, Neon, Racing, Sport)
-- **StopWatch measurement**
-  - G-force ball display with real-time longitudinal and lateral G
-  - 0–30 / 0–50 / 0–70 / 0–100 / … / 0–200 km/h and 100–200 km/h from OBD and GPS
-  - Vmax elapsed times (OBD / GPS / average) shown at end of run
-  - replay completed runs with real-time animation
-- **Cars / Trips page**
-  - lists all vehicles seen, with recorded trips
-  - OBD scan history and StopWatch runs per vehicle
-  - trip detail includes speed/RPM/G chart + map track
-  - StopWatch runs stored per vehicle (date, GPS location, all split times, G-force peaks)
-- **Device sync**
-  - transfer the full database between two devices over a local Wi-Fi connection
-  - server generates a QR code, client scans it in local networks; TLS-encrypted
-- **Navigation (Tour)**
-  - Address search via Nominatim geocoding, up to 5 waypoints
-  - Car routing via Valhalla with OSRM fallback
-  - Turn-by-turn maneuver overlay with icon, distance and instruction
-  - Scrollable step list panel
-  - GPS tracking with auto-follow and map rotation
-  - 2D / 3D map view toggle, satellite and night map types
-  - Traffic incidents on German motorways (Autobahn)
-- **Voice navigation (TTS) under heavy construction !**
-  - Reads out OSRM maneuver instructions via `espeak-ng` (no street names, just direction + distance)
-  - Announces at 500 m, 200 m and 50 m before each maneuver
-  - Language: English or German (or follow app language)
-  - Voice: male or female
-- **Dashcam**
-  - Continuous rolling buffer recording (configurable segment length and count)
-  - One-tap event save to preserve clips around an incident
-  - Configurable camera, resolution and screen dim timeout
-  - Optional GPS/speed OSD burned into the video
-- Settings: units (km/h / mph), language (English / German), gauge theme, mock mode toggle
+- **Dashboard** — multiple gauge themes in light and dark, responsive to portrait/landscape.
+- **Trip log** — every drive recorded as a track with speed, RPM, G-force and map.
+- **Performance meter** — acceleration runs (0–100, 100–200 and similar) with split times, a live G-force ball, and replay.
+- **Navigation** — address search, multi-waypoint car routing, turn-by-turn with optional voice, 2D/3D maps and German Autobahn traffic.
+- **Dashcam** — rolling-buffer recording with one-tap event save and optional GPS/speed overlay.
+- **Vehicle library** — your cars with OBD scan history, photos and per-car run records.
+- **Device sync** — direct phone-to-laptop database transfer over local Wi-Fi via QR pairing, TLS-encrypted.
+- **Settings** — units, language (EN/DE), gauge theme, mock-mode for development without hardware.
 
 ---
 
@@ -106,8 +80,10 @@ Both sources are tried automatically on startup. Whichever delivers a fix first 
 ## Running
 
 ```bash
-python3 drivepulse.py
+python3 -m drivepulse_app.app
 ```
+
+After `pip install .` the same entry is also available as the `drivepulse` command.
 
 ---
 
@@ -128,9 +104,8 @@ bash scripts/uninstall.sh   # to remove
 ## Project structure
 
 ```
-drivepulse.py              Launcher (imports drivepulse_app.app)
 drivepulse_app/
-  app.py                   Application entry point (Adw.Application subclass)
+  app.py                   Application entry point (Adw.Application subclass, `python3 -m drivepulse_app.app`)
   app_settings.py          Load / save persistent user settings (JSON)
   common.py                Shared constants and utility functions
   translations.py          Translation catalog (EN / DE) and _translate helper
