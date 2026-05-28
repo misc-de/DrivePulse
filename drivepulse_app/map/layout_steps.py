@@ -7,6 +7,7 @@ from typing import Any
 from gi.repository import GLib, Gtk
 
 from drivepulse_app.common import _translate
+from drivepulse_app.map._jsbridge import js_call
 from drivepulse_app.map.services import (
     format_distance,
     maneuver_icon,
@@ -96,7 +97,7 @@ class MapStepsPanelMixin:
             if smap is not None:
                 smap.get_viewport().set_location(lat, lon)
         elif self._backend == "webkit":
-            self._js(f"mapGoTo({lat}, {lon}, 15)")
+            self._js(js_call("mapGoTo", lat, lon, 15))
 
     def _rebuild_steps_list(self) -> None:
         if self._steps_listbox is None:

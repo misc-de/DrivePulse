@@ -1,7 +1,6 @@
 """Map tour/navigation mixin — state machine, TTS, step detection."""
 from __future__ import annotations
 
-import json
 import threading
 import time
 from collections.abc import Callable
@@ -12,6 +11,7 @@ from gi.repository import Gtk as _Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map._jsbridge import js_call
 from drivepulse_app.map.services import (
     bearing,
     compute_route,
@@ -203,7 +203,7 @@ class MapTourMixin:
             )
         self._set_follow(True)
         if self._backend == "webkit":
-            self._js(f"mapStartTour({lat}, {lon})")
+            self._js(js_call("mapStartTour", lat, lon))
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
             with self._viewport_lock():
@@ -369,7 +369,7 @@ class MapTourMixin:
             return False
         coords = result[0]
         if self._backend == "webkit":
-            self._js(f"mapSetGuideToStart({json.dumps(coords)})")
+            self._js(js_call("mapSetGuideToStart", coords))
         elif self._shumate_map is not None and self._guide_path_layer is not None:
             self._shumate_set_guide(coords)
         return False
@@ -929,9 +929,8 @@ class MapTourMixin:
         self._show_route_info(duration_s, distance_m)
 
         if self._backend == "webkit":
-            self._js(f"mapSetRoute({json.dumps(coords)})")
-            pts_js = json.dumps([[p[0], p[1]] for p in all_points])
-            self._js(f"mapSetWaypoints({pts_js})")
+            self._js(js_call("mapSetRoute", coords))
+            self._js(js_call("mapSetWaypoints", [[p[0], p[1]] for p in all_points]))
         elif self._shumate_map is not None:
             self._shumate_set_path(self._path_layer, coords)
             if self._wp_layer is not None:

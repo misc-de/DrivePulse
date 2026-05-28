@@ -14,6 +14,7 @@ from typing import Any
 from gi.repository import Gtk
 
 from drivepulse_app.common import _translate
+from drivepulse_app.map._jsbridge import js_call
 
 
 class MapReplayMixin:
@@ -401,7 +402,7 @@ class MapReplayMixin:
 
     def _map_set_replay_marker(self, lat: float, lon: float) -> None:
         if self._backend == "webkit":
-            self._js(f"mapSetReplayMarker({lat},{lon})")
+            self._js(js_call("mapSetReplayMarker", lat, lon))
         elif getattr(self, "_shumate_map", None) is not None:
             self._shumate_set_replay_marker(lat, lon)
 
@@ -486,8 +487,6 @@ class MapReplayMixin:
 
     def _map_show_track(self, latlon_speed: list[tuple[float, float, float | None]]) -> None:
         """Draw a speed-coloured polyline on the live map for replayed samples."""
-        import json as _json
-
         from drivepulse_app.cars.trip_visuals import speed_to_rgb
 
         latlon = [(lat, lon) for lat, lon, _ in latlon_speed]
@@ -511,10 +510,10 @@ class MapReplayMixin:
                         "coordinates": [[lon1, lat1], [lon2, lat2]],
                     },
                 })
-            self._js(f"mapSetColoredTrack({_json.dumps(features)})")
+            self._js(js_call("mapSetColoredTrack", features))
             lats = [p[0] for p in latlon]
             lons = [p[1] for p in latlon]
-            self._js(f"mapFitBounds({min(lats)},{min(lons)},{max(lats)},{max(lons)})")
+            self._js(js_call("mapFitBounds", min(lats), min(lons), max(lats), max(lons)))
             self._set_follow(False)
         elif getattr(self, "_shumate_map", None) is not None:
             self._shumate_show_colored_track(latlon_speed)

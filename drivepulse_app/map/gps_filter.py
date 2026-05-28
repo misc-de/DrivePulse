@@ -13,6 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map._jsbridge import js_call
 from drivepulse_app.map.services import bearing, haversine, snap_to_route
 
 log = get_logger(__name__)
@@ -148,7 +149,7 @@ class MapGpsFilterMixin:
                     self._last_map_js_lat = display_lat
                     self._last_map_js_lon = display_lon
                     self._last_map_js_heading = self._gps_heading
-                    self._js(f"mapSetCar({display_lat}, {display_lon}, {self._gps_heading})")
+                    self._js(js_call("mapSetCar", display_lat, display_lon, self._gps_heading))
         elif self._backend == "shumate" and self._shumate_map is not None:
             self._update_shumate_gps(display_lat, display_lon)
             if self._follow_gps:

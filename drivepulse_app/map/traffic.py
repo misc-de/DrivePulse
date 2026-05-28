@@ -1,7 +1,6 @@
 """Map traffic layer mixin — Autobahn API, filtering, popover."""
 from __future__ import annotations
 
-import json
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -10,6 +9,7 @@ from gi.repository import GLib, Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map._jsbridge import js_call
 from drivepulse_app.map.services import bab_fetch_sources
 
 log = get_logger(__name__)
@@ -36,8 +36,7 @@ class MapTrafficMixin:
         visible = btn.get_active()
         self._traffic_visible = visible
         if self._backend == "webkit":
-            val = "true" if visible else "false"
-            self._js(f"mapSetTrafficVisible({val})")
+            self._js(js_call("mapSetTrafficVisible", visible))
         else:
             self._shumate_set_traffic_visible(visible)
         if visible and not self._traffic_loaded:
@@ -108,7 +107,7 @@ class MapTrafficMixin:
 
         if self._backend == "webkit":
             # WebKit filters by route bounding box inside JS (mapSetTraffic).
-            self._js(f"mapSetTraffic({json.dumps(parsed)})")
+            self._js(js_call("mapSetTraffic", parsed))
             if self._traffic_btn is not None and self._traffic_btn.get_active():
                 self._js("mapSetTrafficVisible(true)")
         else:

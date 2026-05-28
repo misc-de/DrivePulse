@@ -447,7 +447,7 @@
   "settings.sync.access": "Sync access",
   "settings.sync.access.subtitle": "Which devices may connect",
   "settings.sync.access.off": "Off",
-  "settings.sync.access.lan_only": "Local network only (192.168.x, 10.x, 172.16-31.x)",
+  "settings.sync.access.lan_only": "LAN/Wi-Fi only",
   "settings.sync.access.any": "All networks",
   "settings.sync.disabled.toast": "Sync is disabled in settings.",
   "sync.choose.server": "Start server",
