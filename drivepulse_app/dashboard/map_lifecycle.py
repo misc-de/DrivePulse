@@ -7,9 +7,16 @@ tabs — unless a tour is active or paused, which holds it open.
 """
 from __future__ import annotations
 
-from gi.repository import GLib, Gtk
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.map.page import MapPage
+
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
+    from drivepulse_app.ui.rotated_container import RotatedContainer
 
 
 class DashboardMapLifecycleMixin:
@@ -23,6 +30,39 @@ class DashboardMapLifecycleMixin:
     _map_unload_timer_id: int | None
     _map_suspended_zoom: float | None
     _map_suspended_follow: bool
+
+    # Concrete-class state surfaced to this mixin. See project_mixin_typing.md
+    # for the pattern — these are PEP-526 annotations without values.
+    PAGE_MAP: ClassVar[str]
+    language: str
+    units: str
+    mock_mode: bool
+    force_webkit_map: bool
+    map_traffic_visible: bool
+    map_traffic_bundesweit: bool
+    map_traffic_nrw: bool
+    map_3d_view: bool
+    map_layer: str
+    map_heading_up: bool
+    tts_enabled: bool
+    speed_limit_warn: bool
+    tts_language: str
+    tts_voice: str
+    tts_quality: str
+    db: DriveDB
+    view_stack: Adw.ViewStack
+    _map_rotator: RotatedContainer
+
+    # Callbacks the concrete window installs as MapPage event handlers.
+    _set_map_traffic_visible: Callable[[bool], None]
+    _set_map_3d_view: Callable[[bool], None]
+    _set_map_layer: Callable[[str], None]
+    _set_map_heading_up: Callable[[bool], None]
+    _set_tts_enabled: Callable[[bool], None]
+    _on_tour_started: Callable[..., Any]
+    _on_tour_stopped: Callable[..., Any]
+    _on_tour_resumed: Callable[..., Any]
+    _get_active_sync_client: Callable[[], Any]
 
     def _ensure_map_page(self) -> None:
         """Create MapPage on first use and restore any previously saved state."""
