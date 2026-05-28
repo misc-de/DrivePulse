@@ -23,6 +23,14 @@ from drivepulse_app.map._geometry import (  # noqa: F401
     snap_to_route,
     zoom_for_bbox,
 )
+from drivepulse_app.map._traffic import (  # noqa: F401
+    BAB_BASE,
+    NRW_AUTOBAHNEN,
+    bab_fetch_all,
+    bab_fetch_nrw,
+    bab_fetch_road,
+    bab_fetch_sources,
+)
 
 log = get_logger(__name__)
 
@@ -120,75 +128,7 @@ TILE_ATTRIBUTION = {
     "grayscale": "© OpenStreetMap, © CARTO",
 }
 
-BAB_BASE = "https://verkehr.autobahn.de/o/autobahn"
-
-
-# Autobahnen with sections in North Rhine-Westphalia (NRW).
-NRW_AUTOBAHNEN = frozenset([
-    "A1", "A2", "A3", "A4", "A31", "A33", "A40", "A42", "A43", "A44",
-    "A45", "A46", "A52", "A57", "A59", "A61", "A516", "A524", "A535",
-    "A540", "A542", "A544", "A553", "A555", "A559", "A560", "A561",
-    "A562", "A563", "A564", "A565",
-])
-
-
-def bab_fetch_road(road: str, http_get_fn: HttpGet = http_get) -> list[dict]:
-    items: list[dict] = []
-    encoded = urllib.parse.quote(road, safe="")
-    for service, key, kind in (
-        ("roadworks", "roadworks", "roadworks"),
-        ("warning", "warning", "incidents"),
-    ):
-        data = http_get_fn(f"{BAB_BASE}/{encoded}/services/{service}")
-        if data:
-            for entry in data.get(key, []):
-                entry["_kind"] = kind
-                entry["_road"] = road
-                items.append(entry)
-    return items
-
-
-def bab_fetch_all(http_get_fn: HttpGet = http_get) -> list[dict]:
-    roads_resp = http_get_fn(f"{BAB_BASE}/")
-    if not roads_resp:
-        return []
-    roads: list[str] = roads_resp.get("roads", [])
-    all_items: list[dict] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        for result in pool.map(lambda road: bab_fetch_road(road, http_get_fn), roads):
-            all_items.extend(result)
-    return all_items
-
-
-def bab_fetch_nrw(http_get_fn: HttpGet = http_get) -> list[dict]:
-    """Fetch traffic items only for NRW Autobahnen — faster than a full federal fetch."""
-    all_items: list[dict] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        for result in pool.map(
-            lambda road: bab_fetch_road(road, http_get_fn),
-            sorted(NRW_AUTOBAHNEN),
-        ):
-            all_items.extend(result)
-    return all_items
-
-
-def bab_fetch_sources(
-    *,
-    bundesweit: bool,
-    nrw: bool,
-    http_get_fn: HttpGet = http_get,
-) -> list[dict]:
-    """Fetch traffic items according to the enabled source flags.
-
-    If *bundesweit* is set, fetches all German Autobahnen (superset of NRW).
-    If only *nrw* is set, fetches only the NRW Autobahnen — faster and more focused.
-    Returns an empty list when neither flag is set.
-    """
-    if bundesweit:
-        return bab_fetch_all(http_get_fn)
-    if nrw:
-        return bab_fetch_nrw(http_get_fn)
-    return []
+# BAB_BASE, NRW_AUTOBAHNEN, bab_fetch_*: moved to drivepulse_app/map/_traffic.py
 
 
 def geocode(query: str, http_get_fn: HttpGet = http_get) -> tuple[float, float] | None:
