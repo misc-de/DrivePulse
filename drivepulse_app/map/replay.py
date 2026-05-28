@@ -15,6 +15,7 @@ from gi.repository import Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.map._jsbridge import js_call
+from drivepulse_app.trip_recorder import filter_gps_samples
 
 
 class MapReplayMixin:
@@ -427,7 +428,7 @@ class MapReplayMixin:
         # Mark this trip as currently displayed so the Recent-Tours list
         # can highlight it with the green emblem on the next rebuild.
         self._loaded_trip_id = trip_id
-        samples = list(db.samples_for_trip(trip_id))
+        samples = filter_gps_samples(db.samples_for_trip(trip_id))
         # Drop samples without a real fix (lat=0, lon=0 means the receiver
         # hadn't acquired one yet) — otherwise the polyline shoots across the
         # globe to (0,0) and Shumate ends up centred on the Atlantic with

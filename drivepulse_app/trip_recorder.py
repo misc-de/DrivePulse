@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -19,6 +20,14 @@ _MAX_GPS_SPEED_MS = 250.0 / 3.6
 # Nach einer GPS-Pause länger als diese Zeit ist der letzte Standort veraltet —
 # erster neuer Punkt wird bedingungslos akzeptiert (z. B. nach Tunnel).
 _GPS_GAP_RESET_S = 30.0
+# Stillstands-Klammer: Unter dieser Geschwindigkeit gilt das Fahrzeug als
+# stehend. GPS driftet im Stand mehrere Meter pro Fix; diese Scheinbewegung
+# würde sonst als zurückgelegte Strecke aufgezeichnet.
+_STATIONARY_SPEED_KMH = 2.0
+# OBD-Geschwindigkeit ist die verlässliche Stillstands-Quelle; sie gilt nur so
+# lange als gültig, bevor ersatzweise die (verrauschtere) GPS-Geschwindigkeit
+# herangezogen wird.
+_OBD_SPEED_STALE_S = 5.0
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -27,6 +36,62 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlam = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
     return 6_371_000.0 * 2 * math.asin(math.sqrt(min(a, 1.0)))
+
+
+def filter_gps_samples(
+    samples: Iterable[Any],
+) -> list[dict[str, Any]]:
+    """Apply the recording-time GPS sanity filters to already-stored samples.
+
+    Mirrors :meth:`TripRecorder.update_gps` so trips recorded before the live
+    filter existed are smoothed when read back: standstill drift is frozen to
+    the last fix, and kinematic outliers (jumps implying > 250 km/h) are
+    clamped to the last valid position. Non-position fields and samples without
+    a fix are passed through untouched.
+
+    Returns new ``dict`` rows; the input rows are not mutated. Use only for
+    display/route consumers — the raw rows must stay intact for share/sync.
+    """
+    out: list[dict[str, Any]] = []
+    last_lat: float | None = None
+    last_lon: float | None = None
+    last_ts: float = 0.0
+    for sample in samples:
+        row = {key: sample[key] for key in sample.keys()}
+        lat = row.get("lat")
+        lon = row.get("lon")
+        ts = row.get("ts") or 0.0
+        if lat is None or lon is None:
+            out.append(row)
+            continue
+        if last_lat is None or last_lon is None:
+            last_lat, last_lon, last_ts = lat, lon, ts
+            out.append(row)
+            continue
+        obd_speed = row.get("speed_kmh")
+        gps_speed = row.get("gps_speed_kmh")
+        stationary = (
+            obd_speed < _STATIONARY_SPEED_KMH
+            if obd_speed is not None
+            else (gps_speed is not None and gps_speed < _STATIONARY_SPEED_KMH)
+        )
+        if stationary:
+            # Freeze position: a stopped vehicle's GPS movement is pure drift.
+            row["lat"], row["lon"] = last_lat, last_lon
+            last_ts = ts
+            out.append(row)
+            continue
+        dt = ts - last_ts
+        if 0 < dt < _GPS_GAP_RESET_S:
+            dist_m = _haversine_m(last_lat, last_lon, lat, lon)
+            if dist_m / dt > _MAX_GPS_SPEED_MS:
+                # Kinematic outlier: clamp to the last valid fix.
+                row["lat"], row["lon"] = last_lat, last_lon
+                out.append(row)
+                continue
+        last_lat, last_lon, last_ts = lat, lon, ts
+        out.append(row)
+    return out
 
 
 class TripRecorder:
@@ -41,6 +106,8 @@ class TripRecorder:
         self._last_gps: dict[str, float] = {}
         self._last_obd_ts: float = 0.0
         self._last_gps_ts: float = 0.0
+        self._last_obd_speed_kmh: float | None = None
+        self._last_obd_speed_ts: float = 0.0
 
     # Identitäts-Update — typischerweise nach erfolgreichem Scan
     def set_car(
@@ -74,6 +141,13 @@ class TripRecorder:
             prev_lat = self._last_gps.get("lat")
             prev_lon = self._last_gps.get("lon")
             if prev_lat is not None and prev_lon is not None:
+                # Stillstand: GPS-Position einfrieren. Bei stehendem Fahrzeug ist
+                # jede Positionsänderung GPS-Drift, keine echte Bewegung.
+                if self._is_stationary(gps_speed_kmh, now):
+                    self._last_gps_ts = now
+                    if altitude_m is not None:
+                        self._last_gps["altitude_m"] = altitude_m
+                    return
                 dt = now - self._last_gps_ts
                 if 0 < dt < _GPS_GAP_RESET_S:
                     dist_m = _haversine_m(prev_lat, prev_lon, lat, lon)
@@ -95,11 +169,27 @@ class TripRecorder:
         if gps_speed_kmh is not None:
             self._last_gps["gps_speed_kmh"] = gps_speed_kmh
 
+    def _is_stationary(self, gps_speed_kmh: float | None, now: float) -> bool:
+        """Steht das Fahrzeug? OBD-Geschwindigkeit ist verlässlich, GPS-Speed
+        nur Notnagel, da er im Stand selbst Rauschen zeigt."""
+        if (
+            self._last_obd_speed_kmh is not None
+            and (now - self._last_obd_speed_ts) < _OBD_SPEED_STALE_S
+        ):
+            return self._last_obd_speed_kmh < _STATIONARY_SPEED_KMH
+        if gps_speed_kmh is not None:
+            return gps_speed_kmh < _STATIONARY_SPEED_KMH
+        return False
+
     def record_obd(self, ts: float, **fields: Any) -> None:
         """Schreibt ein OBD-Sample (inklusive zuletzt gesehener GPS-Daten)."""
         if self.car_id is None:
             # Fahrzeugidentität noch nicht bekannt — Sample verwerfen
             return
+        obd_speed = fields.get("speed_kmh")
+        if obd_speed is not None:
+            self._last_obd_speed_kmh = obd_speed
+            self._last_obd_speed_ts = time.monotonic()
         if self.trip_id is None:
             self.trip_id = self.db.start_trip(self.car_id)
         merged = dict(self._last_gps)

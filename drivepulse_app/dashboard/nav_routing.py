@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, ClassVar
 
 from gi.repository import Adw, GLib
 
+from drivepulse_app.trip_recorder import filter_gps_samples
+
 if TYPE_CHECKING:
     from drivepulse_app.db import DriveDB
     from drivepulse_app.map.page import MapPage
@@ -90,7 +92,7 @@ class DashboardNavRoutingMixin:
                 # Fall back to the polyline-only path so the user at
                 # least sees the track if the full replay errors out.
                 try:
-                    samples = list(self.db.samples_for_trip(trip_id)) if self.db else []
+                    samples = filter_gps_samples(self.db.samples_for_trip(trip_id)) if self.db else []
                 except Exception:
                     samples = []
                 coords = [
