@@ -10,6 +10,7 @@ from gi.repository import Adw, GLib, Gtk
 from drivepulse_app.cars.trip_widgets import _build_trip_detail_widget
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.trip_recorder import filter_gps_samples
 
 if TYPE_CHECKING:
     from drivepulse_app.db import DriveDB
@@ -136,7 +137,7 @@ class CarsTripsMixin:
         if self.db is None:
             return
         try:
-            samples = list(self.db.samples_for_trip(trip_id))
+            samples = filter_gps_samples(self.db.samples_for_trip(trip_id))
             trips = self.db.list_trips_for_car(self._selected_car_id) if self._selected_car_id else []
             trip = next((t for t in trips if int(t["id"]) == trip_id), None)
         except Exception:

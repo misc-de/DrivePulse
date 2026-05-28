@@ -9,7 +9,11 @@ import time
 import pytest
 
 from drivepulse_app.db import DriveDB
-from drivepulse_app.trip_recorder import TripRecorder, _haversine_m
+from drivepulse_app.trip_recorder import (
+    TripRecorder,
+    _haversine_m,
+    filter_gps_samples,
+)
 
 # ─── _haversine_m: geodesic distance ─────────────────────────────────────────
 
@@ -103,6 +107,49 @@ def test_recorder_rejects_gps_outlier_implying_impossible_speed(db):
     assert rec._last_gps["lon"] == 8.0
 
 
+def test_recorder_freezes_gps_drift_while_stationary(db):
+    """At a standstill (OBD speed ~0) GPS still drifts a few metres per fix.
+    That drift must not overwrite the cached position, or it would be recorded
+    as movement and inflate the trip distance."""
+    rec = TripRecorder(db)
+    rec.set_car(vin="VIN-STAND")
+    # Vehicle is parked: OBD reports 0 km/h.
+    rec.record_obd(ts=1.0, speed_kmh=0.0)
+    rec.update_gps(lat=50.0, lon=8.0)
+    # A drifting GPS fix arrives while still stationary.
+    rec.update_gps(lat=50.0002, lon=8.0002)  # ~28 m of drift
+    assert rec._last_gps["lat"] == 50.0
+    assert rec._last_gps["lon"] == 8.0
+
+
+def test_recorder_accepts_gps_movement_once_obd_reports_motion(db, monkeypatch):
+    """When OBD confirms the car is moving, GPS position updates flow through —
+    the stationary clamp must not freeze a real drive. Time is advanced between
+    fixes so the kinematic outlier filter sees a realistic 1 s gap."""
+    clock = [1000.0]
+    monkeypatch.setattr("drivepulse_app.trip_recorder.time.monotonic", lambda: clock[0])
+    rec = TripRecorder(db)
+    rec.set_car(vin="VIN-MOVE")
+    rec.record_obd(ts=1.0, speed_kmh=0.0)
+    rec.update_gps(lat=50.0, lon=8.0)
+    # Car starts moving: OBD speed rises, GPS should now track.
+    clock[0] += 1.0
+    rec.record_obd(ts=2.0, speed_kmh=40.0)
+    rec.update_gps(lat=50.0002, lon=8.0002)  # ~28 m in 1 s ≈ 100 km/h
+    assert rec._last_gps["lat"] == 50.0002
+    assert rec._last_gps["lon"] == 8.0002
+
+
+def test_recorder_stationary_clamp_falls_back_to_gps_speed(db):
+    """Without fresh OBD speed, GPS speed decides standstill. A near-zero GPS
+    speed freezes position; a clear moving speed lets it through."""
+    rec = TripRecorder(db)
+    rec.set_car(vin="VIN-GPSONLY")
+    rec.update_gps(lat=50.0, lon=8.0, gps_speed_kmh=0.5)
+    rec.update_gps(lat=50.0002, lon=8.0002, gps_speed_kmh=0.5)
+    assert rec._last_gps["lat"] == 50.0  # frozen
+
+
 def test_recorder_end_trip_clears_trip_id(db):
     rec = TripRecorder(db)
     rec.set_car(vin="VIN-END")
@@ -159,3 +206,71 @@ def test_recorder_set_car_keeps_trip_when_same_car(db):
     rec.set_car(vin="VIN-SAME", brand="now-known")
     # Same car → same trip.
     assert rec.trip_id == active
+
+
+# ─── filter_gps_samples: read-time smoothing of stored trips ─────────────────
+
+def _sample(ts, lat, lon, speed_kmh=None, gps_speed_kmh=None, rpm=None):
+    return {
+        "ts": ts, "lat": lat, "lon": lon,
+        "speed_kmh": speed_kmh, "gps_speed_kmh": gps_speed_kmh, "rpm": rpm,
+    }
+
+
+def test_filter_gps_samples_freezes_standstill_drift():
+    """A parked vehicle (OBD 0 km/h) whose GPS drifts must have its position
+    frozen to the last fix on read-back."""
+    rows = [
+        _sample(1.0, 50.0, 8.0, speed_kmh=0.0),
+        _sample(2.0, 50.0002, 8.0002, speed_kmh=0.0),  # ~28 m drift while parked
+        _sample(3.0, 50.0001, 7.9999, speed_kmh=0.0),
+    ]
+    out = filter_gps_samples(rows)
+    assert [(r["lat"], r["lon"]) for r in out] == [
+        (50.0, 8.0), (50.0, 8.0), (50.0, 8.0),
+    ]
+
+
+def test_filter_gps_samples_keeps_real_movement():
+    """Genuine driving (OBD reports speed, ~1 s between fixes) passes through."""
+    rows = [
+        _sample(1.0, 50.0, 8.0, speed_kmh=40.0),
+        _sample(2.0, 50.0002, 8.0002, speed_kmh=40.0),
+        _sample(3.0, 50.0004, 8.0004, speed_kmh=40.0),
+    ]
+    out = filter_gps_samples(rows)
+    assert [(r["lat"], r["lon"]) for r in out] == [
+        (50.0, 8.0), (50.0002, 8.0002), (50.0004, 8.0004),
+    ]
+
+
+def test_filter_gps_samples_clamps_kinematic_outlier():
+    """A fix implying > 250 km/h over a realistic gap is clamped to the last
+    valid position, not recorded as a jump."""
+    rows = [
+        _sample(1.0, 50.0, 8.0, speed_kmh=50.0),
+        _sample(2.0, 50.1, 8.1, speed_kmh=50.0),  # ~13 km in 1 s → outlier
+        _sample(3.0, 50.0009, 8.0, speed_kmh=50.0),  # back near reality
+    ]
+    out = filter_gps_samples(rows)
+    assert (out[1]["lat"], out[1]["lon"]) == (50.0, 8.0)  # clamped
+
+
+def test_filter_gps_samples_passes_through_non_gps_rows():
+    """Rows without a fix and all non-position fields are left untouched."""
+    rows = [
+        _sample(1.0, None, None, rpm=900.0),
+        _sample(2.0, 50.0, 8.0, speed_kmh=30.0, rpm=2000.0),
+    ]
+    out = filter_gps_samples(rows)
+    assert out[0]["lat"] is None and out[0]["rpm"] == 900.0
+    assert out[1]["rpm"] == 2000.0
+
+
+def test_filter_gps_samples_does_not_mutate_input():
+    rows = [
+        _sample(1.0, 50.0, 8.0, speed_kmh=0.0),
+        _sample(2.0, 50.0002, 8.0002, speed_kmh=0.0),
+    ]
+    filter_gps_samples(rows)
+    assert rows[1]["lat"] == 50.0002  # original untouched
