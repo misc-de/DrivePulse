@@ -805,9 +805,8 @@ class MapPage(
         # yet — it will be pushed at Tour-Start after Valhalla has snapped it.
         if self._backend == "webkit":
             self._js("mapClearRoute()")
-        elif self._shumate_map is not None:
-            if hasattr(self, "_shumate_clear_route_layers"):
-                self._shumate_clear_route_layers()
+        elif self._shumate_map is not None and hasattr(self, "_shumate_clear_route_layers"):
+            self._shumate_clear_route_layers()
 
         self._pending_trip_trace_args = (coords, label, distance_km, duration_s, timestamps)
         self._set_tour_button("calculate")
