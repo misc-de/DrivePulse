@@ -670,7 +670,11 @@ function _goOffline() {
   if (_offlineFallback || !map) return;
   _offlineFallback = true;
   if (_styleWatchdog) { clearTimeout(_styleWatchdog); _styleWatchdog = null; }
-  map.setStyle(OFFLINE_STYLE);
+  // diff:false forces a full style reload so the 'style.load' handler re-fires
+  // and addDataLayers re-creates the route/waypoint/guide/traffic layers. The
+  // default diff path silently drops every layer not present in the new style
+  // (i.e. all of ours) WITHOUT emitting 'style.load', leaving the overlays gone.
+  map.setStyle(OFFLINE_STYLE, { diff: false });
 }
 
 // After requesting a network-backed style, give it a few seconds to load.
@@ -688,7 +692,10 @@ function _applyStyle(key) {
   if (!map) return;
   _desiredStyleKey = key;
   _offlineFallback = false;
-  map.setStyle(STYLES[key] || STYLES.street);
+  // diff:false so 'style.load' re-fires and addDataLayers rebuilds our custom
+  // layers; the default diff path would keep the new base tiles but quietly
+  // drop the route/waypoints (tiles visible, but the track gone).
+  map.setStyle(STYLES[key] || STYLES.street, { diff: false });
   _armStyleWatchdog();
 }
 
