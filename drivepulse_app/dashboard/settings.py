@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from drivepulse_app.cars.page import CarsPage
+    from drivepulse_app.db import DriveDB
     from drivepulse_app.sync.dialog import SyncDialog
+    from drivepulse_app.ui.gauge import Gauge
 
 from drivepulse_app.app_settings import load_settings, save_settings
 from drivepulse_app.common import LOG_DIR, _detect_language, _normalize_language, _translate
@@ -22,6 +26,53 @@ class DashboardSettingsMixin:
     # Declared so mypy treats the concrete DashboardWindow.last_update_check
     # (str | None) as compatible with what _set_last_update_check assigns.
     last_update_check: str | None
+
+    # Concrete DashboardWindow state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    settings: dict[str, Any]
+    db: DriveDB
+    nav_view: Any
+    reader: Any
+    rotation: Any
+    last_payload: dict[str, Any] | None
+    cars_page: CarsPage
+    stopwatch_page: Any
+    map_page: Any
+    dashcam_page: Any
+    dashboard_page: Any
+    cars_stack_page: Any
+    stopwatch_stack_page: Any
+    map_stack_page: Any
+    dashcam_stack_page: Any
+    dashboard_stack_page: Any
+    rpm_gauge: Gauge
+    speed_gauge: Gauge
+    temp_gauge: Gauge
+    gauge_box: Any
+    dashboard_canvas: Any
+    status_label: Any
+    title_label: Any
+    settings_button: Any
+    gps_indicator: Any
+    obd_indicator: Any
+    _last_gps_lat: float | None
+    _last_gps_lon: float | None
+
+    add_toast: Callable[[Any], None]
+    _apply_nav_position: Callable[..., None]
+    _apply_theme_mode: Callable[..., None]
+    _apply_window_theme: Callable[..., None]
+    _update_conflict_badge: Callable[..., None]
+    _update_from_payload: Callable[..., None]
+    _on_piper_dl_progress: Callable[[str, float], bool]
+
+    # Setting-backed fields the concrete window stores as instance attrs.
+    language: str
+    units: str
+    mock_mode: bool
+    obd_port: str | None
+    gauge_theme: str
+    sidebar_side: str
 
     def _load_settings(self) -> dict[str, Any]:
         return load_settings()

@@ -4,8 +4,9 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from gi.repository import GLib
 
@@ -15,6 +16,12 @@ from drivepulse_app.dashboard.data import obd_sample_fields, scan_identity_from_
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.obd.recorder import ObdRecorder
 from drivepulse_app.telemetry_utils import display_speed, has_obd_data, plain_number
+
+if TYPE_CHECKING:
+    from drivepulse_app.cars.page import CarsPage
+    from drivepulse_app.db import DriveDB
+    from drivepulse_app.trip_recorder import TripRecorder
+    from drivepulse_app.ui.gauge import Gauge
 
 log = get_logger(__name__)
 
@@ -48,6 +55,26 @@ class DashboardTelemetryMixin:
     # first assignment inside this mixin's methods.
     last_payload: dict[str, Any] | None
     _gps_last_seen: float
+
+    # Concrete DashboardWindow state surfaced to this mixin.
+    # See project_mixin_typing.md.
+    GPS_UNAVAIL_HOLDOVER: ClassVar[float]
+    language: str
+    units: str
+    db: DriveDB
+    cars_page: CarsPage
+    stopwatch_page: Any
+    trip_recorder: TripRecorder
+    rpm_gauge: Gauge
+    speed_gauge: Gauge
+    temp_gauge: Gauge
+    dashboard_canvas: Any
+    status_label: Any
+    scan_bar: Any
+    gps_indicator: Any
+    obd_indicator: Any
+    _set_link_indicator: Callable[..., None]
+    _live_trip_id: int | None
     _last_gps_lat: float | None
     _last_gps_lon: float | None
     _last_gps_speed_kmh: float | None

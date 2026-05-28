@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.4.192"
+version = "0.4.193"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
@@ -95,14 +95,3 @@ disallow_untyped_defs = false
 [[tool.mypy.overrides]]
 module = ["gi", "gi.repository", "gi.repository.*"]
 follow_imports = "skip"
-
-# Mixin classes (DashboardLayoutMixin, CarsLayoutMixin, …) reference attributes
-# (self.view_stack, self.dashboard_page, …) that are set by the concrete window
-# class composing them. Mypy can't see across the composition without Protocols,
-# so attr-defined errors on these modules are structural false positives.
-[[tool.mypy.overrides]]
-module = [
-    "drivepulse_app.dashboard.settings",
-    "drivepulse_app.dashboard.telemetry",
-]
-disable_error_code = ["attr-defined", "has-type", "var-annotated"]
