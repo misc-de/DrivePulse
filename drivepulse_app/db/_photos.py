@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from datetime import UTC, datetime
 
 
 class PhotosMixin:
+    # Provided by _DriveDBBase when composed into DriveDB. See
+    # project_mixin_typing.md.
+    _conn: sqlite3.Connection
+    _lock: threading.Lock
+
     def add_car_photo(
         self,
         car_id: int,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Iterable
 from typing import Any
 
@@ -9,6 +10,11 @@ from drivepulse_app.db._schema import _SAMPLE_COLUMNS
 
 
 class SamplesMixin:
+    # Provided by _DriveDBBase when composed into DriveDB. See
+    # project_mixin_typing.md.
+    _conn: sqlite3.Connection
+    _lock: threading.Lock
+
     def add_sample(self, trip_id: int, ts: float, **fields: Any) -> None:
         cols: list[str] = ["trip_id", "ts"]
         vals: list[Any] = [trip_id, float(ts)]
