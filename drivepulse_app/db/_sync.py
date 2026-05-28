@@ -3,10 +3,16 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import UTC, datetime
 
 
 class SyncMixin:
+    # Provided by _DriveDBBase when composed into DriveDB. See
+    # project_mixin_typing.md.
+    _conn: sqlite3.Connection
+    _lock: threading.Lock
+
     def mark_trip_seen(self, trip_id: int) -> None:
         now = datetime.now(UTC).isoformat()
         with self._lock:

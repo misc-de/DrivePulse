@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,6 +14,11 @@ log = get_logger(__name__)
 
 
 class StopwatchMixin:
+    # Provided by _DriveDBBase when composed into DriveDB. See
+    # project_mixin_typing.md.
+    _conn: sqlite3.Connection
+    _lock: threading.Lock
+
     def add_stopwatch_run(
         self,
         car_id: int,

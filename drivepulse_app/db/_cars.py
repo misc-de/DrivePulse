@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import threading
 from datetime import UTC, datetime
 
 from drivepulse_app.diagnostics import get_logger
@@ -12,6 +13,11 @@ log = get_logger(__name__)
 
 
 class CarsMixin:
+    # Provided by _DriveDBBase when composed into DriveDB. See
+    # project_mixin_typing.md.
+    _conn: sqlite3.Connection
+    _lock: threading.Lock
+
     def upsert_car(
         self,
         vin: str | None = None,

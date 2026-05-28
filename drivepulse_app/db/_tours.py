@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 
 
 class ToursMixin:
+    # Provided by _DriveDBBase when composed into DriveDB. See
+    # project_mixin_typing.md.
+    _conn: sqlite3.Connection
+    _lock: threading.Lock
+
     def save_tour(self, name: str, waypoints_json: str, created_at: str) -> int:
         with self._lock:
             cur = self._conn.execute(
@@ -12,6 +18,9 @@ class ToursMixin:
                 (name, created_at, waypoints_json),
             )
             self._conn.commit()
+            # lastrowid is int after a successful INSERT — the Optional[int]
+            # in the sqlite3 stub covers cases where no row was inserted yet.
+            assert cur.lastrowid is not None
             return cur.lastrowid
 
     def get_saved_tour(self, tour_id: int) -> sqlite3.Row | None:

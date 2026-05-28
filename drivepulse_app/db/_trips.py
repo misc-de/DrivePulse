@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
 
 class TripsMixin:
+    # Provided by _DriveDBBase when composed into DriveDB. See
+    # project_mixin_typing.md.
+    _conn: sqlite3.Connection
+    _lock: threading.Lock
+
     TRIP_MERGE_MAX_GAP_S: float = 30 * 60   # 30 min between consecutive trips
     TRIP_MERGE_FILL_INTERVAL_S: float = 1.0
     TRIP_MERGE_FILL_GAP_THRESHOLD_S: float = 5.0
