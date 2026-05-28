@@ -289,9 +289,11 @@ class MapLayoutMixin:
         btn.set_halign(Gtk.Align.START)
         btn.set_valign(Gtk.Align.END)
         btn.set_margin_start(12)
-        # Scale ruler sits at margin_bottom=36; the trash icon stacks above
-        # it with enough gap for the 40px button + a small breathing space.
-        btn.set_margin_bottom(48)
+        # Shumate: stack above the bottom-left scale ruler (margin_bottom=36)
+        # with room for the 40px button. WebKit has no left-corner ruler, so
+        # drop the trash down to the FAB baseline (margin_bottom=12) where the
+        # 3D/2D button sits — left and right controls share one bottom edge.
+        btn.set_margin_bottom(48 if self._backend == "shumate" else 12)
         btn.set_size_request(40, 40)
         btn.set_tooltip_text(_translate(self.language, "map.tour_reset.tooltip"))
         btn.set_visible(False)
