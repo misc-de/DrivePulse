@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.sync.crypto import is_valid_device_id, is_valid_hostname
 
 log = get_logger(__name__)
 
@@ -282,10 +283,22 @@ class _SyncHandler(BaseHTTPRequestHandler):
                     return
                 self._send_json(403, {"ok": False, "error": "invalid token"})
                 return
+            device_id = data.get("device_id", "")
+            hostname = data.get("hostname", "")
+            if not is_valid_device_id(device_id) or not is_valid_hostname(hostname):
+                # Don't waste a pairing-attempt slot on this — the token was
+                # correct, the client is just malformed. Refuse without
+                # counting it against MAX_FAILED_PAIR_ATTEMPTS.
+                log.warning(
+                    "Sync /pair rejected — malformed device_id/hostname from %s",
+                    self.client_address[0] if self.client_address else "?",
+                )
+                self._send_json(400, {"ok": False, "error": "invalid client identity"})
+                return
             self._srv.mark_paired()
             device_info = {
-                "device_id": data.get("device_id", ""),
-                "hostname": data.get("hostname", ""),
+                "device_id": device_id,
+                "hostname": hostname,
                 "client_ip": self.client_address[0] if self.client_address else "",
             }
             try:

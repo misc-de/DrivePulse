@@ -572,6 +572,123 @@ def test_handler_rejects_non_lan_client_in_lan_only_mode():
     assert (403, {"ok": False, "error": "not allowed"}) not in responses
 
 
+def test_is_valid_device_id_accepts_generated_format_and_rejects_garbage():
+    from drivepulse_app.sync.crypto import generate_device_id, is_valid_device_id
+
+    # Anything we generate must round-trip the validator — otherwise our own
+    # clients couldn't pair with our own servers.
+    for _ in range(10):
+        assert is_valid_device_id(generate_device_id())
+
+    # Reject obvious bad inputs.
+    assert not is_valid_device_id("")
+    assert not is_valid_device_id("a" * 15)        # too short (min 16)
+    assert not is_valid_device_id("a" * 65)        # too long (max 64)
+    assert not is_valid_device_id("contains spaces in id")
+    assert not is_valid_device_id("has/slash/like/path")
+    assert not is_valid_device_id("control\x00null")
+    assert not is_valid_device_id("control\nlf")
+    assert not is_valid_device_id(b"valid_bytes_long_enough_but_bytes")  # type: ignore[arg-type]
+    assert not is_valid_device_id(None)            # type: ignore[arg-type]
+    assert not is_valid_device_id(12345)           # type: ignore[arg-type]
+
+
+def test_is_valid_hostname_accepts_reasonable_strings_and_rejects_garbage():
+    from drivepulse_app.sync.crypto import is_valid_hostname
+
+    assert is_valid_hostname("")                    # empty allowed
+    assert is_valid_hostname("phone-pixel-8")
+    assert is_valid_hostname("Höllental.local")     # printable unicode ok
+    assert is_valid_hostname("a" * 100)             # at the length ceiling
+
+    assert not is_valid_hostname("a" * 101)         # > 100 chars
+    assert not is_valid_hostname("has\nnewline")
+    assert not is_valid_hostname("has\ttab")
+    assert not is_valid_hostname("has\x00null")
+    assert not is_valid_hostname(None)              # type: ignore[arg-type]
+    assert not is_valid_hostname(42)                # type: ignore[arg-type]
+
+
+def test_pair_handler_rejects_malformed_device_id_with_400():
+    import json
+    import threading
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from drivepulse_app.sync.server import _SyncHandler
+
+    paired_called = []
+    srv = SimpleNamespace(
+        _pairing_token="correct",
+        _paired=False,
+        _failed_pair_attempts=0,
+        _pair_attempt_lock=threading.Lock(),
+        _access_mode="any",
+        mark_paired=lambda: paired_called.append(True),
+    )
+
+    body = json.dumps({
+        "token": "correct",
+        # Path-traversal-shaped garbage that previously sailed through.
+        "device_id": "../../../etc/passwd",
+        "hostname": "ok",
+    }).encode()
+    handler = _SyncHandler.__new__(_SyncHandler)
+    handler.path = "/pair"
+    handler.headers = {"Content-Length": str(len(body))}
+    handler.rfile = BytesIO(body)
+    handler.client_address = ("127.0.0.1", 12345)
+    handler._srv = srv
+    responses = []
+    handler._send_json = lambda code, data: responses.append((code, data))
+
+    _SyncHandler.do_POST(handler)
+
+    assert responses == [(400, {"ok": False, "error": "invalid client identity"})]
+    # mark_paired must not have fired — otherwise the malformed client would
+    # have claimed the session.
+    assert paired_called == []
+
+
+def test_pair_handler_rejects_malformed_hostname_with_400():
+    import json
+    import threading
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from drivepulse_app.sync.crypto import generate_device_id
+    from drivepulse_app.sync.server import _SyncHandler
+
+    paired_called = []
+    srv = SimpleNamespace(
+        _pairing_token="correct",
+        _paired=False,
+        _failed_pair_attempts=0,
+        _pair_attempt_lock=threading.Lock(),
+        _access_mode="any",
+        mark_paired=lambda: paired_called.append(True),
+    )
+
+    body = json.dumps({
+        "token": "correct",
+        "device_id": generate_device_id(),
+        "hostname": "hostname\nwith\nnewlines",
+    }).encode()
+    handler = _SyncHandler.__new__(_SyncHandler)
+    handler.path = "/pair"
+    handler.headers = {"Content-Length": str(len(body))}
+    handler.rfile = BytesIO(body)
+    handler.client_address = ("127.0.0.1", 12345)
+    handler._srv = srv
+    responses = []
+    handler._send_json = lambda code, data: responses.append((code, data))
+
+    _SyncHandler.do_POST(handler)
+
+    assert responses == [(400, {"ok": False, "error": "invalid client identity"})]
+    assert paired_called == []
+
+
 def test_pair_handler_rejects_second_pairing_when_already_paired():
     import json
     import threading
