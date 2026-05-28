@@ -4,17 +4,31 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from gi.repository import Adw, Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 
+if TYPE_CHECKING:
+    from drivepulse_app.cars.page import CarsPage
+    from drivepulse_app.db import DriveDB
+
 log = get_logger(__name__)
 
 
 class DashboardConflictsMixin:
+    # Attribute declarations to match the concrete DashboardWindow that
+    # composes this mixin. mypy can't see across the mixin/composition
+    # boundary, so any attribute the mixin reads is annotated here using
+    # the type the concrete window initializes it with. No runtime impact —
+    # these are PEP-526 annotations without values.
+    db: DriveDB
+    nav_view: Adw.NavigationView
+    language: str
+    cars_page: CarsPage
+
     def _update_conflict_badge(self) -> None:
         try:
             n = self.db.count_share_conflicts()
