@@ -2,9 +2,12 @@
 trip-comparison logic that prevents redundant DB writes during sync."""
 from __future__ import annotations
 
+import json
+
 from drivepulse_app.share.protocol import (
     _round2,
     _trips_identical,
+    build_vehicle_block,
     make_fake_serial,
     make_fake_vin,
     make_vin_hash,
@@ -64,6 +67,48 @@ def test_make_fake_serial_uppercase_hex():
 def test_make_fake_serial_default_length_when_no_reference():
     assert len(make_fake_serial(None)) == 16
     assert len(make_fake_serial("")) == 16
+
+
+# ─── build_vehicle_block: decoded VIN data ─────────────────────────────────────
+
+def _car(**over):
+    base = {
+        "vin": "WAUZZZ8KZBA000000",
+        "vin_hash": make_vin_hash("WAUZZZ8KZBA000000"),
+        "brand": "Audi",
+        "label": "A4",
+        "cal_id": "ABCD1234",
+        "cvn": "DEADBEEF",
+        "protocol": "CAN",
+        "vin_data_json": json.dumps({"manufacturer": "Audi", "model": "A4", "year": "2018"}),
+    }
+    base.update(over)
+    return base
+
+
+def test_build_vehicle_block_includes_vin_data_when_not_anon():
+    block = build_vehicle_block(_car(), anon=False)
+    assert block["vin_data"] == {"manufacturer": "Audi", "model": "A4", "year": "2018"}
+    assert block["vin"] == "WAUZZZ8KZBA000000"
+
+
+def test_build_vehicle_block_includes_vin_data_when_anon():
+    # Decoded specs carry no unique identifier, so they ride along even
+    # under anonymisation — the VIN/hash/serials are still fabricated.
+    block = build_vehicle_block(_car(), anon=True)
+    assert block["vin_data"] == {"manufacturer": "Audi", "model": "A4", "year": "2018"}
+    assert block["vin"] != "WAUZZZ8KZBA000000"
+    assert block["cal_id"] != "ABCD1234"
+
+
+def test_build_vehicle_block_drops_empty_decline_marker():
+    block = build_vehicle_block(_car(vin_data_json="{}"), anon=False)
+    assert "vin_data" not in block
+
+
+def test_build_vehicle_block_omits_vin_data_when_absent():
+    block = build_vehicle_block(_car(vin_data_json=None), anon=False)
+    assert "vin_data" not in block
 
 
 # ─── _round2 ─────────────────────────────────────────────────────────────────
