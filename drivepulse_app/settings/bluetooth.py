@@ -8,6 +8,8 @@ widget attributes wired up in ``SettingsDialog.__init__``.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from gi.repository import Adw, GLib, Gtk
 
@@ -19,9 +21,24 @@ from drivepulse_app.obd.devices import (
     scan_bt_paired_devices,
 )
 
+if TYPE_CHECKING:
+    from drivepulse_app.settings.dialog import _BtExpander
+
 
 class SettingsBluetoothMixin:
     """Paired-device list + nearby BT scan + connect/bind flows."""
+
+    # Concrete SettingsDialog state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    _closing: bool
+    _bt_expander: _BtExpander
+    _bt_nearby_expander: _BtExpander
+    _bt_device_rows: list[Adw.ActionRow]
+    _bt_nearby_rows: list[Adw.ActionRow]
+    _bt_nearby_scan_btn: Gtk.Button
+    on_obd_port_changed: Callable[[str | None], None] | None
+    _refresh_dongle_dropdown: Callable[[str | None], None]
 
     def _on_bt_refresh_clicked(self, _btn: Gtk.Button) -> None:
         self._bt_scan_async()

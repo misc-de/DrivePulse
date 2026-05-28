@@ -7,15 +7,66 @@ resolves ``self.<row>`` and ``self.on_*`` lookups against the live attributes.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-from gi.repository import Adw
+from gi.repository import Adw, Gtk
 
 from drivepulse_app.common import SUPPORTED_LANGUAGES, _translate
 from drivepulse_app.obd.devices import scan_obd_devices
 
 
 class SettingsRowCallbacksMixin:
+    # Concrete SettingsDialog state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    _NAV_POSITIONS: list[str]
+    _ROTATION_MODES: list[str]
+    _SYNC_ACCESS_MODES: list[str]
+    _theme_options: list[tuple[str, str]]
+    _initial_force_webkit_map: bool
+
+    # Widget rows / buttons
+    unit_row: Adw.ComboRow
+    language_row: Adw.ComboRow
+    gauge_theme_row: Adw.ComboRow
+    sidebar_side_row: Adw.ComboRow
+    theme_mode_row: Adw.ComboRow
+    nav_position_row: Adw.ComboRow
+    rotation_mode_row: Adw.ComboRow
+    _sync_access_row: Adw.ComboRow
+    dongle_row: Adw.ComboRow
+    _dongle_store: Gtk.StringList
+    mock_switch: Gtk.Switch
+    force_webkit_map_switch: Gtk.Switch
+    traffic_bundesweit_switch: Gtk.Switch
+    traffic_nrw_switch: Gtk.Switch
+
+    # External callbacks. The first two are required in SettingsDialog's
+    # constructor (no None-default), so they're typed without Optional.
+    on_units_changed: Callable[[str], None]
+    on_language_changed: Callable[[str], None]
+    on_gauge_theme_changed: Callable[[str], None] | None
+    on_sidebar_side_changed: Callable[[str], None] | None
+    on_theme_mode_changed: Callable[[str], None] | None
+    on_force_webkit_map_changed: Callable[[bool], None] | None
+    on_traffic_bundesweit_changed: Callable[[bool], None] | None
+    on_traffic_nrw_changed: Callable[[bool], None] | None
+    on_nav_position_changed: Callable[[str], None] | None
+    on_rotation_mode_changed: Callable[[str], None] | None
+    on_sync_access_changed: Callable[[str], None] | None
+    on_mock_mode_changed: Callable[[bool], None] | None
+    on_obd_port_changed: Callable[[str | None], None] | None
+    on_log_app_enabled_changed: Callable[[bool], None] | None
+    on_log_obd_enabled_changed: Callable[[bool], None] | None
+    on_obd_auto_record_changed: Callable[[bool], None] | None
+    on_nhtsa_enabled_changed: Callable[[bool], None] | None
+    on_photo_thumb_cache_max_mb_changed: Callable[[int], None] | None
+
+    # Sibling-mixin methods
+    _on_restart_response: Callable[..., None]
+    get_root: Callable[[], Any]
+
     # Owning class (SettingsDialog) initializes the dongle-port list with an
     # explicit ``list[str | None]`` because the first entry is the "auto"
     # sentinel. Annotated here so mypy doesn't infer ``list[None]`` from the

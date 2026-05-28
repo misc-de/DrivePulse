@@ -19,6 +19,32 @@ from drivepulse_app.common import _translate
 class SettingsDashcamMixin:
     """Folder-picker rows, camera popover, resolution/fps combos, OSD toggles."""
 
+    # Concrete SettingsDialog state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    _closing: bool
+    _dc_cam_entry: Gtk.Entry
+    _dc_cam_popover: Gtk.Popover
+    _dc_cam_list_box: Gtk.ListBox
+    _dc_res_row: Adw.ComboRow
+    _dc_fps_row: Adw.ComboRow
+    _dc_codec_ids: list[str]
+    _dc_cam_modes: dict[str, list[int]]
+
+    on_dashcam_camera_changed: Callable[[str], None] | None
+    on_dashcam_resolution_changed: Callable[[str], None] | None
+    on_dashcam_codec_changed: Callable[[str], None] | None
+    on_dashcam_fps_changed: Callable[[int], None] | None
+    on_dashcam_seg_minutes_changed: Callable[[int], None] | None
+    on_dashcam_max_segments_changed: Callable[[int], None] | None
+    on_dashcam_dim_timeout_changed: Callable[[int], None] | None
+    on_dashcam_rolling_dir_changed: Callable[[str], None] | None
+    on_dashcam_saved_dir_changed: Callable[[str], None] | None
+    on_dashcam_gps_osd_changed: Callable[[bool], None] | None
+    on_dashcam_speed_osd_changed: Callable[[bool], None] | None
+
+    get_root: Callable[[], Any]
+
     def _make_folder_row(
         self, title: str, current: str, callback: Callable[[str], None]
     ) -> Adw.ActionRow:

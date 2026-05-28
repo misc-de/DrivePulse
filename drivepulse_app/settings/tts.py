@@ -2,6 +2,7 @@
 volume rows plus the piper-model download progress."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from gi.repository import Adw, Gtk
@@ -10,6 +11,31 @@ from drivepulse_app.tts import service as tts_service
 
 
 class SettingsTtsMixin:
+    # Concrete SettingsDialog state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    _TTS_BACKENDS: list[str]
+    _TTS_LANGUAGES: list[str]
+    _TTS_VOICES: list[str]
+    _TTS_QUALITIES: list[str]
+    tts_backend_row: Adw.ComboRow
+    tts_language_row: Adw.ComboRow
+    tts_voice_row: Adw.ComboRow
+    tts_quality_row: Adw.ComboRow
+    tts_volume_row: Adw.SpinRow
+    tts_duck_row: Adw.SpinRow
+    tts_duck_pre_row: Adw.SpinRow
+    _piper_dl_row: Adw.ActionRow
+    _piper_dl_bar: Gtk.ProgressBar
+
+    on_tts_enabled_changed: Callable[[bool], None] | None
+    on_tts_backend_changed: Callable[[str], None] | None
+    on_tts_language_changed: Callable[[str], None] | None
+    on_tts_voice_changed: Callable[[str], None] | None
+    on_tts_quality_changed: Callable[[str], None] | None
+    on_tts_volume_pct_changed: Callable[[int], None] | None
+    on_tts_duck_pct_changed: Callable[[int], None] | None
+    on_tts_duck_pre_ms_changed: Callable[[int], None] | None
+
     def _on_tts_enabled_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_tts_enabled_changed is not None:
             self.on_tts_enabled_changed(row.get_active())

@@ -3,6 +3,7 @@ vindecoder.eu credentials, NHTSA toggle). NHTSA is a simple bool stored
 elsewhere; the auto.dev counter pulls live usage from the API."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 
 from gi.repository import Adw
@@ -11,6 +12,20 @@ from drivepulse_app.common import _translate
 
 
 class SettingsVinDecoderMixin:
+    # Concrete SettingsDialog state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    _autodev_month: str
+    _autodev_month_count: int
+    _autodev_usage_used: int
+    _autodev_usage_limit: int
+    _autodev_usage_paid: int
+    _autodev_usage_plan: str
+
+    on_vindecoder_api_key_changed: Callable[[str], None] | None
+    on_vindecoder_secret_key_changed: Callable[[str], None] | None
+    on_autodev_api_key_changed: Callable[[str], None] | None
+
     def _build_autodev_counter_row(self) -> Adw.ActionRow:
         # Prefer the live X-Usage-* numbers auto.dev returns on every call.
         # Fall back to the locally counted monthly value when we've never

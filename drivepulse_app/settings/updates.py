@@ -4,7 +4,9 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 from gi.repository import Adw, GLib, Gtk
 
@@ -13,6 +15,14 @@ from drivepulse_app.common import _translate
 
 
 class SettingsUpdatesMixin:
+    # Concrete SettingsDialog state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    _update_btn: Gtk.Button
+    _update_row: Adw.ActionRow
+    on_last_check_updated: Callable[[str], None] | None
+    get_root: Callable[[], Any]
+
     def _on_check_update(self, _btn: Gtk.Button) -> None:
         self._cancel_no_update_reset()
         self._update_btn.set_label(_translate(self.language, "settings.app.checking"))
