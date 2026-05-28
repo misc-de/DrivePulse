@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.4.193"
+version = "0.4.194"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
@@ -24,9 +24,6 @@ drivepulse = "drivepulse_app.app:main"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-py-modules = ["drivepulse"]
 
 [tool.setuptools.packages.find]
 include = ["drivepulse_app*", "themes*"]
