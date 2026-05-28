@@ -1347,7 +1347,13 @@ def route_via_gps_waypoints(
     all_waypoints = _snap_waypoints_to_road(
         all_waypoints, bearings=wp_bearings, http_get_fn=http_get_fn
     )
-    all_waypoints = _deduplicate_close_waypoints(all_waypoints, min_dist_m=50.0)
+    # 30m (not 50m): on 4 km traces with mostly straight segments the 50m
+    # threshold can collapse 16 surviving waypoints down to 10, leaving
+    # ~1 km gaps where compute_route invents its own preferred road.
+    # Trip 25 specifically went from -4.9% to +0.7% with 30m; the other
+    # 13 reference trips are unaffected (their waypoint spacing was
+    # already above 30m before this loop ran).
+    all_waypoints = _deduplicate_close_waypoints(all_waypoints, min_dist_m=30.0)
     all_waypoints = _remove_uturn_waypoints(
         all_waypoints,
         protected_coords=stop_gap_coords,
