@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
 
 import gi
 
@@ -67,6 +70,36 @@ def _chart_ordered_pids(all_stats: dict) -> list[str]:
 
 
 class CarsDetailRenderMixin:
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    LIVE_ID: ClassVar[Any]
+    language: str
+    db: DriveDB | None
+    nav_view: Adw.NavigationView
+    value_list: Gtk.ListBox
+    content_title: Any
+    _split_view: Adw.NavigationSplitView
+    _selected_car_id: int | None
+    _selected_source: str | None
+    _selected_category: str | None
+    _selected_scan_id: int | None
+    _detail_pushed: bool
+    _profiles: list[Any]
+    _latest_live: dict[str, Any]
+    _live_identity: dict[str, str]
+    _live_session_stats: dict[str, Any]
+    _scan_pid_stats: dict[str, Any]
+
+    get_root: Callable[[], Any]
+    refresh_profiles: Callable[..., None]
+    _wrap_sub_page: Callable[..., Any]
+    _show_toast: Callable[[str], None]
+    _parse_ts: Callable[..., Any]
+    _render_scans_into_value_list: Callable[[], None]
+    _render_trips_into_value_list: Callable[[], None]
+    _render_stopwatch_runs_into_value_list: Callable[[], None]
+    _render_photos_into_view: Callable[[], None]
+
     def _category_has_sensor_values(self, cat_key: str) -> bool:
         cat = next((c for c in CATEGORIES if c[0] == cat_key), None)
         if cat is None:
@@ -712,6 +745,8 @@ class CarsDetailRenderMixin:
 
         def _on_response(d: Adw.AlertDialog, response: str) -> None:
             if response != "save":
+                return
+            if self.db is None:
                 return
             value = entry.get_text().strip()
             try:

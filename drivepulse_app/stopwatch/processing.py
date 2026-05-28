@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 from drivepulse_app.common import _translate
 
@@ -33,6 +33,38 @@ class StopWatchProcessingMixin:
     _last_heading_time: float | None
     _saved_results: dict[Any, Any] | None
     _saved_range_results: dict[Any, Any] | None
+
+    # Class-level constants the concrete StopWatchPage owns.
+    SPEED_TARGETS_KMH: tuple[int, ...]
+    RANGE_TARGETS_KMH: tuple[tuple[int, int], ...]
+    G_MIN_SPEED_KMH: ClassVar[float]
+    G_CONFIRM_WINDOW: ClassVar[float]
+    G_PRESTART_THRESHOLD: ClassVar[float]
+
+    # Instance state populated by StopWatchPage.__init__ / mixin siblings.
+    language: str
+    _engage_threshold: float
+    _lateral_g: float
+    _gforce_trigger: bool
+    _raw_g_dev: float
+    _run_samples: list[tuple[float, float | None, float]]
+    armed: bool
+    running: bool
+    results: dict[Any, Any]
+    range_results: dict[Any, Any]
+    result_labels: dict[Any, Any]
+    status_label: Any
+    gforce_canvas: Any
+    reveal_save_button: Any
+
+    # Methods supplied by sibling mixins / the concrete page.
+    _is_active: Callable[[], bool]
+    _set_g_text: Callable[[Any], None]
+    _set_source_visibility: Callable[..., None]
+    _show_replay: Callable[..., None]
+    _update_best_labels: Callable[[], None]
+    _update_maxes_label: Callable[[], None]
+    _update_vmax_row: Callable[..., None]
 
     def _update_lateral_g(self, heading_deg: float | None, speed_kmh: float | None, now: float) -> None:
         """Estimate lateral G from GPS heading change × speed (centripetal acceleration).

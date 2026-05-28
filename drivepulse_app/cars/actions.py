@@ -1,12 +1,17 @@
 """Rename and delete actions for CarsPage."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
 
 log = get_logger(__name__)
 
@@ -16,6 +21,35 @@ class CarsActionsMixin:
     # infer their type from the first assignment inside this mixin's methods.
     _selected_car_id: int | None
     _scan_id_shown: int | None
+
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    db: DriveDB | None
+    nav_view: Adw.NavigationView
+    _selected_source: str | None
+    _detail_pushed: bool
+    _detail_page: Any
+    _detail_title: Any
+    _scan_detail_page: Any
+    _trip_detail_page: Any
+    _profiles: list[Any]
+    _live_vin: Callable[[], str]
+    _live_identity: dict[str, str]
+    _vin_fetch_pending: set[int]
+    _vin_refetch_existing: dict[int, Any]
+    _vindecoder_api_key: str | None
+    _vindecoder_secret_key: str | None
+    _autodev_api_key: str | None
+    _nhtsa_enabled: bool
+    on_live_vehicle_add: Callable[..., Any] | None
+
+    get_root: Callable[[], Any]
+    refresh_profiles: Callable[..., None]
+    _rebuild_list: Callable[..., None]
+    _render_detail: Callable[..., None]
+    _start_refetch_with_dialog: Callable[..., None]
+    _update_live_add_button: Callable[..., None]
 
     def _make_delete_dialog(self, heading_key: str, body_key: str) -> Adw.AlertDialog:
         """Create a destructive AlertDialog with a red heading."""

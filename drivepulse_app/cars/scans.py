@@ -1,13 +1,17 @@
 """Scan list and detail navigation helpers for CarsPage."""
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.cars.scan_widgets import _build_scan_detail_widget, _safe_int
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
 
 log = get_logger(__name__)
 
@@ -16,6 +20,35 @@ class CarsScansMixin:
     # Concrete CarsPage initializes _scan_id_shown as Optional[int]; mypy
     # would infer ``int`` from the assignment at line 142 in this mixin.
     _scan_id_shown: int | None
+
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    db: DriveDB | None
+    nav_view: Adw.NavigationView
+    value_list: Gtk.ListBox
+    _info_row: Adw.ActionRow
+    _selected_car_id: int | None
+    _selected_scan_id: int | None
+    _scan_pid_stats: dict[str, Any]
+    _scan_selected_ids: set[int]
+    _scan_select_mode: bool
+
+    # Methods supplied by sibling mixins / the concrete page.
+    _show_toast: Callable[[str], None]
+    _wrap_sub_page: Callable[..., Any]
+    _render_detail: Callable[..., None]
+    _select_scan: Callable[[int], None]
+    _reapply_list_select_ui: Callable[..., bool]
+    _update_list_select_buttons: Callable[..., None]
+    _update_merge_btn_visibility: Callable[..., None]
+    _update_trash_default: Callable[..., None]
+    _set_trash: Callable[..., None]
+    _make_delete_dialog: Callable[..., Any]
+    _confirm_delete_scan: Callable[..., None]
+    _share_scan: Callable[..., None]
+    _is_sync_active: Callable[[], bool]
+    _parse_ts: Callable[..., Any]
 
     def _render_scans_into_value_list(self) -> None:
         if self.db is None or self._selected_car_id is None:

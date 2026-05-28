@@ -6,7 +6,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from gi.repository import Adw, GLib
 
@@ -15,10 +16,37 @@ from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.vin.api import fetch_vin_data
 
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
+
 log = get_logger(__name__)
 
 
 class CarsVinFlowMixin:
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    db: DriveDB | None
+    _detail_pushed: bool
+    _vindecoder_api_key: str | None
+    _vindecoder_secret_key: str | None
+    _autodev_api_key: str | None
+    _nhtsa_enabled: bool
+    _on_autodev_call: Callable[..., Any] | None
+    _vin_fetch_pending: set[int]
+    _vin_refetch_existing: dict[int, Any]
+    _vin_new_car_prompted: set[int]
+    _vin_new_car_prompt_queue: list[Any]
+    _vin_review_queue: list[Any]
+    _vin_new_car_prompt_open: bool
+    _vin_review_open: bool
+    _profiles: list[Any]
+
+    get_root: Callable[[], Any]
+    _rebuild_list: Callable[..., None]
+    _render_detail: Callable[..., None]
+    _start_vin_refresh: Callable[..., None]
+
     def _schedule_vin_fetches(self) -> None:
         """For each car the user has just added that still has no VIN
         data on file, queue a one-off prompt asking whether to look the

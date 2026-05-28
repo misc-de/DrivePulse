@@ -1,8 +1,9 @@
 """Trip list, selection and detail helpers for CarsPage."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from gi.repository import Adw, GLib, Gtk
 
@@ -10,10 +11,37 @@ from drivepulse_app.cars.trip_widgets import _build_trip_detail_widget
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
+
 log = get_logger(__name__)
 
 
 class CarsTripsMixin:
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    db: DriveDB | None
+    nav_view: Adw.NavigationView
+    value_list: Gtk.ListBox
+    _value_scroll: Gtk.ScrolledWindow
+    _split_view: Adw.NavigationSplitView
+    _selected_car_id: int | None
+    _profiles: list[Any]
+
+    _wrap_sub_page: Callable[..., Any]
+    _render_detail: Callable[..., None]
+    _show_toast: Callable[[str], None]
+    _reapply_list_select_ui: Callable[..., bool]
+    _update_list_select_buttons: Callable[..., None]
+    _update_merge_btn_visibility: Callable[..., None]
+    _update_trash_default: Callable[..., None]
+    _make_delete_dialog: Callable[..., Any]
+    _confirm_delete_trip: Callable[..., None]
+    _share_trip: Callable[..., None]
+    _is_sync_active: Callable[[], bool]
+    _is_selected_car_mock: Callable[[], bool]
+
     def _render_trips_into_value_list(self) -> None:
         if self.db is None or self._selected_car_id is None:
             self.value_list.append(self._info_row(_translate(self.language, "cars.trips.empty")))

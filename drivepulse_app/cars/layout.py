@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import gi
 
@@ -14,6 +15,28 @@ from drivepulse_app.common import _translate
 
 
 class CarsLayoutMixin:
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    nav_view: Adw.NavigationView
+    _split_view: Adw.NavigationSplitView
+    _cat_rows: list[Gtk.ListBoxRow]
+    category_list: Gtk.ListBox
+    _narrow: bool
+    _sidebar_side: str
+
+    # Sibling-mixin / concrete-class methods invoked from layout code.
+    _on_category_selected: Callable[..., None]
+    _on_detail_back: Callable[..., Any]
+    _on_share_btn_clicked: Callable[..., None]
+    _on_list_select_trash_clicked: Callable[..., None]
+    _on_merge_btn_clicked: Callable[..., None]
+    _on_photo_select_share_clicked: Callable[..., None]
+    _open_rename_dialog: Callable[..., None]
+    _open_upload_dialog: Callable[..., None]
+    _confirm_add_live_vehicle: Callable[..., None]
+    _confirm_delete_selected_photos: Callable[..., None]
+    _reset_and_refetch_vin: Callable[..., None]
     def _build_list_page(self) -> None:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         page.set_margin_top(16)
