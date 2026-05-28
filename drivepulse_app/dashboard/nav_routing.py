@@ -4,11 +4,31 @@ shortcuts."""
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING, ClassVar
 
-from gi.repository import GLib
+from gi.repository import Adw, GLib
+
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
+    from drivepulse_app.map.page import MapPage
 
 
 class DashboardNavRoutingMixin:
+    # Concrete-class state surfaced to this mixin. See project_mixin_typing.md
+    # for the pattern — these are PEP-526 annotations without values.
+    PAGE_CARS: ClassVar[str]
+    PAGE_STOPWATCH: ClassVar[str]
+    PAGE_MAP: ClassVar[str]
+    view_stack: Adw.ViewStack
+    map_page: MapPage | None
+    db: DriveDB
+    _last_swipe_time: float
+
+    # Lifecycle methods provided by DashboardMapLifecycleMixin.
+    _cancel_map_unload: Callable[[], None]
+    _ensure_map_page: Callable[[], None]
+
     def _on_cars_back_swipe(self) -> None:
         """From the Cars tab (overview) — a right-swipe lands on StopWatch.
 
@@ -53,13 +73,19 @@ class DashboardNavRoutingMixin:
         """Switch to the Map tab and reuse the map's own replay machinery
         (speed-coloured polyline, info card, speed/RPM chart) for the
         trip the user picked in the Cars page."""
-        if not hasattr(self, "map_page"):
+        # Older guard used hasattr(self, "map_page") which only checked
+        # attribute existence, not whether the page is currently loaded —
+        # the map widget may have been auto-unloaded after idle.
+        if self.map_page is None:
             return
         self.view_stack.set_visible_child_name(self.PAGE_MAP)
 
         def _replay_and_remove() -> bool:
+            map_page = self.map_page
+            if map_page is None:
+                return False
             try:
-                self.map_page._show_trip_replay(meta)
+                map_page._show_trip_replay(meta)
             except Exception:
                 # Fall back to the polyline-only path so the user at
                 # least sees the track if the full replay errors out.
@@ -73,7 +99,7 @@ class DashboardNavRoutingMixin:
                     if s["lat"] is not None and s["lon"] is not None
                 ]
                 if len(coords) >= 2:
-                    self.map_page.load_trip_as_route(
+                    map_page.load_trip_as_route(
                         coords, meta.get("distance_km"), meta.get("duration_s"),
                         meta.get("trip_label"),
                     )

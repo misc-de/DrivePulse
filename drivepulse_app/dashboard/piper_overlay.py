@@ -8,6 +8,9 @@ widget construction and progress-update handling.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from gi.repository import Adw, Gtk
 
 from drivepulse_app.diagnostics import get_logger
@@ -21,6 +24,11 @@ class DashboardPiperOverlayMixin:
     # Concrete DashboardWindow.__init__ initializes this as Optional[str];
     # mypy would otherwise infer ``str`` from the first assignment.
     _piper_dl_current_model: str | None
+
+    # Methods inherited from Adw.ApplicationWindow / Adw.ToastOverlay on the
+    # concrete window. See project_mixin_typing.md.
+    get_display: Callable[[], Any]
+    add_toast: Callable[[Any], None]
 
     def _build_piper_dl_overlay(self) -> Gtk.Box:
         """Build the Piper download-progress overlay widget (initially hidden)."""

@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.4.187"
+version = "0.4.188"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
@@ -112,13 +112,8 @@ module = [
     "drivepulse_app.cars.stopwatch_runs",
     "drivepulse_app.cars.trips",
     "drivepulse_app.cars.vin_flow",
-    "drivepulse_app.dashboard.layout",
-    "drivepulse_app.dashboard.map_lifecycle",
-    "drivepulse_app.dashboard.nav_routing",
-    "drivepulse_app.dashboard.piper_overlay",
     "drivepulse_app.dashboard.settings",
     "drivepulse_app.dashboard.telemetry",
-    "drivepulse_app.dashboard.theming",
     "drivepulse_app.db._base",
     "drivepulse_app.db._cars",
     "drivepulse_app.db._photos",
@@ -149,6 +144,5 @@ module = [
     "drivepulse_app.settings.updates",
     "drivepulse_app.settings.vin_decoder",
     "drivepulse_app.stopwatch.processing",
-    "drivepulse_app.stopwatch.replay",
 ]
 disable_error_code = ["attr-defined", "has-type", "var-annotated"]

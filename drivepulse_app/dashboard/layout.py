@@ -1,12 +1,30 @@
 """Responsive dashboard gauge layout helpers."""
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from gi.repository import Gtk
+from gi.repository import Adw, Gtk
+
+if TYPE_CHECKING:
+    from drivepulse_app.ui.gauge import Gauge
 
 
 class DashboardLayoutMixin:
+    # Concrete-class state surfaced to this mixin. See project_mixin_typing.md.
+    CARS_NARROW_BREAKPOINT: ClassVar[int]
+    view_stack: Adw.ViewStack
+    dashboard_page: Gtk.Widget
+    gauge_box: Gtk.Box
+    footer: Gtk.Widget
+    rpm_gauge: Gauge
+    speed_gauge: Gauge
+    temp_gauge: Gauge
+
+    # GTK methods (DashboardWindow inherits Gtk.Widget).
+    get_width: Callable[[], int]
+    get_height: Callable[[], int]
+
 
     # Last (width, height, form_factor) tuple _on_size_changed applied a layout
     # for. The tick callback fires every frame; skip the relayout work when

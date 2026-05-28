@@ -2,6 +2,7 @@
 for DashboardWindow."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from gi.repository import Adw, Gtk
@@ -10,6 +11,23 @@ from drivepulse_app.ui.gauge import all_theme_options, get_theme_css
 
 
 class DashboardThemingMixin:
+    # Concrete-class state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    theme_mode: str
+    gauge_theme: str
+    _theme_css_provider: Gtk.CssProvider
+    _nav_rotation_css: Gtk.CssProvider
+    _light_palette_css: Gtk.CssProvider
+
+    # GTK widget methods (DashboardWindow inherits Gtk.Widget).
+    get_display: Callable[[], Any]
+    get_css_classes: Callable[[], list[str]]
+    add_css_class: Callable[[str], None]
+    remove_css_class: Callable[[str], None]
+
+    # Settings setter from DashboardSettingsMixin.
+    _set_gauge_theme: Callable[[str], None]
+
     # Softens libadwaita's stock light palette toward a warm mid-grey while
     # keeping its layering intact: view/card/popover sit *above* the window in
     # luminance (paper-on-frame), headerbar/sidebar sit *below*. Same set of
