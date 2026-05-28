@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from typing import Any
 
 import gi
@@ -25,6 +26,16 @@ except (ValueError, ImportError):
 
 class MapShumateMixin:
     """Shumate-specific setup, layers and marker drawing."""
+
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    _shumate_map: Any
+    _initial_zoom: float | None
+    _map_type_idx: int
+    _sources: dict[str, Any]
+    _car_marker: Any
+    _on_viewport_moved: Callable[..., Any]
+    _viewport_lock: Callable[..., Any]
+    _build_traffic_detail_widget: Callable[..., Any]
 
     def _setup_shumate(self) -> Gtk.Widget:
         self._shumate_map = Shumate.SimpleMap()
@@ -173,16 +184,18 @@ class MapShumateMixin:
                 viewport.set_zoom_level(17.0)
 
     def _update_shumate_gps(self, lat: float, lon: float) -> None:
-        if self._car_marker is None:
+        marker = self._car_marker
+        if marker is None:
             drawing = Gtk.DrawingArea()
             drawing.set_size_request(44, 44)
             drawing.set_draw_func(self._draw_car, None)
-            self._car_marker = Shumate.Marker.new()
-            self._car_marker.set_child(drawing)
-            self._car_marker.set_location(lat, lon)
-            self._marker_layer.add_marker(self._car_marker)
+            marker = Shumate.Marker.new()
+            marker.set_child(drawing)
+            marker.set_location(lat, lon)
+            self._marker_layer.add_marker(marker)
+            self._car_marker = marker
         else:
-            self._car_marker.set_location(lat, lon)
+            marker.set_location(lat, lon)
             child = self._car_marker.get_child()
             if child is not None:
                 child.queue_draw()

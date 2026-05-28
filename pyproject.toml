@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.4.191"
+version = "0.4.192"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
@@ -104,19 +104,5 @@ follow_imports = "skip"
 module = [
     "drivepulse_app.dashboard.settings",
     "drivepulse_app.dashboard.telemetry",
-    "drivepulse_app.map.gps_filter",
-    "drivepulse_app.map.layout",
-    "drivepulse_app.map.layout_search",
-    "drivepulse_app.map.layout_steps",
-    "drivepulse_app.map.layout_tour_actions",
-    "drivepulse_app.map.layout_tour_history",
-    "drivepulse_app.map.layout_tour_saved",
-    "drivepulse_app.map.replay",
-    "drivepulse_app.map.route_compute",
-    "drivepulse_app.map.shumate",
-    "drivepulse_app.map.state_poll",
-    "drivepulse_app.map.tour",
-    "drivepulse_app.map.traffic",
-    "drivepulse_app.map.webkit",
 ]
 disable_error_code = ["attr-defined", "has-type", "var-annotated"]

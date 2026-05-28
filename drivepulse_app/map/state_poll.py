@@ -20,6 +20,13 @@ class MapStatePollMixin:
     _map_bearing: float | None
     _map_state_poll_id: int | None
 
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    _backend: str
+    _webview: Any
+    _shumate_map: Any
+    _map_state_overlay: Any
+    mock_mode: bool
+
     def _ensure_map_state_poll(self) -> None:
         # Map-state polling is intentionally disabled: the bottom-left
         # backend/zoom/pitch/bearing readout is hidden in mock mode now,

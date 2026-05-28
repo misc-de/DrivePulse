@@ -4,6 +4,8 @@ to the map backend on the GLib main loop."""
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from typing import Any
 
 from gi.repository import GLib
 
@@ -22,6 +24,38 @@ class MapRouteComputeMixin:
     _step_min_dist: float | None
     _snapped_lat: float | None
     _snapped_lon: float | None
+
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    _backend: str
+    _gps_lat: float | None
+    _gps_lon: float | None
+    _shumate_map: Any
+    _tour_active: bool
+    _tour_paused: bool
+    _tour_save_btn: Any
+    _steps_panel: Any
+    _steps_toggle_btn: Any
+    _status_lbl: Any
+    _tour_coords: list[list[float]]
+    _tour_steps: list[dict]
+    _tour_step_idx: int
+    _tour_waypoints: list[tuple[float, float]]
+    _snapped_cum_m: float
+    _gps_route_idx: int
+    _route_coords: list[list[float]]
+
+    _js: Callable[[str], None]
+    _restore_route_btn: Callable[..., Any]
+    _set_follow: Callable[[bool], bool]
+    _set_steps_panel_visible: Callable[[bool], None]
+    _set_tour_button: Callable[..., None]
+    _set_tour_controls_visible: Callable[[bool], None]
+    _abort_tour: Callable[..., None]
+    _hide_route_info: Callable[..., None]
+    _compute_route_progress_tables: Callable[[], None]
+    _prerender_upcoming_steps: Callable[..., None]
+    _shumate_show_route: Callable[..., None]
 
     def _compute_route(self, start_text: str, wp_texts: list[str], end_text: str) -> None:
         try:

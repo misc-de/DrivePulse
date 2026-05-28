@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from gi.repository import Adw, GLib, Gtk
 
@@ -21,6 +23,19 @@ log = get_logger(__name__)
 
 
 class MapTourSavedMixin:
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    _entry_rows: list[tuple[Gtk.Box, Gtk.Entry, Gtk.Widget]]
+    get_root: Callable[[], Any]
+    _sync_active: Callable[[], bool]
+    _make_share_flow: Callable[[], Any]
+    _on_route_clicked: Callable[..., Any]
+    _on_saved_tour_share_clicked: Callable[..., Any]
+    _clear_replay_overlays: Callable[..., Any]
+    _update_placeholders: Callable[..., Any]
+    _insert_entry_after: Callable[..., Any]
+    _remove_entry: Callable[..., Any]
+
     # Owning class (MapPage) initializes these in __init__. Annotated here so
     # mypy doesn't infer them as non-Optional from the assignments below.
     _loaded_tour_id: int | None

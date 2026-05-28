@@ -1,6 +1,7 @@
 """Map page core layout — map widget + overlays (FAB, zoom, maneuver, speed sign)."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from gi.repository import Gtk
@@ -11,6 +12,45 @@ from drivepulse_app.map.services import MAP_ICONS, MAP_LABEL_KEYS, MAP_TYPES
 
 
 class MapLayoutMixin:
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    units: str
+    force_webkit: bool
+    _map_content_box: Gtk.Box
+    _shumate_map: Any
+    _map_type_idx: int
+    _map_3d_view: bool
+    _poi_visible: bool
+    _tts_enabled: bool
+    _speed_warn_enabled: bool
+
+    _setup_webview: Callable[..., Any]
+    _setup_shumate: Callable[..., Any]
+    _build_steps_panel: Callable[..., Any]
+    _build_replay_info_overlay: Callable[..., Any]
+    _build_replay_chart_overlay: Callable[..., Any]
+    _build_replay_info_restore_btn: Callable[..., Any]
+    _build_replay_chart_restore_btn: Callable[..., Any]
+    _build_shumate_replay_overlay: Callable[..., Any]
+    _apply_initial_overlay_state: Callable[..., Any]
+    _abort_tour: Callable[..., Any]
+    _zoom_step: Callable[..., Any]
+    _refresh_heading_up_btn_tooltip: Callable[..., Any]
+    _refresh_speed_warn_btn: Callable[..., Any]
+    _refresh_tts_btn: Callable[..., Any]
+    _viewport_lock: Callable[..., Any]
+
+    _on_3d_clicked: Callable[..., Any]
+    _on_center_clicked: Callable[..., Any]
+    _on_heading_up_toggled: Callable[..., Any]
+    _on_layer_clicked: Callable[..., Any]
+    _on_next_wp_clicked: Callable[..., Any]
+    _on_poi_toggled: Callable[..., Any]
+    _on_speed_warn_toggled: Callable[..., Any]
+    _on_steps_toggle: Callable[..., Any]
+    _on_tour_start_clicked: Callable[..., Any]
+    _on_tts_btn_toggled: Callable[..., Any]
+
     """Map area construction: backend selection (WebKit/Shumate/placeholder),
     floating action button column, zoom controls, maneuver banner, and the
     miscellaneous overlays (route loading spinner, speed sign,

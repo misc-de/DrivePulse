@@ -8,6 +8,7 @@ overlap with the search bar, tour-planning, or step-list code there.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from gi.repository import Gtk
@@ -22,6 +23,22 @@ class MapReplayMixin:
     # Annotated here so mypy doesn't infer ``int`` from the assignment in
     # ``_show_trip_replay`` further below.
     _loaded_trip_id: int | None
+
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    _backend: str
+    _map_db: Any
+    _js: Callable[[str], None]
+    _set_follow: Callable[[bool], bool]
+    _set_tour_controls_visible: Callable[[bool], None]
+    load_trip_as_route: Callable[..., Any]
+    _format_history_ts: Callable[..., Any]
+    _format_history_duration: Callable[..., Any]
+    _shumate_set_replay_marker: Callable[..., Any]
+    _shumate_clear_replay_marker: Callable[..., Any]
+    _shumate_show_colored_track: Callable[..., Any]
+    _shumate_clear_colored_track: Callable[..., Any]
+    _shumate_clear_route_layers: Callable[..., Any]
 
     def _build_replay_info_overlay(self) -> Gtk.Widget:
         """Card showing the replayed trip's metadata (lives inside the tour-controls grid)."""

@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import threading
 import time
-from typing import ClassVar
+from collections.abc import Callable
+from typing import Any, ClassVar
 
 from gi.repository import GLib
 from gi.repository import Gtk as _Gtk
@@ -23,6 +24,7 @@ from drivepulse_app.map.services import (
     osrm_route,
 )
 from drivepulse_app.tts import service as tts_service
+from drivepulse_app.tts.service import VoiceGender
 
 log = get_logger(__name__)
 
@@ -33,6 +35,61 @@ class MapTourMixin:
     # Concrete MapPage initializes these as Optional[(float, float)].
     _start_coord: tuple[float, float] | None
     _end_coord: tuple[float, float] | None
+
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    units: str
+    _backend: str
+    _gps_lat: float | None
+    _gps_lon: float | None
+    _gps_heading: float
+    _gps_speed_mps: float
+    _GPS_MAX_STALE_S: float
+    _OBD_SPEED_STALE_S: float
+    _shumate_map: Any
+    _maneuver_overlay: Any
+    _maneuver_icon: Any
+    _maneuver_instr_lbl: Any
+    _maneuver_distance_lbl: Any
+    _lane_row: Any
+    _speed_zone_overlay: Any
+    _speed_zone_lbl: Any
+    _status_lbl: Any
+    _tour_start_btn: Any
+    _tour_start_lbl: Any
+    _tour_btn_icon: Any
+    _tour_controls_box: Any
+    _steps_panel: Any
+    _steps_toggle_btn: Any
+    _steps_listbox: Any
+    _zoom_in_btn: Any
+    _zoom_out_btn: Any
+    _wp_layer: Any
+    _path_layer: Any
+    _guide_path_layer: Any
+    _tts_enabled: bool
+    _tts_language: str
+    _tts_voice: VoiceGender
+    _tts_quality: str
+    _tts_spoken_thresholds: set[int]
+
+    _on_tour_started: Callable[..., Any] | None
+    _on_tour_stopped: Callable[..., Any] | None
+    _on_tour_resumed: Callable[..., Any] | None
+
+    _js: Callable[[str], None]
+    _set_follow: Callable[[bool], bool]
+    _set_steps_panel_visible: Callable[[bool], None]
+    _set_route_loading: Callable[..., Any]
+    _show_route_info: Callable[..., Any]
+    _highlight_active_step: Callable[..., Any]
+    _rebuild_steps_list: Callable[..., Any]
+    _fetch_trip_trace: Callable[..., Any]
+    _make_wp_marker: Callable[..., Any]
+    _shumate_max_zoom: Callable[..., Any]
+    _shumate_set_path: Callable[..., Any]
+    _shumate_set_guide: Callable[..., Any]
+    _viewport_lock: Callable[..., Any]
 
     # Comfortable street-level zoom for tour following; max zoom (22) was
     # too close to be useful for navigation.

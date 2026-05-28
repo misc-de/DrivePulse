@@ -56,6 +56,7 @@ from drivepulse_app.map.tour import MapTourMixin
 from drivepulse_app.map.traffic import MapTrafficMixin
 from drivepulse_app.map.webkit import MapWebKitMixin
 from drivepulse_app.tts import service as tts_service
+from drivepulse_app.tts.service import VoiceGender
 
 log = get_logger(__name__)
 
@@ -232,7 +233,10 @@ class MapPage(
         # TTS state
         self._tts_enabled: bool = False
         self._tts_language: str = "auto"
-        self._tts_voice: str = "female"
+        # _tts_voice is the Literal['male', 'female'] the piper / espeak
+        # backends accept; type it precisely so the call sites in MapTourMixin
+        # don't need a cast.
+        self._tts_voice: VoiceGender = "female"
         self._tts_quality: str = "high"
         self._tts_last_step_idx: int = -1
         self._tts_spoken_thresholds: set[int] = set()
@@ -711,7 +715,7 @@ class MapPage(
         self._tts_language = language if language in {"auto", "en", "de"} else "auto"
 
     def set_tts_voice(self, voice: str) -> None:
-        self._tts_voice = voice if voice in {"male", "female"} else "female"
+        self._tts_voice = "male" if voice == "male" else "female"
 
     def set_tts_quality(self, quality: str) -> None:
         self._tts_quality = quality if quality in {"low", "medium", "high"} else "high"

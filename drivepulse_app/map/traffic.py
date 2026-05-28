@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Callable
+from typing import Any
 
 from gi.repository import GLib, Gtk
 
@@ -15,6 +17,20 @@ log = get_logger(__name__)
 
 class MapTrafficMixin:
     """Traffic layer — Bundesautobahn API fetch, filtering and detail widgets."""
+
+    # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
+    language: str
+    _backend: str
+    _route_coords: list[list[float]]
+    _status_lbl: Any
+    _traffic_btn: Any
+    _traffic_loaded: bool
+    _traffic_bundesweit: bool
+    _traffic_nrw: bool
+    _on_traffic_visible_changed: Callable[[bool], None] | None
+    _js: Callable[[str], None]
+    _shumate_set_traffic_visible: Callable[[bool], None]
+    _shumate_show_traffic: Callable[..., None]
 
     def _on_traffic_toggled(self, btn: Gtk.ToggleButton) -> None:
         visible = btn.get_active()
