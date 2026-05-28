@@ -332,6 +332,10 @@ class DashboardWindow(
         self.cars_page.on_open_trip_as_route = self._open_trip_as_route_on_map
         self.cars_page.on_show_trip_replay_on_map = self._show_trip_replay_on_map_from_cars
         self.cars_page.on_clear_dtcs = self._clear_obd_dtcs
+        self.cars_page.on_carlab_discover = self._carlab_discover
+        self.cars_page.on_carlab_snapshot = self._carlab_snapshot
+        self.cars_page.on_carlab_mock_toggle = self._carlab_mock_toggle
+        self.cars_page.on_carlab_scan = self._carlab_scan
         self._cars_rotator = RotatedContainer()
         self._cars_rotator.set_child(self.cars_page)
         self._cars_rotator.set_hexpand(True)
@@ -762,6 +766,43 @@ class DashboardWindow(
                     pass
 
         threading.Thread(target=_worker, name="obd-clear-dtc", daemon=True).start()
+
+    def _carlab_discover(self, tx: str, rx: str, on_done: Any) -> None:
+        """Run a read-only module discovery off the GTK thread (Car Lab)."""
+        def _worker() -> None:
+            result: dict[str, Any] = {}
+            try:
+                result = self.reader.discover_module(tx, rx)
+            finally:
+                GLib.idle_add(on_done, result)
+
+        threading.Thread(target=_worker, name="carlab-discover", daemon=True).start()
+
+    def _carlab_snapshot(self, tx: str, rx: str, dids: list[int], on_done: Any) -> None:
+        """Read a single DID snapshot from a module off the GTK thread (Car Lab)."""
+        def _worker() -> None:
+            result: dict[int, str] = {}
+            try:
+                result = self.reader.uds_snapshot(tx, rx, dids)
+            finally:
+                GLib.idle_add(on_done, result)
+
+        threading.Thread(target=_worker, name="carlab-snapshot", daemon=True).start()
+
+    def _carlab_scan(self, on_done: Any) -> None:
+        """Probe known module addresses off the GTK thread (Car Lab)."""
+        def _worker() -> None:
+            result: list[dict[str, str]] = []
+            try:
+                result = self.reader.scan_modules()
+            finally:
+                GLib.idle_add(on_done, result)
+
+        threading.Thread(target=_worker, name="carlab-scan", daemon=True).start()
+
+    def _carlab_mock_toggle(self) -> None:
+        """Mock only: flip the simulated coding bit so a capture shows a diff."""
+        self.reader.mock_uds_toggle()
 
     def _apply_nav_position(self, position: str) -> None:
         effective = position

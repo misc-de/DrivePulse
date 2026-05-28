@@ -65,6 +65,92 @@ def _fake_obd_module(connections):
     return types.SimpleNamespace(OBD=obd_factory, commands=commands)
 
 
+class _Cmd:
+    """python-obd-like command exposing a Mode-01 PID for STPX batching."""
+
+    def __init__(self, name: str, pid: int) -> None:
+        self.name = name
+        self.pid = pid
+
+    def __str__(self) -> str:
+        return self.name
+
+
+def _fake_obd_module_with_pids():
+    commands = types.SimpleNamespace(
+        RPM=_Cmd("RPM", 0x0C),
+        SPEED=_Cmd("SPEED", 0x0D),
+        COOLANT_TEMP=_Cmd("COOLANT_TEMP", 0x05),
+        THROTTLE_POS=_Cmd("THROTTLE_POS", 0x11),
+        ENGINE_LOAD=_Cmd("ENGINE_LOAD", 0x04),
+        INTAKE_TEMP=_Cmd("INTAKE_TEMP", 0x0F),
+        MAF=_Cmd("MAF", 0x10),
+        FUEL_LEVEL=_Cmd("FUEL_LEVEL", 0x2F),
+        RUN_TIME=_Cmd("RUN_TIME", 0x1F),
+        CONTROL_MODULE_VOLTAGE=_Cmd("CONTROL_MODULE_VOLTAGE", 0x42),
+    )
+    return types.SimpleNamespace(OBD=lambda *a, **k: None, commands=commands)
+
+
+def test_read_obd_batch_decodes_all_pids_in_one_round_trip(monkeypatch, drivepulse_module):
+    """STN/OBDLink: a supports_stpx adapter must route the live read through a
+    single STPX batch instead of one query per PID."""
+    from drivepulse_app.obd import reader as obd_reader
+    from drivepulse_app.obd.adapter import AdapterInfo, AdapterKind
+
+    monkeypatch.setattr(obd_reader, "obd", _fake_obd_module_with_pids())
+    reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader.connection = _Connection(True)
+    reader._adapter_info = AdapterInfo(kind=AdapterKind.STN, supports_stpx=True)
+
+    frames = "\n".join([
+        "7E8 04 41 0C 1A F8",   # RPM   = 1726.0
+        "7E8 03 41 0D 64",      # SPEED = 100
+        "7E8 03 41 05 78",      # COOLANT = 80
+        "7E8 03 41 11 7F",      # THROTTLE ≈ 49.8
+        "7E8 03 41 04 FF",      # ENGINE_LOAD = 100
+        "7E8 03 41 0F 64",      # INTAKE = 60
+        "7E8 04 41 10 01 00",   # MAF = 2.56
+        "7E8 03 41 2F 80",      # FUEL ≈ 50.2
+        "7E8 04 41 1F 00 64",   # RUN_TIME = 100
+        "7E8 04 41 42 3A 18",   # VOLTAGE = 14.872
+    ])
+    monkeypatch.setattr(reader, "_send_raw_locked", lambda cmd: frames)
+
+    payload = reader._read_obd()
+
+    assert payload["rpm"]["value"] == 1726.0
+    assert payload["speed"]["value"] == 100
+    assert payload["control_module_voltage"]["value"] == 14.872
+    # One batch round-trip, no per-PID queries, no errors.
+    assert payload["_command_count"] == 1
+    assert payload["_read_error_count"] == 0
+    assert reader.connection.queries == []
+
+
+def test_read_obd_batch_demotes_unanswered_pid_to_single_query(monkeypatch, drivepulse_module):
+    """If the batch drops a PID the adapter didn't answer, it must fall back to
+    an individual query so the gauge never goes blank."""
+    from drivepulse_app.obd import reader as obd_reader
+    from drivepulse_app.obd.adapter import AdapterInfo, AdapterKind
+
+    monkeypatch.setattr(obd_reader, "obd", _fake_obd_module_with_pids())
+    reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader.connection = _Connection(True)
+    reader._adapter_info = AdapterInfo(kind=AdapterKind.STN, supports_stpx=True)
+
+    # Batch answers only RPM; the other nine PIDs must be queried individually.
+    monkeypatch.setattr(reader, "_send_raw_locked", lambda cmd: "7E8 04 41 0C 1A F8")
+
+    payload = reader._read_obd()
+
+    assert payload["rpm"]["value"] == 1726.0          # from the batch
+    assert payload["speed"]["value"] == 42.5          # from the single-query fallback
+    assert payload["_command_count"] == 10            # 1 batch + 9 demoted singles
+    assert payload["_read_error_count"] == 0
+    assert len(reader.connection.queries) == 9
+
+
 def test_response_to_plain_value_handles_null_quantity_and_fallback(drivepulse_module):
     from drivepulse_app.obd.polling import response_to_plain_value
 
