@@ -653,7 +653,7 @@ sys.modules.setdefault("obd", None)
 
 @pytest.fixture
 def drivepulse_module():
-    """Return the ``drivepulse`` package module.
+    """Return the application module ``drivepulse_app.app``.
 
     Historically this fixture also installed gi stubs and popped
     ``drivepulse_app.*`` from ``sys.modules`` around each test. Stub install
@@ -662,8 +662,8 @@ def drivepulse_module():
     stub set from the very first import. Tests can patch module globals via
     ``monkeypatch.setattr`` and rely on pytest to revert after the test.
     """
-    import drivepulse
-    yield drivepulse
+    from drivepulse_app import app
+    yield app
 
 
 @pytest.fixture
