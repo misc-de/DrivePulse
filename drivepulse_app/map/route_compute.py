@@ -3,7 +3,6 @@ routing engine in a worker thread, push the polyline / waypoints / fit-bounds
 to the map backend on the GLib main loop."""
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
@@ -11,6 +10,7 @@ from gi.repository import GLib
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map._jsbridge import js_call
 from drivepulse_app.map.services import compute_route, geocode, resolve_route_points
 
 log = get_logger(__name__)
@@ -142,13 +142,12 @@ class MapRouteComputeMixin:
         self._route_coords = coords  # store for traffic proximity filter
 
         if self._backend == "webkit":
-            self._js(f"mapSetRoute({json.dumps(coords)})")
-            pts_js = json.dumps([[p[0], p[1]] for p in all_points])
-            self._js(f"mapSetWaypoints({pts_js})")
+            self._js(js_call("mapSetRoute", coords))
+            self._js(js_call("mapSetWaypoints", [[p[0], p[1]] for p in all_points]))
             if coords:
                 min_lat, max_lat = min(lats), max(lats)
                 min_lon, max_lon = min(lons), max(lons)
-                self._js(f"mapFitBounds({min_lat},{min_lon},{max_lat},{max_lon})")
+                self._js(js_call("mapFitBounds", min_lat, min_lon, max_lat, max_lon))
         elif self._shumate_map is not None:
             self._shumate_show_route(all_points, coords)
 

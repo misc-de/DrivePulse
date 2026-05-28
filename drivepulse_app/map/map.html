@@ -103,6 +103,17 @@ const STYLES = {
   ),
 };
 
+// Fully self-contained fallback used when there is no internet: every base
+// style above pulls tiles (and 'street' even fetches its style JSON) from the
+// network, so offline they leave the map blank.  This one has no remote
+// sources at all — just a plain background — so the GeoJSON overlays (route,
+// car marker, waypoints, traffic) still render and the map stays usable.
+const OFFLINE_STYLE = {
+  version: 8,
+  sources: {},
+  layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#222633' } }],
+};
+
 // ── Persistent state (survives style changes) ─────────────────────────────────
 let map = null;
 let carMarker = null;
@@ -110,6 +121,10 @@ let carEl = null;
 let carArrowEl = null;
 let followMode = true;
 let initialized = false;
+
+let _desiredStyleKey = 'street'; // last base style Python asked for; restored when connectivity returns
+let _offlineFallback = false;    // true while OFFLINE_STYLE is shown instead of the requested base style
+let _styleWatchdog   = null;     // timer that drops to OFFLINE_STYLE if a base style never finishes loading
 
 let _routeCoords    = [];
 let _guideCoords    = [];
@@ -213,9 +228,14 @@ function initMap(lat, lon) {
   if (initialized) return;
   initialized = true;
 
+  // Start straight on the offline style when the browser already knows it's
+  // offline, so we skip the blank-while-waiting period entirely.
+  const startOffline = (navigator.onLine === false);
+  _offlineFallback = startOffline;
+
   map = new maplibregl.Map({
     container: 'map',
-    style: STYLES.street,
+    style: startOffline ? OFFLINE_STYLE : STYLES[_desiredStyleKey],
     center: [lon, lat],
     zoom: 15,
     pitch: 0,
@@ -251,6 +271,19 @@ function initMap(lat, lon) {
     .addTo(map);
 
   map.on('style.load', addDataLayers);
+
+  // A failed style/tile request offline surfaces here — fall back so the
+  // route and car marker still draw on a plain background instead of nothing.
+  map.on('error', () => {
+    if (!_offlineFallback && !map.isStyleLoaded()) _goOffline();
+  });
+
+  // When connectivity returns, restore the real base style the user wanted.
+  window.addEventListener('online', () => {
+    if (_offlineFallback) _applyStyle(_desiredStyleKey);
+  });
+
+  if (!startOffline) _armStyleWatchdog();
 
   // Keep marker glued to the camera center while we're following GPS, and
   // always recompute the arrow rotation relative to the current map bearing.
@@ -631,10 +664,36 @@ function mapFitBounds(minLat, minLon, maxLat, maxLon) {
   map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 48, pitch: 0, duration: 900 });
 }
 
-function mapSetStyle(key) {
+// Switch the base map to OFFLINE_STYLE so overlays keep rendering when the
+// requested (network-backed) style can't load. Idempotent.
+function _goOffline() {
+  if (_offlineFallback || !map) return;
+  _offlineFallback = true;
+  if (_styleWatchdog) { clearTimeout(_styleWatchdog); _styleWatchdog = null; }
+  map.setStyle(OFFLINE_STYLE);
+}
+
+// After requesting a network-backed style, give it a few seconds to load.
+// 'street' fetches a style JSON that simply hangs/fails with no connectivity,
+// so isStyleLoaded() never flips — that's our offline signal.
+function _armStyleWatchdog() {
+  if (_styleWatchdog) clearTimeout(_styleWatchdog);
+  _styleWatchdog = setTimeout(() => {
+    _styleWatchdog = null;
+    if (map && !_offlineFallback && !map.isStyleLoaded()) _goOffline();
+  }, 4000);
+}
+
+function _applyStyle(key) {
   if (!map) return;
-  const style = STYLES[key] || STYLES.street;
-  map.setStyle(style);
+  _desiredStyleKey = key;
+  _offlineFallback = false;
+  map.setStyle(STYLES[key] || STYLES.street);
+  _armStyleWatchdog();
+}
+
+function mapSetStyle(key) {
+  _applyStyle(key);
 }
 
 function _trafficNearRoute() {

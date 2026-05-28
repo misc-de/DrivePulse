@@ -18,7 +18,6 @@ Mixins:
 """
 from __future__ import annotations
 
-import json
 import logging
 import threading
 from collections.abc import Callable, Iterator
@@ -34,6 +33,7 @@ from gi.repository import Adw, GLib, Gtk
 from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language, _translate
 from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger, write_diagnostic_log
+from drivepulse_app.map._jsbridge import js_call
 from drivepulse_app.map.gps_filter import MapGpsFilterMixin
 from drivepulse_app.map.layout import MapLayoutMixin
 from drivepulse_app.map.layout_search import MapSearchBarMixin
@@ -355,21 +355,17 @@ class MapPage(
     def _apply_initial_overlay_state(self) -> None:
         """Sync POI/traffic visibility + 3D preference from settings."""
         if self._backend == "webkit":
-            poi = "true" if self._poi_visible else "false"
-            traffic = "true" if self._traffic_visible else "false"
-            view3d = "true" if self._map_3d_view else "false"
-            heading_up = "true" if self._heading_up else "false"
-            self._js(f"mapSetPoiVisible({poi})")
-            self._js(f"mapSetTrafficVisible({traffic})")
-            self._js(f"mapSet3DView({view3d})")
-            self._js(f"mapSetHeadingUp({heading_up})")
-            self._js(f"mapSetTrafficLanguage('{self.language}')")
+            self._js(js_call("mapSetPoiVisible", self._poi_visible))
+            self._js(js_call("mapSetTrafficVisible", self._traffic_visible))
+            self._js(js_call("mapSet3DView", self._map_3d_view))
+            self._js(js_call("mapSetHeadingUp", self._heading_up))
+            self._js(js_call("mapSetTrafficLanguage", self.language))
             initial_layer = (
                 MAP_TYPES[self._map_type_idx]
                 if 0 <= self._map_type_idx < len(MAP_TYPES) else "map"
             )
             if initial_layer != "map":
-                self._js(f"mapSetStyle('{initial_layer}')")
+                self._js(js_call("mapSetStyle", initial_layer))
         elif self._backend == "shumate":
             self._shumate_set_poi_visible(self._poi_visible)
             self._shumate_set_traffic_visible(self._traffic_visible)
@@ -428,7 +424,7 @@ class MapPage(
 
     def _goto(self, lat: float, lon: float) -> None:
         if self._backend == "webkit":
-            self._js(f"mapSetCar({lat}, {lon}, {self._gps_heading})")
+            self._js(js_call("mapSetCar", lat, lon, self._gps_heading))
         elif self._shumate_map is not None:
             with self._viewport_lock():
                 self._shumate_map.get_viewport().set_location(lat, lon)
@@ -446,15 +442,13 @@ class MapPage(
             self._follow_btn.set_active(active)
             self._follow_btn.handler_unblock_by_func(self._on_follow_toggled)
         if self._backend == "webkit":
-            val = "true" if active else "false"
-            self._js(f"mapSetFollow({val})")
+            self._js(js_call("mapSetFollow", active))
         return False
 
     def _on_follow_toggled(self, btn: Gtk.ToggleButton) -> None:
         self._follow_gps = btn.get_active()
         if self._backend == "webkit":
-            val = "true" if self._follow_gps else "false"
-            self._js(f"mapSetFollow({val})")
+            self._js(js_call("mapSetFollow", self._follow_gps))
         if self._follow_gps and self._gps_lat is not None and self._gps_lon is not None:
             self._goto(self._gps_lat, self._gps_lon)
 
@@ -463,7 +457,7 @@ class MapPage(
             return
         self._set_follow(True)
         if self._backend == "webkit":
-            self._js(f"mapGoTo({self._gps_lat}, {self._gps_lon}, 17)")
+            self._js(js_call("mapGoTo", self._gps_lat, self._gps_lon, 17))
         elif self._shumate_map is not None:
             viewport = self._shumate_map.get_viewport()
             with self._viewport_lock():
@@ -474,7 +468,7 @@ class MapPage(
         self._map_type_idx = (self._map_type_idx + 1) % len(MAP_TYPES)
         layer = MAP_TYPES[self._map_type_idx]
         if self._backend == "webkit":
-            self._js(f"mapSetStyle('{layer}')")
+            self._js(js_call("mapSetStyle", layer))
         elif self._shumate_map is not None:
             self._shumate_map.set_map_source(self._sources[layer])
             self._shumate_apply_attribution()
@@ -492,8 +486,7 @@ class MapPage(
     def _on_poi_toggled(self, btn: Gtk.ToggleButton) -> None:
         self._poi_visible = btn.get_active()
         if self._backend == "webkit":
-            val = "true" if self._poi_visible else "false"
-            self._js(f"mapSetPoiVisible({val})")
+            self._js(js_call("mapSetPoiVisible", self._poi_visible))
         else:
             self._shumate_set_poi_visible(self._poi_visible)
         if self._on_poi_visible_changed is not None:
@@ -506,7 +499,7 @@ class MapPage(
         self._map_3d_view = active
         self._refresh_3d_btn()
         if self._backend == "webkit":
-            self._js("mapSet3DView(true)" if active else "mapSet3DView(false)")
+            self._js(js_call("mapSet3DView", active))
         if self._on_3d_view_changed is not None:
             self._on_3d_view_changed(active)
 
@@ -514,8 +507,7 @@ class MapPage(
         self._heading_up = btn.get_active()
         self._refresh_heading_up_btn_tooltip()
         if self._backend == "webkit":
-            val = "true" if self._heading_up else "false"
-            self._js(f"mapSetHeadingUp({val})")
+            self._js(js_call("mapSetHeadingUp", self._heading_up))
         elif not self._heading_up and self._shumate_map is not None:
             # Reset Shumate's viewport rotation so the map snaps back to north.
             viewport = self._shumate_map.get_viewport()
@@ -921,12 +913,11 @@ class MapPage(
         lats = [c[1] for c in coords]
         lons = [c[0] for c in coords]
         if self._backend == "webkit":
-            self._js(f"mapSetRoute({json.dumps(coords)})")
-            pts_js = json.dumps([[p[0], p[1]] for p in self._tour_waypoints])
-            self._js(f"mapSetWaypoints({pts_js})")
+            self._js(js_call("mapSetRoute", coords))
+            self._js(js_call("mapSetWaypoints", [[p[0], p[1]] for p in self._tour_waypoints]))
             min_lat, max_lat = min(lats), max(lats)
             min_lon, max_lon = min(lons), max(lons)
-            self._js(f"mapFitBounds({min_lat},{min_lon},{max_lat},{max_lon})")
+            self._js(js_call("mapFitBounds", min_lat, min_lon, max_lat, max_lon))
         elif self._shumate_map is not None:
             self._shumate_show_route(self._tour_waypoints, coords)
 
@@ -942,7 +933,7 @@ class MapPage(
         self.language = _normalize_language(language)
         self._update_placeholders()
         if self._backend == "webkit":
-            self._js(f"mapSetTrafficLanguage('{self.language}')")
+            self._js(js_call("mapSetTrafficLanguage", self.language))
         self._route_btn.set_label(_translate(self.language, "map.route"))
         layer = MAP_TYPES[self._map_type_idx]
         if self._layer_btn is not None:
