@@ -162,6 +162,36 @@ def test_share_import_uses_existing_car_when_vin_hash_matches(db):
     assert len([c for c in cars if c["vin"] == "VIN-EXISTING"]) == 1
 
 
+# ─── decoded VIN data adoption ──────────────────────────────────────────────
+
+def test_share_import_adopts_vin_data_for_new_car(db):
+    # Peer shared the car with its identity intact — adopt the decoded data
+    # so the "fetch VIN data?" prompt never fires on this side.
+    payload = _share("VIN-VINDATA")
+    payload["vehicle"]["vin_data"] = {"manufacturer": "Audi", "model": "A4"}
+    share_import(db, payload)
+    car = db.get_car_by_vin_hash(_vin_hash("VIN-VINDATA"))
+    assert json.loads(car["vin_data_json"]) == {"manufacturer": "Audi", "model": "A4"}
+
+
+def test_share_import_does_not_clobber_existing_vin_data(db):
+    cid = db.upsert_car(vin="VIN-KEEP")
+    db.update_car_vin_data(cid, json.dumps({"manufacturer": "Local"}))
+    payload = _share("VIN-KEEP")
+    payload["vehicle"]["vin_data"] = {"manufacturer": "Incoming"}
+    share_import(db, payload)
+    car = db.get_car(cid)
+    assert json.loads(car["vin_data_json"]) == {"manufacturer": "Local"}
+
+
+def test_share_import_ignores_empty_or_invalid_vin_data(db):
+    payload = _share("VIN-NODATA")
+    payload["vehicle"]["vin_data"] = {}
+    share_import(db, payload)
+    car = db.get_car_by_vin_hash(_vin_hash("VIN-NODATA"))
+    assert car["vin_data_json"] is None
+
+
 # ─── trips: insert, dedupe, conflict ────────────────────────────────────────
 
 def test_share_import_inserts_new_trip(db):

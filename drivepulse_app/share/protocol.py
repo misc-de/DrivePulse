@@ -56,11 +56,30 @@ def build_vehicle_block(car: Any, anon: bool) -> dict:
     anon=True : replace VIN and serial-style fields (vin_hash, cal_id, CVN)
                 with fabricated values; brand, label, and protocol stay real
                 because the user wants the make/model recognisable on the peer.
+
+    The decoded VIN data (manufacturer/model/year/engine specs) is sent in
+    both cases: it carries no unique identifier — the raw VIN echo lives in a
+    separate column, not in vin_data_json — so it can't undo the
+    anonymisation, and it's no more revealing than the brand/label already
+    sent in clear. Sharing it spares the peer a redundant online lookup.
     """
     real_vin = (car["vin"] or "") if car["vin"] else ""
     brand = car["brand"] or ""
     label = car["label"] or ""
     protocol = _car_field(car, "protocol") or ""
+
+    # Decoded specs, shared regardless of anonymisation. The "{}" decline
+    # marker parses to an empty dict and is dropped so the peer still gets
+    # to decide for itself.
+    vin_data: dict | None = None
+    vin_data_raw = _car_field(car, "vin_data_json")
+    if vin_data_raw:
+        try:
+            parsed = json.loads(vin_data_raw)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict) and parsed:
+            vin_data = parsed
 
     if anon:
         fake_vin = make_fake_vin()
@@ -78,6 +97,8 @@ def build_vehicle_block(car: Any, anon: bool) -> dict:
             block["cvn"] = make_fake_serial(str(real_cvn))
         if protocol:
             block["protocol"] = protocol
+        if vin_data is not None:
+            block["vin_data"] = vin_data
         return block
 
     block = {
@@ -91,6 +112,8 @@ def build_vehicle_block(car: Any, anon: bool) -> dict:
         val = _car_field(car, key)
         if val:
             block[key] = val
+    if vin_data is not None:
+        block["vin_data"] = vin_data
     return block
 
 
@@ -299,6 +322,21 @@ def share_import(db: DriveDB, payload: dict, photos_dir: Path | None = None) -> 
             db._conn.commit()
     else:
         car_id = int(car["id"])
+
+    # Adopt decoded VIN data from the payload when we don't have any on
+    # file yet. Mirrors the sync path (sync/data.py): never clobber locally
+    # curated data, just fill the gap so the peer's "fetch VIN data?" prompt
+    # never appears for a car that was shared with its identity intact.
+    incoming_vin_data = vehicle.get("vin_data")
+    if isinstance(incoming_vin_data, dict) and incoming_vin_data:
+        local_row = db.get_car(car_id)
+        local_raw = (
+            local_row["vin_data_json"]
+            if local_row and "vin_data_json" in local_row.keys()  # noqa: SIM118
+            else None
+        )
+        if local_raw is None:
+            db.update_car_vin_data(car_id, json.dumps(incoming_vin_data))
 
     # ---- trips ----
     existing_trips = db.list_trips_for_car(car_id)
