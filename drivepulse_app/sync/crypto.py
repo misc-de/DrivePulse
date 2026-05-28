@@ -4,6 +4,7 @@ import base64
 import datetime
 import hashlib
 import os
+import re
 import socket
 from pathlib import Path
 
@@ -106,6 +107,30 @@ def generate_token(n: int = 32) -> str:
 
 def generate_device_id() -> str:
     return base64.urlsafe_b64encode(os.urandom(16)).rstrip(b"=").decode()
+
+
+# device_id values are produced by generate_device_id() as 16 random bytes
+# base64-urlsafe encoded (no padding) — that's exactly 22 chars from the
+# URL-safe base64 alphabet. The regex allows 16–64 chars so we tolerate
+# legacy ids and future-proof for a slightly larger nonce, but rejects
+# anything outside the safe alphabet (control chars, slashes, NULs).
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{16,64}$")
+
+
+def is_valid_device_id(value: object) -> bool:
+    return isinstance(value, str) and _DEVICE_ID_RE.fullmatch(value) is not None
+
+
+def is_valid_hostname(value: object) -> bool:
+    """A peer-supplied hostname is informational only — we never resolve it.
+    Reject anything that would render badly in a UI label: control chars,
+    line breaks, or absurd lengths. Empty hostnames are allowed (some sync
+    clients can't get one and the server falls back to the client IP)."""
+    if not isinstance(value, str):
+        return False
+    if len(value) > 100:
+        return False
+    return all(ch.isprintable() and ch not in {"\t", "\n", "\r"} for ch in value)
 
 
 def get_local_ip() -> str:
