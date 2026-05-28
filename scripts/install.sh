@@ -15,9 +15,12 @@ echo "  Icon         → $ICON_DEST"
 
 ICONS_SRC="$PROJECT_ROOT/icons/hicolor/symbolic/actions"
 ICONS_DEST="$HOME/.local/share/icons/hicolor/symbolic/actions"
-if [ -d "$ICONS_SRC" ]; then
+shopt -s nullglob
+svg_files=("$ICONS_SRC"/*.svg)
+shopt -u nullglob
+if [ ${#svg_files[@]} -gt 0 ]; then
     mkdir -p "$ICONS_DEST"
-    cp "$ICONS_SRC"/*.svg "$ICONS_DEST/"
+    cp "${svg_files[@]}" "$ICONS_DEST/"
     echo "  SVG-Icons    → $ICONS_DEST"
 fi
 
@@ -31,7 +34,7 @@ Comment=OBD-II Dashboard
 Comment[de]=OBD-II Armaturenbrett
 Icon=$APP_ID
 Path=$PROJECT_ROOT
-Exec=python3 -m drivepulse_app.app
+Exec=env PYTHONPATH=$PROJECT_ROOT python3 -m drivepulse_app.app
 Terminal=false
 Categories=Utility;
 Keywords=OBD;Auto;Fahrzeug;Dashboard;GPS;
