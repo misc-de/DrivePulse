@@ -78,7 +78,39 @@ def test_failed_trip_trace_keeps_calculate_retry_available(monkeypatch):
     coords = [[7.0, 50.0], [7.1, 50.1]]
     assert page._trip_trace_result(None, coords, "Trip", 12.3, 456.0) is False
 
-    assert page._pending_trip_trace_args == (coords, "Trip", 12.3, 456.0)
+    # 5-tuple now: timestamps default to None when not supplied
+    assert page._pending_trip_trace_args == (coords, "Trip", 12.3, 456.0, None)
     assert page._button_modes == ["calculate"]
     assert page._tour_start_btn.sensitive is True
     assert "trip_trace_calculation_failed" in diagnostics[0]
+
+
+def test_failed_trip_trace_preserves_timestamps_for_retry(monkeypatch):
+    """Retry must hand the original timestamps to _fetch_trip_trace — otherwise
+    the second attempt loses the per-sample timing that _clean_gps_trace uses
+    to split legs at motor-off stops."""
+    from drivepulse_app.map import page as map_page
+    from drivepulse_app.map.page import MapPage
+
+    monkeypatch.setattr(
+        map_page, "write_diagnostic_log",
+        lambda *_a, **_kw: None,
+    )
+
+    page = MapPage.__new__(MapPage)
+    page.language = "en"
+    page._tour_start_btn = _Button()
+    page._button_modes = []
+    page._set_tour_button = page._button_modes.append
+    page.get_root = lambda: None
+
+    coords = [[7.0, 50.0], [7.1, 50.1]]
+    timestamps = [1000.0, 1010.0]
+
+    assert page._trip_trace_result(
+        None, coords, "Trip", 12.3, 456.0, timestamps,
+    ) is False
+
+    assert page._pending_trip_trace_args == (
+        coords, "Trip", 12.3, 456.0, timestamps,
+    )

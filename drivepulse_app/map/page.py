@@ -837,7 +837,8 @@ class MapPage(
                 label,
             )
         GLib.idle_add(
-            self._trip_trace_result, result, coords, label, distance_km, duration_s
+            self._trip_trace_result, result, coords, label, distance_km, duration_s,
+            timestamps,
         )
 
     def _trip_trace_result(
@@ -847,6 +848,7 @@ class MapPage(
         label: str | None,
         orig_distance_km: float | None,
         orig_duration_s: float | None,
+        orig_timestamps: list[float] | None = None,
     ) -> bool:
         self._set_route_loading(False)
         self._set_tour_button("start" if result is not None else "calculate")
@@ -884,7 +886,7 @@ class MapPage(
                 orig_duration_s,
             )
             self._pending_trip_trace_args = (
-                orig_coords, label, orig_distance_km, orig_duration_s
+                orig_coords, label, orig_distance_km, orig_duration_s, orig_timestamps,
             )
             dialog = Adw.AlertDialog(
                 heading=_translate(self.language, "map.tour_calculate_failed.heading"),
