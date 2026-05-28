@@ -8,7 +8,10 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
 
 import gi
 
@@ -87,6 +90,30 @@ def _ensure_shutter_css() -> None:
 
 
 class CarsPhotosMixin:
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    LIVE_ID: ClassVar[Any]
+    language: str
+    db: DriveDB | None
+    nav_view: Adw.NavigationView
+    value_list: Gtk.ListBox
+    _value_scroll: Gtk.ScrolledWindow
+    _info_row: Callable[..., Any]
+    _selected_car_id: int | None
+    _selected_source: str | None
+    _selected_category: str | None
+    _detail_pushed: bool
+
+    get_root: Callable[[], Any]
+    get_sync_client: Callable[[], Any] | None
+    _wrap_sub_page: Callable[..., Any]
+    _render_detail: Callable[..., None]
+    _set_trash: Callable[..., None]
+    _update_trash_default: Callable[..., None]
+    _make_delete_dialog: Callable[..., Any]
+    _share_selected_photos: Callable[..., None]
+    _is_sync_active: Callable[[], bool]
+    _parse_ts: Callable[..., Any]
 
     # ---------------------------------------------------------------- render
 
@@ -135,6 +162,9 @@ class CarsPhotosMixin:
         self._value_scroll.set_child(outer)
 
     def _make_photo_tile(self, photo: Any) -> Gtk.FlowBoxChild:
+        # _render_photos_into_view (the only caller) gates on
+        # self._selected_car_id is not None before reaching us.
+        assert self._selected_car_id is not None
         photo_id = int(photo["id"])
         filename = photo["filename"]
 
@@ -415,6 +445,8 @@ class CarsPhotosMixin:
         self._set_trash(lambda: self._confirm_delete_photo(photo_id))
 
         def _on_share_photo() -> None:
+            if self.db is None:
+                return
             from drivepulse_app.share.flow import ShareFlow
             ShareFlow(self, self.db, self.language, self.get_sync_client).share_photos(
                 self._selected_car_id, [photo_id]

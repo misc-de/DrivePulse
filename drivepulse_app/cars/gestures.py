@@ -7,10 +7,23 @@ independent of whether the Adw.NavigationView swipe would have triggered.
 """
 from __future__ import annotations
 
-from gi.repository import Gtk
+from collections.abc import Callable
+from typing import Any
+
+from gi.repository import Adw, Gtk
 
 
 class CarsGesturesMixin:
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    _drag_claimed: bool
+    _detail_pushed: bool
+    _detail_page: Any
+    nav_view: Adw.NavigationView
+    on_back_swipe: Callable[[], None] | None
+    on_forward_swipe: Callable[[], None] | None
+    _on_detail_back: Callable[..., Any]
+
     def _on_drag_begin(self, _gesture: Gtk.GestureDrag, _x: float, _y: float) -> None:
         self._drag_claimed = False
 

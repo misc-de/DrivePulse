@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.4.190"
+version = "0.4.191"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
@@ -102,16 +102,6 @@ follow_imports = "skip"
 # so attr-defined errors on these modules are structural false positives.
 [[tool.mypy.overrides]]
 module = [
-    "drivepulse_app.cars.actions",
-    "drivepulse_app.cars.detail_render",
-    "drivepulse_app.cars.gestures",
-    "drivepulse_app.cars.layout",
-    "drivepulse_app.cars.photos",
-    "drivepulse_app.cars.scans",
-    "drivepulse_app.cars.share_actions",
-    "drivepulse_app.cars.stopwatch_runs",
-    "drivepulse_app.cars.trips",
-    "drivepulse_app.cars.vin_flow",
     "drivepulse_app.dashboard.settings",
     "drivepulse_app.dashboard.telemetry",
     "drivepulse_app.map.gps_filter",
@@ -128,6 +118,5 @@ module = [
     "drivepulse_app.map.tour",
     "drivepulse_app.map.traffic",
     "drivepulse_app.map.webkit",
-    "drivepulse_app.stopwatch.processing",
 ]
 disable_error_code = ["attr-defined", "has-type", "var-annotated"]

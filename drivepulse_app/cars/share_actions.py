@@ -7,12 +7,39 @@ one run) live here too.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
 from gi.repository import Adw
 
 from drivepulse_app.common import _translate
 
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
+
 
 class CarsShareActionsMixin:
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    db: DriveDB | None
+    _selected_car_id: int | None
+    _selected_source: str | None
+    _trip_select_mode: bool
+    _trip_selected_ids: set[int]
+    _scan_select_mode: bool
+    _scan_selected_ids: set[int]
+    _run_select_mode: bool
+    _run_selected_ids: set[int]
+    _photo_select_mode: bool
+    _photo_selected_ids: set[int]
+
+    get_sync_client: Callable[[], Any] | None
+    _exit_trip_select_mode: Callable[[], None]
+    _exit_scan_select_mode: Callable[[], None]
+    _exit_run_select_mode: Callable[[], None]
+    _exit_photo_select_mode: Callable[[], None]
+
     def _on_share_btn_clicked(self) -> None:
         if self._trip_select_mode:
             self._share_selected_trips()
@@ -26,7 +53,7 @@ class CarsShareActionsMixin:
             self._share_vehicle()
 
     def _share_vehicle(self) -> None:
-        if self.db is None:
+        if self.db is None or self._selected_source is None:
             return
         from drivepulse_app.share.flow import ShareFlow
         ShareFlow(self, self.db, self.language, self.get_sync_client).share_vehicle(

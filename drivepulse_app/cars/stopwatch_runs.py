@@ -1,17 +1,42 @@
 """StopWatch-run list and detail helpers for CarsPage."""
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from gi.repository import Adw, GLib, Gtk, Pango
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 
+if TYPE_CHECKING:
+    from drivepulse_app.db import DriveDB
+
 log = get_logger(__name__)
 
 
 class CarsStopWatchRunsMixin:
+    # Concrete CarsPage state surfaced to this mixin. See
+    # project_mixin_typing.md.
+    language: str
+    db: DriveDB | None
+    nav_view: Adw.NavigationView
+    value_list: Gtk.ListBox
+    _info_row: Adw.ActionRow
+    _selected_car_id: int | None
+    _selected_category: str | None
+    _detail_pushed: bool
+
+    _render_detail: Callable[..., None]
+    _wrap_sub_page: Callable[..., Any]
+    _reapply_list_select_ui: Callable[..., bool]
+    _update_list_select_buttons: Callable[..., None]
+    _update_trash_default: Callable[..., None]
+    _make_delete_dialog: Callable[..., Any]
+    _share_run: Callable[..., None]
+    _is_sync_active: Callable[[], bool]
+    _is_selected_car_mock: Callable[[], bool]
+    _parse_ts: Callable[..., Any]
     def _render_stopwatch_runs_into_value_list(self) -> None:
         if self.db is None or self._selected_car_id is None:
             self.value_list.append(self._info_row(_translate(self.language, "cars.stopwatch_runs.empty")))
@@ -45,6 +70,8 @@ class CarsStopWatchRunsMixin:
 
         parts: list[str] = []
         try:
+            if self.db is None:
+                raise RuntimeError("db not attached")
             data = self.db.get_stopwatch_run(run_id)
             results = data.get("results", {})
             targets = results.get("targets", {})
