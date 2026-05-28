@@ -18,6 +18,18 @@ from drivepulse_app.map._format import (  # noqa: F401
     maneuver_text_key,
     poi_category,
 )
+from drivepulse_app.map._geocoding import (  # noqa: F401
+    geocode,
+    resolve_route_points,
+)
+from drivepulse_app.map._speed_zones import (  # noqa: F401
+    _MAXSPEED_NAMED,
+    _OVERPASS_URL,
+    _parse_maxspeed,
+    _remap_speed_to_route,
+    fetch_overpass_speed_zones,
+    mock_speed_kmh,
+)
 
 # Re-exports from extracted submodules so existing
 # `from drivepulse_app.map.services import …` callers keep working.
@@ -55,22 +67,7 @@ _VALHALLA_URL = "https://valhalla.openstreetmap.de/route"
 _VALHALLA_TRACE_URLS = [
     "https://valhalla1.openstreetmap.de/trace_route",
 ]
-_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-
-# Named maxspeed tags used by OSM / Valhalla (→ km/h)
-_MAXSPEED_NAMED: dict[str, float] = {
-    "de:living_street": 7.0,
-    "de:pedestrian": 10.0,
-    "de:urban": 50.0,
-    "de:rural": 100.0,
-    "de:motorway": 130.0,
-    "at:living_street": 10.0,
-    "at:urban": 50.0,
-    "at:rural": 100.0,
-    "at:motorway": 130.0,
-    "walk": 7.0,
-    "none": 130.0,
-}
+# _MAXSPEED_NAMED, _OVERPASS_URL: moved to drivepulse_app/map/_speed_zones.py
 
 # Valhalla integer maneuver type → (osrm_type, osrm_modifier)
 _VALHALLA_MANEUVER: dict[int, tuple[str, str]] = {
@@ -138,18 +135,7 @@ TILE_ATTRIBUTION = {
 # BAB_BASE, NRW_AUTOBAHNEN, bab_fetch_*: moved to drivepulse_app/map/_traffic.py
 
 
-def geocode(query: str, http_get_fn: HttpGet = http_get) -> tuple[float, float] | None:
-    url = (
-        "https://nominatim.openstreetmap.org/search"
-        f"?q={urllib.parse.quote(query)}&format=json&limit=1"
-    )
-    data = http_get_fn(url)
-    if not data:
-        return None
-    try:
-        return float(data[0]["lat"]), float(data[0]["lon"])
-    except (KeyError, IndexError, TypeError, ValueError):
-        return None
+# geocode: moved to drivepulse_app/map/_geocoding.py
 
 
 def osrm_route(
@@ -235,139 +221,9 @@ def _flatten_route_steps(legs: list[dict]) -> list[dict]:
     return result
 
 
-def mock_speed_kmh(ref: str) -> float:
-    """Return a realistic mock speed for a road segment based on its OSRM ref tag.
-
-    A* (Autobahn) → 120 km/h, B* (Bundesstraße) / other refs → 70 km/h,
-    no ref (urban streets) → 40 km/h.
-    """
-    r = ref.strip()
-    if not r:
-        return 40.0
-    first = r[0].upper()
-    if first == "A" and (len(r) == 1 or not r[1].isalpha()):
-        return 120.0
-    return 70.0
-
-
-def _parse_maxspeed(raw: str) -> float | None:
-    """Parse an OSM maxspeed tag value to km/h, or return None if unparseable."""
-    v = raw.strip().lower()
-    if not v:
-        return None
-    if v in _MAXSPEED_NAMED:
-        return _MAXSPEED_NAMED[v]
-    if v.endswith(" mph"):
-        try:
-            return round(float(v[:-4].strip()) * 1.60934)
-        except ValueError:
-            return None
-    try:
-        val = float(v)
-        return val if val > 0 else None
-    except ValueError:
-        return None
-
-
-# _pt_seg_dist2_approx: moved to drivepulse_app/map/_geometry.py
-
-
-def fetch_overpass_speed_zones(
-    coords: list[list[float]],
-    sample_every_m: float = 200.0,
-    around_m: float = 30.0,
-    http_post_fn=http_post,
-) -> list[tuple[float, float]]:
-    """Pre-fetch speed limits for the entire route via Overpass API.
-
-    Samples the route polyline every *sample_every_m* metres, fetches all
-    highway ways with a maxspeed tag within *around_m* metres of those
-    points in one Overpass query, then assigns the nearest way's speed to
-    each sample and returns (cum_dist_m, speed_kmh) zone breakpoints —
-    the same format consumed by _update_speed_zone_overlay().
-
-    Runs in a background thread; returns [] on network or parse failure.
-    """
-    if len(coords) < 2:
-        return []
-
-    R = 6_371_000.0
-
-    # Cumulative distances along the route polyline.
-    cum: list[float] = [0.0]
-    for i in range(1, len(coords)):
-        a_lon, a_lat = coords[i - 1]
-        b_lon, b_lat = coords[i]
-        dlat = math.radians(b_lat - a_lat)
-        dlon = math.radians(b_lon - a_lon)
-        mlat = math.radians((a_lat + b_lat) * 0.5)
-        cum.append(cum[-1] + R * math.sqrt(dlat ** 2 + (math.cos(mlat) * dlon) ** 2))
-
-    # Sample the route at regular intervals.
-    samples: list[tuple[float, float, float]] = []  # (cum_m, lat, lon)
-    next_target = 0.0
-    for i, (c, coord) in enumerate(zip(cum, coords, strict=True)):
-        if c >= next_target or i == 0:
-            lon, lat = coord
-            samples.append((c, lat, lon))
-            next_target = c + sample_every_m
-    last_lon, last_lat = coords[-1]
-    if not samples or samples[-1][0] < cum[-1] - 1.0:
-        samples.append((cum[-1], last_lat, last_lon))
-
-    # Build Overpass QL query — one around-buffer along all sample points.
-    pts = "".join(f",{lat},{lon}" for _, lat, lon in samples)
-    query = (
-        f"[out:json][timeout:60];\n"
-        f"way(around:{int(around_m)}{pts})[highway][maxspeed];\n"
-        f"out body geom;\n"
-    )
-
-    data = http_post_fn(_OVERPASS_URL, query)
-    if not data:
-        return []
-
-    # Parse returned ways into (speed_kmh, [(lat, lon), ...]).
-    ways: list[tuple[float, list[tuple[float, float]]]] = []
-    for el in data.get("elements") or []:
-        if el.get("type") != "way":
-            continue
-        speed = _parse_maxspeed(str((el.get("tags") or {}).get("maxspeed", "")))
-        if speed is None or speed <= 0:
-            continue
-        geometry = el.get("geometry") or []
-        nodes: list[tuple[float, float]] = [
-            (n["lat"], n["lon"]) for n in geometry if "lat" in n and "lon" in n
-        ]
-        if len(nodes) >= 2:
-            ways.append((speed, nodes))
-
-    if not ways:
-        return []
-
-    # Assign the nearest way's speed to each sample point.
-    zones: list[tuple[float, float]] = []
-    prev_speed: float | None = None
-
-    for cum_m, s_lat, s_lon in samples:
-        best_d2 = float("inf")
-        best_speed: float | None = None
-        for speed, nodes in ways:
-            for j in range(len(nodes) - 1):
-                a_lat, a_lon = nodes[j]
-                b_lat, b_lon = nodes[j + 1]
-                d2 = _pt_seg_dist2_approx(s_lat, s_lon, a_lat, a_lon, b_lat, b_lon)
-                if d2 < best_d2:
-                    best_d2 = d2
-                    best_speed = speed
-        if best_speed is not None and best_speed != prev_speed:
-            zones.append((cum_m, best_speed))
-            prev_speed = best_speed
-
-    return zones
-
-
-# _decode_polyline: moved to drivepulse_app/map/_geometry.py
+# mock_speed_kmh, _parse_maxspeed, fetch_overpass_speed_zones:
+# moved to drivepulse_app/map/_speed_zones.py
+# _pt_seg_dist2_approx, _decode_polyline: moved to drivepulse_app/map/_geometry.py
 
 
 def valhalla_route(
@@ -459,30 +315,7 @@ def _trace_bodies(shape: list[dict[str, float | str]]) -> list[tuple[str, dict[s
     ]
 
 
-def _remap_speed_to_route(
-    route_coords: list[list[float]],
-    latlon_speed: list[tuple[float, float, float | None]],
-) -> list[tuple[float, float, float | None]]:
-    """Project GPS speed values onto calculated route coordinates.
-
-    For each route point, picks the nearest original GPS sample by
-    flat-earth squared distance and carries over its speed value.
-    Returns a list of (lat, lon, speed_or_None) matching route_coords.
-    """
-    result: list[tuple[float, float, float | None]] = []
-    for lon, lat in route_coords:
-        best_speed: float | None = None
-        best_d2 = float("inf")
-        cos_lat = math.cos(math.radians(lat))
-        for g_lat, g_lon, speed in latlon_speed:
-            dlat = lat - g_lat
-            dlon = (lon - g_lon) * cos_lat
-            d2 = dlat * dlat + dlon * dlon
-            if d2 < best_d2:
-                best_d2 = d2
-                best_speed = speed
-        result.append((lat, lon, best_speed))
-    return result
+# _remap_speed_to_route: moved to drivepulse_app/map/_speed_zones.py
 
 
 def _clean_gps_trace(
@@ -1661,37 +1494,7 @@ def _flatten_valhalla_maneuvers(legs: list[dict]) -> list[dict]:
     return result
 
 
-def resolve_route_points(
-    start_text: str,
-    waypoint_texts: list[str],
-    end_text: str,
-    gps: tuple[float, float] | None,
-    geocode_fn: GeocodeFn = geocode,
-) -> list[tuple[float, float]] | None:
-    """Resolve route entries to coordinates, using GPS as empty start."""
-    if not end_text:
-        return None
-    if start_text:
-        start = geocode_fn(start_text)
-    else:
-        start = gps
-    if start is None:
-        return None
-
-    points = [start]
-    for text in waypoint_texts:
-        if not text:
-            continue
-        point = geocode_fn(text)
-        if point is None:
-            return None
-        points.append(point)
-
-    end = geocode_fn(end_text)
-    if end is None:
-        return None
-    points.append(end)
-    return points
+# resolve_route_points: moved to drivepulse_app/map/_geocoding.py
 
 
 # format_duration, format_distance, poi_category, maneuver_icon,
