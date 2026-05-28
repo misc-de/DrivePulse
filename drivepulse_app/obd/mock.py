@@ -81,3 +81,94 @@ class MockObdSimulator:
             "intake_temp": {"value": 20 + random.uniform(-3, 5), "unit": "degC"},
             "control_module_voltage": {"value": 13.8 + random.uniform(-0.25, 0.25), "unit": "volt"},
         }
+
+
+class MockUdsSimulator:
+    """In-memory stand-in for a UDS control module, for exercising the Car Lab
+    (discover / find-functions) workflow without a real adapter or vehicle.
+
+    Models a small VAG-style instrument cluster: a handful of identification
+    DIDs plus a long-coding DID (0x0600). The coding response carries a trailing
+    *counter* byte that ticks on every read, so the baseline step has genuine
+    "noise" to detect and filter. :meth:`toggle_function` flips one real coding
+    bit — call it between baseline and capture to simulate the user changing a
+    setting in the car, producing a clean, describable diff.
+    """
+
+    def __init__(self) -> None:
+        # Stable long-coding bytes; byte 3 bit3 is our toggleable "function".
+        self._coding = bytearray([0x03, 0x12, 0x00, 0x00, 0xA5])
+        self._counter = 0
+        self._ident: dict[int, bytes] = {
+            0xF190: b"WAUZZZ4GXDN000001",   # VIN
+            0xF187: b"4G0920900",           # spare part number
+            0xF189: b"H05",                  # SW version
+            0xF18A: b"VAG",                  # supplier id
+            0xF191: b"4G0920900A",          # HW number
+            0xF197: b"KOMBIINSTRUMENT",      # system name
+        }
+
+    # Addresses the simulated vehicle "answers" on (engine, instruments,
+    # central electrics, gateway) — a believable mixed result for a module scan.
+    _PRESENT_TX = frozenset({"7E0", "714", "70E", "710"})
+
+    def scan_modules(self, candidates: list[Any]) -> list[dict[str, str]]:
+        """Return the subset of *candidates* this mock module "answers" on."""
+        return [
+            {"name": m.name, "tx": m.tx, "rx": m.rx}
+            for m in candidates
+            if m.tx.upper() in self._PRESENT_TX
+        ]
+
+    def toggle_function(self) -> None:
+        """Flip the simulated function bit (byte 3, bit 3) in the coding."""
+        self._coding[3] ^= 0x08
+
+    def _did_bytes(self, did: int) -> bytes | None:
+        from drivepulse_app.obd.uds import VAG_CODING_DID
+
+        if did == VAG_CODING_DID:
+            # Real coding bytes + one self-changing counter byte (the "noise").
+            return bytes(self._coding) + bytes([self._counter])
+        return self._ident.get(did)
+
+    def snapshot(self, dids: list[int]) -> dict[int, str]:
+        self._counter = (self._counter + 1) & 0xFF
+        out: dict[int, str] = {}
+        for did in dids:
+            data = self._did_bytes(did)
+            if data is not None:
+                out[did] = data.hex().upper()
+        return out
+
+    def discover(self, tx: str, rx: str) -> dict[str, Any]:
+        from datetime import UTC, datetime
+
+        from drivepulse_app.obd.uds import (
+            IDENTIFICATION_DIDS,
+            VAG_CODING_DID,
+            as_ascii,
+        )
+
+        self._counter = (self._counter + 1) & 0xFF
+        out: dict[str, Any] = {
+            "created_at": datetime.now(UTC).isoformat(),
+            "tx": tx.upper(), "rx": rx.upper(), "mock": True,
+            "identification": {}, "coding": {}, "did_responses": {},
+        }
+        for did in (*IDENTIFICATION_DIDS, VAG_CODING_DID):
+            data = self._did_bytes(did)
+            key = f"{did:04X}"
+            if data is None:
+                out["did_responses"][key] = {"nrc": "31", "nrc_name": "requestOutOfRange"}
+                continue
+            entry: dict[str, Any] = {"hex": data.hex().upper()}
+            ascii_val = as_ascii(data)
+            if ascii_val is not None:
+                entry["ascii"] = ascii_val
+            out["did_responses"][key] = entry
+            if did in IDENTIFICATION_DIDS:
+                out["identification"][IDENTIFICATION_DIDS[did]] = entry
+            if did == VAG_CODING_DID:
+                out["coding"][key] = entry
+        return out

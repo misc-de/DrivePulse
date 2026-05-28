@@ -34,8 +34,13 @@ from drivepulse_app.common import (
 from drivepulse_app.diagnostics import append_jsonl, get_logger
 from drivepulse_app.obd.adapter import AdapterInfo, _serial_port, probe_adapter, raw_send
 from drivepulse_app.obd.devices import candidate_bt_addresses, parse_bt_port
-from drivepulse_app.obd.mock import MockObdSimulator
-from drivepulse_app.obd.polling import command_map, response_to_plain_value, should_query_key
+from drivepulse_app.obd.mock import MockObdSimulator, MockUdsSimulator
+from drivepulse_app.obd.polling import (
+    OBD_COMMAND_ATTRS,
+    command_map,
+    response_to_plain_value,
+    should_query_key,
+)
 from drivepulse_app.obd.scanner import ObdScanner
 from drivepulse_app.sensors.bluetooth import BluetoothPtyBridge
 
@@ -93,6 +98,10 @@ class ObdReader(GObject.Object):
         self._scanned_identities: set[str] = set()
         self._last_scan_monotonic: float = 0.0
         self._adapter_info: AdapterInfo | None = None
+        # Set while a read-only UDS diagnostic session (Car Lab) owns the bus.
+        # The live poll loop and vehicle scan pause so module-addressed UDS
+        # traffic isn't interleaved with the 7DF functional broadcast.
+        self._diagnostic_active = False
         # Serializes access to self.connection between the reader thread and the
         # asynchronous vehicle-scan thread so they can interleave queries safely.
         self._obd_lock = threading.Lock()
@@ -106,6 +115,8 @@ class ObdReader(GObject.Object):
         self._last_motion_monotonic: float = time.monotonic()
         self._obd_log_enabled: bool = True
         self._mock_simulator = MockObdSimulator()
+        # Simulated UDS module for the Car Lab when no real adapter is present.
+        self._mock_uds = MockUdsSimulator()
         if obd is None:
             self.mock_reason = "python-obd missing"
         elif force_mock:
@@ -335,6 +346,7 @@ class ObdReader(GObject.Object):
                                 self.failed_read_count = 0
                                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                                 self._connection_log("connect_success", port=dev, supported_commands=supported)
+                                self._probe_adapter()
                                 success = True
                             else:
                                 self._close_connection()
@@ -372,6 +384,7 @@ class ObdReader(GObject.Object):
                             self.failed_read_count = 0
                             supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                             self._connection_log("connect_success", port=self._configured_port, supported_commands=supported)
+                            self._probe_adapter()
                             success = True
                         else:
                             self._close_connection()
@@ -413,6 +426,7 @@ class ObdReader(GObject.Object):
                     self.failed_read_count = 0
                     supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                     self._connection_log("connect_success", port=port, supported_commands=supported)
+                    self._probe_adapter()
                     return
 
                 self._close_connection()
@@ -456,6 +470,146 @@ class ObdReader(GObject.Object):
         except Exception:
             log.exception("CLEAR_DTC query failed")
             return False
+
+    def run_uds_session(
+        self,
+        tx: str,
+        rx: str,
+        fn: Callable[[Any], Any],
+        protocol: str = "6",
+    ) -> Any:
+        """Run *fn(client)* against one control module over a read-only UDS session.
+
+        Pauses live polling (``_diagnostic_active``) and holds the OBD lock for the
+        whole session so module-addressed traffic never interleaves with the live
+        loop. The adapter's CAN header is restored to the functional broadcast on
+        exit. Returns ``fn``'s result, or ``None`` when no real connection exists.
+        """
+        from drivepulse_app.obd.uds import UdsClient
+
+        if obd is None or self.connection is None or self.mock:
+            return None
+        port = _serial_port(self.connection)
+        if port is None:
+            return None
+
+        self._diagnostic_active = True
+        try:
+            with self._obd_lock:
+                client = UdsClient(lambda cmd: raw_send(port, cmd))
+                client.open(tx, rx, protocol=protocol)
+                try:
+                    return fn(client)
+                finally:
+                    client.close()
+        except Exception:
+            log.exception("UDS session failed (tx=%s rx=%s)", tx, rx)
+            return None
+        finally:
+            self._diagnostic_active = False
+
+    def discover_module(self, tx: str, rx: str, protocol: str = "6") -> dict[str, Any]:
+        """Read-only inventory of one module: identification DIDs + VAG coding DID.
+
+        Returns a JSON-friendly dict suitable for ``DriveDB.add_discovery``.
+        """
+        from drivepulse_app.obd.uds import (
+            IDENTIFICATION_DIDS,
+            VAG_CODING_DID,
+            as_ascii,
+            did_payload,
+        )
+
+        if self.mock:
+            return self._mock_uds.discover(tx, rx)
+
+        def work(client: Any) -> dict[str, Any]:
+            out: dict[str, Any] = {
+                "created_at": datetime.now(UTC).isoformat(),
+                "tx": tx.upper(), "rx": rx.upper(),
+                "identification": {}, "coding": {}, "did_responses": {},
+            }
+            for did, resp in client.scan_dids([*IDENTIFICATION_DIDS, VAG_CODING_DID]):
+                key = f"{did:04X}"
+                payload = did_payload(resp, did)
+                if payload is not None:
+                    entry: dict[str, Any] = {"hex": payload.hex().upper()}
+                    ascii_val = as_ascii(payload)
+                    if ascii_val is not None:
+                        entry["ascii"] = ascii_val
+                    out["did_responses"][key] = entry
+                    if did in IDENTIFICATION_DIDS:
+                        out["identification"][IDENTIFICATION_DIDS[did]] = entry
+                    if did == VAG_CODING_DID:
+                        out["coding"][key] = entry
+                elif resp.negative is not None:
+                    out["did_responses"][key] = {
+                        "nrc": f"{resp.negative.nrc:02X}",
+                        "nrc_name": resp.negative.name,
+                    }
+            return out
+
+        return self.run_uds_session(tx, rx, work, protocol) or {}
+
+    def uds_snapshot(
+        self, tx: str, rx: str, dids: list[int], protocol: str = "6"
+    ) -> dict[int, str]:
+        """Read *dids* from one module once; return ``{did: hex_string}`` positives."""
+        from drivepulse_app.obd.uds import did_payload
+
+        if self.mock:
+            return self._mock_uds.snapshot(dids)
+
+        def work(client: Any) -> dict[int, str]:
+            out: dict[int, str] = {}
+            for did, resp in client.scan_dids(dids):
+                payload = did_payload(resp, did)
+                if payload is not None:
+                    out[did] = payload.hex().upper()
+            return out
+
+        return self.run_uds_session(tx, rx, work, protocol) or {}
+
+    def scan_modules(self, protocol: str = "6") -> list[dict[str, str]]:
+        """Probe known module addresses; return those that answer (read-only).
+
+        Brand-independent: the legislated 0x7E0–0x7E7 ECUs answer on every
+        OBD-II/UDS vehicle, plus the known VAG body modules. Each entry is
+        ``{"name", "tx", "rx"}``.
+        """
+        from drivepulse_app.obd.uds import UdsClient, candidate_modules
+
+        candidates = candidate_modules()
+        if self.mock:
+            return self._mock_uds.scan_modules(candidates)
+        if obd is None or self.connection is None:
+            return []
+        port = _serial_port(self.connection)
+        if port is None:
+            return []
+
+        found: list[dict[str, str]] = []
+        self._diagnostic_active = True
+        try:
+            with self._obd_lock:
+                client = UdsClient(lambda cmd: raw_send(port, cmd))
+                client.init_adapter(protocol)
+                for mod in candidates:
+                    if self.stop_event.is_set():
+                        break
+                    client.set_target(mod.tx, mod.rx)
+                    if client.is_present():
+                        found.append({"name": mod.name, "tx": mod.tx, "rx": mod.rx})
+                client.close()
+        except Exception:
+            log.exception("Module scan failed")
+        finally:
+            self._diagnostic_active = False
+        return found
+
+    def mock_uds_toggle(self) -> None:
+        """Flip the simulated coding bit (Car Lab mock) so the next capture diffs."""
+        self._mock_uds.toggle_function()
 
     def _run_vehicle_scan(self, force_rescan: bool = False) -> None:
         """Start the vehicle scan in a background thread so the live read loop
@@ -509,6 +663,10 @@ class ObdReader(GObject.Object):
             self._run_vehicle_scan()
 
         while not self.stop_event.is_set():
+            if self._diagnostic_active:
+                # A UDS diagnostic session owns the bus — don't poll or rescan.
+                time.sleep(POLL_INTERVAL_SECONDS)
+                continue
             if self._force_reconnect:
                 self._force_reconnect = False
                 if not self.force_mock:
@@ -569,6 +727,96 @@ class ObdReader(GObject.Object):
         self._run_vehicle_scan()
 
     def _read_obd(self) -> dict[str, Any]:
+        assert obd is not None
+        assert self.connection is not None
+        if self._diagnostic_active:
+            # Bus is owned by a UDS session; serve the last known values.
+            return {**self._obd_value_cache, "_command_count": 0, "_read_error_count": 0}
+        if self._adapter_info is not None and self._adapter_info.supports_stpx:
+            return self._read_obd_batch()
+        return self._read_obd_single()
+
+    def _read_obd_batch(self) -> dict[str, Any]:
+        """Read live PIDs via a single STPX batch round-trip (STN/OBDLink).
+
+        One CAN request returns several PIDs at once, replacing the per-PID
+        Bluetooth round-trips of the single-query path. PIDs not due this tick
+        are served from cache; PIDs without an STPX decoder — or that the
+        adapter fails to answer in the batch — fall back to an individual
+        python-obd query so a gauge never goes blank.
+        """
+        from drivepulse_app.obd.adapter import _MODE1_DECODE, batch_query_stpx
+
+        commands = command_map(obd)
+        name_to_key = {attr: key for key, attr in OBD_COMMAND_ATTRS}
+
+        data: dict[str, Any] = {}
+        now = time.monotonic()
+        idle_min = self._idle_min_interval(now)
+
+        due_batch: dict[int, str] = {}        # pid -> key (decodable, due this tick)
+        due_single: list[tuple[str, Any]] = []  # (key, command) without STPX decoder
+        for key, command in commands.items():
+            if command is None:
+                continue
+            if not self._should_query_obd_key(key, now, idle_min):
+                if key in self._obd_value_cache:
+                    data[key] = self._obd_value_cache[key]
+                continue
+            pid = getattr(command, "pid", None)
+            if pid is not None and pid in _MODE1_DECODE:
+                due_batch[pid] = key
+            else:
+                due_single.append((key, command))
+
+        command_count = 0
+        read_error_count = 0
+
+        if due_batch:
+            command_count += 1
+            try:
+                batched = batch_query_stpx(self._send_raw_locked, list(due_batch))
+            except Exception as exc:
+                batched = {}
+                log.debug("STPX live batch failed: %s", exc)
+            if not batched:
+                read_error_count += 1
+            answered: set[str] = set()
+            for name, value in batched.items():
+                mapped_key = name_to_key.get(name)
+                if mapped_key is None:
+                    continue
+                data[mapped_key] = value
+                self._obd_value_cache[mapped_key] = value
+                self._obd_last_query[mapped_key] = now
+                answered.add(mapped_key)
+                if mapped_key == "speed":
+                    self._note_speed_for_idle(value, now)
+            # Demote any due PID the adapter didn't answer to a single query.
+            for pid, key in due_batch.items():
+                if key not in answered:
+                    due_single.append((key, commands[key]))
+
+        for key, command in due_single:
+            command_count += 1
+            try:
+                with self._obd_lock:
+                    response = self.connection.query(command)
+                value = self._response_to_plain_value(response)
+                data[key] = value
+                self._obd_value_cache[key] = value
+                self._obd_last_query[key] = now
+                if key == "speed":
+                    self._note_speed_for_idle(value, now)
+            except Exception as exc:
+                read_error_count += 1
+                data[f"{key}_error"] = str(exc)
+
+        data["_command_count"] = command_count
+        data["_read_error_count"] = read_error_count
+        return data
+
+    def _read_obd_single(self) -> dict[str, Any]:
         assert obd is not None
         assert self.connection is not None
 

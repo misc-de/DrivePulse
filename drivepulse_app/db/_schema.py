@@ -145,6 +145,31 @@ CREATE TABLE IF NOT EXISTS saved_tours (
     created_at      TEXT NOT NULL,
     waypoints_json  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS module_discoveries (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    car_id      INTEGER NOT NULL REFERENCES cars(id) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL,
+    label       TEXT,
+    data_json   TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_discoveries_car ON module_discoveries(car_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS coding_findings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    car_id      INTEGER NOT NULL REFERENCES cars(id) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL,
+    module      TEXT,
+    tx          TEXT,
+    rx          TEXT,
+    did         INTEGER NOT NULL,
+    byte_index  INTEGER NOT NULL,
+    bit_mask    INTEGER NOT NULL DEFAULT 0,
+    before_hex  TEXT,
+    after_hex   TEXT,
+    description TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_findings_car ON coding_findings(car_id, created_at DESC);
 """
 
 

@@ -31,6 +31,7 @@ class CarsLayoutMixin:
     _on_share_btn_clicked: Callable[..., None]
     _on_list_select_trash_clicked: Callable[..., None]
     _on_merge_btn_clicked: Callable[..., None]
+    _open_car_lab: Callable[..., None]
     _on_photo_select_share_clicked: Callable[..., None]
     _open_rename_dialog: Callable[..., None]
     _open_upload_dialog: Callable[..., None]
@@ -171,6 +172,13 @@ class CarsLayoutMixin:
         self._detail_trash_btn.set_visible(False)
         self._detail_trash_handler: int | None = None
 
+        # Car Lab: read-only UDS diagnostics / function finder. Last icon in the row.
+        self._carlab_btn = Gtk.Button(icon_name="dp-carlab-symbolic")
+        self._carlab_btn.add_css_class("flat")
+        self._carlab_btn.set_visible(False)
+        self._carlab_btn.set_tooltip_text(_translate(self.language, "cars.carlab.title"))
+        self._carlab_btn.connect("clicked", lambda _b: self._open_car_lab())
+
         head.append(self._detail_back_btn)
         head.append(self._detail_title)
         head.append(self._add_live_vehicle_btn)
@@ -184,6 +192,7 @@ class CarsLayoutMixin:
         head.append(self._list_select_trash_btn)
         head.append(self._detail_merge_btn)
         head.append(self._detail_trash_btn)
+        head.append(self._carlab_btn)
         outer.append(head)
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 

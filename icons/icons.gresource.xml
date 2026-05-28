@@ -38,5 +38,6 @@
     <file alias="integral3-symbolic.svg">hicolor/symbolic/actions/integral3-symbolic.svg</file>
     <file alias="distance-symbolic.svg">hicolor/symbolic/actions/distance-symbolic.svg</file>
     <file alias="notepad-symbolic.svg">hicolor/symbolic/actions/notepad-symbolic.svg</file>
+    <file alias="dp-carlab-symbolic.svg">hicolor/symbolic/actions/dp-carlab-symbolic.svg</file>
   </gresource>
 </gresources>

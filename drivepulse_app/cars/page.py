@@ -16,6 +16,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk
 
 from drivepulse_app.cars.actions import CarsActionsMixin
+from drivepulse_app.cars.car_lab import CarsCarLabMixin
 from drivepulse_app.cars.detail_render import CarsDetailRenderMixin
 from drivepulse_app.cars.gestures import CarsGesturesMixin
 from drivepulse_app.cars.layout import CarsLayoutMixin
@@ -99,6 +100,7 @@ class CarsPage(
     CarsPhotosMixin,
     CarsShareActionsMixin,
     CarsVinFlowMixin,
+    CarsCarLabMixin,
     Gtk.Box,
 ):
     """Zweistufige Navigation: Fahrzeug-Liste → Werte-Detail."""
@@ -208,6 +210,14 @@ class CarsPage(
         # Invoked with a single argument: a callback that receives the
         # boolean success result on the GTK thread once Mode-04 finished.
         self.on_clear_dtcs: Callable[[Callable[[bool], None]], None] | None = None
+        # Car Lab (read-only UDS): set by the window. Run a module discovery or a
+        # single DID snapshot in a worker thread, reporting back on the GTK thread.
+        self.on_carlab_discover: Callable[[str, str, Callable[[dict], None]], None] | None = None
+        self.on_carlab_snapshot: (
+            Callable[[str, str, list[int], Callable[[dict], None]], None] | None
+        ) = None
+        self.on_carlab_mock_toggle: Callable[[], None] | None = None
+        self.on_carlab_scan: Callable[[Callable[[list], None]], None] | None = None
         self._drag_claimed = False
         self.get_sync_client: Any = None
         # Mock mode disables share/rename so demo data isn't pushed to peers.
@@ -678,6 +688,7 @@ class CarsPage(
         self._update_vin_refresh_visibility()
         self._update_rename_btn_visibility()
         self._update_merge_btn_visibility()
+        self._update_carlab_btn_visibility()
         self._update_live_add_button()
         self._update_category_visibility(source == self.LIVE_ID)
         self._render_detail()
@@ -896,6 +907,7 @@ class CarsPage(
             self._detail_share_btn.set_visible(self._is_sync_active() and self._detail_pushed)
         if hasattr(self, "_rename_btn"):
             self._update_rename_btn_visibility()
+        self._update_carlab_btn_visibility()
         self.refresh()
 
     def notify_sync_changed(self) -> None:
@@ -987,6 +999,7 @@ class CarsPage(
         self._update_trash_default()
         self._update_vin_refresh_visibility()
         self._update_rename_btn_visibility()
+        self._update_carlab_btn_visibility()
         # Entering the scans list with no scan picked yet → highlight the most
         # recent one so the green marker reflects a concrete entry.
         if (

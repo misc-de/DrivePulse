@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from drivepulse_app.db._base import _DriveDBBase
 from drivepulse_app.db._cars import CarsMixin
+from drivepulse_app.db._discoveries import DiscoveriesMixin
 from drivepulse_app.db._photos import PhotosMixin
 from drivepulse_app.db._samples import SamplesMixin
 from drivepulse_app.db._scans import ScansMixin
@@ -40,6 +41,7 @@ class DriveDB(
     PhotosMixin,
     SyncMixin,
     ToursMixin,
+    DiscoveriesMixin,
     _DriveDBBase,
 ):
     """Slim wrapper around ``sqlite3``."""
