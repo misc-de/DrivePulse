@@ -121,6 +121,47 @@ def nearest_route_progress(
     return best_i, route_cum_m[best_i]
 
 
+def next_actionable_step_idx(
+    steps: Sequence[dict[str, Any]],
+    idx: int,
+    non_actionable_types: Iterable[str],
+) -> int:
+    """Advance ``idx`` past consecutive non-actionable steps (but never past the last)."""
+    skip = set(non_actionable_types)
+    while idx < len(steps) - 1 and steps[idx].get("type") in skip:
+        idx += 1
+    return idx
+
+
+def maneuver_passed(
+    step_min_dist: float | None,
+    distance_m: float,
+    progress_m: float,
+    step_route_cum_m: float | None,
+    *,
+    closest_m: float,
+    pass_growth_m: float,
+) -> bool:
+    """Decide whether the active turn maneuver has been driven past.
+
+    Primary signal: the car got within ``closest_m`` of the maneuver and the
+    distance has since grown back past ``step_min_dist + pass_growth_m`` (a
+    closest-approach test that tolerates GPS noise). Route-progress fallback:
+    the maneuver is behind us once cumulative route progress passes the
+    maneuver's own route position by ``closest_m`` — used when the
+    closest-approach test hasn't fired yet. ``step_route_cum_m`` is ``None`` when
+    no route table entry is available, disabling the fallback.
+    """
+    passed = (
+        step_min_dist is not None
+        and step_min_dist <= closest_m
+        and distance_m > step_min_dist + pass_growth_m
+    )
+    if not passed and step_route_cum_m is not None and progress_m > step_route_cum_m + closest_m:
+        passed = True
+    return passed
+
+
 def waypoint_is_passed(
     gps_lat: float,
     gps_lon: float,
