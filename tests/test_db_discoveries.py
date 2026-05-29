@@ -70,3 +70,39 @@ def test_discoveries_and_findings_cascade_on_car_delete(db):
     db.delete_car(car_id)
     assert db.list_discoveries_for_car(car_id) == []
     assert db.list_findings_for_car(car_id) == []
+
+
+def test_save_scanned_modules_round_trips(db):
+    car_id = db.upsert_car(vin="V5")
+    db.save_scanned_modules(car_id, [
+        {"name": "engine", "tx": "7E0", "rx": "7E8"},
+        {"name": "instruments", "tx": "714", "rx": "77E"},
+    ])
+    rows = db.list_scanned_modules_for_car(car_id)
+    assert [r["name"] for r in rows] == ["engine", "instruments"]  # ordered by name
+    assert rows[0]["tx"] == "7E0" and rows[0]["rx"] == "7E8"
+
+
+def test_save_scanned_modules_replaces_previous_set(db):
+    car_id = db.upsert_car(vin="V6")
+    db.save_scanned_modules(car_id, [{"name": "engine", "tx": "7E0", "rx": "7E8"}])
+    db.save_scanned_modules(car_id, [{"name": "abs", "tx": "713", "rx": "77D"}])
+    rows = db.list_scanned_modules_for_car(car_id)
+    assert [r["name"] for r in rows] == ["abs"]
+
+
+def test_save_scanned_modules_skips_entries_without_address(db):
+    car_id = db.upsert_car(vin="V7")
+    db.save_scanned_modules(car_id, [
+        {"name": "engine", "tx": "7E0", "rx": "7E8"},
+        {"name": "bogus", "tx": "", "rx": ""},
+    ])
+    rows = db.list_scanned_modules_for_car(car_id)
+    assert [r["name"] for r in rows] == ["engine"]
+
+
+def test_scanned_modules_cascade_on_car_delete(db):
+    car_id = db.upsert_car(vin="V8")
+    db.save_scanned_modules(car_id, [{"name": "engine", "tx": "7E0", "rx": "7E8"}])
+    db.delete_car(car_id)
+    assert db.list_scanned_modules_for_car(car_id) == []

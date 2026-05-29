@@ -66,6 +66,38 @@ class DiscoveriesMixin:
             self._conn.execute("DELETE FROM module_discoveries WHERE id=?", (discovery_id,))
             self._conn.commit()
 
+    # --- scanned modules (which control units a scan found present) ---------
+
+    def save_scanned_modules(self, car_id: int, modules: list[dict[str, Any]]) -> None:
+        """Replace the set of modules a scan found present on *car_id*.
+
+        Each module is a ``{"name","tx","rx"}`` dict (as produced by the
+        reader's module scan). The previous set for this car is dropped so the
+        table always reflects the latest scan; the Car Lab's Discover/Functions
+        views read from here so they only offer confirmed-present modules.
+        """
+        now = datetime.now(UTC).isoformat()
+        with self._lock:
+            self._conn.execute("DELETE FROM scanned_modules WHERE car_id=?", (car_id,))
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO scanned_modules(car_id, name, tx, rx, last_seen)"
+                " VALUES(?,?,?,?,?)",
+                [
+                    (car_id, m["name"], m["tx"], m["rx"], now)
+                    for m in modules
+                    if m.get("tx") and m.get("rx")
+                ],
+            )
+            self._conn.commit()
+
+    def list_scanned_modules_for_car(self, car_id: int) -> list[sqlite3.Row]:
+        with self._lock:
+            return list(self._conn.execute(
+                "SELECT id, car_id, name, tx, rx, last_seen FROM scanned_modules"
+                " WHERE car_id=? ORDER BY name",
+                (car_id,),
+            ).fetchall())
+
     # --- coding findings ----------------------------------------------------
 
     def add_finding(self, car_id: int, finding: dict[str, Any]) -> int:

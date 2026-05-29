@@ -170,6 +170,17 @@ CREATE TABLE IF NOT EXISTS coding_findings (
     description TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_findings_car ON coding_findings(car_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS scanned_modules (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    car_id      INTEGER NOT NULL REFERENCES cars(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    tx          TEXT NOT NULL,
+    rx          TEXT NOT NULL,
+    last_seen   TEXT NOT NULL,
+    UNIQUE(car_id, tx, rx)
+);
+CREATE INDEX IF NOT EXISTS idx_scanned_modules_car ON scanned_modules(car_id);
 """
 
 

@@ -709,6 +709,7 @@
   "cars.carlab.scan.running": "Searching for modules …",
   "cars.carlab.scan.found": "{n} module(s) found – tap to read.",
   "cars.carlab.scan.none": "No modules found.",
+  "cars.carlab.needs_scan": "Run a scan under “Modules” first — the control units it finds will appear here.",
   "cars.carlab.nav.scan": "Modules",
   "cars.carlab.nav.discover": "Discover",
   "cars.carlab.nav.discoveries": "Saved",

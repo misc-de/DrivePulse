@@ -27,7 +27,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from drivepulse_app.common import LOG_DIR, _translate
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.obd.coding_diff import ByteChange, diff_snapshots, volatile_bytes
-from drivepulse_app.obd.uds import VAG_CODING_DID, candidate_modules
+from drivepulse_app.obd.uds import VAG_CODING_DID
 
 log = get_logger(__name__)
 
@@ -133,8 +133,18 @@ class CarsCarLabMixin:
         self.nav_view.push(page)
 
     def _carlab_candidates(self) -> dict[str, tuple[str, str]]:
-        """All probe-able module addresses keyed by name (not just VAG)."""
-        return {m.name: (m.tx, m.rx) for m in candidate_modules()}
+        """Modules a prior scan actually found on *this* car, keyed by name.
+
+        Discover and Find-functions operate only on confirmed-present modules,
+        so the user must run a scan first. (The scan itself probes the full
+        ``candidate_modules()`` address list — that happens in the window
+        worker via ``on_carlab_scan``, not here.)
+        """
+        out: dict[str, tuple[str, str]] = {}
+        if self.db is not None and self._selected_car_id is not None:
+            for row in self.db.list_scanned_modules_for_car(self._selected_car_id):
+                out[row["name"]] = (row["tx"], row["rx"])
+        return out
 
     def _carlab_module_dropdown(self) -> tuple[Gtk.DropDown, list[str]]:
         names = sorted(self._carlab_candidates())
@@ -147,6 +157,13 @@ class CarsCarLabMixin:
         lbl = Gtk.Label(xalign=0.0)
         lbl.set_wrap(True)
         lbl.set_margin_top(8)
+        lbl.add_css_class("dim-label")
+        return lbl
+
+    def _carlab_scan_hint(self) -> Gtk.Label:
+        """Shown in Discover/Functions when no scan has found any module yet."""
+        lbl = Gtk.Label(label=self._carlab_t("cars.carlab.needs_scan"), xalign=0.0)
+        lbl.set_wrap(True)
         lbl.add_css_class("dim-label")
         return lbl
 
@@ -212,12 +229,26 @@ class CarsCarLabMixin:
     def _on_carlab_nav_toggled(self, btn: Gtk.ToggleButton, stack: Gtk.Stack, name: str) -> None:
         if not btn.get_active():
             return
+        # Discover/Functions are gated on the latest scan results, so rebuild
+        # them on entry — a scan run just before may have changed the module set.
+        if name in ("discover", "find"):
+            self._carlab_rebuild_page(stack, name)
         stack.set_visible_child_name(name)
         # Data-driven views are rebuilt on entry so they stay current.
         if name == "discoveries":
             self._populate_discoveries()
         elif name == "findings":
             self._populate_findings()
+
+    def _carlab_rebuild_page(self, stack: Gtk.Stack, name: str) -> None:
+        """Replace a stack page with a freshly built one (picks up new state)."""
+        builder = {n: b for n, _i, _l, b in self._carlab_nav_items()}.get(name)
+        if builder is None:
+            return
+        old = stack.get_child_by_name(name)
+        if old is not None:
+            stack.remove(old)
+        stack.add_named(self._cl_scroller(builder()), name)
 
     def _open_car_lab(self) -> None:
         if self._selected_car_id is None:
@@ -303,6 +334,13 @@ class CarsCarLabMixin:
                 if not modules:
                     status.set_text(self._carlab_t("cars.carlab.scan.none"))
                     return
+                # Remember which modules answered so Discover/Functions can
+                # offer only confirmed-present units on this car.
+                if self.db is not None and self._selected_car_id is not None:
+                    try:
+                        self.db.save_scanned_modules(self._selected_car_id, modules)
+                    except Exception:
+                        log.exception("Could not save scanned modules")
                 status.set_text(self._carlab_t("cars.carlab.scan.found", n=len(modules)))
                 for m in modules:
                     name, tx, rx = m["name"], m["tx"], m["rx"]
@@ -348,6 +386,9 @@ class CarsCarLabMixin:
 
     def _build_discover(self) -> Gtk.Widget:
         box = self._carlab_page_box()
+        if not self._carlab_candidates():
+            box.append(self._carlab_scan_hint())
+            return box
         dropdown, names = self._carlab_module_dropdown()
         box.append(Gtk.Label(label=self._carlab_t("cars.carlab.module"), xalign=0.0))
         box.append(dropdown)
@@ -511,6 +552,9 @@ class CarsCarLabMixin:
 
     def _build_find_functions(self) -> Gtk.Widget:
         box = self._carlab_page_box()
+        if not self._carlab_candidates():
+            box.append(self._carlab_scan_hint())
+            return box
         dropdown, names = self._carlab_module_dropdown()
         box.append(Gtk.Label(label=self._carlab_t("cars.carlab.module"), xalign=0.0))
         box.append(dropdown)
