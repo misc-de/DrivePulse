@@ -13,6 +13,11 @@ from gi.repository import Gtk, Pango
 
 from drivepulse_app.common import SOURCE_LANGUAGE, _make_label_responsive, _normalize_language, _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.stopwatch._run_parsing import (
+    parse_range_results,
+    parse_run_samples,
+    parse_target_results,
+)
 from drivepulse_app.stopwatch.canvas import GForceCanvas
 
 log = get_logger(__name__)
@@ -726,49 +731,12 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self.start_monotonic = None
 
         # ── Targets ────────────────────────────────────────────────────────
-        new_results: dict[int, dict[str, float | None]] = {
-            target: {"obd": None, "gps": None} for target in self.SPEED_TARGETS_KMH
-        }
-        for key, val in (results_blob.get("targets") or {}).items():
-            try:
-                tgt = int(str(key))
-            except (TypeError, ValueError):
-                continue
-            if tgt not in new_results or not isinstance(val, dict):
-                continue
-            new_results[tgt] = {
-                "obd": val.get("obd") if isinstance(val.get("obd"), (int, float)) else None,
-                "gps": val.get("gps") if isinstance(val.get("gps"), (int, float)) else None,
-            }
-        self.results = new_results
-        self._saved_results = {k: dict(v) for k, v in new_results.items()}
+        self.results = parse_target_results(results_blob, self.SPEED_TARGETS_KMH)
+        self._saved_results = {k: dict(v) for k, v in self.results.items()}
 
         # ── Ranges (accept both "(100, 200)" tuple-repr and "100-200" forms)
-        new_ranges: dict[tuple[int, int], dict[str, float | None]] = {
-            r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH
-        }
-
-        def _parse_range_key(raw: str) -> tuple[int, int] | None:
-            s = str(raw).strip().lstrip("(").rstrip(")")
-            sep = "," if "," in s else ("-" if "-" in s else None)
-            if sep is None:
-                return None
-            try:
-                lo_s, hi_s = s.split(sep, 1)
-                return int(lo_s.strip()), int(hi_s.strip())
-            except (TypeError, ValueError):
-                return None
-
-        for key, val in (results_blob.get("ranges") or {}).items():
-            parsed = _parse_range_key(key)
-            if parsed is None or parsed not in new_ranges or not isinstance(val, dict):
-                continue
-            new_ranges[parsed] = {
-                "obd": val.get("obd") if isinstance(val.get("obd"), (int, float)) else None,
-                "gps": val.get("gps") if isinstance(val.get("gps"), (int, float)) else None,
-            }
-        self.range_results = new_ranges
-        self._saved_range_results = {k: dict(v) for k, v in new_ranges.items()}
+        self.range_results = parse_range_results(results_blob, self.RANGE_TARGETS_KMH)
+        self._saved_range_results = {k: dict(v) for k, v in self.range_results.items()}
 
         # ── Vmax + max-g ─────────────────────────────────────────────────
         self._saved_vmax_obd = results_blob.get("max_obd_kmh")
@@ -782,24 +750,7 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self.max_g = results_blob.get("max_g")
 
         # ── Samples ──────────────────────────────────────────────────────
-        triplets: list[tuple[float, float | None, float]] = []
-        for s in samples_blob:
-            if isinstance(s, dict):
-                ts = s.get("ts") or s.get("elapsed")
-                active_g = s.get("accel_g") or s.get("active_g")
-                lat_g = s.get("lateral_g", 0.0) or 0.0
-                if ts is None:
-                    continue
-                try:
-                    triplets.append((float(ts), None if active_g is None else float(active_g), float(lat_g)))
-                except (TypeError, ValueError):
-                    continue
-            elif isinstance(s, (list, tuple)) and len(s) >= 3:
-                try:
-                    triplets.append((float(s[0]), None if s[1] is None else float(s[1]), float(s[2])))
-                except (TypeError, ValueError):
-                    continue
-        self._run_samples = triplets
+        self._run_samples = parse_run_samples(samples_blob)
 
         # Persisted runs are immutable from the StopWatch perspective.
         self._run_persisted = True
