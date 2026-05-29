@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -815,7 +816,16 @@ class DashcamPage(Gtk.Box):
         self._do_save_event()
 
     def _do_save_event(self) -> None:
-        saved = self._recorder.save_event()
+        # Copy the segments on a worker thread: doing it inline blocks the GLib
+        # main loop for the duration of copying up to two multi-MB segments,
+        # freezing the live preview and the whole UI mid-recording.
+        def _worker() -> None:
+            saved = self._recorder.save_event()
+            GLib.idle_add(self._on_event_saved, saved)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_event_saved(self, saved: list[Path]) -> bool:
         self._update_status()
         if saved:
             msg = _translate(self.language, "dashcam.event.saved").format(n=len(saved))
@@ -824,6 +834,7 @@ class DashcamPage(Gtk.Box):
         root = self.get_root()
         if root is not None and hasattr(root, "add_toast"):
             root.add_toast(Adw.Toast.new(msg))
+        return False
 
     # ── Recorder callbacks ────────────────────────────────────────────────────
 
