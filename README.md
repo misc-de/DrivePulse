@@ -279,8 +279,11 @@ nonprofit and government use); commercial use requires a separate license
 from the copyright holder.
 
 Note: `python-OBD` (GPL v2) is an **optional** dependency
-(`pip install drivepulse[obd]`), preferred when present but never bundled.
-Without it, DrivePulse uses its own GPL-free native ELM327 backend, so
-distributable builds (e.g. the Flatpak) stay clear of GPL copyleft under this
-noncommercial license. See [CREDITS.md](CREDITS.md) for all third-party
-licenses and attributions.
+(`pip install drivepulse[obd]`), preferred when present but never bundled — it
+is the only GPL **library** DrivePulse would link into its own process, which
+is what would impose copyleft on the combined work. Without it, DrivePulse uses
+its own GPL-free native ELM327 backend, so distributable builds (e.g. the
+Flatpak) stay clear of GPL copyleft under this noncommercial license. The GPL
+**command-line tools** DrivePulse can use (eSpeak NG, `v4l2-ctl`) are invoked
+arm's-length as separate processes and impose no copyleft. See
+[CREDITS.md](CREDITS.md) for all third-party licenses and attributions.
