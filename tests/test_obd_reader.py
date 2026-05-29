@@ -222,7 +222,9 @@ def test_connect_uses_configured_obd_parameters(monkeypatch, drivepulse_module, 
     from drivepulse_app.obd import reader as obd_reader
 
     connection = _Connection(True)
-    monkeypatch.setattr(obd_reader, "obd", _fake_obd_module([connection]))
+    fake_obd = _fake_obd_module([connection])
+    monkeypatch.setattr(obd_reader, "obd", fake_obd)
+    monkeypatch.setattr(obd_reader, "obd_backend", fake_obd)
     monkeypatch.setattr(obd_reader, "OBD_PORT", "/dev/rfcomm0")
     monkeypatch.setattr(obd_reader, "OBD_BAUDRATE", 38400)
     monkeypatch.setattr(obd_reader, "OBD_TIMEOUT_SECONDS", 3.0)
@@ -257,6 +259,7 @@ def test_read_obd_collects_values_and_error_counts(monkeypatch, drivepulse_modul
     fake_obd = _fake_obd_module([])
     fake_obd.commands.SPEED = "bad"
     monkeypatch.setattr(obd_reader, "obd", fake_obd)
+    monkeypatch.setattr(obd_reader, "obd_backend", fake_obd)
 
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.connection = _Connection(True)
@@ -274,6 +277,7 @@ def test_read_obd_reuses_cached_slow_values_between_fast_polls(monkeypatch, driv
 
     fake_obd = _fake_obd_module([])
     monkeypatch.setattr(obd_reader, "obd", fake_obd)
+    monkeypatch.setattr(obd_reader, "obd_backend", fake_obd)
     # Values consumed by: ObdReader.__init__ (_last_motion_monotonic),
     # then one per _read_obd call.
     times = iter([100.0, 100.5, 101.0])

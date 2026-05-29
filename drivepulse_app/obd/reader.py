@@ -44,6 +44,17 @@ from drivepulse_app.obd.polling import (
 from drivepulse_app.obd.scanner import ObdScanner
 from drivepulse_app.sensors.bluetooth import BluetoothPtyBridge
 
+try:
+    from drivepulse_app.obd import native as _native
+except Exception:
+    _native = None  # type: ignore[assignment]
+
+# Backend selection: prefer python-OBD when installed (richer PID/protocol
+# coverage), otherwise fall back to the GPL-free native ELM327 driver. python-OBD
+# is an optional dependency that is deliberately never bundled, keeping the
+# PolyForm Noncommercial license clear of GPL copyleft. See CREDITS.md.
+obd_backend = obd if obd is not None else _native
+
 log = get_logger(__name__)
 
 
@@ -117,13 +128,13 @@ class ObdReader(GObject.Object):
         self._mock_simulator = MockObdSimulator()
         # Simulated UDS module for the Car Lab when no real adapter is present.
         self._mock_uds = MockUdsSimulator()
-        if obd is None:
-            self.mock_reason = "python-obd missing"
+        if obd_backend is None:
+            self.mock_reason = "kein OBD-Backend verfügbar"
         elif force_mock:
             self.mock_reason = "Manually enabled"
         else:
             self.mock_reason = ""
-        self.mock = obd is None or force_mock
+        self.mock = obd_backend is None or force_mock
 
     def set_obd_log_enabled(self, enabled: bool) -> None:
         self._obd_log_enabled = enabled
@@ -182,7 +193,7 @@ class ObdReader(GObject.Object):
                 "baudrate": OBD_BAUDRATE if OBD_BAUDRATE is not None else 38400,
             }
             self._connection_log("connect_attempt", port=bridge.pty_path, bt_addr=addr, **connect_kwargs)
-            self.connection = obd.OBD(bridge.pty_path, **connect_kwargs)
+            self.connection = obd_backend.OBD(bridge.pty_path, **connect_kwargs)
             connected = bool(self.connection and self.connection.is_connected())
             self._connection_log("connect_result", port=bridge.pty_path, bt_addr=addr, connected=connected)
             if connected:
@@ -242,8 +253,8 @@ class ObdReader(GObject.Object):
             self.mock_reason = "Manually enabled"
         else:
             self._force_reconnect = True
-            if obd is None:
-                self.mock_reason = "python-obd missing"
+            if obd_backend is None:
+                self.mock_reason = "kein OBD-Backend verfügbar"
             else:
                 self.mock_reason = ""
 
@@ -311,9 +322,9 @@ class ObdReader(GObject.Object):
             },
         )
 
-        if obd is None:
+        if obd_backend is None:
             self.mock = True
-            self.mock_reason = "python-obd nicht importierbar"
+            self.mock_reason = "kein OBD-Backend verfügbar"
             self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
             return
 
@@ -335,7 +346,7 @@ class ObdReader(GObject.Object):
                                 "baudrate": OBD_BAUDRATE if OBD_BAUDRATE is not None else 38400,
                             }
                             self._connection_log("connect_attempt", port=dev, bt_addr=addr, **connect_kwargs)
-                            self.connection = obd.OBD(dev, **connect_kwargs)
+                            self.connection = obd_backend.OBD(dev, **connect_kwargs)
                             connected = bool(self.connection and self.connection.is_connected())
                             self._connection_log("connect_result", port=dev, bt_addr=addr, connected=connected,
                                                  status=str(getattr(self.connection, "status", lambda: "unknown")()))
@@ -373,7 +384,7 @@ class ObdReader(GObject.Object):
                         elif is_rfcomm:
                             connect_kwargs["baudrate"] = 38400
                         self._connection_log("connect_attempt", port=self._configured_port, **connect_kwargs)
-                        self.connection = obd.OBD(self._configured_port, **connect_kwargs)
+                        self.connection = obd_backend.OBD(self._configured_port, **connect_kwargs)
                         connected = bool(self.connection and self.connection.is_connected())
                         self._connection_log("connect_result", port=self._configured_port, connected=connected,
                                              status=str(getattr(self.connection, "status", lambda: "unknown")()))
@@ -411,7 +422,7 @@ class ObdReader(GObject.Object):
                 if OBD_BAUDRATE is not None:
                     connect_kwargs["baudrate"] = OBD_BAUDRATE
                 self._connection_log("connect_attempt", port=port, **connect_kwargs)
-                self.connection = obd.OBD(port, **connect_kwargs)
+                self.connection = obd_backend.OBD(port, **connect_kwargs)
                 connected = bool(self.connection and self.connection.is_connected())
                 self._connection_log(
                     "connect_result",
@@ -459,9 +470,9 @@ class ObdReader(GObject.Object):
         responsible for confirming the action with the user before
         invoking this method.
         """
-        if obd is None or self.connection is None or self.mock:
+        if obd_backend is None or self.connection is None or self.mock:
             return False
-        cmd = getattr(obd.commands, "CLEAR_DTC", None)
+        cmd = getattr(obd_backend.commands, "CLEAR_DTC", None)
         if cmd is None:
             return False
         try:
@@ -487,7 +498,7 @@ class ObdReader(GObject.Object):
         """
         from drivepulse_app.obd.uds import UdsClient
 
-        if obd is None or self.connection is None or self.mock:
+        if obd_backend is None or self.connection is None or self.mock:
             return None
         port = _serial_port(self.connection)
         if port is None:
@@ -582,7 +593,7 @@ class ObdReader(GObject.Object):
         candidates = candidate_modules()
         if self.mock:
             return self._mock_uds.scan_modules(candidates)
-        if obd is None or self.connection is None:
+        if obd_backend is None or self.connection is None:
             return []
         port = _serial_port(self.connection)
         if port is None:
@@ -616,7 +627,7 @@ class ObdReader(GObject.Object):
         is not blocked. The scan can take 30+ seconds over Bluetooth; running it
         asynchronously lets gauges update within the first poll cycle after
         connect instead of after the full scan."""
-        if obd is None or self.connection is None or self.mock:
+        if obd_backend is None or self.connection is None or self.mock:
             return
         if self._scan_thread is not None and self._scan_thread.is_alive():
             return  # a scan is already in progress
@@ -635,7 +646,7 @@ class ObdReader(GObject.Object):
                     query_locked=self._query_locked,
                     yield_between_queries=0.04,
                     stop_event=self.stop_event,
-                    obd_module=obd,
+                    obd_module=obd_backend,
                     raw_send_locked=self._send_raw_locked,
                     adapter_info=adapter_info,
                 ).run()
@@ -690,7 +701,7 @@ class ObdReader(GObject.Object):
             time.sleep(POLL_INTERVAL_SECONDS)
 
     def _maybe_reconnect_from_mock(self) -> None:
-        if self.force_mock or not self.mock or obd is None:
+        if self.force_mock or not self.mock or obd_backend is None:
             return
 
         now = time.monotonic()
@@ -727,7 +738,7 @@ class ObdReader(GObject.Object):
         self._run_vehicle_scan()
 
     def _read_obd(self) -> dict[str, Any]:
-        assert obd is not None
+        assert obd_backend is not None
         assert self.connection is not None
         if self._diagnostic_active:
             # Bus is owned by a UDS session; serve the last known values.
@@ -747,7 +758,7 @@ class ObdReader(GObject.Object):
         """
         from drivepulse_app.obd.adapter import _MODE1_DECODE, batch_query_stpx
 
-        commands = command_map(obd)
+        commands = command_map(obd_backend)
         name_to_key = {attr: key for key, attr in OBD_COMMAND_ATTRS}
 
         data: dict[str, Any] = {}
@@ -793,7 +804,7 @@ class ObdReader(GObject.Object):
                 if mapped_key == "speed":
                     self._note_speed_for_idle(value, now)
             # Demote any due PID the adapter didn't answer to a single query.
-            for pid, key in due_batch.items():
+            for key in due_batch.values():
                 if key not in answered:
                     due_single.append((key, commands[key]))
 
@@ -817,10 +828,10 @@ class ObdReader(GObject.Object):
         return data
 
     def _read_obd_single(self) -> dict[str, Any]:
-        assert obd is not None
+        assert obd_backend is not None
         assert self.connection is not None
 
-        commands = command_map(obd)
+        commands = command_map(obd_backend)
 
         data: dict[str, Any] = {}
         command_count = 0

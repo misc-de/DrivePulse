@@ -48,7 +48,7 @@ sudo apt install \
   gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gdkpixbuf-2.0 \
   python3-pip
 
-pip install --user obd pyserial requests cryptography
+pip install --user pyserial requests cryptography
 ```
 
 ### Optional packages
@@ -61,8 +61,10 @@ pip install --user obd pyserial requests cryptography
 | `espeak-ng` | `sudo apt install espeak-ng` | Voice navigation (simple, always works) |
 | `piper-tts` | `pip install --user piper-tts` | Voice navigation (natural neural voices, recommended) |
 | `alsa-utils` | `sudo apt install alsa-utils` | Audio playback for piper (`aplay`) |
+| `obd` (python-OBD) | `pip install --user 'drivepulse[obd]'` | Richer PID/protocol coverage — preferred when present, otherwise the GPL-free native ELM327 backend is used |
 
 > For maps to work, at least one of WebKit 6 or Shumate must be installed. Voice guidance stays silent if neither espeak-ng nor piper is found.
+> `python-OBD` (GPL v2) is optional and never bundled; without it DrivePulse drives the dongle through its own native ELM327 backend.
 
 ### GPS
 
@@ -271,4 +273,14 @@ python -m pytest tests/
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+PolyForm Noncommercial 1.0.0 — see [LICENSE](LICENSE). Free for any
+noncommercial purpose (personal use, hobby projects, education, research,
+nonprofit and government use); commercial use requires a separate license
+from the copyright holder.
+
+Note: `python-OBD` (GPL v2) is an **optional** dependency
+(`pip install drivepulse[obd]`), preferred when present but never bundled.
+Without it, DrivePulse uses its own GPL-free native ELM327 backend, so
+distributable builds (e.g. the Flatpak) stay clear of GPL copyleft under this
+noncommercial license. See [CREDITS.md](CREDITS.md) for all third-party
+licenses and attributions.
