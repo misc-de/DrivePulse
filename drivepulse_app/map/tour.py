@@ -12,6 +12,13 @@ from gi.repository import Gtk as _Gtk
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map._jsbridge import js_call
+from drivepulse_app.map._tour_progress import (
+    build_maneuver_positions,
+    build_speed_zones,
+    compute_route_progress_tables,
+    nearest_route_progress,
+    tts_distance_text,
+)
 from drivepulse_app.map.services import (
     bearing,
     compute_route,
@@ -20,7 +27,6 @@ from drivepulse_app.map.services import (
     haversine,
     maneuver_icon,
     maneuver_text_key,
-    mock_speed_kmh,
     osrm_route,
 )
 from drivepulse_app.tts import service as tts_service
@@ -395,23 +401,9 @@ class MapTourMixin:
           derived from OSRM's per-step `distance` so it stays correct even
           when the step's coordinate is slightly offset from the geometry.
         """
-        self._route_cum_m = []
-        self._step_cum_m = []
-        if self._tour_coords:
-            self._route_cum_m.append(0.0)
-            for i in range(1, len(self._tour_coords)):
-                a = self._tour_coords[i - 1]
-                b = self._tour_coords[i]
-                # coords are [lon, lat]
-                seg = haversine(a[1], a[0], b[1], b[0])
-                self._route_cum_m.append(self._route_cum_m[-1] + seg)
-        if self._tour_steps:
-            cum = 0.0
-            for step in self._tour_steps:
-                # Maneuver k sits at the START of step k.  So its position
-                # along the route is the cumulative distance of steps 0..k-1.
-                self._step_cum_m.append(cum)
-                cum += float(step.get("distance") or 0.0)
+        self._route_cum_m, self._step_cum_m = compute_route_progress_tables(
+            self._tour_coords, self._tour_steps
+        )
 
     def _build_speed_zones(self) -> list[tuple[float, float]]:
         """Build (cum_dist_m, speed_kmh) breakpoints.
@@ -420,20 +412,7 @@ class MapTourMixin:
         ref-tag heuristic (A* → 120, B* → 70, urban → 40) so the sign is
         always shown during mock-mode tours where Valhalla data may be absent.
         """
-        if not self._tour_steps or not self._step_cum_m:
-            return []
-        zones: list[tuple[float, float]] = []
-        prev_speed: float | None = None
-        for i, step in enumerate(self._tour_steps):
-            if "speed_limit" in step:
-                speed = float(step["speed_limit"])
-            else:
-                speed = mock_speed_kmh(step.get("ref") or "")
-            if speed != prev_speed:
-                cum = self._step_cum_m[i] if i < len(self._step_cum_m) else 0.0
-                zones.append((cum, speed))
-                prev_speed = speed
-        return zones
+        return build_speed_zones(self._tour_steps, self._step_cum_m)
 
     def _start_overpass_speed_fetch(self) -> None:
         """Kick off a background thread that pre-fetches per-segment speed limits."""
@@ -472,13 +451,7 @@ class MapTourMixin:
     def _build_maneuver_positions(self) -> list[float]:
         """Return cumulative distances (m) for each actionable turn maneuver."""
         skip = self._NON_ACTIONABLE_STEP_TYPES | {"depart", "arrive"}
-        positions: list[float] = []
-        for i, step in enumerate(self._tour_steps):
-            if step.get("type", "") in skip:
-                continue
-            if i < len(self._step_cum_m):
-                positions.append(self._step_cum_m[i])
-        return positions
+        return build_maneuver_positions(self._tour_steps, self._step_cum_m, skip)
 
     def _gps_progress_m(self) -> float:
         """Return how far the GPS fix has progressed along the route, in m.
@@ -498,18 +471,12 @@ class MapTourMixin:
             or self._gps_lon is None
         ):
             return 0.0
-        best_i = self._gps_route_idx
-        best_d = float("inf")
-        for i in range(self._gps_route_idx, len(self._tour_coords)):
-            coord = self._tour_coords[i]
-            dx = coord[0] - self._gps_lon
-            dy = coord[1] - self._gps_lat
-            d = dx * dx + dy * dy
-            if d < best_d:
-                best_d = d
-                best_i = i
+        best_i, cum_m = nearest_route_progress(
+            self._tour_coords, self._route_cum_m,
+            self._gps_lon, self._gps_lat, self._gps_route_idx,
+        )
         self._gps_route_idx = best_i
-        return self._route_cum_m[best_i]
+        return cum_m
 
     def _update_maneuver_overlay(self) -> None:
         if self._maneuver_overlay is None:
@@ -644,11 +611,7 @@ class MapTourMixin:
         return self.language if self.language in {"en", "de"} else "en"
 
     def _tts_distance_text(self, meters: float, lang: str) -> str:
-        if meters < 950:
-            n = int(round(meters / 10) * 10) or 10
-            return _translate(lang, "tts.distance.m").format(n=n)
-        km = round(meters / 1000, 1)
-        return _translate(lang, "tts.distance.km").format(n=km)
+        return tts_distance_text(meters, lang)
 
     def _update_speed_zone_overlay(self) -> None:
         if self._speed_zone_overlay is None or self._speed_zone_lbl is None:
