@@ -299,6 +299,44 @@ class CarsLayoutMixin:
             self.category_list.append(row)
             self._cat_rows.append(row)
 
+        # One blank line of vertical space separating the OBD data categories
+        # from the Car Lab dongle entry that sits below them.
+        carlab_gap_row = Gtk.ListBoxRow()
+        carlab_gap_row.set_selectable(False)
+        carlab_gap_row.set_activatable(False)
+        gap = Gtk.Box()
+        gap.set_size_request(-1, 18)
+        carlab_gap_row.set_child(gap)
+        self.category_list.append(carlab_gap_row)
+        self._carlab_sidebar_gap_row = carlab_gap_row
+
+        # Car Lab launcher: a dongle icon below the OBD data, mirroring the
+        # header Car-Lab button's availability via _update_carlab_btn_visibility.
+        carlab_row = Gtk.ListBoxRow()
+        carlab_row.set_selectable(False)
+        carlab_row.set_activatable(False)
+        carlab_btn = Gtk.Button()
+        carlab_btn.add_css_class("flat")
+        carlab_btn.set_tooltip_text(_translate(self.language, "cars.carlab.title"))
+        carlab_btn.connect("clicked", lambda _b: self._open_car_lab())
+        cl_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        cl_hbox.set_margin_top(8)
+        cl_hbox.set_margin_bottom(8)
+        cl_hbox.set_margin_start(8)
+        cl_hbox.set_margin_end(8)
+        cl_icon = Gtk.Image.new_from_icon_name("dp-dongle-symbolic")
+        cl_icon.set_pixel_size(18)
+        cl_hbox.append(cl_icon)
+        cl_lbl = Gtk.Label(label=_translate(self.language, "cars.carlab.title"), xalign=0.0)
+        cl_lbl.set_hexpand(True)
+        cl_hbox.append(cl_lbl)
+        carlab_btn.set_child(cl_hbox)
+        carlab_row.set_child(carlab_btn)
+        self._carlab_sidebar_row = carlab_row
+        self._carlab_sidebar_label = cl_lbl
+        self._carlab_sidebar_hbox = cl_hbox
+        self.category_list.append(carlab_row)
+
         cat_scroll = Gtk.ScrolledWindow()
         cat_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         cat_scroll.set_vexpand(True)
@@ -466,3 +504,10 @@ class CarsLayoutMixin:
                 lbl.set_visible(not narrow)
             if hbox is not None:
                 hbox.set_halign(Gtk.Align.CENTER if narrow else Gtk.Align.FILL)
+        # Car Lab dongle launcher follows the same collapse behaviour.
+        cl_lbl = getattr(self, "_carlab_sidebar_label", None)
+        cl_hbox = getattr(self, "_carlab_sidebar_hbox", None)
+        if cl_lbl is not None:
+            cl_lbl.set_visible(not narrow)
+        if cl_hbox is not None:
+            cl_hbox.set_halign(Gtk.Align.CENTER if narrow else Gtk.Align.FILL)
