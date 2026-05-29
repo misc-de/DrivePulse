@@ -45,6 +45,7 @@ from drivepulse_app.sensors.rotation import RotationProvider
 from drivepulse_app.sensors.rotation import Source as RotationSource
 from drivepulse_app.trip_recorder import TripRecorder
 from drivepulse_app.ui.rotated_container import RotatedContainer
+from drivepulse_app.ui.scaled_container import ScaledContainer
 
 
 class DashboardWindow(
@@ -510,7 +511,12 @@ class DashboardWindow(
         main_page.set_child(toolbar_view)
         self.nav_view = Adw.NavigationView()
         self.nav_view.add(main_page)
-        self.set_content(self.nav_view)
+        # Wrap the whole UI in a scaler so the Display-size setting can shrink
+        # the entire app (icons, spacing, images and text) with real reflow.
+        self._scale_container = ScaledContainer()
+        self._scale_container.set_child(self.nav_view)
+        self._scale_container.set_scale(self.ui_scale / 100)
+        self.set_content(self._scale_container)
         self._install_form_factor_breakpoint()
         # Initial sync: breakpoint apply/unapply only fires on transitions, so
         # apply current form_factor state to dependents that were constructed
