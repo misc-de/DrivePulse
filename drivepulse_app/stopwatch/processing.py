@@ -47,6 +47,7 @@ class StopWatchProcessingMixin:
     _lateral_g: float
     _gforce_trigger: bool
     _raw_g_dev: float
+    _raw_gforce_active: bool
     _run_samples: list[tuple[float, float | None, float]]
     armed: bool
     running: bool
@@ -116,7 +117,9 @@ class StopWatchProcessingMixin:
         # measurement state — they show "right now", not measurement data.
         active_g = measured_g if measured_g is not None else self.computed_acceleration_g
         self._set_g_text(active_g)
-        if active_g is not None or gps_speed is not None or obd_speed is not None:
+        # A physical accelerometer (update_gforce_raw) drives the canvas directly
+        # when present; only fall back to OBD/GPS-derived values otherwise.
+        if not self._raw_gforce_active and (active_g is not None or gps_speed is not None or obd_speed is not None):
             # Y axis: longitudinal G (positive = forward acceleration)
             # X axis: lateral G (positive = right turn, computed via heading delta)
             self.gforce_canvas.update_g(self._lateral_g, active_g if active_g is not None else 0.0, 1.0)

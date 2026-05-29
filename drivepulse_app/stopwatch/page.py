@@ -84,6 +84,11 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._vmax_name_lbl: Any = None
         self._gforce_trigger: bool = False
         self._raw_g_dev: float = 0.0
+        # True once a physical accelerometer has delivered a sample. While set,
+        # the live G-force canvas is driven by the raw sensor (see
+        # update_gforce_raw) instead of the OBD/GPS-derived values, so the bubble
+        # reflects real forces and is active even before a run is started.
+        self._raw_gforce_active: bool = False
         self._engage_since:    float | None = None
         self._prestart_since:  float | None = None
         self._engage_threshold: float = self.G_ENGAGE_THRESHOLD
@@ -117,12 +122,9 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH
         }
 
-        # Live longitudinal-G readout above the canvas. Updated by _set_g_text on
-        # every payload regardless of measurement state, so the G display is
-        # present even before a run has been started.
         self.g_label = Gtk.Label()
-        self.g_label.add_css_class("title-1")
-        self.g_label.set_halign(Gtk.Align.CENTER)
+        self.g_label.add_css_class("title-2")
+        self.g_label.set_halign(Gtk.Align.END)
         self.g_label.set_hexpand(True)
 
         self.status_label = _make_label_responsive(Gtk.Label(label=""), 42)
@@ -236,12 +238,8 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self.gforce_box.set_vexpand(True)
         self.gforce_box.set_halign(Gtk.Align.FILL)
         self.gforce_box.set_valign(Gtk.Align.FILL)
-        self.gforce_box.append(self.g_label)
         self.gforce_box.append(self.maxes_label)
         self.gforce_box.append(self.gforce_canvas)
-        # Seed the live readout so the G display reads as present (not blank)
-        # before any payload arrives.
-        self._set_g_text(None)
 
         # Results table: always render at natural height so every row stays
         # visible; other widgets adapt to whatever space is left.
@@ -847,9 +845,19 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self.status_label.set_text(_translate(self.language, "stopwatch.saved"))
 
     def update_gforce_raw(self, x_g: float, y_g: float, z_g: float) -> None:
-        """Compute _raw_g_dev for start-detection. Canvas is driven by update_payload only."""
+        """Feed the live accelerometer into the G-force canvas and compute
+        _raw_g_dev for start-detection.
+
+        The canvas colour logic expects a full 3-axis vector with ~1g of gravity
+        on z (deviation from 1g drives the colour), which is exactly what the
+        sensor provides — so the bubble shows real forces and stays active even
+        before a run is started. Once a sample arrives, this takes over from the
+        OBD/GPS-derived canvas update in ``update_payload``."""
+        self._raw_gforce_active = True
         mag = math.sqrt(x_g ** 2 + y_g ** 2 + z_g ** 2)
         self._raw_g_dev = abs(mag - 1.0)
+        # X = lateral (right positive), Y = longitudinal (forward positive).
+        self.gforce_canvas.update_g(x_g, y_g, z_g)
 
     def _on_gforce_trigger_toggled(self, btn: Gtk.CheckButton) -> None:
         self._gforce_trigger = btn.get_active()
