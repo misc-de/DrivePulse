@@ -64,9 +64,25 @@ def test_reader_scan_modules_in_mock_mode(monkeypatch, drivepulse_module):
     monkeypatch.setattr(obd_reader, "obd", _types.SimpleNamespace())
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.mock = True
+    reader.force_mock = True
     found = reader.scan_modules()
     assert any(m["tx"] == "7E0" for m in found)
     assert all({"name", "tx", "rx"} <= set(m) for m in found)
+
+
+def test_reader_scan_modules_no_dongle_fallback_finds_nothing(monkeypatch, drivepulse_module):
+    """Auto mock-fallback (no dongle, mock not explicitly chosen) must not
+    fabricate modules — it has no real bus to probe."""
+    import types as _types
+
+    from drivepulse_app.obd import reader as obd_reader
+    monkeypatch.setattr(obd_reader, "obd", _types.SimpleNamespace())
+    reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader.mock = True
+    reader.force_mock = False
+    assert reader.scan_modules() == []
+    assert reader.discover_module("714", "77E") == {}
+    assert reader.uds_snapshot("714", "77E", [VAG_CODING_DID]) == {}
 
 
 def test_reader_uses_mock_uds_when_in_mock_mode(monkeypatch, drivepulse_module):
@@ -75,6 +91,7 @@ def test_reader_uses_mock_uds_when_in_mock_mode(monkeypatch, drivepulse_module):
     monkeypatch.setattr(obd_reader, "obd", types.SimpleNamespace())
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.mock = True  # no real adapter
+    reader.force_mock = True  # explicit mock mode → simulator serves data
 
     snap = reader.uds_snapshot("714", "77E", [VAG_CODING_DID])
     assert VAG_CODING_DID in snap
