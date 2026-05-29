@@ -16,7 +16,7 @@ class DashboardThemingMixin:
     theme_mode: str
     gauge_theme: str
     ui_scale: int
-    _base_xft_dpi: int
+    _scale_container: Any
     _theme_css_provider: Gtk.CssProvider
     _nav_rotation_css: Gtk.CssProvider
     _light_palette_css: Gtk.CssProvider
@@ -50,9 +50,6 @@ class DashboardThemingMixin:
     )
 
     def _on_realize_install_css(self, *_args: Any) -> None:
-        # Capture the unscaled font DPI before applying any UI scale so 100 %
-        # restores the exact system baseline (incl. HiDPI text scaling).
-        self._apply_ui_scale(getattr(self, "ui_scale", 100))
         display = self.get_display()
         Gtk.StyleContext.add_provider_for_display(
             display, self._theme_css_provider,
@@ -86,22 +83,15 @@ class DashboardThemingMixin:
         )
 
     def _apply_ui_scale(self, scale: int) -> None:
-        """Shrink/restore the whole UI by scaling the global font DPI.
+        """Shrink/restore the whole UI via the ScaledContainer wrapping nav_view.
 
-        100 % keeps the captured system baseline; lower values shrink text and
-        the Adwaita widget metrics that derive from it, so more content fits
-        (50 % ≈ double the content per axis). Uses ``gtk-xft-dpi`` — the same
-        lever GNOME's text-scaling uses — so the change is live and reversible.
+        100 % renders natively; lower values scale the entire rendered subtree —
+        icons, spacing, images and text — with real reflow, so more content fits
+        (50 % ≈ double the content per axis).
         """
-        settings = Gtk.Settings.get_default()
-        if settings is None:
-            return
-        # Latch the baseline once, before the first scaling write touches it.
-        if not hasattr(self, "_base_xft_dpi"):
-            current = int(settings.get_property("gtk-xft-dpi"))
-            self._base_xft_dpi = current if current > 0 else 96 * 1024
-        factor = max(25, min(100, int(scale))) / 100.0
-        settings.set_property("gtk-xft-dpi", int(self._base_xft_dpi * factor))
+        container = getattr(self, "_scale_container", None)
+        if container is not None:
+            container.set_scale(max(25, min(100, int(scale))) / 100)
 
     def _apply_theme_mode(self, mode: str) -> None:
         manager = Adw.StyleManager.get_default()
