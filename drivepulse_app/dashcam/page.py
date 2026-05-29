@@ -234,11 +234,24 @@ class DashcamPage(Gtk.Box):
         self._dim_remaining: int = _DIM_DEFAULT_S
         self._lock_visible:  bool = False
         self._is_landscape:  bool = False
+        # Desktop groups the control buttons left-aligned (like the tour
+        # top-nav); mobile keeps them spread across the full bar width.
+        self._form_factor:   str = "desktop"
+        self._ui_angle:      int = 0
 
         # widget lists kept in sync across portrait/landscape layouts
         self._toggle_btns: list[Gtk.Button] = []
         self._save_btns:   list[Gtk.Button] = []
-        self._clips_btns:  list[Gtk.MenuButton] = []
+        self._clips_btns:  list[Gtk.Button] = []
+        self._btn_row: Gtk.Box | None = None
+        # Events are shown as a navigation sub-page (not a popover).
+        self._nav_view: Adw.NavigationView | None = None
+        self._events_page: Adw.NavigationPage | None = None
+        # Desktop top-nav (built in _build_ui); mirrors the bottom-bar functions.
+        self._desktop_topnav: Gtk.Box | None = None
+        self._desktop_toggle_btn: Gtk.Button | None = None
+        self._desktop_toggle_img: Gtk.Image | None = None
+        self._desktop_toggle_lbl: Gtk.Label | None = None
 
         self._build_ui()
         self._update_status()
@@ -255,20 +268,26 @@ class DashcamPage(Gtk.Box):
                 b".dp-dashcam-page{background:#000000;color:#ffffff;}"
                 b".dc-black-bg{background:#000000;color:#ffffff;}"
                 b".dc-bottom { background: rgba(50,50,50,0.78); padding: 10px 14px 14px 14px; border-radius: 14px 14px 0 0; }"
+                # Gray backdrop for the Events sub-page (matches the control bar tone).
+                b".dc-gray-bg { background: #323232; color: #ffffff; }"
+                b".dc-gray-bg headerbar { background: #323232; color: #ffffff; }"
                 b".dc-lock-bg { background: #000000; }"
                 b".dc-status  { color: rgba(255,255,255,0.85); font-size: 0.85em; }"
+                # Mirror the map's tour top-nav so the desktop dashcam nav matches.
+                b".dp-tour-topnav { padding: 2px 4px; }"
+                b".dp-tour-topnav button label { font-size: 11px; }"
             )
             Gtk.StyleContext.add_provider_for_display(
                 Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
             )
 
         # Outer overlay wraps everything so the lock screen can cover both
-        # the camera area AND the bottom bar.
+        # the camera area AND the bottom bar. It is parented into the
+        # NavigationView's main page at the end of this method.
         outer = Gtk.Overlay()
         outer.add_css_class("dc-black-bg")
         outer.set_hexpand(True)
         outer.set_vexpand(True)
-        self.append(outer)
 
         # Camera area fills the entire outer overlay; the controls float
         # *over* the bottom edge as a separate overlay (not a side rail).
@@ -328,6 +347,16 @@ class DashcamPage(Gtk.Box):
         cam_overlay.add_overlay(rotator)
         self._bar_wrap = bar_wrap
         self._bar_rotator = rotator
+
+        # Desktop top-nav: the same functions as the bottom bar, rendered as a
+        # left-aligned navigation strip above the camera — like the tour page.
+        # Mobile keeps the floating bottom overlay; desktop hides it.
+        topnav = self._build_desktop_topnav()
+        self._desktop_topnav = topnav
+        desktop = self._form_factor == "desktop"
+        topnav.set_visible(desktop)
+        self._bar_rotator.set_visible(not desktop)
+
         self._update_toggle_btn()
 
         # ── Lock / dim screen — covers entire outer overlay ───────────────────
@@ -375,6 +404,70 @@ class DashcamPage(Gtk.Box):
             on_all_failed=self._on_preview_failed,
         )
 
+        # ── Navigation: live view (main) + Events sub-page ───────────────────
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        main_box.append(topnav)
+        main_box.append(outer)
+        main_page = Adw.NavigationPage(child=main_box, title="Dashcam")
+        main_page.set_tag("dashcam-main")
+        main_page.set_can_pop(False)
+
+        self._nav_view = Adw.NavigationView()
+        self._nav_view.set_hexpand(True)
+        self._nav_view.set_vexpand(True)
+        self._nav_view.add(main_page)
+        self._events_page = self._build_events_page()
+        self.append(self._nav_view)
+
+    def _build_events_page(self) -> Adw.NavigationPage:
+        """Saved-events list as a navigation sub-page (replaces the old clips
+        popover). Pushed onto the nav view from the Events button."""
+        toolbar = Adw.ToolbarView()
+        toolbar.add_css_class("dc-gray-bg")
+        header = Adw.HeaderBar()
+        header.add_css_class("dc-gray-bg")
+        # No window controls (close/minimize) on this sub-page — only the
+        # navigation back button, which is independent of the title buttons.
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
+        toolbar.add_top_bar(header)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.add_css_class("dc-gray-bg")
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        self._saved_list_box = Gtk.ListBox()
+        self._saved_list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._saved_list_box.set_valign(Gtk.Align.START)
+        self._saved_list_box.add_css_class("boxed-list")
+        self._saved_placeholder = Gtk.Label(
+            label=_translate(self.language, "dashcam.saved.empty")
+        )
+        self._saved_placeholder.add_css_class("dim-label")
+        box.append(self._saved_list_box)
+        box.append(self._saved_placeholder)
+        scroll.set_child(box)
+        toolbar.set_content(scroll)
+
+        page = Adw.NavigationPage(
+            child=toolbar, title=_translate(self.language, "dashcam.saved.title")
+        )
+        page.set_tag("dashcam-events")
+        return page
+
+    def _open_events_page(self, _btn: Gtk.Button) -> None:
+        if self._nav_view is None or self._events_page is None:
+            return
+        if self._nav_view.get_visible_page() is self._events_page:
+            return
+        self._update_saved_list()
+        self._nav_view.push(self._events_page)
+
     def _build_controls(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_hexpand(True)
@@ -398,41 +491,16 @@ class DashcamPage(Gtk.Box):
         self._save_btns.append(save_btn)
         btn_row.append(save_btn)
 
-        self._clips_popover = self._build_clips_popover()
-        clips_btn = Gtk.MenuButton(icon_name="list-compact-symbolic")
-        clips_btn.set_popover(self._clips_popover)
-        self._clips_popover.connect("show", lambda _: self._update_saved_list())
+        clips_btn = Gtk.Button(icon_name="list-compact-symbolic")
+        clips_btn.connect("clicked", self._open_events_page)
         clips_btn.add_css_class("circular")
         clips_btn.add_css_class("osd")
         self._clips_btns.append(clips_btn)
         btn_row.append(clips_btn)
 
+        self._btn_row = btn_row
         box.append(btn_row)
         return box
-
-    def _build_clips_popover(self) -> Gtk.Popover:
-        pop = Gtk.Popover()
-        pop.set_size_request(300, 400)
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_size_request(280, 360)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.set_margin_top(8)
-        box.set_margin_bottom(8)
-        box.set_margin_start(8)
-        box.set_margin_end(8)
-        self._saved_list_box = Gtk.ListBox()
-        self._saved_list_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._saved_list_box.add_css_class("boxed-list")
-        self._saved_placeholder = Gtk.Label(
-            label=_translate(self.language, "dashcam.saved.empty")
-        )
-        self._saved_placeholder.add_css_class("dim-label")
-        box.append(self._saved_list_box)
-        box.append(self._saved_placeholder)
-        scroll.set_child(box)
-        pop.set_child(scroll)
-        return pop
 
     def _on_first_frame(self) -> None:
         self._no_cam_icon.set_visible(False)
@@ -526,8 +594,80 @@ class DashcamPage(Gtk.Box):
     def update_ui_rotation(self, angle: int) -> None:
         landscape = angle in (90, 270)
         self._is_landscape = landscape
+        self._ui_angle = angle
         self._apply_bar_position(angle, landscape)
         self._lock_btn_rotator.set_rotation(angle)
+
+    # ── Form factor (mobile vs desktop chrome) ────────────────────────────────
+
+    def set_form_factor(self, form_factor: str) -> None:
+        """Desktop: show the functions as a top navigation strip (like the
+        tour page) and hide the floating bottom bar. Mobile: the reverse."""
+        if form_factor == self._form_factor:
+            return
+        self._form_factor = form_factor
+        desktop = form_factor == "desktop"
+        if self._desktop_topnav is not None:
+            self._desktop_topnav.set_visible(desktop)
+        self._bar_rotator.set_visible(not desktop)
+
+    def _build_desktop_topnav(self) -> Gtk.Box:
+        """Top navigation strip mirroring the map's tour top-nav: flat buttons
+        with a symbol over a small caption, left-aligned. Shown on desktop in
+        place of the floating bottom control bar."""
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        bar.add_css_class("dp-tour-topnav")
+        bar.set_margin_start(4)
+        bar.set_margin_end(4)
+        bar.set_margin_top(4)
+        bar.set_margin_bottom(4)
+        bar.set_halign(Gtk.Align.START)
+
+        def _child(icon_name: str, label_text: str) -> tuple[Gtk.Box, Gtk.Image, Gtk.Label]:
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            box.set_halign(Gtk.Align.CENTER)
+            img = Gtk.Image.new_from_icon_name(icon_name)
+            img.set_pixel_size(22)
+            lbl = Gtk.Label(label=label_text)
+            lbl.add_css_class("caption")
+            box.append(img)
+            box.append(lbl)
+            return box, img, lbl
+
+        toggle = Gtk.Button()
+        toggle.add_css_class("flat")
+        t_child, t_img, t_lbl = _child(
+            "media-record-symbolic", _translate(self.language, "dashcam.nav.record")
+        )
+        toggle.set_child(t_child)
+        toggle.connect("clicked", self._on_toggle)
+        self._desktop_toggle_btn = toggle
+        self._desktop_toggle_img = t_img
+        self._desktop_toggle_lbl = t_lbl
+        bar.append(toggle)
+
+        save = Gtk.Button()
+        save.add_css_class("flat")
+        s_child, _si, _sl = _child(
+            "document-save-symbolic", _translate(self.language, "dashcam.nav.save")
+        )
+        save.set_child(s_child)
+        save.set_visible(False)
+        save.connect("clicked", self._on_save_event)
+        self._save_btns.append(save)
+        bar.append(save)
+
+        clips = Gtk.Button()
+        clips.add_css_class("flat")
+        c_child, _ci, _cl = _child(
+            "list-compact-symbolic", _translate(self.language, "dashcam.nav.clips")
+        )
+        clips.set_child(c_child)
+        clips.connect("clicked", self._open_events_page)
+        self._clips_btns.append(clips)
+        bar.append(clips)
+
+        return bar
 
     def _apply_bar_position(self, angle: int, is_landscape: bool) -> None:
         """Reposition + rotate the control bar to follow physical orientation.
@@ -672,7 +812,7 @@ class DashcamPage(Gtk.Box):
         else:
             msg = _translate(self.language, "dashcam.event.nothing")
         root = self.get_root()
-        if isinstance(root, Adw.ApplicationWindow):
+        if root is not None and hasattr(root, "add_toast"):
             root.add_toast(Adw.Toast.new(msg))
 
     # ── Recorder callbacks ────────────────────────────────────────────────────
@@ -696,7 +836,7 @@ class DashcamPage(Gtk.Box):
             self.on_recording_changed(False)
         toast_msg = _translate(self.language, "dashcam.error.camera")
         root = self.get_root()
-        if isinstance(root, Adw.ApplicationWindow):
+        if root is not None and hasattr(root, "add_toast"):
             root.add_toast(Adw.Toast.new(toast_msg))
         return False
 
@@ -735,6 +875,25 @@ class DashcamPage(Gtk.Box):
             else:
                 btn.remove_css_class("destructive-action")
                 btn.add_css_class("suggested-action")
+        # Desktop top-nav toggle: icon-over-caption variant, kept in sync.
+        dt, dimg, dlbl = (
+            self._desktop_toggle_btn,
+            self._desktop_toggle_img,
+            self._desktop_toggle_lbl,
+        )
+        if dt is not None and dimg is not None and dlbl is not None:
+            dlbl.set_label(
+                _translate(self.language, "dashcam.nav.stop" if rec else "dashcam.nav.record")
+            )
+            dimg.set_from_icon_name(
+                "media-playback-stop-symbolic" if rec else "media-record-symbolic"
+            )
+            if rec:
+                dt.remove_css_class("suggested-action")
+                dt.add_css_class("destructive-action")
+            else:
+                dt.remove_css_class("destructive-action")
+                dt.add_css_class("suggested-action")
         for btn in self._clips_btns:
             btn.set_visible(not rec)
 

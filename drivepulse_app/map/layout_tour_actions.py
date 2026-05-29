@@ -95,6 +95,23 @@ class MapTourActionsMixin:
             bar.append(btn)
 
         self._map_content_box.append(bar)
+        self._apply_tour_topnav_form_factor(getattr(self, "_form_factor", "desktop"))
+
+    def _apply_tour_topnav_form_factor(self, form_factor: str) -> None:
+        """Desktop: group the buttons left-aligned (natural width), like the
+        cars page. Mobile: spread them evenly across the full bar width."""
+        if self._tour_topnav is None:
+            return
+        desktop = form_factor == "desktop"
+        self._tour_topnav.set_halign(Gtk.Align.START if desktop else Gtk.Align.FILL)
+        for btn in (
+            self._tour_history_btn,
+            self._tour_load_btn,
+            self._tour_plan_btn,
+            self._tour_save_btn,
+        ):
+            if btn is not None:
+                btn.set_hexpand(not desktop)
 
     def _on_tour_plan_toggled(self, btn: Gtk.ToggleButton) -> None:
         self._tour_plan_active = btn.get_active()

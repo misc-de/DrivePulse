@@ -926,6 +926,7 @@ class MapPage(
     def set_form_factor(self, form_factor: str) -> None:
         """Adjust map overlays for mobile vs desktop chrome."""
         self._form_factor = form_factor
+        self._apply_tour_topnav_form_factor(form_factor)
 
     # ── Language ──────────────────────────────────────────────────────────────
 
