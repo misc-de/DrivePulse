@@ -39,6 +39,7 @@
     <file alias="distance-symbolic.svg">hicolor/symbolic/actions/distance-symbolic.svg</file>
     <file alias="notepad-symbolic.svg">hicolor/symbolic/actions/notepad-symbolic.svg</file>
     <file alias="dp-carlab-symbolic.svg">hicolor/symbolic/actions/dp-carlab-symbolic.svg</file>
+    <file alias="dp-dongle-symbolic.svg">hicolor/symbolic/actions/dp-dongle-symbolic.svg</file>
     <file alias="dp-ecu-engine-symbolic.svg">hicolor/symbolic/actions/dp-ecu-engine-symbolic.svg</file>
     <file alias="dp-ecu-transmission-symbolic.svg">hicolor/symbolic/actions/dp-ecu-transmission-symbolic.svg</file>
     <file alias="dp-ecu-abs-symbolic.svg">hicolor/symbolic/actions/dp-ecu-abs-symbolic.svg</file>
