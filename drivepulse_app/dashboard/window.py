@@ -952,6 +952,9 @@ class DashboardWindow(
         # Map page: nudges replay-info overlay below the top-left info button.
         if self.map_page is not None and hasattr(self.map_page, "set_form_factor"):
             self.map_page.set_form_factor(ff)
+        # Dashcam page: groups the control buttons left-aligned on desktop.
+        if hasattr(self, "dashcam_page") and hasattr(self.dashcam_page, "set_form_factor"):
+            self.dashcam_page.set_form_factor(ff)
 
     def close(self) -> bool:
         self._cancel_map_unload()
