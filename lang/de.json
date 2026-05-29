@@ -719,5 +719,10 @@
   "cars.carlab.scan.run": "Scan starten",
   "cars.carlab.scan.running": "Suche Steuergeräte …",
   "cars.carlab.scan.found": "{n} Steuergerät(e) gefunden – zum Auslesen antippen.",
-  "cars.carlab.scan.none": "Keine Steuergeräte gefunden."
+  "cars.carlab.scan.none": "Keine Steuergeräte gefunden.",
+  "cars.carlab.nav.scan": "Module",
+  "cars.carlab.nav.discover": "Auslesen",
+  "cars.carlab.nav.discoveries": "Gespeichert",
+  "cars.carlab.nav.find": "Funktionen",
+  "cars.carlab.nav.findings": "Findings"
 }
