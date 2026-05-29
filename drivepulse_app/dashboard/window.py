@@ -88,6 +88,58 @@ class DashboardWindow(
         # narrow windows regardless of this size.
         self.set_default_size(1280, 800)
         self.settings = self._load_settings()
+        self._apply_settings()
+
+        # Form factor (mobile vs desktop) is driven by an Adw.Breakpoint added
+        # at the end of __init__. Default to "desktop" since set_default_size is
+        # wider than MOBILE_FORM_FACTOR_MAX_WIDTH; the breakpoint will flip it
+        # to "mobile" on phosh/small windows during the first size allocation.
+        self.form_factor: str = "desktop"
+
+        # Rotation state: pages can bind to either "follow_sensor"
+        # (compensates for the compositor transform) or "follow_system"
+        # (lets the compositor handle rotation). See drivepulse_app/rotation.py.
+        # On desktop we lock to follow_system so no IIO-sensor wobble reaches
+        # the UI even if a sensor happens to be present.
+        _initial_rotation_mode = (
+            self.rotation_mode if self.form_factor == "mobile" else "follow_system"
+        )
+        self.rotation = RotationProvider(mode=_initial_rotation_mode)
+
+        self._init_database()
+
+        # Live-Trip-Statistik (min/max) für das Dashboard
+        self._live_trip_id: int | None = None   # letzter bekannter trip_id
+        self._live_rpm_min: float | None = None
+        self._live_rpm_max: float | None = None
+        self._live_coolant_min: float | None = None
+        self._live_coolant_max: float | None = None
+        self._live_speed_max: float | None = None
+
+        dashboard_scroller = self._build_dashboard_page()
+        stopwatch_scroller = self._build_stopwatch_page()
+
+        self._init_cars_page()
+
+        self.mock_tour_sim = MockTourSimulator(self._update_from_payload)
+        self._pending_sim_start_id: int | None = None
+        # MapPage is created lazily when the map tab is first opened.
+        self.map_page: MapPage | None = None
+        self._map_unload_timer_id: int | None = None
+        self._map_suspended_zoom: float | None = None
+        self._map_suspended_follow: bool = True
+        self._init_tts_service()
+        self._map_rotator = RotatedContainer()
+        self._map_rotator.set_hexpand(True)
+        self._map_rotator.set_vexpand(True)
+
+        self._init_dashcam_page()
+
+        self._assemble_chrome(dashboard_scroller, stopwatch_scroller)
+        self._start_io()
+
+    def _apply_settings(self) -> None:
+        """Unpack persisted settings into typed instance attributes."""
         self.units = self.settings["units"]
         self.language = self.settings["language"]
         self.mock_mode = self.settings["mock_mode"]
@@ -159,22 +211,8 @@ class DashboardWindow(
         self._last_gps_speed_kmh: float | None = None
         self._gps_was_connected: bool = False
 
-        # Form factor (mobile vs desktop) is driven by an Adw.Breakpoint added
-        # at the end of __init__. Default to "desktop" since set_default_size is
-        # wider than MOBILE_FORM_FACTOR_MAX_WIDTH; the breakpoint will flip it
-        # to "mobile" on phosh/small windows during the first size allocation.
-        self.form_factor: str = "desktop"
-
-        # Rotation state: pages can bind to either "follow_sensor"
-        # (compensates for the compositor transform) or "follow_system"
-        # (lets the compositor handle rotation). See drivepulse_app/rotation.py.
-        # On desktop we lock to follow_system so no IIO-sensor wobble reaches
-        # the UI even if a sensor happens to be present.
-        _initial_rotation_mode = (
-            self.rotation_mode if self.form_factor == "mobile" else "follow_system"
-        )
-        self.rotation = RotationProvider(mode=_initial_rotation_mode)
-
+    def _init_database(self) -> None:
+        """Open the trip DB, reconcile stale live cars and (un)seed mock data."""
         # Persistente Fahrten-Datenbank (cars/trips/samples) — vor allen Pages,
         # weil CarsPage sie injiziert bekommt.
         self.db = DriveDB(DB_FILE)
@@ -212,14 +250,8 @@ class DashboardWindow(
         self.trip_recorder = TripRecorder(self.db)
         atexit.register(self._shutdown_db)
 
-        # Live-Trip-Statistik (min/max) für das Dashboard
-        self._live_trip_id: int | None = None   # letzter bekannter trip_id
-        self._live_rpm_min: float | None = None
-        self._live_rpm_max: float | None = None
-        self._live_coolant_min: float | None = None
-        self._live_coolant_max: float | None = None
-        self._live_speed_max: float | None = None
-
+    def _build_dashboard_page(self) -> Gtk.Widget:
+        """Build the gauge dashboard page and return its scroller."""
         self.rpm_gauge = Gauge(_translate(self.language, "gauge.rpm"), "rpm", 0, 7000, (0.34, 0.62, 0.86), self.gauge_theme)
         speed_unit = "km/h" if self.units == "metric" else "mph"
         speed_max = 240 if self.units == "metric" else 150
@@ -293,7 +325,10 @@ class DashboardWindow(
         dashboard_scroller.set_propagate_natural_width(False)
         dashboard_scroller.set_propagate_natural_height(False)
         dashboard_scroller.set_child(self._gauge_rotator)
+        return dashboard_scroller
 
+    def _build_stopwatch_page(self) -> Gtk.Widget:
+        """Build the stopwatch/performance page and return its scroller."""
         self.stopwatch_page = StopWatchPage(self.language)
         self.stopwatch_page.set_theme(self.gauge_theme)
         self.stopwatch_page.set_engage_threshold(self.settings.get("engage_threshold", 0.20))
@@ -310,7 +345,10 @@ class DashboardWindow(
         stopwatch_scroller.set_hexpand(True)
         stopwatch_scroller.set_vexpand(True)
         stopwatch_scroller.set_child(self._stopwatch_rotator)
+        return stopwatch_scroller
 
+    def _init_cars_page(self) -> None:
+        """Construct the cars page and wire its callbacks back to the window."""
         self.cars_page = CarsPage(
             self.language,
             db=self.db,
@@ -343,13 +381,8 @@ class DashboardWindow(
         self._cars_rotator.set_hexpand(True)
         self._cars_rotator.set_vexpand(True)
 
-        self.mock_tour_sim = MockTourSimulator(self._update_from_payload)
-        self._pending_sim_start_id: int | None = None
-        # MapPage is created lazily when the map tab is first opened.
-        self.map_page: MapPage | None = None
-        self._map_unload_timer_id: int | None = None
-        self._map_suspended_zoom: float | None = None
-        self._map_suspended_follow: bool = True
+    def _init_tts_service(self) -> None:
+        """Apply persisted TTS settings to the shared service and prefetch piper models."""
         from drivepulse_app.tts import service as _tts_svc
         _tts_svc.set_backend(self.tts_backend)
         _tts_svc.set_volume_pct(self.tts_volume_pct)
@@ -358,10 +391,9 @@ class DashboardWindow(
         self._piper_dl_current_model: str | None = None
         if self.tts_backend == "piper":
             _tts_svc.ensure_models(self.tts_language, self.tts_voice, self.tts_quality)
-        self._map_rotator = RotatedContainer()
-        self._map_rotator.set_hexpand(True)
-        self._map_rotator.set_vexpand(True)
 
+    def _init_dashcam_page(self) -> None:
+        """Construct the dashcam page from persisted camera/recording settings."""
         self.dashcam_page = DashcamPage(self.language)
         self.dashcam_page.set_camera(self.dashcam_camera)
         self.dashcam_page.set_resolution(self.dashcam_resolution)
@@ -377,6 +409,8 @@ class DashboardWindow(
         self.dashcam_page.set_units(self.units)
         self.dashcam_page.on_recording_changed = self._on_dashcam_recording_changed
 
+    def _assemble_chrome(self, dashboard_scroller: Gtk.Widget, stopwatch_scroller: Gtk.Widget) -> None:
+        """Build the view stack, header bar, switchers and nav chrome, then mount the content."""
         self.view_stack = Adw.ViewStack()
         self.view_stack.set_vexpand(True)
         self.view_stack.set_hexpand(True)
@@ -537,6 +571,8 @@ class DashboardWindow(
         self._light_palette_css = Gtk.CssProvider()
         self.connect("realize", self._on_realize_install_css)
 
+    def _start_io(self) -> None:
+        """Start the OBD/GPS/orientation readers and kick off async data loads."""
         self._obd_active = False
 
         GLib.idle_add(self._load_initial_scan_data)
