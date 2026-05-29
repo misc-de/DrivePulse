@@ -60,6 +60,7 @@ class DashboardSettingsMixin:
 
     add_toast: Callable[[Any], None]
     _apply_nav_position: Callable[..., None]
+    _apply_ui_scale: Callable[..., None]
     _apply_theme_mode: Callable[..., None]
     _apply_window_theme: Callable[..., None]
     _update_conflict_badge: Callable[..., None]
@@ -73,6 +74,7 @@ class DashboardSettingsMixin:
     obd_port: str | None
     gauge_theme: str
     sidebar_side: str
+    ui_scale: int
 
     def _load_settings(self) -> dict[str, Any]:
         return load_settings()
@@ -109,6 +111,7 @@ class DashboardSettingsMixin:
                 "dashcam_rolling_dir": getattr(self, "dashcam_rolling_dir", ""),
                 "dashcam_saved_dir": getattr(self, "dashcam_saved_dir", ""),
                 "nav_position": getattr(self, "nav_position", "bottom"),
+                "ui_scale": getattr(self, "ui_scale", 100),
                 "dashcam_gps_osd": getattr(self, "dashcam_gps_osd", False),
                 "dashcam_speed_osd": getattr(self, "dashcam_speed_osd", False),
                 "rotation_mode": getattr(self, "rotation_mode", "follow_sensor"),
@@ -213,6 +216,8 @@ class DashboardSettingsMixin:
             on_dashcam_saved_dir_changed=self._set_dashcam_saved_dir,
             current_nav_position=getattr(self, "nav_position", "bottom"),
             on_nav_position_changed=self._set_nav_position,
+            current_ui_scale=getattr(self, "ui_scale", 100),
+            on_ui_scale_changed=self._set_ui_scale,
             current_dashcam_gps_osd=getattr(self, "dashcam_gps_osd", False),
             on_dashcam_gps_osd_changed=self._set_dashcam_gps_osd,
             current_dashcam_speed_osd=getattr(self, "dashcam_speed_osd", False),
@@ -329,6 +334,13 @@ class DashboardSettingsMixin:
         self.nav_position = position
         self._save_settings()
         self._apply_nav_position(position)
+
+    def _set_ui_scale(self, scale: int) -> None:
+        if scale == getattr(self, "ui_scale", 100):
+            return
+        self.ui_scale = scale
+        self._save_settings()
+        self._apply_ui_scale(scale)
 
     def _set_rotation_mode(self, mode: str) -> None:
         if mode == getattr(self, "rotation_mode", "follow_sensor"):

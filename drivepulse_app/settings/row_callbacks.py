@@ -21,6 +21,7 @@ class SettingsRowCallbacksMixin:
     # project_mixin_typing.md.
     language: str
     _NAV_POSITIONS: list[str]
+    _UI_SCALES: list[int]
     _ROTATION_MODES: list[str]
     _SYNC_ACCESS_MODES: list[str]
     _theme_options: list[tuple[str, str]]
@@ -33,6 +34,7 @@ class SettingsRowCallbacksMixin:
     sidebar_side_row: Adw.ComboRow
     theme_mode_row: Adw.ComboRow
     nav_position_row: Adw.ComboRow
+    ui_scale_row: Adw.ComboRow
     rotation_mode_row: Adw.ComboRow
     _sync_access_row: Adw.ComboRow
     dongle_row: Adw.ComboRow
@@ -53,6 +55,7 @@ class SettingsRowCallbacksMixin:
     on_traffic_bundesweit_changed: Callable[[bool], None] | None
     on_traffic_nrw_changed: Callable[[bool], None] | None
     on_nav_position_changed: Callable[[str], None] | None
+    on_ui_scale_changed: Callable[[int], None] | None
     on_rotation_mode_changed: Callable[[str], None] | None
     on_sync_access_changed: Callable[[str], None] | None
     on_mock_mode_changed: Callable[[bool], None] | None
@@ -153,6 +156,12 @@ class SettingsRowCallbacksMixin:
             idx = self.nav_position_row.get_selected()
             pos = self._NAV_POSITIONS[idx] if 0 <= idx < len(self._NAV_POSITIONS) else self._NAV_POSITIONS[0]
             self.on_nav_position_changed(pos)
+
+    def _on_ui_scale_selected(self, *_args: Any) -> None:
+        if self.on_ui_scale_changed is not None:
+            idx = self.ui_scale_row.get_selected()
+            pct = self._UI_SCALES[idx] if 0 <= idx < len(self._UI_SCALES) else self._UI_SCALES[0]
+            self.on_ui_scale_changed(pct)
 
     def _on_rotation_mode_selected(self, *_args: Any) -> None:
         if self.on_rotation_mode_changed is not None:
