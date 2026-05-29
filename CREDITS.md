@@ -8,9 +8,17 @@ services. Thank you to everyone behind them.
 
 ## Python libraries
 
-### python-OBD
+### python-OBD *(optional)*
 ELM327 serial communication and decoding of live vehicle data.
 - https://github.com/brendan-w/python-OBD — GNU GPL v2
+- **Optional** dependency (`pip install drivepulse[obd]`). When present it is
+  preferred for its broader PID/protocol/adapter coverage; when absent,
+  DrivePulse falls back to its own GPL-free native ELM327 backend
+  (`drivepulse_app/obd/native.py`).
+- Deliberately **never bundled** with DrivePulse. This keeps the project's
+  PolyForm Noncommercial license free of GPL v2 copyleft obligations on the
+  combined work — do not vendor or redistribute python-OBD alongside the app
+  (e.g. in the Flatpak).
 
 ### pyserial
 Serial transport for USB and Bluetooth RFCOMM links to the adapter.
