@@ -5,8 +5,18 @@ from drivepulse_app.map._tour_progress import (
     build_speed_zones,
     compute_route_progress_tables,
     nearest_route_progress,
+    off_route_decision,
     tts_distance_text,
 )
+
+# Shared reroute thresholds mirroring MapTourMixin's class constants.
+_REROUTE_KW = dict(off_route_m=30.0, min_speed_kmh=10.0, confirm_s=4.0, cooldown_s=30.0)
+
+
+def _decide(off_dist_m, speed_kmh, off_route_since, now, last_reroute_time=-999.0):
+    return off_route_decision(
+        off_dist_m, speed_kmh, off_route_since, now, last_reroute_time, **_REROUTE_KW
+    )
 
 # --- compute_route_progress_tables ----------------------------------------
 
@@ -128,3 +138,38 @@ def test_tts_distance_text_never_says_zero_metres():
 def test_tts_distance_text_switches_to_km_above_threshold():
     text = tts_distance_text(1500.0, "en")
     assert "1.5" in text
+
+
+# --- off_route_decision -----------------------------------------------------
+
+def test_off_route_resets_timer_when_back_on_route():
+    # On-route (within threshold) clears any running timer.
+    assert _decide(off_dist_m=5.0, speed_kmh=50.0, off_route_since=100.0, now=120.0) == (0.0, False)
+
+
+def test_off_route_ignored_below_min_speed():
+    # Far off-route but nearly stationary -> treated as drift, timer stays reset.
+    assert _decide(off_dist_m=200.0, speed_kmh=2.0, off_route_since=0.0, now=120.0) == (0.0, False)
+
+
+def test_off_route_starts_timer_on_first_tick():
+    # First off-route tick records the start time but does not reroute yet.
+    assert _decide(off_dist_m=200.0, speed_kmh=50.0, off_route_since=0.0, now=120.0) == (120.0, False)
+
+
+def test_off_route_still_confirming_keeps_timer():
+    # 2s elapsed < 4s confirm window -> keep waiting, timer unchanged.
+    assert _decide(off_dist_m=200.0, speed_kmh=50.0, off_route_since=100.0, now=102.0) == (100.0, False)
+
+
+def test_off_route_fires_after_confirm_window():
+    # 5s elapsed > 4s confirm and well past cooldown -> reroute.
+    assert _decide(off_dist_m=200.0, speed_kmh=50.0, off_route_since=100.0, now=105.0) == (100.0, True)
+
+
+def test_off_route_blocked_by_cooldown():
+    # Confirm window passed, but last reroute was 10s ago (< 30s cooldown).
+    new_since, should = _decide(
+        off_dist_m=200.0, speed_kmh=50.0, off_route_since=100.0, now=105.0, last_reroute_time=95.0
+    )
+    assert (new_since, should) == (100.0, False)
