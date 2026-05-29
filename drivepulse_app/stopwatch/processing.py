@@ -94,6 +94,39 @@ class StopWatchProcessingMixin:
         self._last_heading_deg = heading_deg
         self._last_heading_time = now
 
+    def _evaluate_autostart(self, trig_g: float | None, speed_ok: bool, now: float) -> None:
+        """Advance the engage/prestart confirm windows from one G sample and
+        flip the stopwatch to *running* once the threshold has been sustained.
+
+        Shared by the speed-gated OBD/GPS path (update_payload) and the live
+        accelerometer path (update_gforce_raw). The start time is set
+        retroactively to when the gentle push began, so detection latency on
+        either path never costs measured time."""
+        if not (self.armed and not self.running):
+            return
+        if trig_g is not None:
+            if trig_g >= self._engage_threshold:
+                if self._engage_since is None:
+                    self._engage_since = now
+            else:
+                self._engage_since = None  # dropped below — reset confirm window
+
+            if trig_g >= self.G_PRESTART_THRESHOLD:
+                if self._prestart_since is None:
+                    self._prestart_since = now
+            else:
+                self._prestart_since = None  # gap in gentle push — reset retroactive marker
+
+        sustained = (
+            self._engage_since is not None
+            and (now - self._engage_since) >= self.G_CONFIRM_WINDOW
+        )
+        if sustained and speed_ok:
+            self.running = True
+            # Set start time retroactively to when the gentle push began
+            self.start_monotonic = self._prestart_since if self._prestart_since is not None else now
+            self.status_label.set_text(_translate(self.language, "stopwatch.running"))
+
     def update_payload(self, payload: dict[str, Any], read_number: Callable[[dict[str, Any], str], float | None]) -> None:
         now = time.monotonic()
         obd_speed = read_number(payload, "speed")
@@ -148,35 +181,16 @@ class StopWatchProcessingMixin:
             self.max_g = active_g
         self._update_maxes_label()
 
-        if self.armed and not self.running:
-            trig_g: float | None = self._raw_g_dev if self._gforce_trigger else active_g
-
-            if trig_g is not None:
-                if trig_g >= self._engage_threshold:
-                    if self._engage_since is None:
-                        self._engage_since = now
-                else:
-                    self._engage_since = None  # dropped below — reset confirm window
-
-                if trig_g >= self.G_PRESTART_THRESHOLD:
-                    if self._prestart_since is None:
-                        self._prestart_since = now
-                else:
-                    self._prestart_since = None  # gap in gentle push — reset retroactive marker
-
+        # G-force-triggered starts are evaluated at the accelerometer's sample
+        # rate in update_gforce_raw (far faster than this OBD/GPS poll), so they
+        # fire on the push instead of waiting for the next poll. The speed-based
+        # path still confirms here.
+        if self.armed and not self.running and not self._gforce_trigger:
             speed_ok = (
                 (obd_speed is not None and obd_speed >= self.G_MIN_SPEED_KMH)
                 or (gps_speed is not None and gps_speed >= self.G_MIN_SPEED_KMH)
             )
-            sustained = (
-                self._engage_since is not None
-                and (now - self._engage_since) >= self.G_CONFIRM_WINDOW
-            )
-            if sustained and speed_ok:
-                self.running = True
-                # Set start time retroactively to when the gentle push began
-                self.start_monotonic = self._prestart_since if self._prestart_since is not None else now
-                self.status_label.set_text(_translate(self.language, "stopwatch.running"))
+            self._evaluate_autostart(active_g, speed_ok, now)
 
         if not self.running or self.start_monotonic is None:
             return

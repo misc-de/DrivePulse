@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -858,6 +859,12 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._raw_g_dev = abs(mag - 1.0)
         # X = lateral (right positive), Y = longitudinal (forward positive).
         self.gforce_canvas.update_g(x_g, y_g, z_g)
+        # Evaluate the G-force start trigger here, at the accelerometer's sample
+        # rate, so the stopwatch starts on the push instead of waiting for the
+        # next 0.5 s OBD/GPS poll. Opting into the G-force trigger means the
+        # sustained-G confirm window is the gate — no laggy speed reading.
+        if self._gforce_trigger and self.armed and not self.running:
+            self._evaluate_autostart(self._raw_g_dev, speed_ok=True, now=time.monotonic())
 
     def _on_gforce_trigger_toggled(self, btn: Gtk.CheckButton) -> None:
         self._gforce_trigger = btn.get_active()

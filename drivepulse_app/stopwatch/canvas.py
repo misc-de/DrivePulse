@@ -20,7 +20,9 @@ class GForceCanvas(Gtk.DrawingArea):
     __gtype_name__ = "GForceCanvas"
 
     MAX_G = 2.0
-    _SMOOTH = 0.30
+    # Exponential smoothing applied per sample toward the latest reading. Higher
+    # = snappier bubble (less lag) at the cost of a little more jitter.
+    _SMOOTH = 0.45
 
     def __init__(self) -> None:
         super().__init__()

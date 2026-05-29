@@ -73,6 +73,44 @@ def test_stopwatch_finishes_when_all_targets_have_a_source(monkeypatch, drivepul
     assert page.status_label.get_text() == "Measurement complete."
 
 
+def test_stopwatch_gforce_trigger_starts_at_sensor_rate(monkeypatch, drivepulse_module):
+    # With the G-force trigger enabled, the live accelerometer (update_gforce_raw)
+    # drives the start at its own sample rate — no waiting for an OBD/GPS poll and
+    # no speed gate. A sustained deviation ≥ engage threshold for the confirm
+    # window (0.15 s) flips the stopwatch to running.
+    # t=0.0: dev=0.3 ≥ 0.20 → engage/prestart start; sustained 0 s
+    # t=0.10: sustained 0.10 s < 0.15 → still not running
+    # t=0.30: sustained 0.30 s ≥ 0.15 → TRIGGER; start_monotonic=0.0 (prestart)
+    times = iter([0.0, 0.10, 0.30])
+    monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
+    page = drivepulse_module.StopWatchPage()
+    page._gforce_trigger = True
+    page.start_measurement()
+
+    page.update_gforce_raw(0.0, 0.0, 1.3)   # |(0,0,1.3)| - 1 = 0.30
+    assert page.running is False
+    page.update_gforce_raw(0.0, 0.0, 1.3)
+    assert page.running is False
+    page.update_gforce_raw(0.0, 0.0, 1.3)
+    assert page.running is True
+    assert page.start_monotonic == 0.0      # retroactive to the gentle push
+
+
+def test_stopwatch_gforce_trigger_ignores_brief_spike(monkeypatch, drivepulse_module):
+    # A short bump that drops back below the engage threshold must not start the
+    # run: the confirm window resets as soon as the deviation falls off.
+    times = iter([0.0, 0.10, 0.30])
+    monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
+    page = drivepulse_module.StopWatchPage()
+    page._gforce_trigger = True
+    page.start_measurement()
+
+    page.update_gforce_raw(0.0, 0.0, 1.3)   # dev=0.30 → engage starts
+    page.update_gforce_raw(0.0, 0.0, 1.0)   # dev=0.00 → engage window resets
+    page.update_gforce_raw(0.0, 0.0, 1.3)   # dev=0.30 → restart, only 0 s sustained
+    assert page.running is False
+
+
 def test_stopwatch_rotation_uses_dashboard_layout_decision(drivepulse_module):
     page = drivepulse_module.StopWatchPage()
 
