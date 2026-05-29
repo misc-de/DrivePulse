@@ -15,6 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk
 
+from drivepulse_app.cars._scan_stats import aggregate_scan_pid_stats
 from drivepulse_app.cars.actions import CarsActionsMixin
 from drivepulse_app.cars.car_lab import CarsCarLabMixin
 from drivepulse_app.cars.detail_render import CarsDetailRenderMixin
@@ -570,18 +571,19 @@ class CarsPage(
         self._render_detail()
 
     def _bg_compute_scan_stats(self) -> None:
-        stats: dict[str, dict] = {}
         if self.db is None or self._selected_car_id is None:
-            GLib.idle_add(self._apply_scan_pid_stats, stats)
+            GLib.idle_add(self._apply_scan_pid_stats, {})
             return
         try:
             scans = self.db.list_scans_for_car(self._selected_car_id)
         except sqlite3.Error:
             log.warning("Could not list scans for car_id=%s", self._selected_car_id, exc_info=True)
-            GLib.idle_add(self._apply_scan_pid_stats, stats)
+            GLib.idle_add(self._apply_scan_pid_stats, {})
             return
         from drivepulse_app.cars.metadata import _parse_profile_pid_key
-        raw_values: dict[str, list[tuple[str, float]]] = {}
+
+        # Phase 1: per-scan snapshot values.
+        snapshots: list[tuple[str, str, float, str]] = []
         for scan_meta in scans:
             ts_str = str(scan_meta["scanned_at"] or "")
             try:
@@ -605,21 +607,10 @@ class CarsPage(
                     num = float(v)
                 except (TypeError, ValueError):
                     continue
-                if pid not in stats:
-                    stats[pid] = {"min": num, "max": num, "sum": num, "count": 1, "unit": unit}
-                else:
-                    stats[pid]["min"] = min(stats[pid]["min"], num)
-                    stats[pid]["max"] = max(stats[pid]["max"], num)
-                    stats[pid]["sum"] += num
-                    stats[pid]["count"] += 1
-                raw_values.setdefault(pid, []).append((ts_str, num))
-        for pid, s in stats.items():
-            pts = raw_values.get(pid) or []
-            pts.sort(key=lambda t: t[0])
-            s["values"] = pts
-            s["intra_series"] = {}
+                snapshots.append((pid, ts_str, num, unit))
 
-        # Intra-scan Zeitreihen aus scan_samples laden
+        # Phase 2: higher-resolution intra-scan sample series.
+        intra_series: list[tuple[int, dict[str, list[tuple[float, float]]]]] = []
         for scan_meta in scans:
             scan_id = int(scan_meta["id"])
             try:
@@ -627,7 +618,6 @@ class CarsPage(
                     continue
                 scan_start_ts: float | None = None
                 try:
-                    from datetime import datetime
                     scan_start_ts = datetime.fromisoformat(
                         str(scan_meta["scanned_at"]).replace("Z", "+00:00")
                     ).timestamp()
@@ -639,29 +629,11 @@ class CarsPage(
                     pid = str(row["pid"])
                     rel_s = float(row["ts"]) - (scan_start_ts or float(row["ts"]))
                     pid_pts.setdefault(pid, []).append((rel_s, float(row["value"])))
-                for pid, intra_pts in pid_pts.items():
-                    if pid not in stats:
-                        stats[pid] = {"sum": 0.0, "count": 0, "unit": "",
-                                      "values": [], "intra_series": {}}
-                    s = stats[pid]
-                    s["intra_series"][scan_id] = sorted(intra_pts, key=lambda t: t[0])
-                    # Fold the intra-scan samples into min/max/avg so the
-                    # overview row reflects the full range the chart plots,
-                    # not just the single per-scan snapshot value.
-                    for _rel_s, val in intra_pts:
-                        s["min"] = val if "min" not in s else min(s["min"], val)
-                        s["max"] = val if "max" not in s else max(s["max"], val)
-                        s["sum"] += val
-                        s["count"] += 1
+                intra_series.append((scan_id, pid_pts))
             except (sqlite3.Error, ValueError, TypeError, KeyError):
                 log.debug("Could not load intra-scan samples for scan_id=%s", scan_id, exc_info=True)
 
-        # Compute averages once min/max and counts include both the per-scan
-        # snapshots and the intra-scan sample series.
-        for s in stats.values():
-            if s.get("count"):
-                s["avg"] = s["sum"] / s["count"]
-
+        stats = aggregate_scan_pid_stats(snapshots, intra_series)
         GLib.idle_add(self._apply_scan_pid_stats, stats)
 
     def _apply_scan_pid_stats(self, stats: dict) -> bool:
