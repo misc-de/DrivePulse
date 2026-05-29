@@ -57,6 +57,12 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
     G_PRESTART_THRESHOLD = 0.06   # retroactive start crossover
     G_CONFIRM_WINDOW     = 0.150  # seconds the engage threshold must be held
     G_MIN_SPEED_KMH      = 1.0   # speed gate to confirm real start
+    # Per-sample weight of the slow gravity-baseline EMA used to recover the
+    # linear (gravity-free) acceleration from the raw accelerometer. Small so the
+    # baseline tracks orientation but a launch passes straight through. The time
+    # constant (~seconds) far exceeds the sub-second launch, so it never eats the
+    # start of a run.
+    _GRAVITY_EMA_ALPHA = 0.02
 
     def __init__(self, language: str = SOURCE_LANGUAGE) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -85,6 +91,10 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._vmax_name_lbl: Any = None
         self._gforce_trigger: bool = False
         self._raw_g_dev: float = 0.0
+        # Slow EMA of the raw accelerometer vector ≈ the gravity/orientation
+        # baseline; subtracted to get the linear acceleration that drives the
+        # start trigger. None until the first sample seeds it.
+        self._grav_baseline: tuple[float, float, float] | None = None
         # True once a physical accelerometer has delivered a sample. While set,
         # the live G-force canvas is driven by the raw sensor (see
         # update_gforce_raw) instead of the OBD/GPS-derived values, so the bubble
@@ -855,8 +865,20 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         before a run is started. Once a sample arrives, this takes over from the
         OBD/GPS-derived canvas update in ``update_payload``."""
         self._raw_gforce_active = True
-        mag = math.sqrt(x_g ** 2 + y_g ** 2 + z_g ** 2)
-        self._raw_g_dev = abs(mag - 1.0)
+        # Linear acceleration = raw vector minus the slow gravity baseline. Using
+        # the gravity-free magnitude (not |‖v‖ − 1g|) is what makes the trigger
+        # honest: a forward push is perpendicular to gravity, so |‖v‖ − 1g| only
+        # grows ~quadratically (0.3 g → ~0.04 g) and would set the timing zero far
+        # too late. The linear magnitude reflects the real force 1:1.
+        a = self._GRAVITY_EMA_ALPHA
+        if self._grav_baseline is None:
+            self._grav_baseline = (x_g, y_g, z_g)
+        gx, gy, gz = self._grav_baseline
+        gx += (x_g - gx) * a
+        gy += (y_g - gy) * a
+        gz += (z_g - gz) * a
+        self._grav_baseline = (gx, gy, gz)
+        self._raw_g_dev = math.sqrt((x_g - gx) ** 2 + (y_g - gy) ** 2 + (z_g - gz) ** 2)
         # X = lateral (right positive), Y = longitudinal (forward positive).
         self.gforce_canvas.update_g(x_g, y_g, z_g)
         # Evaluate the G-force start trigger here, at the accelerometer's sample

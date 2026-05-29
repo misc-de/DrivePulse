@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.4.217"
+version = "0.4.218"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [

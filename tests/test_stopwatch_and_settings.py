@@ -76,38 +76,40 @@ def test_stopwatch_finishes_when_all_targets_have_a_source(monkeypatch, drivepul
 def test_stopwatch_gforce_trigger_starts_at_sensor_rate(monkeypatch, drivepulse_module):
     # With the G-force trigger enabled, the live accelerometer (update_gforce_raw)
     # drives the start at its own sample rate — no waiting for an OBD/GPS poll and
-    # no speed gate. A sustained deviation ≥ engage threshold for the confirm
-    # window (0.15 s) flips the stopwatch to running.
-    # t=0.0: dev=0.3 ≥ 0.20 → engage/prestart start; sustained 0 s
-    # t=0.10: sustained 0.10 s < 0.15 → still not running
-    # t=0.30: sustained 0.30 s ≥ 0.15 → TRIGGER; start_monotonic=0.0 (prestart)
-    times = iter([0.0, 0.10, 0.30])
+    # no speed gate. The trigger is the LINEAR (gravity-removed) acceleration: a
+    # forward push of ~0.3 g registers as ~0.3 g, not the ~0.04 g a |‖v‖-1g|
+    # metric would give. Sustained ≥ engage threshold for the confirm window
+    # (0.15 s) flips the stopwatch to running.
+    # t=0.0: rest sample seeds the gravity baseline (linear ≈ 0)
+    # t=0.05: +0.3 g forward → linear ≈ 0.29 ≥ 0.20 → engage/prestart start
+    # t=0.30: sustained 0.25 s ≥ 0.15 → TRIGGER; start_monotonic=0.05 (prestart)
+    times = iter([0.0, 0.05, 0.30])
     monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
     page = drivepulse_module.StopWatchPage()
     page._gforce_trigger = True
     page.start_measurement()
 
-    page.update_gforce_raw(0.0, 0.0, 1.3)   # |(0,0,1.3)| - 1 = 0.30
+    page.update_gforce_raw(0.0, 0.0, 1.0)   # at rest: gravity on z → linear ≈ 0
     assert page.running is False
-    page.update_gforce_raw(0.0, 0.0, 1.3)
+    page.update_gforce_raw(0.0, 0.3, 1.0)   # forward push → linear ≈ 0.29
     assert page.running is False
-    page.update_gforce_raw(0.0, 0.0, 1.3)
+    page.update_gforce_raw(0.0, 0.3, 1.0)   # held through the confirm window
     assert page.running is True
-    assert page.start_monotonic == 0.0      # retroactive to the gentle push
+    assert page.start_monotonic == 0.05     # retroactive to the gentle push
 
 
 def test_stopwatch_gforce_trigger_ignores_brief_spike(monkeypatch, drivepulse_module):
-    # A short bump that drops back below the engage threshold must not start the
-    # run: the confirm window resets as soon as the deviation falls off.
-    times = iter([0.0, 0.10, 0.30])
+    # A short push that drops back to rest must not start the run: the confirm
+    # window resets as soon as the linear acceleration falls off.
+    times = iter([0.0, 0.05, 0.30])
     monkeypatch.setattr(drivepulse_module.time, "monotonic", lambda: next(times))
     page = drivepulse_module.StopWatchPage()
     page._gforce_trigger = True
     page.start_measurement()
 
-    page.update_gforce_raw(0.0, 0.0, 1.3)   # dev=0.30 → engage starts
-    page.update_gforce_raw(0.0, 0.0, 1.0)   # dev=0.00 → engage window resets
-    page.update_gforce_raw(0.0, 0.0, 1.3)   # dev=0.30 → restart, only 0 s sustained
+    page.update_gforce_raw(0.0, 0.0, 1.0)   # seed baseline
+    page.update_gforce_raw(0.0, 0.3, 1.0)   # push → engage starts
+    page.update_gforce_raw(0.0, 0.0, 1.0)   # back to rest → linear ≈ 0, resets
     assert page.running is False
 
 
