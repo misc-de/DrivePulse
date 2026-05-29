@@ -614,7 +614,6 @@ class CarsPage(
                     stats[pid]["count"] += 1
                 raw_values.setdefault(pid, []).append((ts_str, num))
         for pid, s in stats.items():
-            s["avg"] = s["sum"] / s["count"]
             pts = raw_values.get(pid) or []
             pts.sort(key=lambda t: t[0])
             s["values"] = pts
@@ -642,12 +641,26 @@ class CarsPage(
                     pid_pts.setdefault(pid, []).append((rel_s, float(row["value"])))
                 for pid, intra_pts in pid_pts.items():
                     if pid not in stats:
-                        stats[pid] = {"min": 0.0, "max": 0.0, "sum": 0.0,
-                                      "count": 0, "unit": "", "values": [],
-                                      "intra_series": {}}
-                    stats[pid]["intra_series"][scan_id] = sorted(intra_pts, key=lambda t: t[0])
+                        stats[pid] = {"sum": 0.0, "count": 0, "unit": "",
+                                      "values": [], "intra_series": {}}
+                    s = stats[pid]
+                    s["intra_series"][scan_id] = sorted(intra_pts, key=lambda t: t[0])
+                    # Fold the intra-scan samples into min/max/avg so the
+                    # overview row reflects the full range the chart plots,
+                    # not just the single per-scan snapshot value.
+                    for _rel_s, val in intra_pts:
+                        s["min"] = val if "min" not in s else min(s["min"], val)
+                        s["max"] = val if "max" not in s else max(s["max"], val)
+                        s["sum"] += val
+                        s["count"] += 1
             except (sqlite3.Error, ValueError, TypeError, KeyError):
                 log.debug("Could not load intra-scan samples for scan_id=%s", scan_id, exc_info=True)
+
+        # Compute averages once min/max and counts include both the per-scan
+        # snapshots and the intra-scan sample series.
+        for s in stats.values():
+            if s.get("count"):
+                s["avg"] = s["sum"] / s["count"]
 
         GLib.idle_add(self._apply_scan_pid_stats, stats)
 
