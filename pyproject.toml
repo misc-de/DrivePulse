@@ -1,10 +1,9 @@
 [project]
 name = "drivepulse"
-version = "0.4.209"
+version = "0.4.210"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
-    "obd",
     "pyserial",
     "requests",
     "cryptography",
@@ -17,6 +16,12 @@ dev = [
     "mypy",
 ]
 tts = ["piper-tts"]
+# python-OBD (GPL v2) is optional and deliberately never bundled. When present
+# (pip/AUR/source) the reader prefers it for richer PID/protocol coverage;
+# otherwise it falls back to the GPL-free native ELM327 driver. Keeping it out
+# of the hard dependencies keeps the Flatpak/PolyForm Noncommercial build clear
+# of GPL copyleft. See CREDITS.md.
+obd = ["obd"]
 
 [project.scripts]
 drivepulse = "drivepulse_app.app:main"
