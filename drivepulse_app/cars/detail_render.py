@@ -651,6 +651,8 @@ class CarsDetailRenderMixin:
         title_lbl = Gtk.Label(label=label, xalign=0.0)
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_hexpand(True)
+        title_lbl.set_wrap(True)
+        title_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         title_lbl.add_css_class("caption-heading")
         box.append(title_lbl)
 
@@ -684,6 +686,8 @@ class CarsDetailRenderMixin:
         title_lbl = Gtk.Label(label=label, xalign=0.0)
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_hexpand(True)
+        title_lbl.set_wrap(True)
+        title_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         title_lbl.add_css_class("caption-heading")
         header.append(title_lbl)
 
@@ -820,6 +824,8 @@ class CarsDetailRenderMixin:
         title_lbl = Gtk.Label(label=label, xalign=0.0)
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_hexpand(True)
+        title_lbl.set_wrap(True)
+        title_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         title_lbl.add_css_class("caption-heading")
         box.append(title_lbl)
 
