@@ -121,6 +121,41 @@ def nearest_route_progress(
     return best_i, route_cum_m[best_i]
 
 
+def off_route_decision(
+    off_dist_m: float,
+    speed_kmh: float,
+    off_route_since: float,
+    now: float,
+    last_reroute_time: float,
+    *,
+    off_route_m: float,
+    min_speed_kmh: float,
+    confirm_s: float,
+    cooldown_s: float,
+) -> tuple[float, bool]:
+    """Decide whether an off-route condition should trigger an auto-reroute.
+
+    Returns ``(new_off_route_since, should_reroute)``. The off-route timer only
+    starts once the GPS is both far enough off the route *and* moving above the
+    minimum speed (so drift while stationary doesn't count); it must then stay
+    off-route for ``confirm_s`` seconds, and reroutes are gated by a cooldown so
+    they can't fire back-to-back.
+
+    ``new_off_route_since`` is ``0.0`` when the timer is reset, ``now`` when it
+    has just started, or the unchanged start time while confirming/cooling down.
+    The caller resets the timer itself once the reroute actually fires.
+    """
+    if off_dist_m <= off_route_m or speed_kmh < min_speed_kmh:
+        return 0.0, False
+    if off_route_since == 0.0:
+        return now, False
+    if now - off_route_since < confirm_s:
+        return off_route_since, False
+    if now - last_reroute_time < cooldown_s:
+        return off_route_since, False
+    return off_route_since, True
+
+
 def tts_distance_text(meters: float, lang: str) -> str:
     """Spoken distance phrase: rounded to 10 m below ~1 km, else 0.1 km steps."""
     if meters < 950:

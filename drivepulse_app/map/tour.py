@@ -17,6 +17,7 @@ from drivepulse_app.map._tour_progress import (
     build_speed_zones,
     compute_route_progress_tables,
     nearest_route_progress,
+    off_route_decision,
     tts_distance_text,
 )
 from drivepulse_app.map.services import (
@@ -783,17 +784,15 @@ class MapTourMixin:
     def _check_off_route(self, off_dist_m: float, now: float) -> None:
         """Called each GPS tick with the perpendicular distance to the route."""
         speed_kmh = self._gps_speed_mps * 3.6
-        if off_dist_m <= self._OFF_ROUTE_M or speed_kmh < self._REROUTE_MIN_SPEED_KMH:
-            self._off_route_since = 0.0
-            return
-        if self._off_route_since == 0.0:
-            self._off_route_since = now
-            return
-        if now - self._off_route_since < self._OFF_ROUTE_CONFIRM_S:
-            return
-        if now - self._last_reroute_time < self._REROUTE_COOLDOWN_S:
-            return
-        self._trigger_reroute()
+        self._off_route_since, should_reroute = off_route_decision(
+            off_dist_m, speed_kmh, self._off_route_since, now, self._last_reroute_time,
+            off_route_m=self._OFF_ROUTE_M,
+            min_speed_kmh=self._REROUTE_MIN_SPEED_KMH,
+            confirm_s=self._OFF_ROUTE_CONFIRM_S,
+            cooldown_s=self._REROUTE_COOLDOWN_S,
+        )
+        if should_reroute:
+            self._trigger_reroute()
 
     def _trigger_reroute(self) -> None:
         if self._gps_lat is None or self._gps_lon is None:
