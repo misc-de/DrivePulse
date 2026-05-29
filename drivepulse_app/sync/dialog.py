@@ -329,7 +329,7 @@ class SyncDialog(Adw.NavigationPage):
                     reviews = result.get("vin_data_review") or []
                     if reviews and self._on_vin_review_pending:
                         _reviews = reviews
-                        GLib.idle_add(lambda: self._on_vin_review_pending(_reviews))  # type: ignore[misc]
+                        GLib.idle_add(lambda: self._on_vin_review_pending(_reviews))
                     def _stop_and_remove() -> bool:
                         self._stop_server()
                         return False
@@ -770,7 +770,7 @@ class SyncDialog(Adw.NavigationPage):
             reviews = result.get("vin_data_review") or []
             if reviews and self._on_vin_review_pending:
                 _reviews = reviews
-                GLib.idle_add(lambda: self._on_vin_review_pending(_reviews))  # type: ignore[misc]
+                GLib.idle_add(lambda: self._on_vin_review_pending(_reviews))
             if close_after:
                 GLib.timeout_add(1500, self._close_sync_dialog)
 

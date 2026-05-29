@@ -57,7 +57,7 @@ def filter_gps_samples(
     last_lon: float | None = None
     last_ts: float = 0.0
     for sample in samples:
-        row = {key: sample[key] for key in sample.keys()}
+        row = dict(sample)
         lat = row.get("lat")
         lon = row.get("lon")
         ts = row.get("ts") or 0.0

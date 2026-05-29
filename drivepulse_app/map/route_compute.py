@@ -90,7 +90,7 @@ class MapRouteComputeMixin:
             self._status_lbl.set_text(_translate(self.language, "map.routing.error"))
             return False
 
-        coords, duration_s, distance_m, steps = result
+        coords, _duration_s, _distance_m, steps = result
         # New route invalidates any paused tour state from a prior route.
         if self._tour_paused or self._tour_active:
             self._abort_tour()

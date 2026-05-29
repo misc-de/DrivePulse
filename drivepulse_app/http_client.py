@@ -101,9 +101,9 @@ def http_post_json(url: str, payload: Any, timeout: int = 45) -> Any:
             resp.raise_for_status()
             return resp.json()
         except Exception as exc:
-            resp = getattr(exc, "response", None)
-            status = getattr(resp, "status_code", None)
-            body = (getattr(resp, "text", "") or "").strip()
+            err_resp = getattr(exc, "response", None)
+            status = getattr(err_resp, "status_code", None)
+            body = (getattr(err_resp, "text", "") or "").strip()
             if body:
                 write_diagnostic_log(
                     __name__,
@@ -140,9 +140,9 @@ def http_post_json_result(url: str, payload: Any, timeout: int = 45) -> tuple[An
             resp.raise_for_status()
             return data, status
         except Exception as exc:
-            resp = getattr(exc, "response", None)
-            status = getattr(resp, "status_code", None)
-            body = (getattr(resp, "text", "") or "").strip()
+            err_resp = getattr(exc, "response", None)
+            status = getattr(err_resp, "status_code", None)
+            body = (getattr(err_resp, "text", "") or "").strip()
             if body:
                 write_diagnostic_log(
                     __name__,

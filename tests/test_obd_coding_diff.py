@@ -12,7 +12,6 @@ from drivepulse_app.obd.coding_diff import (
     volatile_bytes,
 )
 
-
 # --- volatile_bytes ---------------------------------------------------------
 
 def test_volatile_bytes_flags_self_changing_positions():

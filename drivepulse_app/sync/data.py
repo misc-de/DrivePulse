@@ -48,7 +48,8 @@ def export_all(db: DriveDB) -> dict[str, Any]:
                 "samples_count": trip["samples_count"],
                 "samples": samples_out,
             })
-        vin_data_raw = car["vin_data_json"] if "vin_data_json" in car.keys() else None
+        # sqlite3.Row has no __contains__, so `in car` checks values not columns — keep .keys().
+        vin_data_raw = car["vin_data_json"] if "vin_data_json" in car.keys() else None  # noqa: SIM118
         vin_data: dict | None = None
         if vin_data_raw is not None:
             try:
@@ -72,7 +73,7 @@ def export_all(db: DriveDB) -> dict[str, Any]:
     return {"version": 1, "exported_at": now, "cars": cars_out}
 
 
-def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[str, int]:
+def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[str, Any]:
     """Import sync data into the local DB.
 
     mode:
@@ -141,7 +142,7 @@ def import_data(db: DriveDB, data: dict[str, Any], mode: str = "merge") -> dict[
                 local_row = db.get_car(car_id)
                 local_raw = (
                     local_row["vin_data_json"]
-                    if local_row and "vin_data_json" in local_row.keys()
+                    if local_row and "vin_data_json" in local_row.keys()  # noqa: SIM118
                     else None
                 )
                 if local_raw is None:

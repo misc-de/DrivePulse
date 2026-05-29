@@ -228,7 +228,6 @@ def test_valhalla_trace_route_uses_public_trace_host_and_break_via_types(monkeyp
 
     def fake_post(url: str, body: dict):
         seen.append((url, body))
-        return None
 
     monkeypatch.setattr(services, "_log_valhalla_trace_failure", lambda *a, **k: None)
 

@@ -72,7 +72,7 @@ def test_run_uds_session_noop_in_mock_mode(monkeypatch, drivepulse_module):
     reader = _wire_reader(monkeypatch, drivepulse_module, lambda _p, _c: "OK")
     reader.mock = True
     called = []
-    assert reader.run_uds_session("714", "77E", lambda c: called.append(c)) is None
+    assert reader.run_uds_session("714", "77E", called.append) is None
     assert called == []
 
 

@@ -35,6 +35,10 @@ class MapTourMixin:
     # Concrete MapPage initializes these as Optional[(float, float)].
     _start_coord: tuple[float, float] | None
     _end_coord: tuple[float, float] | None
+    # Trip-trace render args buffered until the user confirms (or None when idle).
+    _pending_trip_trace_args: (
+        tuple[list[list[float]], str | None, float | None, float | None, list[float] | None] | None
+    )
 
     # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
     language: str

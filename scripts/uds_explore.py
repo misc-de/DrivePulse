@@ -42,8 +42,8 @@ from typing import Any
 # Allow running directly from the repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from drivepulse_app.obd.adapter import probe_adapter, raw_send  # noqa: E402
-from drivepulse_app.obd.uds import (  # noqa: E402
+from drivepulse_app.obd.adapter import probe_adapter, raw_send
+from drivepulse_app.obd.uds import (
     IDENTIFICATION_DIDS,
     VAG_MODULES,
     UdsClient,
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         port = serial.Serial(args.port, args.baud, timeout=1)
-    except Exception as exc:  # noqa: BLE001 - surface any open failure to the user
+    except Exception as exc:
         print(f"Could not open {args.port}: {exc}", file=sys.stderr)
         return 1
 
@@ -175,7 +175,8 @@ def main(argv: list[str] | None = None) -> int:
             except UdsError as exc:
                 print(f"Extended session: failed ({exc})")
 
-        out_fh = open(args.out, "a", encoding="utf-8") if args.out else None
+        # Conditional handle (may be None); closed in the finally below.
+        out_fh = open(args.out, "a", encoding="utf-8") if args.out else None  # noqa: SIM115
         hits = 0
         try:
             for did, response in client.scan_dids(dids):

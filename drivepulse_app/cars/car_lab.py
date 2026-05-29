@@ -177,8 +177,10 @@ class CarsCarLabMixin:
         _install_topnav_css()
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         bar.add_css_class("dp-tour-topnav")
-        bar.set_margin_start(4); bar.set_margin_end(4)
-        bar.set_margin_top(4); bar.set_margin_bottom(4)
+        bar.set_margin_start(4)
+        bar.set_margin_end(4)
+        bar.set_margin_top(4)
+        bar.set_margin_bottom(4)
 
         def _child(icon_name: str, label_key: str) -> Gtk.Box:
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -237,8 +239,10 @@ class CarsCarLabMixin:
 
     def _carlab_page_box(self) -> Gtk.Box:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12); box.set_margin_bottom(12)
-        box.set_margin_start(12); box.set_margin_end(12)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
         return box
 
     # --- module scan (which control units are present) ----------------------
@@ -472,8 +476,10 @@ class CarsCarLabMixin:
         scroll = Gtk.ScrolledWindow()
         scroll.set_vexpand(True)
         box = self._build_discovery_content(data)
-        box.set_margin_top(12); box.set_margin_bottom(12)
-        box.set_margin_start(12); box.set_margin_end(12)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
         scroll.set_child(box)
         self._carlab_push(scroll, self._carlab_t("cars.carlab.discovery_detail"))
 
