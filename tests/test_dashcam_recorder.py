@@ -104,6 +104,77 @@ def test_dashcam_save_event_copies_last_two_segments(tmp_path):
     assert sorted(s.read_bytes() for s in saved) == [b"seg2", b"seg3"]
 
 
+def test_dashcam_save_event_while_recording_defers_current_segment(tmp_path):
+    from drivepulse_app.dashcam.recorder import DashcamRecorder
+
+    rolling = tmp_path / "rolling"
+    rolling.mkdir()
+    prev = rolling / "dc_0.webm"
+    current = rolling / "dc_1.webm"
+    prev.write_bytes(b"finished")
+    current.write_bytes(b"partial")  # still being recorded
+
+    recorder = DashcamRecorder()
+    recorder.protected_dir = tmp_path / "saved"
+    recorder._segments = [prev, current]
+    recorder.is_recording = True
+
+    planned = recorder.save_event()
+
+    # Both clips are promised, but only the finalised previous segment exists yet.
+    assert len(planned) == 2
+    existing = sorted(p.name for p in (tmp_path / "saved").iterdir())
+    assert len(existing) == 1
+    assert (tmp_path / "saved" / existing[0]).read_bytes() == b"finished"
+    assert len(recorder._pending_saves) == 1
+
+
+def test_dashcam_deferred_save_captures_complete_segment(tmp_path):
+    from drivepulse_app.dashcam.recorder import DashcamRecorder
+
+    rolling = tmp_path / "rolling"
+    rolling.mkdir()
+    current = rolling / "dc_0.webm"
+    current.write_bytes(b"partial")  # only part written at save time
+
+    recorder = DashcamRecorder()
+    recorder.protected_dir = tmp_path / "saved"
+    recorder._segments = [current]
+    recorder.is_recording = True
+
+    planned = recorder.save_event()
+    assert len(planned) == 1
+    assert not planned[0].exists()  # nothing copied yet — segment still recording
+
+    # The rest of the segment gets written, then it finalises.
+    current.write_bytes(b"partial-plus-the-complete-rest")
+    recorder._finalize_segment(current)
+
+    assert not recorder._pending_saves
+    # The saved clip holds the COMPLETE segment, not the truncated save-time state.
+    assert planned[0].read_bytes() == b"partial-plus-the-complete-rest"
+
+
+def test_dashcam_finalize_segment_ignores_unrelated_segments(tmp_path):
+    from drivepulse_app.dashcam.recorder import DashcamRecorder
+
+    rolling = tmp_path / "rolling"
+    rolling.mkdir()
+    current = rolling / "dc_0.webm"
+    current.write_bytes(b"data")
+
+    recorder = DashcamRecorder()
+    recorder.protected_dir = tmp_path / "saved"
+    recorder._segments = [current]
+    recorder.is_recording = True
+    recorder.save_event()
+
+    # Finalising a different segment must not flush the pending save.
+    recorder._finalize_segment(rolling / "dc_other.webm")
+    assert len(recorder._pending_saves) == 1
+    assert not (tmp_path / "saved").exists() or not list((tmp_path / "saved").iterdir())
+
+
 def test_dashcam_delete_protected_tolerates_missing(tmp_path):
     from drivepulse_app.dashcam.recorder import DashcamRecorder
 
