@@ -247,8 +247,10 @@ class DashcamPage(Gtk.Box):
         # Events are shown as a navigation sub-page (not a popover).
         self._nav_view: Adw.NavigationView | None = None
         self._events_page: Adw.NavigationPage | None = None
-        # Desktop top-nav (built in _build_ui); mirrors the bottom-bar functions.
+        # Top-nav (built in _build_ui); mirrors the bottom-bar functions and is
+        # used on both desktop and mobile.
         self._desktop_topnav: Gtk.Box | None = None
+        self._topnav_btns: list[Gtk.Button] = []
         self._desktop_toggle_btn: Gtk.Button | None = None
         self._desktop_toggle_img: Gtk.Image | None = None
         self._desktop_toggle_lbl: Gtk.Label | None = None
@@ -271,9 +273,6 @@ class DashcamPage(Gtk.Box):
                 b".dp-dashcam-page{}"
                 b".dc-black-bg{background:#000000;color:#ffffff;}"
                 b".dc-bottom { background: rgba(50,50,50,0.78); padding: 10px 14px 14px 14px; border-radius: 14px 14px 0 0; }"
-                # Gray backdrop for the Events sub-page (matches the control bar tone).
-                b".dc-gray-bg { background: #323232; color: #ffffff; }"
-                b".dc-gray-bg headerbar { background: #323232; color: #ffffff; }"
                 b".dc-lock-bg { background: #000000; }"
                 b".dc-status  { color: rgba(255,255,255,0.85); font-size: 0.85em; }"
                 # Mirror the map's tour top-nav so the desktop dashcam nav matches.
@@ -351,14 +350,14 @@ class DashcamPage(Gtk.Box):
         self._bar_wrap = bar_wrap
         self._bar_rotator = rotator
 
-        # Desktop top-nav: the same functions as the bottom bar, rendered as a
-        # left-aligned navigation strip above the camera — like the tour page.
-        # Mobile keeps the floating bottom overlay; desktop hides it.
+        # Top-nav: the same functions as the bottom bar, rendered as a
+        # navigation strip above the camera — like the tour page. Used on both
+        # desktop and mobile; the floating bottom overlay is retired.
         topnav = self._build_desktop_topnav()
         self._desktop_topnav = topnav
-        desktop = self._form_factor == "desktop"
-        topnav.set_visible(desktop)
-        self._bar_rotator.set_visible(not desktop)
+        topnav.set_visible(True)
+        self._bar_rotator.set_visible(False)
+        self._apply_topnav_form_factor(self._form_factor)
 
         self._update_toggle_btn()
 
@@ -426,9 +425,7 @@ class DashcamPage(Gtk.Box):
         """Saved-events list as a navigation sub-page (replaces the old clips
         popover). Pushed onto the nav view from the Events button."""
         toolbar = Adw.ToolbarView()
-        toolbar.add_css_class("dc-gray-bg")
         header = Adw.HeaderBar()
-        header.add_css_class("dc-gray-bg")
         # No window controls (close/minimize) on this sub-page — only the
         # navigation back button, which is independent of the title buttons.
         header.set_show_start_title_buttons(False)
@@ -436,7 +433,6 @@ class DashcamPage(Gtk.Box):
         toolbar.add_top_bar(header)
 
         scroll = Gtk.ScrolledWindow()
-        scroll.add_css_class("dc-gray-bg")
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_vexpand(True)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -604,15 +600,23 @@ class DashcamPage(Gtk.Box):
     # ── Form factor (mobile vs desktop chrome) ────────────────────────────────
 
     def set_form_factor(self, form_factor: str) -> None:
-        """Desktop: show the functions as a top navigation strip (like the
-        tour page) and hide the floating bottom bar. Mobile: the reverse."""
+        """Both form factors show the functions as a top navigation strip (like
+        the tour page). Desktop left-aligns the buttons at their natural width;
+        mobile spreads them evenly across the full bar width."""
         if form_factor == self._form_factor:
             return
         self._form_factor = form_factor
+        self._apply_topnav_form_factor(form_factor)
+
+    def _apply_topnav_form_factor(self, form_factor: str) -> None:
+        """Desktop: group the buttons left-aligned (natural width). Mobile:
+        spread them evenly across the full bar width — mirrors the tour page."""
+        if self._desktop_topnav is None:
+            return
         desktop = form_factor == "desktop"
-        if self._desktop_topnav is not None:
-            self._desktop_topnav.set_visible(desktop)
-        self._bar_rotator.set_visible(not desktop)
+        self._desktop_topnav.set_halign(Gtk.Align.START if desktop else Gtk.Align.FILL)
+        for btn in self._topnav_btns:
+            btn.set_hexpand(not desktop)
 
     def _build_desktop_topnav(self) -> Gtk.Box:
         """Top navigation strip mirroring the map's tour top-nav: flat buttons
@@ -647,6 +651,7 @@ class DashcamPage(Gtk.Box):
         self._desktop_toggle_btn = toggle
         self._desktop_toggle_img = t_img
         self._desktop_toggle_lbl = t_lbl
+        self._topnav_btns.append(toggle)
         bar.append(toggle)
 
         save = Gtk.Button()
@@ -658,6 +663,7 @@ class DashcamPage(Gtk.Box):
         save.set_visible(False)
         save.connect("clicked", self._on_save_event)
         self._save_btns.append(save)
+        self._topnav_btns.append(save)
         bar.append(save)
 
         clips = Gtk.Button()
@@ -668,6 +674,7 @@ class DashcamPage(Gtk.Box):
         clips.set_child(c_child)
         clips.connect("clicked", self._open_events_page)
         self._clips_btns.append(clips)
+        self._topnav_btns.append(clips)
         bar.append(clips)
 
         return bar
