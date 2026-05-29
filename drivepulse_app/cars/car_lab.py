@@ -112,12 +112,9 @@ class CarsCarLabMixin:
         def _wrap_sub_page(self, *a: Any, **k: Any) -> Gtk.Widget: ...  # layout.py
         def get_root(self) -> Any: ...  # Gtk.Widget
 
-    # --- header button ------------------------------------------------------
+    # --- launcher visibility ------------------------------------------------
 
     def _update_carlab_btn_visibility(self) -> None:
-        btn = getattr(self, "_carlab_btn", None)
-        if btn is None:
-            return
         # Visible for a real car detail. Demo/mock cars normally hide it, but in
         # app mock mode we show it so the workflow can be tried without hardware.
         visible = (
@@ -125,8 +122,7 @@ class CarsCarLabMixin:
             and getattr(self, "_detail_pushed", False)
             and (not self._is_selected_car_mock() or getattr(self, "mock_mode", False))
         )
-        btn.set_visible(visible)
-        # Mirror availability on the dongle launcher in the Car-Navi sidebar.
+        # The Car Lab dongle launcher lives in the Car-Navi sidebar.
         for attr in ("_carlab_sidebar_row", "_carlab_sidebar_gap_row"):
             row = getattr(self, attr, None)
             if row is not None:
