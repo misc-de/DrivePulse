@@ -122,7 +122,7 @@ def test_read_data_by_identifier_builds_request_and_parses():
 
 
 def test_request_waits_out_response_pending(monkeypatch):
-    import drivepulse_app.obd.uds as uds
+    from drivepulse_app.obd import uds
 
     monkeypatch.setattr(uds.time, "sleep", lambda *_: None)
     calls = {"n": 0}

@@ -7,8 +7,6 @@ History of breakage that these tests guard against:
 """
 from __future__ import annotations
 
-import pytest
-
 
 def _make_page(drivepulse_module):
     """Minimal CarsPage stub with list-select and related button attributes."""

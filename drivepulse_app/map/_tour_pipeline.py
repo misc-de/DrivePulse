@@ -174,7 +174,7 @@ def extract_turn_waypoints(
     if len(waypoints) > max_waypoints:
         step = (len(waypoints) - 1) / (max_waypoints - 1)
         sampled = [waypoints[round(i * step)] for i in range(max_waypoints - 1)]
-        waypoints = sampled + [last]
+        waypoints = [*sampled, last]
 
     return waypoints
 
@@ -237,8 +237,9 @@ def _snap_waypoints_to_road(
         i, wp = args
         lat, lon = wp
         url = f"https://router.project-osrm.org/nearest/v1/driving/{lon},{lat}"
-        if bearings and i < len(bearings) and bearings[i] is not None:
-            b = int(round(bearings[i])) % 360
+        b_val = bearings[i] if bearings and i < len(bearings) else None
+        if b_val is not None:
+            b = round(b_val) % 360
             url += f"?bearings={b},{bearing_range}"
         try:
             data = http_get_fn(url)
@@ -387,7 +388,7 @@ def _sample_waypoints(
     if len(result) > max_waypoints:
         step = (len(result) - 1) / (max_waypoints - 1)
         sampled = [result[round(i * step)] for i in range(max_waypoints - 1)]
-        result = sampled + [last]
+        result = [*sampled, last]
 
     return result
 
@@ -708,7 +709,7 @@ def route_via_gps_waypoints(
     cleaned_legs, stop_indices_legs = _clean_gps_trace(
         coords_lonlat, timestamps=timestamps
     )
-    leg_boundaries = [0] + stop_indices_legs + [len(cleaned_legs)]
+    leg_boundaries = [0, *stop_indices_legs, len(cleaned_legs)]
     leg_results: list[tuple[list[list[float]], float, float, list[dict]]] = []
     match_ok = True
     for k in range(len(leg_boundaries) - 1):
@@ -728,9 +729,8 @@ def route_via_gps_waypoints(
         merged_dist = 0.0
         merged_steps: list[dict] = []
         for coords_r, dur_r, dist_r, steps_r in leg_results:
-            if merged_coords and coords_r and merged_coords[-1] == coords_r[0]:
-                coords_r = coords_r[1:]
-            merged_coords.extend(coords_r)
+            leg_coords = coords_r[1:] if merged_coords and coords_r and merged_coords[-1] == coords_r[0] else coords_r
+            merged_coords.extend(leg_coords)
             merged_dur += dur_r
             merged_dist += dist_r
             merged_steps.extend(steps_r)
@@ -869,10 +869,9 @@ def _gps_route_deviations(
 
     def _flush(end: int) -> None:
         nonlocal streak_start, worst_idx, worst_dist
-        if streak_start is not None and worst_idx is not None:
-            if end - streak_start >= min_streak:
-                c = gps_coords[worst_idx]
-                corrections.append((worst_idx, (c[1], c[0])))
+        if streak_start is not None and worst_idx is not None and end - streak_start >= min_streak:
+            c = gps_coords[worst_idx]
+            corrections.append((worst_idx, (c[1], c[0])))
         streak_start = None
         worst_idx = None
         worst_dist = 0.0

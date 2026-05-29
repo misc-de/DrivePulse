@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.4.228"
+version = "0.4.229"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
@@ -83,7 +83,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-files = ["drivepulse_app", "drivepulse.py"]
+files = ["drivepulse_app"]
 exclude = ["__pycache__", "themes/"]
 ignore_missing_imports = true
 warn_unused_ignores = true
