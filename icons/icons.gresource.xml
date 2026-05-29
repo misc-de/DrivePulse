@@ -39,5 +39,16 @@
     <file alias="distance-symbolic.svg">hicolor/symbolic/actions/distance-symbolic.svg</file>
     <file alias="notepad-symbolic.svg">hicolor/symbolic/actions/notepad-symbolic.svg</file>
     <file alias="dp-carlab-symbolic.svg">hicolor/symbolic/actions/dp-carlab-symbolic.svg</file>
+    <file alias="dp-ecu-engine-symbolic.svg">hicolor/symbolic/actions/dp-ecu-engine-symbolic.svg</file>
+    <file alias="dp-ecu-transmission-symbolic.svg">hicolor/symbolic/actions/dp-ecu-transmission-symbolic.svg</file>
+    <file alias="dp-ecu-abs-symbolic.svg">hicolor/symbolic/actions/dp-ecu-abs-symbolic.svg</file>
+    <file alias="dp-ecu-airbag-symbolic.svg">hicolor/symbolic/actions/dp-ecu-airbag-symbolic.svg</file>
+    <file alias="dp-ecu-cluster-symbolic.svg">hicolor/symbolic/actions/dp-ecu-cluster-symbolic.svg</file>
+    <file alias="dp-ecu-steering-symbolic.svg">hicolor/symbolic/actions/dp-ecu-steering-symbolic.svg</file>
+    <file alias="dp-ecu-electrics-symbolic.svg">hicolor/symbolic/actions/dp-ecu-electrics-symbolic.svg</file>
+    <file alias="dp-ecu-comfort-symbolic.svg">hicolor/symbolic/actions/dp-ecu-comfort-symbolic.svg</file>
+    <file alias="dp-ecu-gateway-symbolic.svg">hicolor/symbolic/actions/dp-ecu-gateway-symbolic.svg</file>
+    <file alias="dp-ecu-mmi-symbolic.svg">hicolor/symbolic/actions/dp-ecu-mmi-symbolic.svg</file>
+    <file alias="dp-ecu-generic-symbolic.svg">hicolor/symbolic/actions/dp-ecu-generic-symbolic.svg</file>
   </gresource>
 </gresources>

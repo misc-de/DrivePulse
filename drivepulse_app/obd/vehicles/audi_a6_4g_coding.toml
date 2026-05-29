@@ -1,0 +1,207 @@
+# Community-documented coding/adaptation functions for the Audi A6 4G (C7,
+# model years 2011–2018) and its close siblings (A7 4G, A8 4H share many of
+# these). Sourced from public VCDS/OBDeleven community references
+# (Ross-Tech wiki, motor-talk / blafusel coding threads).
+#
+# READ THIS BEFORE TRUSTING A LOCATION:
+#   These VAG modules use long coding (DID 0x0600, extended session) plus
+#   per-channel adaptation values. The *function* and the *module* below are
+#   reliable, but the exact byte/bit or adaptation channel drifts between
+#   control-module software versions. Entries with `verify = true` MUST be
+#   confirmed on the specific car before they mean anything — use the read-only
+#   snapshot diff (drivepulse_app/obd/coding_diff.py): toggle the function in
+#   the car, diff a fresh read against the baseline, and the changed byte/bit
+#   IS the location for that build.
+#
+# `module` matches the keys in drivepulse_app/obd/uds.py VAG_MODULES.
+# `type`   = long_coding | adaptation | menu
+# This file is data only — read-only reference, never written to the vehicle.
+
+source = "VAG community coding references (Audi A6 4G / C7)"
+
+# ── Kombiinstrument · module 17 (tx 714 / rx 77E) ────────────────────────────
+
+[[coding]]
+key = "needle_sweep"
+module = "instruments"
+category = "display"
+name = "Zeigersweep beim Start (Needle sweep / Staging)"
+type = "adaptation"
+location = "Adaptionskanal \"Staging\" / \"Needle sweep\""
+note = "Gauge needles sweep to full deflection on ignition-on."
+verify = true
+
+[[coding]]
+key = "digital_speed"
+module = "instruments"
+category = "display"
+name = "Digitale Geschwindigkeitsanzeige im FIS/DIS"
+type = "long_coding"
+location = "Long coding, byte/bit per SW version"
+note = "Shows numeric speed in the driver information display."
+verify = true
+
+[[coding]]
+key = "lap_timer"
+module = "instruments"
+category = "display"
+name = "Laptimer / Rundenzeit-Menü"
+type = "long_coding"
+note = "Unlocks the lap-timer view in the efficiency/trip menu."
+verify = true
+
+[[coding]]
+key = "oil_temp"
+module = "instruments"
+category = "display"
+name = "Öltemperaturanzeige im FIS"
+type = "long_coding"
+note = "Enables an oil-temperature readout in the information display."
+verify = true
+
+[[coding]]
+key = "seatbelt_chime"
+module = "instruments"
+category = "comfort"
+name = "Gurtwarnung / Gong (de)aktivieren"
+type = "adaptation"
+location = "Adaptionskanal \"Seatbelt warning\""
+note = "Country-dependent; turning the chime off is legal grey area in some markets."
+verify = true
+
+[[coding]]
+key = "service_interval_reset"
+module = "instruments"
+category = "service"
+name = "Serviceintervall (Inspektionsanzeige)"
+type = "adaptation"
+note = "Adaptation channels for distance/time to next service. Read-only here."
+verify = true
+
+# ── Bordnetz / BCM · module 09 (tx 70E / rx 778) ─────────────────────────────
+
+[[coding]]
+key = "comfort_turn_signal"
+module = "central_electrics"
+category = "lighting"
+name = "Komfortblinken (Tippblinken, Anzahl Blitze)"
+type = "adaptation"
+location = "Adaptionskanal \"Comfort turn signal\" (1–5)"
+note = "Number of flashes on a brief indicator tap. 0 disables."
+verify = true
+
+[[coding]]
+key = "coming_home"
+module = "central_electrics"
+category = "lighting"
+name = "Coming/Leaving Home Leuchtdauer"
+type = "adaptation"
+note = "On-duration of the welcome/farewell lighting."
+verify = true
+
+[[coding]]
+key = "drl"
+module = "central_electrics"
+category = "lighting"
+name = "Tagfahrlicht (DRL) ein/aus"
+type = "long_coding"
+note = "Daytime running lights enable; some markets mandate it on."
+verify = true
+
+[[coding]]
+key = "drl_dim_on_indicator"
+module = "central_electrics"
+category = "lighting"
+name = "DRL seitenweise dimmen beim Blinken (US-Style)"
+type = "long_coding"
+note = "Dims the DRL on the side that is indicating."
+verify = true
+
+[[coding]]
+key = "auto_lock_speed"
+module = "central_electrics"
+category = "comfort"
+name = "Automatische Türverriegelung ab Geschwindigkeit"
+type = "adaptation"
+note = "Auto-locks the doors above a speed threshold."
+verify = true
+
+[[coding]]
+key = "selective_unlock"
+module = "central_electrics"
+category = "comfort"
+name = "Selektive Entriegelung (nur Fahrertür)"
+type = "long_coding"
+note = "First key press unlocks only the driver door."
+verify = true
+
+# ── Komfortsteuergerät · module 46 (tx 73B / rx 7A5) ─────────────────────────
+
+[[coding]]
+key = "remote_window_open"
+module = "comfort"
+category = "comfort"
+name = "Fenster per Funkschlüssel öffnen/schließen"
+type = "long_coding"
+location = "Long coding, byte/bit per SW version"
+note = "Hold lock/unlock on the remote to roll windows up/down."
+verify = true
+
+[[coding]]
+key = "mirror_fold_on_lock"
+module = "comfort"
+category = "comfort"
+name = "Spiegel anklappen beim Verriegeln"
+type = "long_coding"
+note = "Power-folding mirrors required."
+verify = true
+
+[[coding]]
+key = "mirror_dip_reverse"
+module = "comfort"
+category = "comfort"
+name = "Beifahrerspiegel absenken beim Rückwärtsgang"
+type = "adaptation"
+note = "Tilts the passenger mirror down when reverse is selected."
+verify = true
+
+# ── Information electronics / MMI · module 5F ────────────────────────────────
+# Not in VAG_MODULES yet; MMI typically addr 5F. Add its CAN ids before probing.
+
+[[coding]]
+key = "mmi_engineering_menu"
+module = "mmi"
+category = "infotainment"
+name = "MMI Engineering-/Greenscreen-Menü"
+type = "menu"
+note = "Hidden diagnostic menu in the MMI; reached via key combo, not coding. Listed for completeness."
+verify = true
+
+[[coding]]
+key = "video_in_motion"
+module = "mmi"
+category = "infotainment"
+name = "Video in Motion (VIM)"
+type = "long_coding"
+note = "Allows video playback while driving. ILLEGAL on public roads in most markets — reference only."
+verify = true
+
+[[coding]]
+key = "performance_menu"
+module = "mmi"
+category = "infotainment"
+name = "Effizienz-/Performance-Menü freischalten"
+type = "long_coding"
+note = "Extra power/torque/g-force readouts in the MMI."
+verify = true
+
+# ── Gateway · module 19 (tx 710 / rx 77A) ────────────────────────────────────
+
+[[coding]]
+key = "gateway_installed_list"
+module = "gateway"
+category = "system"
+name = "Verbauliste der Steuergeräte"
+type = "long_coding"
+note = "The gateway's installation list of fitted modules. Read-only here; mis-coding it causes phantom faults."
+verify = true

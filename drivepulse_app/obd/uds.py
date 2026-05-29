@@ -118,6 +118,7 @@ VAG_MODULES: dict[str, tuple[str, str]] = {
     "central_electrics": ("70E", "778"),  # addr 09 — Bordnetz / BCM
     "comfort":           ("73B", "7A5"),  # addr 46 — Komfortsteuergerät
     "gateway":           ("710", "77A"),  # addr 19
+    "mmi":               ("773", "7DD"),  # addr 5F — Information electronics / MMI
 }
 
 # VAG-specific ReadDataByIdentifier targets useful while exploring coding.

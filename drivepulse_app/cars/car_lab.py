@@ -13,6 +13,7 @@ vehicle.
 """
 from __future__ import annotations
 
+import functools
 import json
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -20,7 +21,8 @@ from typing import TYPE_CHECKING, Any
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Adw, GLib, Gtk
+gi.require_version("Gdk", "4.0")
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
 from drivepulse_app.common import LOG_DIR, _translate
 from drivepulse_app.diagnostics import get_logger
@@ -31,6 +33,48 @@ log = get_logger(__name__)
 
 _BASELINE_SAMPLES = 5
 _BASELINE_INTERVAL_MS = 400
+
+# Module name (from candidate_modules) → bundled symbolic icon. The legislated
+# generic ECUs (ecu_7E2 …) and anything unrecognised fall back to a chip icon.
+_ECU_ICONS = {
+    "engine": "dp-ecu-engine-symbolic",
+    "transmission": "dp-ecu-transmission-symbolic",
+    "abs": "dp-ecu-abs-symbolic",
+    "airbag": "dp-ecu-airbag-symbolic",
+    "instruments": "dp-ecu-cluster-symbolic",
+    "steering": "dp-ecu-steering-symbolic",
+    "central_electrics": "dp-ecu-electrics-symbolic",
+    "comfort": "dp-ecu-comfort-symbolic",
+    "gateway": "dp-ecu-gateway-symbolic",
+    "mmi": "dp-ecu-mmi-symbolic",
+}
+_ECU_ICON_FALLBACK = "dp-ecu-generic-symbolic"
+
+
+def module_icon_name(module: str) -> str:
+    """Symbolic icon name for a control-module name (case-insensitive)."""
+    return _ECU_ICONS.get((module or "").strip().lower(), _ECU_ICON_FALLBACK)
+
+
+# Mirrors the map's ``.dp-tour-topnav`` styling so the Car Lab switcher matches
+# the tour top-nav (compact padding + small caption labels).
+_TOPNAV_CSS = b".dp-tour-topnav { padding: 2px 4px; } .dp-tour-topnav button label { font-size: 11px; }"
+_topnav_css_installed = False
+
+
+def _install_topnav_css() -> None:
+    global _topnav_css_installed
+    if _topnav_css_installed:
+        return
+    display = Gdk.Display.get_default()
+    if display is None:
+        return
+    provider = Gtk.CssProvider()
+    provider.load_from_data(_TOPNAV_CSS)
+    Gtk.StyleContext.add_provider_for_display(
+        display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+    _topnav_css_installed = True
 
 
 def _hex_snapshot(snap: dict[int, str]) -> dict[int, bytes]:
@@ -104,43 +148,132 @@ class CarsCarLabMixin:
         lbl.add_css_class("dim-label")
         return lbl
 
-    # --- landing ------------------------------------------------------------
+    # --- landing (top-nav + stacked views) ----------------------------------
+
+    # name → (icon, short nav label key, builder)
+    def _carlab_nav_items(self) -> list[tuple[str, str, str, Callable[[], Gtk.Widget]]]:
+        return [
+            ("scan", "edit-find-symbolic", "cars.carlab.nav.scan", self._build_module_scan),
+            ("discover", "dp-ecu-generic-symbolic", "cars.carlab.nav.discover", self._build_discover),
+            ("discoveries", "view-list-symbolic", "cars.carlab.nav.discoveries", self._build_discoveries_list),
+            ("find", "edit-find-replace-symbolic", "cars.carlab.nav.find", self._build_find_functions),
+            ("findings", "notepad-symbolic", "cars.carlab.nav.findings", self._build_findings),
+        ]
+
+    def _cl_scroller(self, child: Gtk.Widget) -> Gtk.ScrolledWindow:
+        """Wrap a page body so it scrolls vertically without forcing width."""
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sc.set_vexpand(True)
+        sc.set_hexpand(True)
+        sc.set_child(child)
+        return sc
+
+    def _carlab_top_nav(self, stack: Gtk.Stack) -> Gtk.Widget:
+        """Page switcher built like the map's tour top-nav: flat buttons with a
+        symbol over a small caption, spread evenly across the bar."""
+        _install_topnav_css()
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        bar.add_css_class("dp-tour-topnav")
+        bar.set_margin_start(4); bar.set_margin_end(4)
+        bar.set_margin_top(4); bar.set_margin_bottom(4)
+
+        def _child(icon_name: str, label_key: str) -> Gtk.Box:
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            box.set_halign(Gtk.Align.CENTER)
+            img = Gtk.Image.new_from_icon_name(icon_name)
+            img.set_pixel_size(22)
+            lbl = Gtk.Label(label=self._carlab_t(label_key))
+            lbl.add_css_class("caption")
+            lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            box.append(img)
+            box.append(lbl)
+            return box
+
+        group: Gtk.ToggleButton | None = None
+        for name, icon_name, label_key, _builder in self._carlab_nav_items():
+            btn = Gtk.ToggleButton()
+            btn.set_child(_child(icon_name, label_key))
+            btn.add_css_class("flat")
+            btn.set_hexpand(True)
+            if group is None:
+                group = btn
+                btn.set_active(True)
+            else:
+                btn.set_group(group)
+            btn.connect("toggled", self._on_carlab_nav_toggled, stack, name)
+            bar.append(btn)
+        return bar
+
+    def _on_carlab_nav_toggled(self, btn: Gtk.ToggleButton, stack: Gtk.Stack, name: str) -> None:
+        if not btn.get_active():
+            return
+        stack.set_visible_child_name(name)
+        # Data-driven views are rebuilt on entry so they stay current.
+        if name == "discoveries":
+            self._populate_discoveries()
+        elif name == "findings":
+            self._populate_findings()
 
     def _open_car_lab(self) -> None:
         if self._selected_car_id is None:
             return
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
+        stack = Gtk.Stack()
+        stack.set_vexpand(True)
+        stack.set_hexpand(True)
+        stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self._cl_stack = stack
+        for name, _icon, _label_key, builder in self._carlab_nav_items():
+            stack.add_named(self._cl_scroller(builder()), name)
+        stack.set_visible_child_name("scan")
 
-        intro = Gtk.Label(label=self._carlab_t("cars.carlab.intro"), xalign=0.0)
-        intro.set_wrap(True)
-        intro.add_css_class("dim-label")
-        box.append(intro)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.append(self._carlab_top_nav(stack))
+        outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        outer.append(stack)
+        self._carlab_push(outer, self._carlab_t("cars.carlab.title"))
 
-        def add_btn(label_key: str, handler: Callable[[], None]) -> None:
-            b = Gtk.Button(label=self._carlab_t(label_key))
-            b.add_css_class("pill")
-            b.set_halign(Gtk.Align.START)
-            b.connect("clicked", lambda _b: handler())
-            box.append(b)
-
-        add_btn("cars.carlab.scan_modules", self._open_module_scan)
-        add_btn("cars.carlab.discover", self._open_discover)
-        add_btn("cars.carlab.discoveries", self._open_discoveries_list)
-        add_btn("cars.carlab.find", self._open_find_functions)
-        add_btn("cars.carlab.findings", self._open_findings)
-        self._carlab_push(box, self._carlab_t("cars.carlab.title"))
-
-    # --- module scan (which control units are present) ----------------------
-
-    def _open_module_scan(self) -> None:
+    def _carlab_page_box(self) -> Gtk.Box:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_margin_top(12); box.set_margin_bottom(12)
         box.set_margin_start(12); box.set_margin_end(12)
-        box.append(Gtk.Label(label=self._carlab_t("cars.carlab.scan.intro"), xalign=0.0))
+        return box
+
+    # --- module scan (which control units are present) ----------------------
+
+    def _cl_module_row(self, name: str, tx: str, rx: str, on_click: Callable[[], None]) -> Gtk.Button:
+        """A left-aligned module button: a per-module symbol, the name on top
+        and a tx/rx caption below. Wraps cleanly on mobile instead of
+        overflowing the row."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        row.set_halign(Gtk.Align.START)
+        icon = Gtk.Image.new_from_icon_name(module_icon_name(name))
+        icon.set_pixel_size(24)
+        icon.set_valign(Gtk.Align.CENTER)
+        row.append(icon)
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        inner.set_valign(Gtk.Align.CENTER)
+        title = Gtk.Label(label=name, xalign=0.0)
+        title.set_wrap(True)
+        sub = Gtk.Label(label=f"tx={tx} · rx={rx}", xalign=0.0)
+        sub.add_css_class("caption")
+        sub.add_css_class("dim-label")
+        inner.append(title)
+        inner.append(sub)
+        row.append(inner)
+        b = Gtk.Button()
+        b.set_child(row)
+        b.add_css_class("flat")
+        b.set_halign(Gtk.Align.FILL)
+        b.connect("clicked", lambda _b: on_click())
+        return b
+
+    def _build_module_scan(self) -> Gtk.Widget:
+        box = self._carlab_page_box()
+        intro = Gtk.Label(label=self._carlab_t("cars.carlab.scan.intro"), xalign=0.0)
+        intro.set_wrap(True)
+        intro.add_css_class("dim-label")
+        box.append(intro)
 
         status = self._carlab_status_label()
         results = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -167,11 +300,10 @@ class CarsCarLabMixin:
                 status.set_text(self._carlab_t("cars.carlab.scan.found", n=len(modules)))
                 for m in modules:
                     name, tx, rx = m["name"], m["tx"], m["rx"]
-                    b = Gtk.Button(label=f"{name}  (tx={tx} rx={rx})")
-                    b.add_css_class("flat")
-                    b.set_halign(Gtk.Align.FILL)
-                    b.connect("clicked", lambda _b, n=name, t=tx, r=rx: self._run_discover_for(n, t, r))
-                    results.append(b)
+                    results.append(self._cl_module_row(
+                        name, tx, rx,
+                        functools.partial(self._run_discover_for, name, tx, rx),
+                    ))
 
             self.on_carlab_scan(done)
 
@@ -179,32 +311,37 @@ class CarsCarLabMixin:
         box.append(run)
         box.append(status)
         box.append(results)
-        self._carlab_push(box, self._carlab_t("cars.carlab.scan_modules"))
+        return box
 
-    def _run_discover_for(self, name: str, tx: str, rx: str) -> None:
-        """Discover one module by address and save it, then show the result."""
+    def _run_discover_for(
+        self, name: str, tx: str, rx: str,
+        on_result: Callable[[dict], None] | None = None,
+    ) -> None:
+        """Discover one module by address and save it. By default the result is
+        pushed as a detail page; pass ``on_result`` to handle it inline instead
+        (it is always called, even on an empty result, so callers can reset UI)."""
         if self.on_carlab_discover is None or self._selected_car_id is None:
             return
         car_id = self._selected_car_id
 
         def done(result: dict) -> None:
-            if not result:
-                return
-            result["module"] = name
-            try:
-                self.db.add_discovery(car_id, result, label=name)
-            except Exception:
-                log.exception("Could not save discovery")
-            self._open_discovery_detail(result)
+            if result:
+                result["module"] = name
+                try:
+                    self.db.add_discovery(car_id, result, label=name)
+                except Exception:
+                    log.exception("Could not save discovery")
+            if on_result is not None:
+                on_result(result)
+            elif result:
+                self._open_discovery_detail(result)
 
         self.on_carlab_discover(tx, rx, done)
 
     # --- 1. discover --------------------------------------------------------
 
-    def _open_discover(self) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12); box.set_margin_bottom(12)
-        box.set_margin_start(12); box.set_margin_end(12)
+    def _build_discover(self) -> Gtk.Widget:
+        box = self._carlab_page_box()
         dropdown, names = self._carlab_module_dropdown()
         box.append(Gtk.Label(label=self._carlab_t("cars.carlab.module"), xalign=0.0))
         box.append(dropdown)
@@ -212,6 +349,9 @@ class CarsCarLabMixin:
         run = Gtk.Button(label=self._carlab_t("cars.carlab.discover.run"))
         run.add_css_class("suggested-action")
         run.set_halign(Gtk.Align.START)
+        # The discovery result is rendered inline here, right below the button.
+        result_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        result_box.set_margin_top(6)
 
         def on_run(_b: Gtk.Button) -> None:
             if self.on_carlab_discover is None or self._selected_car_id is None:
@@ -220,40 +360,94 @@ class CarsCarLabMixin:
             module = names[dropdown.get_selected()]
             tx, rx = self._carlab_candidates()[module]
             status.set_text(self._carlab_t("cars.carlab.discover.running", module=module))
-            self._run_discover_for(module, tx, rx)
+            run.set_sensitive(False)
+            self._cl_clear(result_box)
+
+            def on_result(data: dict) -> None:
+                run.set_sensitive(True)
+                self._cl_clear(result_box)
+                if not data:
+                    status.set_text(self._carlab_t("cars.carlab.no_data"))
+                    return
+                status.set_text("")
+                result_box.append(self._build_discovery_content(data))
+
+            self._run_discover_for(module, tx, rx, on_result=on_result)
 
         run.connect("clicked", on_run)
         box.append(run)
         box.append(status)
-        self._carlab_push(box, self._carlab_t("cars.carlab.discover"))
+        box.append(result_box)
+        return box
 
-    def _open_discoveries_list(self) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.set_margin_top(12); box.set_margin_bottom(12)
-        box.set_margin_start(12); box.set_margin_end(12)
+    def _build_discoveries_list(self) -> Gtk.Widget:
+        box = self._carlab_page_box()
+        box.set_spacing(4)
+        self._cl_discoveries_list = box
+        self._populate_discoveries()
+        return box
+
+    def _cl_clear(self, box: Gtk.Box) -> None:
+        child = box.get_first_child()
+        while child is not None:
+            box.remove(child)
+            child = box.get_first_child()
+
+    def _cl_list_button(
+        self, label: str, on_click: Callable[[], None], icon: str | None = None
+    ) -> Gtk.Button:
+        """A left-aligned, full-width flat list button, optionally icon-led."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        if icon is not None:
+            img = Gtk.Image.new_from_icon_name(icon)
+            img.set_pixel_size(20)
+            row.append(img)
+        lbl = Gtk.Label(label=label, xalign=0.0)
+        lbl.set_wrap(True)
+        lbl.set_hexpand(True)
+        row.append(lbl)
+        b = Gtk.Button()
+        b.set_child(row)
+        b.add_css_class("flat")
+        b.set_halign(Gtk.Align.FILL)
+        b.connect("clicked", lambda _b: on_click())
+        return b
+
+    def _populate_discoveries(self) -> None:
+        box = getattr(self, "_cl_discoveries_list", None)
+        if box is None:
+            return
+        self._cl_clear(box)
         rows = []
         if self.db is not None and self._selected_car_id is not None:
             rows = self.db.list_discoveries_for_car(self._selected_car_id)
         if not rows:
             box.append(Gtk.Label(label=self._carlab_t("cars.carlab.discoveries.empty"), xalign=0.0))
+            return
         for row in rows:
             label = f"{row['label'] or '?'}  ·  {row['created_at']}"
-            b = Gtk.Button(label=label)
-            b.add_css_class("flat")
-            b.set_halign(Gtk.Align.FILL)
             did = int(row["id"])
-            b.connect("clicked", lambda _b, d=did: self._open_discovery_detail(self.db.get_discovery_data(d)))
-            box.append(b)
-        self._carlab_push(box, self._carlab_t("cars.carlab.discoveries"))
+            box.append(self._cl_list_button(
+                label, functools.partial(self._open_discovery_by_id, did),
+                icon=module_icon_name(row["label"] or ""),
+            ))
 
-    def _open_discovery_detail(self, data: dict) -> None:
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_vexpand(True)
+    def _open_discovery_by_id(self, did: int) -> None:
+        self._open_discovery_detail(self.db.get_discovery_data(did))
+
+    def _build_discovery_content(self, data: dict) -> Gtk.Box:
+        """The discovery result body (header + identification + DIDs), reused
+        both as an inline panel and as a pushed detail page."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.set_margin_top(12); box.set_margin_bottom(12)
-        box.set_margin_start(12); box.set_margin_end(12)
-        head = f"{data.get('module', '?')}  (tx={data.get('tx')} rx={data.get('rx')})"
-        box.append(Gtk.Label(label=head, xalign=0.0))
+        module = str(data.get("module", "?"))
+        head_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        head_row.set_halign(Gtk.Align.START)
+        head_icon = Gtk.Image.new_from_icon_name(module_icon_name(module))
+        head_icon.set_pixel_size(24)
+        head_row.append(head_icon)
+        head = f"{module}  (tx={data.get('tx')} rx={data.get('rx')})"
+        head_row.append(Gtk.Label(label=head, xalign=0.0))
+        box.append(head_row)
 
         ident = data.get("identification") or {}
         if ident:
@@ -270,6 +464,14 @@ class CarsCarLabMixin:
                 box.append(Gtk.Label(label=f"DID {key}: {entry['hex']}{extra}", xalign=0.0, selectable=True))
             else:
                 box.append(Gtk.Label(label=f"DID {key}: -- {entry.get('nrc_name', '')}", xalign=0.0))
+        return box
+
+    def _open_discovery_detail(self, data: dict) -> None:
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_vexpand(True)
+        box = self._build_discovery_content(data)
+        box.set_margin_top(12); box.set_margin_bottom(12)
+        box.set_margin_start(12); box.set_margin_end(12)
         scroll.set_child(box)
         self._carlab_push(scroll, self._carlab_t("cars.carlab.discovery_detail"))
 
@@ -299,10 +501,8 @@ class CarsCarLabMixin:
                 break
         return sorted(dids)
 
-    def _open_find_functions(self) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12); box.set_margin_bottom(12)
-        box.set_margin_start(12); box.set_margin_end(12)
+    def _build_find_functions(self) -> Gtk.Widget:
+        box = self._carlab_page_box()
         dropdown, names = self._carlab_module_dropdown()
         box.append(Gtk.Label(label=self._carlab_t("cars.carlab.module"), xalign=0.0))
         box.append(dropdown)
@@ -368,7 +568,7 @@ class CarsCarLabMixin:
             toggle.connect("clicked", on_toggle)
             box.append(toggle)
         box.append(status)
-        self._carlab_push(box, self._carlab_t("cars.carlab.find"))
+        return box
 
     def _carlab_take_baseline(
         self, i: int, status: Gtk.Label, baseline_btn: Gtk.Button, capture_btn: Gtk.Button
@@ -443,12 +643,9 @@ class CarsCarLabMixin:
 
     # --- findings table + export -------------------------------------------
 
-    def _open_findings(self) -> None:
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_vexpand(True)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.set_margin_top(12); box.set_margin_bottom(12)
-        box.set_margin_start(12); box.set_margin_end(12)
+    def _build_findings(self) -> Gtk.Widget:
+        box = self._carlab_page_box()
+        box.set_spacing(4)
 
         status = self._carlab_status_label()
         export = Gtk.Button(label=self._carlab_t("cars.carlab.export"))
@@ -457,11 +654,23 @@ class CarsCarLabMixin:
         box.append(export)
         box.append(status)
 
+        list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._cl_findings_list = list_box
+        box.append(list_box)
+        self._populate_findings()
+        return box
+
+    def _populate_findings(self) -> None:
+        list_box = getattr(self, "_cl_findings_list", None)
+        if list_box is None:
+            return
+        self._cl_clear(list_box)
         rows = []
         if self.db is not None and self._selected_car_id is not None:
             rows = self.db.list_findings_for_car(self._selected_car_id)
         if not rows:
-            box.append(Gtk.Label(label=self._carlab_t("cars.carlab.findings.empty"), xalign=0.0))
+            list_box.append(Gtk.Label(label=self._carlab_t("cars.carlab.findings.empty"), xalign=0.0))
+            return
         for row in rows:
             line = (
                 f"{row['module'] or '?'}  DID {int(row['did']):04X} "
@@ -475,18 +684,16 @@ class CarsCarLabMixin:
             rb.append(lbl)
             trash = Gtk.Button(icon_name="user-trash-symbolic")
             trash.add_css_class("flat")
+            trash.set_valign(Gtk.Align.START)
             fid = int(row["id"])
             trash.connect("clicked", lambda _b, f=fid: self._carlab_delete_finding(f))
             rb.append(trash)
-            box.append(rb)
-        scroll.set_child(box)
-        self._carlab_push(scroll, self._carlab_t("cars.carlab.findings"))
+            list_box.append(rb)
 
     def _carlab_delete_finding(self, finding_id: int) -> None:
         if self.db is not None:
             self.db.delete_finding(finding_id)
-        self.nav_view.pop()
-        self._open_findings()
+        self._populate_findings()
 
     def _carlab_export_findings(self, status: Gtk.Label) -> None:
         if self.db is None or self._selected_car_id is None:
