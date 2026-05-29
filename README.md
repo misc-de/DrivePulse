@@ -33,6 +33,7 @@ It is designed to feel at home on a Linux phone (Phosh, Mobian) just as much as 
 - **Navigation** — address search, multi-waypoint car routing, turn-by-turn with optional voice, 2D/3D maps and German Autobahn traffic.
 - **Dashcam** — rolling-buffer recording with one-tap event save and optional GPS/speed overlay.
 - **Vehicle library** — your cars with OBD scan history, photos and per-car run records.
+- **Car Lab** — read-only UDS exploration per car: discover control modules (identification DIDs, VAG coding), then find functions by capturing a module baseline, toggling something in the car and recording the changed byte/bit. Findings build up a per-car coding table. Nothing is ever written to the vehicle.
 - **Device sync** — direct phone-to-laptop database transfer over local Wi-Fi via QR pairing, TLS-encrypted.
 - **Settings** — units, language (EN/DE), gauge theme, mock-mode for development without hardware.
 
@@ -260,6 +261,9 @@ SQLite file at `~/.local/state/drivepulse/drives.sqlite3` by default
 | `samples` | ~1–2 Hz telemetry points (OBD + GPS merged), linked to a trip |
 | `scans` | Full OBD scan snapshots with PIDs and DTCs, linked to a car |
 | `acceleration_runs` | Completed acceleration measurement runs with split times and GPS position, linked to a car |
+| `scanned_modules` | Control modules a scan found present on a car (name + tx/rx addresses) — gates the Car Lab views |
+| `module_discoveries` | Car Lab module-discovery inventories (which DIDs answered, identification strings, DTCs), linked to a car |
+| `coding_findings` | Car Lab reverse-engineered coding bytes/bits with the user's description, linked to a car |
 
 ---
 
