@@ -149,6 +149,10 @@ class DashcamRecorder:
         self._stop_event     = threading.Event()
         self._lock           = threading.Lock()
         self._segments:      list[Path] = []
+        # Event-saves whose source segment was still being recorded when the
+        # user pressed save: (src_segment, dst_clip). Copied once the segment
+        # finalises (see _finalize_segment) so the clip isn't truncated.
+        self._pending_saves: list[tuple[Path, Path]] = []
         self._seg_started:   datetime | None = None
         self._osd_txt:       Path | None = None
         self._gst_pipeline:  Any = None
@@ -190,24 +194,55 @@ class DashcamRecorder:
             self._thread.join(timeout=10)
 
     def save_event(self) -> list[Path]:
-        """Copy previous + current segment to protected_dir. Returns saved paths."""
+        """Protect the previous + current rolling segment around the trigger.
+
+        Returns the destination clip paths. The previous, already-finalised
+        segment is copied immediately. The currently-recording segment is only
+        copied once it finalises (next segment rollover or stop) — copying it
+        mid-write would yield a truncated, possibly empty clip — so its path is
+        in the returned list but the file appears a little later. When not
+        recording every segment is final, so all are copied immediately.
+        """
         with self._lock:
-            candidates = list(self._segments[-2:])
-        if not candidates:
+            segs = list(self._segments)
+        if not segs:
             return []
         self.protected_dir.mkdir(parents=True, exist_ok=True)
         tag = datetime.now(UTC).strftime("event_%Y%m%d_%H%M%S")
-        saved: list[Path] = []
-        for i, src in enumerate(candidates):
-            if src.exists():
-                dst = self.protected_dir / f"{tag}_{i:02d}{src.suffix}"
+        current = segs[-1]
+        planned: list[Path] = []
+        for i, src in enumerate(segs[-2:]):
+            dst = self.protected_dir / f"{tag}_{i:02d}{src.suffix}"
+            if self.is_recording and src == current:
+                with self._lock:
+                    self._pending_saves.append((src, dst))
+                planned.append(dst)
+                log.info("Event save deferred until segment finalises: %s", dst)
+            elif src.exists():
                 try:
                     shutil.copy2(src, dst)
-                    saved.append(dst)
+                    planned.append(dst)
                     log.info("Event saved: %s", dst)
                 except OSError as exc:
                     log.warning("Could not save event clip %s: %s", src, exc)
-        return saved
+        return planned
+
+    def _finalize_segment(self, seg: Path | None) -> None:
+        """Copy any event-saves that were deferred until *seg* finished writing."""
+        if seg is None:
+            return
+        with self._lock:
+            ready = [(s, d) for (s, d) in self._pending_saves if s == seg]
+            if not ready:
+                return
+            self._pending_saves = [(s, d) for (s, d) in self._pending_saves if s != seg]
+        for src, dst in ready:
+            try:
+                if src.exists():
+                    shutil.copy2(src, dst)
+                    log.info("Event saved (segment finalised): %s", dst)
+            except OSError as exc:
+                log.warning("Could not save deferred event clip %s: %s", src, exc)
 
     def update_gps(self, lat: float | None, lon: float | None, speed_kmh: float | None) -> None:
         self.lat       = lat
@@ -274,6 +309,7 @@ class DashcamRecorder:
                 self.on_segment_start(seg)
             ok = self._run_segment(seg)
             self._seg_started = None
+            self._finalize_segment(seg)
             if self.on_segment_done:
                 self.on_segment_done(seg)
             if not ok and not self._stop_event.is_set():
@@ -424,6 +460,7 @@ class DashcamRecorder:
 
                 last: Path | None = self._gst_last_seg
                 self._gst_last_seg = None
+                self._finalize_segment(last)
                 if last is not None and self.on_segment_done:
                     self.on_segment_done(last)
 
@@ -435,8 +472,12 @@ class DashcamRecorder:
         """splitmuxsink format-location signal — fired on the GStreamer streaming thread."""
         # Close out previous segment
         prev = self._gst_last_seg
-        if prev is not None and self.on_segment_done:
-            self.on_segment_done(prev)
+        if prev is not None:
+            # Finalise deferred event-saves off the streaming thread: a blocking
+            # copy here would stall the muxer's segment rollover.
+            threading.Thread(target=self._finalize_segment, args=(prev,), daemon=True).start()
+            if self.on_segment_done:
+                self.on_segment_done(prev)
         # Open next segment
         seg = self._next_segment_path()
         self._gst_last_seg = seg
