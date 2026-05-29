@@ -13,7 +13,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from drivepulse_app.common import _translate
-from drivepulse_app.map._geometry import haversine
+from drivepulse_app.map._geometry import bearing, haversine
 from drivepulse_app.map._speed_zones import mock_speed_kmh
 
 
@@ -119,6 +119,36 @@ def nearest_route_progress(
             best_d = d
             best_i = i
     return best_i, route_cum_m[best_i]
+
+
+def waypoint_is_passed(
+    gps_lat: float,
+    gps_lon: float,
+    gps_heading: float,
+    wp_lat: float,
+    wp_lon: float,
+    max_dist_m: float,
+    *,
+    bearing_threshold_deg: float = 110.0,
+) -> tuple[bool, float, float]:
+    """Decide whether an intermediate waypoint has been driven past.
+
+    A waypoint only counts as *passed* (and may be dropped from a reroute) when
+    it is both geographically close (``<= max_dist_m``) and clearly *behind* the
+    current heading — its bearing differs from the heading by more than
+    ``bearing_threshold_deg``. A far-ahead waypoint that is momentarily
+    off-heading (mid-turn, parallel street) must stay in the route.
+
+    Returns ``(passed, dist_m, wp_bearing_deg)``; the distance and bearing are
+    returned so callers can log them without recomputing.
+    """
+    dist_m = haversine(gps_lat, gps_lon, wp_lat, wp_lon)
+    brng = bearing(gps_lat, gps_lon, wp_lat, wp_lon)
+    diff = abs(gps_heading - brng) % 360.0
+    if diff > 180.0:
+        diff = 360.0 - diff
+    passed = dist_m <= max_dist_m and diff > bearing_threshold_deg
+    return passed, dist_m, brng
 
 
 def off_route_decision(
