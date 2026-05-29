@@ -20,12 +20,15 @@ REQUIRED_PYTHON_PACKAGES = (
     ("PyGObject",     "gi",           "GTK4 / libadwaita Python bindings"),
     ("pycairo",       "cairo",        "Cairo drawing library (gauges, dashboard)"),
     ("pyserial",      "serial",       "Serial Bluetooth/USB port support"),
-    ("obd",           "obd",          "OBD-II dongle support"),
     ("requests",      "requests",     "HTTP client (routing, geocoding, updates)"),
     ("cryptography",  "cryptography", "TLS encryption (device sync)"),
 )
 
 OPTIONAL_PYTHON_PACKAGES = (
+    # python-OBD (GPL v2) is optional: when present it is preferred for richer
+    # PID/protocol coverage, otherwise the GPL-free native ELM327 backend is
+    # used. See drivepulse_app/obd/native.py and CREDITS.md.
+    ("obd",     "obd",     "OBD-II dongle support — falls back to the native ELM327 backend when absent"),
     ("urllib3", "urllib3", "HTTP pool (bundled with requests)"),
 )
 

@@ -8,11 +8,13 @@ Funktionen:
 - Querformat: drei Tachos nebeneinander.
 - Hochformat: drei Tachos untereinander.
 - Zusätzliche OBD-Werte werden in JSONL geschrieben, damit sie später leicht eingebaut werden können.
-- Mock-Modus, falls kein Dongle oder python-OBD verfügbar ist.
+- Nativer ELM327-Treiber als Fallback, falls python-OBD nicht installiert ist.
+- Mock-Modus, falls kein Dongle verfügbar ist.
 
 Debian/Ubuntu-Abhängigkeiten:
   sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 python3-pip
-  python3 -m pip install --user obd
+  python3 -m pip install --user pyserial requests cryptography
+  # optional, für mehr PID-/Protokoll-Abdeckung: python3 -m pip install --user obd
 
 Start:
   python3 drivepulse.py
