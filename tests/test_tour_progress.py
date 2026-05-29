@@ -4,11 +4,15 @@ from drivepulse_app.map._tour_progress import (
     build_maneuver_positions,
     build_speed_zones,
     compute_route_progress_tables,
+    maneuver_passed,
     nearest_route_progress,
+    next_actionable_step_idx,
     off_route_decision,
     tts_distance_text,
     waypoint_is_passed,
 )
+
+_NON_ACTIONABLE = {"new name", "notification", "continue"}
 
 # Shared reroute thresholds mirroring MapTourMixin's class constants.
 _REROUTE_KW = dict(off_route_m=30.0, min_speed_kmh=10.0, confirm_s=4.0, cooldown_s=30.0)
@@ -220,3 +224,56 @@ def test_waypoint_bearing_threshold_is_configurable():
     assert waypoint_is_passed(
         _GPS_LAT, _GPS_LON, 0.0, *_WP_SOUTH, 200.0, bearing_threshold_deg=181.0
     )[0] is False
+
+
+# --- next_actionable_step_idx ----------------------------------------------
+
+def test_next_actionable_skips_leading_non_actionable_steps():
+    steps = [{"type": "continue"}, {"type": "new name"}, {"type": "turn"}, {"type": "arrive"}]
+    assert next_actionable_step_idx(steps, 0, _NON_ACTIONABLE) == 2
+
+
+def test_next_actionable_stays_put_on_actionable_step():
+    steps = [{"type": "turn"}, {"type": "continue"}]
+    assert next_actionable_step_idx(steps, 0, _NON_ACTIONABLE) == 0
+
+
+def test_next_actionable_never_advances_past_last_step():
+    # All remaining steps are non-actionable: stop on the final index, not beyond.
+    steps = [{"type": "continue"}, {"type": "continue"}, {"type": "continue"}]
+    assert next_actionable_step_idx(steps, 0, _NON_ACTIONABLE) == 2
+
+
+# --- maneuver_passed --------------------------------------------------------
+
+_MANEUVER_KW = dict(closest_m=80.0, pass_growth_m=8.0)
+
+
+def test_maneuver_not_passed_while_approaching():
+    # Got within 80 m (min=40) and still closing -> not passed.
+    assert maneuver_passed(40.0, 30.0, progress_m=0.0, step_route_cum_m=None, **_MANEUVER_KW) is False
+
+
+def test_maneuver_passed_after_closest_approach_then_receding():
+    # Was within 80 m (min=20) and distance has grown well past min+8 -> passed.
+    assert maneuver_passed(20.0, 50.0, progress_m=0.0, step_route_cum_m=None, **_MANEUVER_KW) is True
+
+
+def test_maneuver_not_passed_if_never_got_close_enough():
+    # Closest approach was 100 m (> 80 m) -> the closest-approach test never arms.
+    assert maneuver_passed(100.0, 200.0, progress_m=0.0, step_route_cum_m=None, **_MANEUVER_KW) is False
+
+
+def test_maneuver_passed_via_route_progress_fallback():
+    # Closest-approach test not satisfied, but route progress is > step_cum + 80 m.
+    assert maneuver_passed(100.0, 90.0, progress_m=500.0, step_route_cum_m=400.0, **_MANEUVER_KW) is True
+
+
+def test_maneuver_route_fallback_needs_margin():
+    # Progress only just past the step position (not yet + closest_m) -> not passed.
+    assert maneuver_passed(100.0, 90.0, progress_m=420.0, step_route_cum_m=400.0, **_MANEUVER_KW) is False
+
+
+def test_maneuver_passed_handles_none_min_dist():
+    # No closest approach recorded yet and no route table -> not passed (no crash).
+    assert maneuver_passed(None, 50.0, progress_m=0.0, step_route_cum_m=None, **_MANEUVER_KW) is False

@@ -16,7 +16,9 @@ from drivepulse_app.map._tour_progress import (
     build_maneuver_positions,
     build_speed_zones,
     compute_route_progress_tables,
+    maneuver_passed,
     nearest_route_progress,
+    next_actionable_step_idx,
     off_route_decision,
     tts_distance_text,
     waypoint_is_passed,
@@ -386,12 +388,12 @@ class MapTourMixin:
         return False
 
     def _skip_non_actionable_steps(self) -> None:
-        while (
-            self._tour_step_idx < len(self._tour_steps) - 1
-            and self._tour_steps[self._tour_step_idx].get("type")
-            in self._NON_ACTIONABLE_STEP_TYPES
-        ):
-            self._tour_step_idx += 1
+        new_idx = next_actionable_step_idx(
+            self._tour_steps, self._tour_step_idx, self._NON_ACTIONABLE_STEP_TYPES
+        )
+        if new_idx != self._tour_step_idx:
+            self._tour_step_idx = new_idx
+            # Advancing to a new active step invalidates the closest-approach tracker.
             self._step_min_dist = None
 
     def _compute_route_progress_tables(self) -> None:
@@ -519,25 +521,17 @@ class MapTourMixin:
             if self._step_min_dist is None or distance_m < self._step_min_dist:
                 self._step_min_dist = distance_m
 
-            # "Passed" when we've gotten within _MANEUVER_CLOSEST_M and the
-            # distance has grown back past minimum + noise-guard.
-            passed = (
-                self._step_min_dist <= self._MANEUVER_CLOSEST_M
-                and distance_m > self._step_min_dist + self._MANEUVER_PASS_GROWTH_M
+            # Closest-approach test plus a route-progress fallback. The fallback
+            # deliberately anchors on the step's OWN route position (not the next
+            # step's start) — anchoring ahead caused premature advancement at
+            # close-together maneuvers (roundabouts), desyncing overlay and TTS.
+            curr_idx = self._tour_step_idx
+            step_cum = self._step_cum_m[curr_idx] if curr_idx < len(self._step_cum_m) else None
+            passed = maneuver_passed(
+                self._step_min_dist, distance_m, progress_m, step_cum,
+                closest_m=self._MANEUVER_CLOSEST_M,
+                pass_growth_m=self._MANEUVER_PASS_GROWTH_M,
             )
-
-            # Route-progress fallback: the maneuver is behind us when GPS
-            # progress is at least MANEUVER_CLOSEST_M past the step's own
-            # route position.  We deliberately do NOT anchor on the next
-            # step's start — doing so caused premature step advancement at
-            # close-together maneuvers (roundabouts, complex intersections),
-            # which desynced the visual overlay and TTS announcements.
-            if not passed and self._step_cum_m:
-                curr_idx = self._tour_step_idx
-                if curr_idx < len(self._step_cum_m):
-                    maneuver_behind_m = self._step_cum_m[curr_idx] + self._MANEUVER_CLOSEST_M
-                    if progress_m > maneuver_behind_m:
-                        passed = True
 
             if not passed:
                 break  # still approaching — show this step
