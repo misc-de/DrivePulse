@@ -7,6 +7,7 @@ from drivepulse_app.map._tour_progress import (
     nearest_route_progress,
     off_route_decision,
     tts_distance_text,
+    waypoint_is_passed,
 )
 
 # Shared reroute thresholds mirroring MapTourMixin's class constants.
@@ -173,3 +174,49 @@ def test_off_route_blocked_by_cooldown():
         off_dist_m=200.0, speed_kmh=50.0, off_route_since=100.0, now=105.0, last_reroute_time=95.0
     )
     assert (new_since, should) == (100.0, False)
+
+
+# --- waypoint_is_passed -----------------------------------------------------
+
+# Reference fix near 50°N 8°E. 0.001° of latitude is ~111 m.
+_GPS_LAT, _GPS_LON = 50.0, 8.0
+_WP_NORTH = (50.001, 8.0)   # ~111 m due north  -> bearing ~0°
+_WP_SOUTH = (49.999, 8.0)   # ~111 m due south  -> bearing ~180°
+_WP_FAR_SOUTH = (49.0, 8.0)  # ~111 km due south
+
+
+def test_waypoint_not_passed_when_straight_ahead():
+    # Driving north toward a waypoint due north -> not passed.
+    passed, dist, _ = waypoint_is_passed(_GPS_LAT, _GPS_LON, 0.0, *_WP_NORTH, 200.0)
+    assert passed is False
+    assert dist < 200.0
+
+
+def test_waypoint_passed_when_behind_and_close():
+    # Driving north while the waypoint is due south and close -> passed.
+    passed, dist, _ = waypoint_is_passed(_GPS_LAT, _GPS_LON, 0.0, *_WP_SOUTH, 200.0)
+    assert passed is True
+    assert dist < 200.0
+
+
+def test_waypoint_not_passed_when_behind_but_far():
+    # Behind the heading but well beyond the bypass radius -> keep it in the route.
+    passed, dist, _ = waypoint_is_passed(_GPS_LAT, _GPS_LON, 0.0, *_WP_FAR_SOUTH, 200.0)
+    assert passed is False
+    assert dist > 200.0
+
+
+def test_waypoint_bearing_wraparound_near_north():
+    # Heading 350° toward a waypoint due north (~0°): the true angular
+    # difference is 10°, not 350°. Guards the `diff > 180 -> 360 - diff` wrap.
+    passed, _, _ = waypoint_is_passed(_GPS_LAT, _GPS_LON, 350.0, *_WP_NORTH, 200.0)
+    assert passed is False
+
+
+def test_waypoint_bearing_threshold_is_configurable():
+    # A waypoint due south (bearing diff 180°) is passed at the default 110°
+    # threshold but not when the threshold is raised above 180°.
+    assert waypoint_is_passed(_GPS_LAT, _GPS_LON, 0.0, *_WP_SOUTH, 200.0)[0] is True
+    assert waypoint_is_passed(
+        _GPS_LAT, _GPS_LON, 0.0, *_WP_SOUTH, 200.0, bearing_threshold_deg=181.0
+    )[0] is False

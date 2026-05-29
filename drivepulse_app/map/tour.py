@@ -19,9 +19,9 @@ from drivepulse_app.map._tour_progress import (
     nearest_route_progress,
     off_route_decision,
     tts_distance_text,
+    waypoint_is_passed,
 )
 from drivepulse_app.map.services import (
-    bearing,
     compute_route,
     fetch_overpass_speed_zones,
     format_distance,
@@ -816,23 +816,19 @@ class MapTourMixin:
         if getattr(self, "_gps_heading_valid", False) and len(remaining) > 1:
             while len(remaining) > 1:
                 wp = remaining[0]
-                wp_dist = haversine(self._gps_lat, self._gps_lon, wp[0], wp[1])
-                if wp_dist > self._BYPASS_MAX_DIST_M:
+                passed, wp_dist, brng = waypoint_is_passed(
+                    self._gps_lat, self._gps_lon, self._gps_heading,
+                    wp[0], wp[1], self._BYPASS_MAX_DIST_M,
+                )
+                if not passed:
                     break
-                brng = bearing(self._gps_lat, self._gps_lon, wp[0], wp[1])
-                diff = abs(self._gps_heading - brng) % 360.0
-                if diff > 180.0:
-                    diff = 360.0 - diff
-                if diff > 110.0:
-                    log.info(
-                        "Reroute: skipping passed waypoint (%.5f, %.5f) "
-                        "— dist=%.0fm, heading=%.0f°, wp_bearing=%.0f°",
-                        wp[0], wp[1], wp_dist, self._gps_heading, brng,
-                    )
-                    remaining.pop(0)
-                    self._remaining_dest_wps = list(remaining)
-                else:
-                    break
+                log.info(
+                    "Reroute: skipping passed waypoint (%.5f, %.5f) "
+                    "— dist=%.0fm, heading=%.0f°, wp_bearing=%.0f°",
+                    wp[0], wp[1], wp_dist, self._gps_heading, brng,
+                )
+                remaining.pop(0)
+                self._remaining_dest_wps = list(remaining)
 
         new_points = [(self._gps_lat, self._gps_lon), *remaining]
         self._last_reroute_time = time.monotonic()
