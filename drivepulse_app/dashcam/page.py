@@ -265,7 +265,10 @@ class DashcamPage(Gtk.Box):
             css.load_from_data(
                 # Translucent gray bar — drawn ON TOP of the video at the bottom,
                 # never to the side regardless of portrait/landscape orientation.
-                b".dp-dashcam-page{background:#000000;color:#ffffff;}"
+                # The page root keeps the theme background so the desktop
+                # top-nav sits on the normal grey chrome like the tour page;
+                # the black is scoped to the camera area via .dc-black-bg.
+                b".dp-dashcam-page{}"
                 b".dc-black-bg{background:#000000;color:#ffffff;}"
                 b".dc-bottom { background: rgba(50,50,50,0.78); padding: 10px 14px 14px 14px; border-radius: 14px 14px 0 0; }"
                 # Gray backdrop for the Events sub-page (matches the control bar tone).
@@ -615,22 +618,13 @@ class DashcamPage(Gtk.Box):
         """Top navigation strip mirroring the map's tour top-nav: flat buttons
         with a symbol over a small caption, left-aligned. Shown on desktop in
         place of the floating bottom control bar."""
-        # Full-width grey strip — mirrors the tour page, where the top-nav sits
-        # on the window's grey chrome rather than on the black camera
-        # background. The buttons stay left-aligned inside the grey backing.
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        bar.add_css_class("dc-gray-bg")
-        bar.set_hexpand(True)
-        bar.set_halign(Gtk.Align.FILL)
-
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        buttons.add_css_class("dp-tour-topnav")
-        buttons.set_margin_start(4)
-        buttons.set_margin_end(4)
-        buttons.set_margin_top(4)
-        buttons.set_margin_bottom(4)
-        buttons.set_halign(Gtk.Align.START)
-        bar.append(buttons)
+        bar.add_css_class("dp-tour-topnav")
+        bar.set_margin_start(4)
+        bar.set_margin_end(4)
+        bar.set_margin_top(4)
+        bar.set_margin_bottom(4)
+        bar.set_halign(Gtk.Align.START)
 
         def _child(icon_name: str, label_text: str) -> tuple[Gtk.Box, Gtk.Image, Gtk.Label]:
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -653,7 +647,7 @@ class DashcamPage(Gtk.Box):
         self._desktop_toggle_btn = toggle
         self._desktop_toggle_img = t_img
         self._desktop_toggle_lbl = t_lbl
-        buttons.append(toggle)
+        bar.append(toggle)
 
         save = Gtk.Button()
         save.add_css_class("flat")
@@ -664,7 +658,7 @@ class DashcamPage(Gtk.Box):
         save.set_visible(False)
         save.connect("clicked", self._on_save_event)
         self._save_btns.append(save)
-        buttons.append(save)
+        bar.append(save)
 
         clips = Gtk.Button()
         clips.add_css_class("flat")
@@ -674,7 +668,7 @@ class DashcamPage(Gtk.Box):
         clips.set_child(c_child)
         clips.connect("clicked", self._open_events_page)
         self._clips_btns.append(clips)
-        buttons.append(clips)
+        bar.append(clips)
 
         return bar
 
