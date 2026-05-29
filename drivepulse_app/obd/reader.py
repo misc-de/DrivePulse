@@ -532,7 +532,9 @@ class ObdReader(GObject.Object):
         )
 
         if self.mock:
-            return self._mock_uds.discover(tx, rx)
+            # Simulated data only in explicit mock mode; a no-dongle fallback
+            # has nothing real to read (see scan_modules).
+            return self._mock_uds.discover(tx, rx) if self.force_mock else {}
 
         def work(client: Any) -> dict[str, Any]:
             out: dict[str, Any] = {
@@ -569,7 +571,9 @@ class ObdReader(GObject.Object):
         from drivepulse_app.obd.uds import did_payload
 
         if self.mock:
-            return self._mock_uds.snapshot(dids)
+            # Simulated data only in explicit mock mode; a no-dongle fallback
+            # has nothing real to read (see scan_modules).
+            return self._mock_uds.snapshot(dids) if self.force_mock else {}
 
         def work(client: Any) -> dict[int, str]:
             out: dict[int, str] = {}
@@ -592,7 +596,10 @@ class ObdReader(GObject.Object):
 
         candidates = candidate_modules()
         if self.mock:
-            return self._mock_uds.scan_modules(candidates)
+            # Only an explicitly chosen mock mode serves simulated modules. An
+            # automatic no-dongle fallback (mock without force_mock) has no real
+            # bus, so it must report nothing rather than fabricate control units.
+            return self._mock_uds.scan_modules(candidates) if self.force_mock else []
         if obd_backend is None or self.connection is None:
             return []
         port = _serial_port(self.connection)
