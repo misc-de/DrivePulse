@@ -33,6 +33,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "dashcam_rolling_dir": str(_DASHCAM_BASE / "rolling"),
     "dashcam_saved_dir": str(_DASHCAM_BASE / "saved"),
     "nav_position": "auto",
+    # Global UI scale in percent. 100 = native; lower values shrink the whole
+    # UI so more content fits (50 % ≈ double the content per axis).
+    "ui_scale": 100,
     "dashcam_gps_osd": False,
     "map_traffic_visible": False,
     "map_traffic_bundesweit": True,
@@ -86,6 +89,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 _VALID_SYNC_ACCESS = {"off", "lan_only", "any"}
 
 _VALID_ROTATION_MODES = {"follow_sensor", "follow_system"}
+
+_VALID_UI_SCALES = {100, 75, 50, 25}
 _VALID_TTS_BACKENDS = {"espeak", "piper"}
 _VALID_TTS_LANGUAGES = {"auto", "en", "de"}
 _VALID_TTS_VOICES = {"male", "female"}
@@ -163,6 +168,7 @@ def load_settings() -> dict[str, Any]:
         "dashcam_rolling_dir": data.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
         "dashcam_saved_dir": data.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
         "nav_position": data.get("nav_position", "auto") if data.get("nav_position") in {"auto", "top", "bottom", "left"} else "auto",
+        "ui_scale": data.get("ui_scale") if data.get("ui_scale") in _VALID_UI_SCALES else DEFAULT_SETTINGS["ui_scale"],
         "dashcam_gps_osd": bool(data.get("dashcam_gps_osd", False)),
         "rotation_mode": data.get("rotation_mode") if data.get("rotation_mode") in _VALID_ROTATION_MODES else DEFAULT_SETTINGS["rotation_mode"],
         "tts_enabled": bool(data.get("tts_enabled", DEFAULT_SETTINGS["tts_enabled"])),
@@ -277,6 +283,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "dashcam_rolling_dir": settings.get("dashcam_rolling_dir") or DEFAULT_SETTINGS["dashcam_rolling_dir"],
                 "dashcam_saved_dir": settings.get("dashcam_saved_dir") or DEFAULT_SETTINGS["dashcam_saved_dir"],
                 "nav_position": settings.get("nav_position", "auto") if settings.get("nav_position") in {"auto", "top", "bottom", "left"} else "auto",
+                "ui_scale": settings.get("ui_scale") if settings.get("ui_scale") in _VALID_UI_SCALES else DEFAULT_SETTINGS["ui_scale"],
                 "dashcam_gps_osd": bool(settings.get("dashcam_gps_osd", False)),
                 "rotation_mode": settings.get("rotation_mode") if settings.get("rotation_mode") in _VALID_ROTATION_MODES else DEFAULT_SETTINGS["rotation_mode"],
                 "tts_enabled": bool(settings.get("tts_enabled", False)),

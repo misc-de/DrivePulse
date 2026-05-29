@@ -115,6 +115,7 @@ class DashboardWindow(
         self.dashcam_rolling_dir: str = self.settings.get("dashcam_rolling_dir", "")
         self.dashcam_saved_dir: str = self.settings.get("dashcam_saved_dir", "")
         self.nav_position: str = self.settings.get("nav_position", "bottom")
+        self.ui_scale: int = int(self.settings.get("ui_scale", 100))
         self.dashcam_gps_osd: bool = bool(self.settings.get("dashcam_gps_osd", False))
         self.dashcam_speed_osd: bool = bool(self.settings.get("dashcam_speed_osd", False))
         # Validated at load time in app_settings.py against {"follow_sensor", "follow_system"}.

@@ -130,6 +130,8 @@ class SettingsDialog(
         on_dashcam_speed_osd_changed: Callable[[bool], None] | None = None,
         current_nav_position: str = "bottom",
         on_nav_position_changed: Callable[[str], None] | None = None,
+        current_ui_scale: int = 100,
+        on_ui_scale_changed: Callable[[int], None] | None = None,
         current_rotation_mode: str = "follow_sensor",
         on_rotation_mode_changed: Callable[[str], None] | None = None,
         current_tts_enabled: bool = False,
@@ -205,6 +207,7 @@ class SettingsDialog(
         self.on_dashcam_speed_osd_changed = on_dashcam_speed_osd_changed
         self._current_dashcam_speed_osd = current_dashcam_speed_osd
         self.on_nav_position_changed = on_nav_position_changed
+        self.on_ui_scale_changed = on_ui_scale_changed
         self.on_rotation_mode_changed = on_rotation_mode_changed
         self.on_tts_enabled_changed = on_tts_enabled_changed
         self.on_tts_backend_changed = on_tts_backend_changed
@@ -338,6 +341,17 @@ class SettingsDialog(
         sel_nav = self._NAV_POSITIONS.index(current_nav_position) if current_nav_position in self._NAV_POSITIONS else 0
         self.nav_position_row.set_selected(sel_nav)
         self.nav_position_row.connect("notify::selected", self._on_nav_position_selected)
+
+        # Display size: 100 % native down to 25 % (50 % ≈ double the content).
+        self._UI_SCALES = [100, 75, 50, 25]
+        ui_scale_model = Gtk.StringList()
+        for pct in self._UI_SCALES:
+            ui_scale_model.append(_translate(self.language, f"settings.ui_scale.{pct}"))
+        self.ui_scale_row = Adw.ComboRow(title=_translate(self.language, "settings.ui_scale"))
+        self.ui_scale_row.set_model(ui_scale_model)
+        sel_scale = self._UI_SCALES.index(current_ui_scale) if current_ui_scale in self._UI_SCALES else 0
+        self.ui_scale_row.set_selected(sel_scale)
+        self.ui_scale_row.connect("notify::selected", self._on_ui_scale_selected)
 
         self._ROTATION_MODES = ["follow_sensor", "follow_system"]
         rotation_model = Gtk.StringList()
@@ -708,6 +722,7 @@ class SettingsDialog(
         display_group.add(self.theme_mode_row)
         display_group.add(self.sidebar_side_row)
         display_group.add(self.nav_position_row)
+        display_group.add(self.ui_scale_row)
         display_group.add(self.rotation_mode_row)
         display_page.add(display_group)
 

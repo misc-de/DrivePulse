@@ -15,6 +15,8 @@ class DashboardThemingMixin:
     language: str
     theme_mode: str
     gauge_theme: str
+    ui_scale: int
+    _base_xft_dpi: int
     _theme_css_provider: Gtk.CssProvider
     _nav_rotation_css: Gtk.CssProvider
     _light_palette_css: Gtk.CssProvider
@@ -48,6 +50,9 @@ class DashboardThemingMixin:
     )
 
     def _on_realize_install_css(self, *_args: Any) -> None:
+        # Capture the unscaled font DPI before applying any UI scale so 100 %
+        # restores the exact system baseline (incl. HiDPI text scaling).
+        self._apply_ui_scale(getattr(self, "ui_scale", 100))
         display = self.get_display()
         Gtk.StyleContext.add_provider_for_display(
             display, self._theme_css_provider,
@@ -79,6 +84,24 @@ class DashboardThemingMixin:
         self._light_palette_css.load_from_data(
             b"" if is_dark else self._LIGHT_PALETTE_OVERRIDES
         )
+
+    def _apply_ui_scale(self, scale: int) -> None:
+        """Shrink/restore the whole UI by scaling the global font DPI.
+
+        100 % keeps the captured system baseline; lower values shrink text and
+        the Adwaita widget metrics that derive from it, so more content fits
+        (50 % ≈ double the content per axis). Uses ``gtk-xft-dpi`` — the same
+        lever GNOME's text-scaling uses — so the change is live and reversible.
+        """
+        settings = Gtk.Settings.get_default()
+        if settings is None:
+            return
+        # Latch the baseline once, before the first scaling write touches it.
+        if not hasattr(self, "_base_xft_dpi"):
+            current = int(settings.get_property("gtk-xft-dpi"))
+            self._base_xft_dpi = current if current > 0 else 96 * 1024
+        factor = max(25, min(100, int(scale))) / 100.0
+        settings.set_property("gtk-xft-dpi", int(self._base_xft_dpi * factor))
 
     def _apply_theme_mode(self, mode: str) -> None:
         manager = Adw.StyleManager.get_default()
