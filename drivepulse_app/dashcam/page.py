@@ -615,13 +615,22 @@ class DashcamPage(Gtk.Box):
         """Top navigation strip mirroring the map's tour top-nav: flat buttons
         with a symbol over a small caption, left-aligned. Shown on desktop in
         place of the floating bottom control bar."""
+        # Full-width grey strip — mirrors the tour page, where the top-nav sits
+        # on the window's grey chrome rather than on the black camera
+        # background. The buttons stay left-aligned inside the grey backing.
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        bar.add_css_class("dp-tour-topnav")
-        bar.set_margin_start(4)
-        bar.set_margin_end(4)
-        bar.set_margin_top(4)
-        bar.set_margin_bottom(4)
-        bar.set_halign(Gtk.Align.START)
+        bar.add_css_class("dc-gray-bg")
+        bar.set_hexpand(True)
+        bar.set_halign(Gtk.Align.FILL)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        buttons.add_css_class("dp-tour-topnav")
+        buttons.set_margin_start(4)
+        buttons.set_margin_end(4)
+        buttons.set_margin_top(4)
+        buttons.set_margin_bottom(4)
+        buttons.set_halign(Gtk.Align.START)
+        bar.append(buttons)
 
         def _child(icon_name: str, label_text: str) -> tuple[Gtk.Box, Gtk.Image, Gtk.Label]:
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -644,7 +653,7 @@ class DashcamPage(Gtk.Box):
         self._desktop_toggle_btn = toggle
         self._desktop_toggle_img = t_img
         self._desktop_toggle_lbl = t_lbl
-        bar.append(toggle)
+        buttons.append(toggle)
 
         save = Gtk.Button()
         save.add_css_class("flat")
@@ -655,7 +664,7 @@ class DashcamPage(Gtk.Box):
         save.set_visible(False)
         save.connect("clicked", self._on_save_event)
         self._save_btns.append(save)
-        bar.append(save)
+        buttons.append(save)
 
         clips = Gtk.Button()
         clips.add_css_class("flat")
@@ -665,7 +674,7 @@ class DashcamPage(Gtk.Box):
         clips.set_child(c_child)
         clips.connect("clicked", self._open_events_page)
         self._clips_btns.append(clips)
-        bar.append(clips)
+        buttons.append(clips)
 
         return bar
 
