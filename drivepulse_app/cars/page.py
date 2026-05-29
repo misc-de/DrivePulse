@@ -15,6 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk
 
+from drivepulse_app.cars._live_session import fold_live_payload
 from drivepulse_app.cars._scan_stats import aggregate_scan_pid_stats
 from drivepulse_app.cars.actions import CarsActionsMixin
 from drivepulse_app.cars.car_lab import CarsCarLabMixin
@@ -39,20 +40,6 @@ from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger
 
 log = get_logger(__name__)
-
-
-def _extract_session_number(v: Any) -> float | None:
-    if isinstance(v, dict) and "value" in v:
-        try:
-            return float(v["value"])
-        except (TypeError, ValueError):
-            return None
-    if isinstance(v, (int, float)):
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -307,18 +294,7 @@ class CarsPage(
             return
         source = payload.get("source", "")
         if source in ("obd", "mock"):
-            for k, v in payload.items():
-                if k.startswith("_") or k in ("source", "timestamp", "connection_status", "mock_reason"):
-                    continue
-                self._latest_live[k] = v
-                if k in LIVE_KEY_TO_PID:
-                    num = _extract_session_number(v)
-                    if num is not None:
-                        stats = self._live_session_stats.setdefault(k, {})
-                        unit = v.get("unit", "") if isinstance(v, dict) else ""
-                        stats["unit"] = unit
-                        stats["min"] = num if "min" not in stats else min(stats["min"], num)
-                        stats["max"] = num if "max" not in stats else max(stats["max"], num)
+            fold_live_payload(payload, self._latest_live, self._live_session_stats, LIVE_KEY_TO_PID)
             self._obd_connected = source == "obd"
             self._update_live_row_subtitle()
         if self._selected_source == self.LIVE_ID and self._detail_pushed and self._live_detail_render_due():
