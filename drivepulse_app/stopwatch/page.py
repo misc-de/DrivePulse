@@ -117,17 +117,13 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
             r: {"obd": None, "gps": None} for r in self.RANGE_TARGETS_KMH
         }
 
-        self.title_label = Gtk.Label()
-        self.title_label.add_css_class("title-1")
-        self.title_label.set_halign(Gtk.Align.START)
-
+        # Live longitudinal-G readout above the canvas. Updated by _set_g_text on
+        # every payload regardless of measurement state, so the G display is
+        # present even before a run has been started.
         self.g_label = Gtk.Label()
-        self.g_label.add_css_class("title-2")
-        self.g_label.set_halign(Gtk.Align.END)
+        self.g_label.add_css_class("title-1")
+        self.g_label.set_halign(Gtk.Align.CENTER)
         self.g_label.set_hexpand(True)
-
-        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        header_row.append(self.title_label)
 
         self.status_label = _make_label_responsive(Gtk.Label(label=""), 42)
         self.status_label.add_css_class("dim-label")
@@ -142,10 +138,6 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         if justification is not None:
             self.maxes_label.set_justify(justification)
         self.maxes_label.set_margin_top(24)
-
-        intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        intro.set_margin_bottom(22)
-        intro.append(header_row)
 
         self.results_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         self.result_labels: dict[Any, Gtk.Label] = {}
@@ -244,8 +236,12 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self.gforce_box.set_vexpand(True)
         self.gforce_box.set_halign(Gtk.Align.FILL)
         self.gforce_box.set_valign(Gtk.Align.FILL)
+        self.gforce_box.append(self.g_label)
         self.gforce_box.append(self.maxes_label)
         self.gforce_box.append(self.gforce_canvas)
+        # Seed the live readout so the G display reads as present (not blank)
+        # before any payload arrives.
+        self._set_g_text(None)
 
         # Results table: always render at natural height so every row stays
         # visible; other widgets adapt to whatever space is left.
@@ -269,12 +265,11 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
         self._bottom_box.append(controls)
         self._bottom_box.append(save_row)
 
-        # left_col: intro + table only; _bottom_box is added by _apply_layout.
+        # left_col: results table only; _bottom_box is added by _apply_layout.
         self.left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.left_col.set_hexpand(True)
         self.left_col.set_vexpand(False)
         self.left_col.set_valign(Gtk.Align.START)
-        self.left_col.append(intro)
         self.left_col.append(self.results_scroll)
 
         # content_box switches between HORIZONTAL (landscape) and VERTICAL (portrait).
@@ -467,7 +462,6 @@ class StopWatchPage(StopWatchProcessingMixin, StopWatchReplayMixin, Gtk.Box):
     # ------------------------------------------------------------------
 
     def _refresh_texts(self) -> None:
-        self.title_label.set_text(_translate(self.language, "stopwatch.title"))
         self.start_button.set_label(_translate(self.language, "stopwatch.start"))
         self.abort_button.set_label(_translate(self.language, "stopwatch.abort"))
         self.reset_button.set_label(_translate(self.language, "stopwatch.reset"))
