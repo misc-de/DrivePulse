@@ -27,6 +27,7 @@ class CarsActionsMixin:
     language: str
     db: DriveDB | None
     nav_view: Adw.NavigationView
+    _split_view: Adw.NavigationSplitView
     _selected_source: str | None
     _detail_pushed: bool
     _detail_page: Any
@@ -46,6 +47,7 @@ class CarsActionsMixin:
 
     get_root: Callable[[], Any]
     refresh_profiles: Callable[..., None]
+    _reset_detail_state: Callable[..., None]
     _rebuild_list: Callable[..., None]
     _render_detail: Callable[..., None]
     _start_refetch_with_dialog: Callable[..., None]
@@ -302,7 +304,17 @@ class CarsActionsMixin:
                 Path(entry["path"]).unlink(missing_ok=True)
             except Exception:
                 log.exception("Could not delete profile file %s", entry["path"])
-        if self._detail_pushed:
-            self.nav_view.pop()
         self._selected_car_id = None
+        # Leave the deleted vehicle's detail view and return to the car
+        # overview: pop any sub-detail pages back to the detail root, then hide
+        # the content pane so the (sidebar) list is shown. A single nav_view
+        # pop only dropped one inner page and left the deleted car on screen.
+        try:
+            self.nav_view.pop_to_page(self._detail_page)
+        except Exception:
+            log.debug("pop_to_page failed after delete; popping until empty", exc_info=True)
+            while self.nav_view.pop():
+                pass
+        self._split_view.set_show_content(False)
+        self._reset_detail_state()
         self.refresh_profiles()
