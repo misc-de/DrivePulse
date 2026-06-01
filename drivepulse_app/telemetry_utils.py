@@ -31,3 +31,29 @@ def has_obd_data(payload: dict[str, Any]) -> bool:
         plain_number(payload, key) is not None
         for key in ("rpm", "speed", "coolant_temp", "throttle_pos", "engine_load")
     )
+
+
+def normalize_vin(vin: str | None) -> str:
+    return (vin or "").strip().upper()
+
+
+def vins_same_vehicle(a: str | None, b: str | None) -> bool:
+    """True if two VINs denote the same vehicle, tolerating one dropped char.
+
+    A VIN is always 17 characters, but some adapters / the python-obd mode-09
+    decoder return only 16 (one position lost in the multi-frame response).
+    Equal VINs match; otherwise they match only when the shorter equals the
+    longer with exactly one character removed (length difference of one). Two
+    genuinely distinct VINs are both 17 chars, so this never merges them —
+    it only reunites an incomplete OBD read with its corrected/full VIN.
+    """
+    a = normalize_vin(a)
+    b = normalize_vin(b)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    if len(long) - len(short) != 1:
+        return False
+    return any(long[:i] + long[i + 1:] == short for i in range(len(long)))

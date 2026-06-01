@@ -15,7 +15,12 @@ from drivepulse_app.common import LOG_DIR, _detect_language, _normalize_language
 from drivepulse_app.dashboard.data import obd_sample_fields, scan_identity_from_payload, scan_profile_dashboard_data
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.obd.recorder import ObdRecorder
-from drivepulse_app.telemetry_utils import display_speed, has_obd_data, plain_number
+from drivepulse_app.telemetry_utils import (
+    display_speed,
+    has_obd_data,
+    plain_number,
+    vins_same_vehicle,
+)
 
 if TYPE_CHECKING:
     from drivepulse_app.cars.page import CarsPage
@@ -85,11 +90,20 @@ class DashboardTelemetryMixin:
             # Live-Autos zählen hier mit — ein bereits eingerichtetes Live-
             # Fahrzeug derselben VIN soll bei erneutem Connect wiedergefunden,
             # nicht ein zweites Mal angelegt werden.
-            for row in self.db.list_cars(include_live=True):
-                if (row["vin"] or "") == vin:
-                    return int(row["id"])
+            cars = list(self.db.list_cars(include_live=True))
         except Exception:
             log.exception("Could not look up car by VIN")
+            return None
+        # Exact match wins.
+        for row in cars:
+            if (row["vin"] or "") == vin:
+                return int(row["id"])
+        # Tolerate a single dropped VIN character (16 vs 17) so an incomplete
+        # OBD read still links to the car whose VIN the user corrected to the
+        # full 17 characters, instead of spawning a duplicate live vehicle.
+        for row in cars:
+            if vins_same_vehicle(row["vin"], vin):
+                return int(row["id"])
         return None
 
     def _purge_stale_live_cars(self, keep_vin: str | None) -> None:
