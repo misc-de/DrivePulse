@@ -79,6 +79,8 @@
   "settings.bt_obd.nearby.scanning": "Scanning nearby devices (6 s) …",
   "settings.bt_obd.nearby.none_found": "No devices found nearby",
   "settings.bt_obd.trying_direct": "Trying direct connection …",
+  "settings.bt_obd.pairing": "Pairing …",
+  "settings.bt_obd.pair_failed": "Pairing failed",
   "settings.theme_mode": "App Theme",
   "settings.theme_mode.auto": "Automatic",
   "settings.theme_mode.dark": "Dark",

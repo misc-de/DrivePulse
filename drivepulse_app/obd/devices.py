@@ -132,6 +132,67 @@ def scan_bt_nearby_devices(
         return []
 
 
+def pair_bt_device(addr: str, pin: str = "1234", timeout: float = 30.0) -> tuple[bool, str]:
+    """Pair and trust a Bluetooth device via an interactive bluetoothctl session.
+
+    Bonding itself is performed by BlueZ; we drive bluetoothctl with the default
+    agent so SSP "just works" adapters (e.g. OBDLink MX+) bond without any user
+    interaction. For legacy adapters that demand a PIN, *pin* (default "1234",
+    the common ELM327/OBDLink code) is offered, and a numeric-comparison prompt
+    is answered with "yes". Unneeded replies are ignored by bluetoothctl as
+    invalid commands, so sending both is harmless.
+
+    Returns (success, message). Already-paired devices count as success.
+    """
+    import time as _time
+    addr = addr.upper()
+    try:
+        proc = subprocess.Popen(
+            ["bluetoothctl"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"bluetoothctl not available: {exc}"
+
+    assert proc.stdin is not None
+    out = ""
+    try:
+        for cmd in ("power on", "agent on", "default-agent", f"pair {addr}"):
+            proc.stdin.write(cmd + "\n")
+            proc.stdin.flush()
+            _time.sleep(0.6)
+        for reply in ("yes", pin):
+            proc.stdin.write(reply + "\n")
+            proc.stdin.flush()
+            _time.sleep(1.0)
+        proc.stdin.write(f"trust {addr}\n")
+        proc.stdin.flush()
+        _time.sleep(0.4)
+        proc.stdin.write("quit\n")
+        proc.stdin.flush()
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            out, _ = proc.communicate()
+        except (OSError, subprocess.SubprocessError, ValueError):
+            out = ""
+    except Exception as exc:
+        proc.kill()
+        return False, str(exc)
+
+    low = out.lower()
+    if "pairing successful" in low or "alreadyexists" in low or "paired: yes" in low:
+        return True, "paired"
+    for line in out.splitlines():
+        if "failed to pair" in line.lower():
+            return False, line.strip()
+    return False, "pairing not confirmed"
+
+
 def probe_bt_rfcomm_socket(addr: str, channel: int = 1, timeout: float = 10.0) -> tuple[bool, str]:
     """Try to open a raw RFCOMM socket to addr:channel. Returns (success, error_msg).
 
