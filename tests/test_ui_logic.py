@@ -169,6 +169,26 @@ def test_obd_indicator_spins_while_connecting(drivepulse_module):
     assert window.obd_indicator["image"].props["visible"] is False
 
 
+def test_obd_indicator_connected_when_engine_off_no_pid_data(drivepulse_module):
+    # Regression: engine off → the ECU returns no rpm/speed/coolant/throttle/
+    # load, but the dongle is connected (source == "obd"). The link indicator
+    # must show connected ("success"), not stay stuck "searching" — the symptom
+    # the OBDLink MX+ showed with the ignition off.
+    window = _payload_window(drivepulse_module)
+
+    window._update_from_payload({
+        "source": "obd",
+        "obd_connecting": False,
+        "connection_status": "OBD connected: bt:00:04:3E:8C:16:AC",
+        "rpm": None, "speed": None, "coolant_temp": None,
+        "throttle_pos": None, "engine_load": None,
+    })
+
+    assert "success" in window.obd_indicator["box"].props["css_classes"]
+    # No live engine data, so the gauges themselves stay inactive.
+    assert window.rpm_gauge.active is False
+
+
 def test_scan_identity_auto_registers_unknown_vehicle(tmp_path, drivepulse_module):
     # Unknown vehicles are immediately registered via _add_live_vehicle_from_identity.
     from drivepulse_app.db import DriveDB
