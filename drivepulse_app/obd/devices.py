@@ -130,6 +130,12 @@ def scan_bt_nearby_devices(
                 if "[NEW]" in line and len(parts) > dev_idx + 2:
                     # "[NEW] Device AA:BB:CC:DD:EE:FF DeviceName"
                     scan_names[addr] = " ".join(parts[dev_idx + 2:])
+                if "Name:" in parts:
+                    # Classic adapters often resolve their friendly name only
+                    # later via "[CHG] Device AA:BB:… Name: OBDLink MX+ 02393" —
+                    # capture it so the OBD name filter can match.
+                    name_idx = parts.index("Name:")
+                    scan_names[addr] = " ".join(parts[name_idx + 1:])
             except (ValueError, IndexError, StopIteration):
                 pass
     except (OSError, subprocess.SubprocessError):
