@@ -158,3 +158,23 @@ def test_scan_bt_paired_devices_uppercases_mac_address(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _mock_run(sample))
     devices = scan_bt_paired_devices()
     assert devices[0][1] == "bt:AA:BB:CC:DD:EE:FF"
+
+
+# ─── _looks_like_obd (nearby-scan filter) ────────────────────────────────────
+
+def test_looks_like_obd_accepts_known_adapter_names():
+    addr = "00:04:3E:8C:16:AC"
+    assert obd_devices._looks_like_obd("OBDLink MX+ 02393", addr)
+    assert obd_devices._looks_like_obd("OBDII", addr)
+    assert obd_devices._looks_like_obd("Vgate iCar Pro", addr)
+    assert obd_devices._looks_like_obd("ELM327 v1.5", addr)
+
+
+def test_looks_like_obd_rejects_noise_and_unnamed():
+    addr = "F4:9D:8A:7C:5C:66"
+    assert not obd_devices._looks_like_obd("soundcore Liberty 4 Pro", addr)
+    assert not obd_devices._looks_like_obd("Bluetooth 3.0 Keyboard", addr)
+    # bluetoothctl echoes the MAC (dashed) as the "name" when none is resolved
+    assert not obd_devices._looks_like_obd("F4-9D-8A-7C-5C-66", addr)
+    assert not obd_devices._looks_like_obd("F4:9D:8A:7C:5C:66", addr)
+    assert not obd_devices._looks_like_obd("", addr)
