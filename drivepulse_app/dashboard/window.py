@@ -81,6 +81,12 @@ class DashboardWindow(
     # polls (every 0.5 s) between GPS updates don't falsely detect GPS as gone.
     GPS_UNAVAIL_HOLDOVER = 5.0
 
+    # How long the OBD link indicator stays green after the last healthy read
+    # before falling back to "searching". A few poll cycles (0.5 s each) so a
+    # single hiccup doesn't flicker, but a dongle that left range turns the icon
+    # grey within a couple of seconds instead of lingering green.
+    OBD_LINK_HOLDOVER = 4.0
+
     def __init__(self, app: Adw.Application) -> None:
         super().__init__(application=app, title=_translate(_detect_language(), "window.title"))
         # Desktop default; phosh / mobile compositors maximise to screen and
@@ -206,6 +212,7 @@ class DashboardWindow(
         self.last_cars_scan_id: int | None = int(_raw_scan_id) if _raw_scan_id is not None else None
         self.last_payload: dict[str, Any] | None = None
         self._gps_last_seen: float = 0.0
+        self._obd_last_healthy: float = 0.0
         self._last_gps_lat: float | None = None
         self._last_gps_lon: float | None = None
         self._last_gps_speed_kmh: float | None = None
