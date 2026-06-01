@@ -9,6 +9,35 @@ from drivepulse_app.diagnostics import get_logger
 
 log = get_logger(__name__)
 
+# Substrings (case-insensitive) that mark a Bluetooth device name as a likely
+# OBD-II adapter. The nearby scan otherwise surfaces every BLE advertisement in
+# range (headphones, keyboards, unnamed beacons) — none of which can be a
+# dongle. Extend this list if a differently-branded adapter is missed.
+_OBD_NAME_HINTS = (
+    "obd",        # OBDII, OBD2, OBD-II, OBDLink, …
+    "elm327",
+    "vgate",      # Vgate iCar
+    "viecar",
+    "vlinker",    # vLinker FD/MC/MS
+    "vlink",      # V-LINK / vLink
+    "scantool",
+    "konnwei",
+    "carista",
+    "panlong",
+)
+
+
+def _looks_like_obd(name: str, addr: str) -> bool:
+    """True if *name* looks like an OBD-II adapter rather than BLE noise.
+
+    Unnamed devices (where bluetoothctl echoes the MAC as the name) and names
+    without any known OBD token are rejected — they cannot be dongles.
+    """
+    n = name.strip().lower()
+    if not n or n in (addr.lower(), addr.replace(":", "-").lower()):
+        return False
+    return any(hint in n for hint in _OBD_NAME_HINTS)
+
 
 def candidate_bt_addresses() -> list[tuple[str, int]]:
     """Parse OBD_BT_ADDR into (mac_address, rfcomm_channel) pairs."""
@@ -124,6 +153,8 @@ def scan_bt_nearby_devices(
         devices: list[tuple[str, str, int]] = []
         for addr, name in known_db.items():
             if known_addrs and addr in known_addrs:
+                continue
+            if not _looks_like_obd(name, addr):
                 continue
             devices.append((f"{name}  ({addr})", f"bt:{addr}", rssi_map.get(addr, -999)))
         devices.sort(key=lambda x: x[2], reverse=True)
