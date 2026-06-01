@@ -15,8 +15,8 @@ _LOG_MAX_BYTES = 5 * 1024 * 1024
 _LOG_BACKUP_COUNT = 3
 _ROOT_LOGGER_NAME = "drivepulse_app"
 
-# Telemetry JSONL files are written from background threads at up to ~2 Hz
-# (obd-log.jsonl) and rare connection events (drivepulse-log.jsonl). They
+# Telemetry JSON-lines files are written from background threads at up to ~2 Hz
+# (obd-log.json) and rare connection events (drivepulse-log.json). They
 # would otherwise grow unbounded — cap them with simple size-based rotation.
 _JSONL_MAX_BYTES = 10 * 1024 * 1024
 _JSONL_BACKUP_COUNT = 2
