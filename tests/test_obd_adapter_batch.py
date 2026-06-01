@@ -121,3 +121,58 @@ def test_decode_voltage_returns_three_decimal_volts():
     _name, decode = _MODE1_DECODE[0x42]
     # 0x3A 0x18 → 14 872 / 1000 = 14.872
     assert decode(bytes([0x3A, 0x18])) == pytest.approx(14.872, abs=0.001)
+
+
+# ─── raw_send / probe_adapter over a pty (BluetoothPtyBridge) ─────────────────
+
+class _FakePtyPort:
+    """A port where in_waiting stays 0 but read() returns relayed bytes — the
+    BluetoothPtyBridge case that defeated the old in_waiting-only raw_send."""
+
+    in_waiting = 0
+
+    def __init__(self, response: bytes):
+        self._out = response
+        self.timeout = None
+        self.written = b""
+
+    def reset_input_buffer(self):
+        pass
+
+    def write(self, data: bytes):
+        self.written += data
+
+    def read(self, n: int) -> bytes:
+        chunk, self._out = self._out[:n], self._out[n:]
+        return chunk
+
+
+def test_raw_send_reads_over_pty_when_in_waiting_stays_zero():
+    from drivepulse_app.obd.adapter import raw_send
+
+    port = _FakePtyPort(b"STN2120 v5.4.4\r\r>")
+    out = raw_send(port, "STI")
+
+    assert "STN2120" in out
+    assert ">" not in out
+    assert port.written == b"STI\r"
+
+
+def test_probe_adapter_detects_stn_over_pty():
+    from drivepulse_app.obd.adapter import AdapterKind, probe_adapter, raw_send
+
+    port = _FakePtyPort(b"STN2120 v5.4.4\r\r>")
+    info = probe_adapter(None, locked_raw=lambda cmd: raw_send(port, cmd))
+
+    assert info.kind == AdapterKind.STN
+    assert info.supports_stpx is True
+
+
+def test_obd_text_decodes_bytearray_vin():
+    from drivepulse_app.obd.scanner import _obd_text
+
+    # python-obd returns VIN/Cal-ID as bytearray; we must store plain ASCII,
+    # not the "bytearray(b'…')" repr that used to leak into the profile key.
+    assert _obd_text(bytearray(b"WAUZZZ4G8EN073189")) == "WAUZZZ4G8EN073189"
+    assert _obd_text(b"4G0115  0006BDA") == "4G0115  0006BDA"
+    assert _obd_text("already-string ") == "already-string"

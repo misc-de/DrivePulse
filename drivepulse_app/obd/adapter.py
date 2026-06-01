@@ -51,19 +51,38 @@ def raw_send(port: Any, cmd: str, timeout: float = 1.5) -> str:
     Returns an empty string on any error.
     """
     try:
-        port.reset_input_buffer()
-        port.write(f"{cmd}\r".encode("ascii"))
-        buf = b""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            n = getattr(port, "in_waiting", 0)
-            if n:
-                buf += port.read(n)
-                if b">" in buf:
-                    break
-            else:
-                time.sleep(0.01)
-        return buf.decode("ascii", errors="ignore").replace(">", "").strip()
+        try:
+            port.reset_input_buffer()
+        except Exception:
+            pass
+        prev_timeout = getattr(port, "timeout", None)
+        try:
+            port.timeout = 0.1
+        except Exception:
+            pass
+        try:
+            port.write(f"{cmd}\r".encode("ascii"))
+            buf = b""
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                # Read what's buffered, else block briefly. Relying only on
+                # in_waiting fails over a pseudo-terminal (the BluetoothPtyBridge
+                # used for the direct-BT path): in_waiting can stay 0 while the
+                # bridge relays bytes, so the probe times out and the STN/OBDLink
+                # adapter is mis-detected as "unknown". A blocking read (like
+                # python-obd's own reader) works on real serial ports and ptys.
+                n = getattr(port, "in_waiting", 0) or 1
+                chunk = port.read(n)
+                if chunk:
+                    buf += chunk
+                    if b">" in buf:
+                        break
+            return buf.decode("ascii", errors="ignore").replace(">", "").strip()
+        finally:
+            try:
+                port.timeout = prev_timeout
+            except Exception:
+                pass
     except Exception as exc:
         log.debug("raw_send(%r) failed: %s", cmd, exc)
         return ""
