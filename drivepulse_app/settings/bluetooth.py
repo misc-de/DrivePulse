@@ -150,11 +150,15 @@ class SettingsBluetoothMixin:
         spinner.stop()
         row.remove(spinner)
         if dev:
-            row.set_subtitle(f"✓ {dev}")
-            btn.set_label(dev)
+            # The actual OBD link is addressed as bt:ADDR (the reader picks the
+            # working transport — rfcomm bind or the direct socket bridge). Show
+            # that, not the raw /dev/rfcommN node, which is just the bind result
+            # and often isn't the transport the reader ends up using.
+            bt_port = f"bt:{addr}"
+            row.set_subtitle(f"✓ {bt_port}")
+            btn.set_label(bt_port)
             btn.remove_css_class("suggested-action")
             btn.add_css_class("success")
-            bt_port = f"bt:{addr}"
             if self.on_obd_port_changed is not None:
                 self.on_obd_port_changed(bt_port)
             self._refresh_dongle_dropdown(bt_port)

@@ -13,7 +13,7 @@ from typing import Any
 from gi.repository import Adw, Gtk
 
 from drivepulse_app.common import SUPPORTED_LANGUAGES, _translate
-from drivepulse_app.obd.devices import scan_obd_devices
+from drivepulse_app.obd.devices import parse_bt_port, scan_obd_devices
 
 
 class SettingsRowCallbacksMixin:
@@ -90,6 +90,18 @@ class SettingsRowCallbacksMixin:
         if self.on_mock_mode_changed is not None:
             self.on_mock_mode_changed(self.mock_switch.get_active())
 
+    def dongle_label_for(self, port: str) -> str:
+        """Human label for a configured port that the serial scan can't list.
+
+        A Bluetooth dongle is addressed as ``bt:ADDR`` and a direct-socket
+        bridge as ``/dev/pts/N`` — neither is a scannable serial node, so they'd
+        otherwise be invisible in the dropdown.
+        """
+        if port.startswith("bt:"):
+            addr, _ = parse_bt_port(port)
+            return f"Bluetooth · {addr}"
+        return port
+
     def _refresh_dongle_dropdown(self, selected_port: str | None) -> None:
         """Re-scan OBD devices and rebuild the dongle dropdown, selecting selected_port."""
         # Local import to keep DeviceItem co-located with its sole producer
@@ -116,6 +128,17 @@ class SettingsRowCallbacksMixin:
                     is_connected=(port == selected_port),
                 ))
                 self._obd_port_values.append(port)
+            # Surface the configured port (bt:ADDR / /dev/pts bridge) when the
+            # serial scan didn't list it, so the selected dongle is shown with
+            # its connected mark instead of the row snapping back to "auto".
+            if selected_port is not None and selected_port not in self._obd_port_values:
+                self._dongle_store.append(DeviceItem(
+                    label=self.dongle_label_for(selected_port),
+                    port=selected_port,
+                    is_present=True,
+                    is_connected=True,
+                ))
+                self._obd_port_values.append(selected_port)
             selected_idx = 0
             if selected_port in self._obd_port_values:
                 selected_idx = self._obd_port_values.index(selected_port)

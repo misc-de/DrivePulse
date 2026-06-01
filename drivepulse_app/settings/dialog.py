@@ -508,6 +508,17 @@ class SettingsDialog(
                 is_connected=(port == current_obd_port),
             ))
             self._obd_port_values.append(port)
+        # Surface the configured port (bt:ADDR Bluetooth dongle / /dev/pts
+        # bridge) when the serial scan didn't list it, so the dropdown shows the
+        # actual selected dongle instead of silently falling back to "auto".
+        if current_obd_port is not None and current_obd_port not in self._obd_port_values:
+            dongle_store.append(DeviceItem(
+                label=self.dongle_label_for(current_obd_port),
+                port=current_obd_port,
+                is_present=True,
+                is_connected=True,
+            ))
+            self._obd_port_values.append(current_obd_port)
 
         def _setup_header(_fac: object, li: Gtk.ListItem) -> None:
             li.set_child(Gtk.Label(xalign=0, hexpand=True))
