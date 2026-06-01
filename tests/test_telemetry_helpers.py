@@ -11,7 +11,12 @@ from drivepulse_app.dashboard.data import (
     scan_identity_from_payload,
     scan_profile_dashboard_data,
 )
-from drivepulse_app.telemetry_utils import display_speed, has_obd_data, plain_number
+from drivepulse_app.telemetry_utils import (
+    display_speed,
+    has_obd_data,
+    plain_number,
+    vins_same_vehicle,
+)
 from drivepulse_app.ui.draw_helpers import _cardinal, _norm
 
 # ─── telemetry_utils.plain_number ────────────────────────────────────────────
@@ -246,3 +251,27 @@ def test_cardinal_boundary_at_22_5_degrees_rounds_to_NE():
     just_above = _cardinal(22.6, "en")
     # The two readings must differ — the boundary actually moves the octant.
     assert just_below != just_above
+
+
+# ─── telemetry_utils.vins_same_vehicle ───────────────────────────────────────
+
+def test_vins_same_vehicle_exact_and_case_insensitive():
+    assert vins_same_vehicle("WAUZZZ4G8EN073189", "WAUZZZ4G8EN073189")
+    assert vins_same_vehicle(" wauzzz4g8en073189 ", "WAUZZZ4G8EN073189")
+
+
+def test_vins_same_vehicle_tolerates_one_dropped_char():
+    # Real case: python-obd returned 16 chars (missing the final serial digit);
+    # the user corrected the stored VIN to the full 17.
+    assert vins_same_vehicle("WAUZZZ4G8EN07318", "WAUZZZ4G8EN073189")
+    # A character dropped anywhere (not just the tail) still matches.
+    assert vins_same_vehicle("WUZZZ4G8EN073189", "WAUZZZ4G8EN073189")
+
+
+def test_vins_same_vehicle_rejects_distinct_or_too_different():
+    # Two distinct full VINs (same length) must never be merged.
+    assert not vins_same_vehicle("WAUZZZ4G8EN073189", "WAUZZZ4G8EN073188")
+    # More than one character of difference.
+    assert not vins_same_vehicle("WAUZZZ4G8EN0731", "WAUZZZ4G8EN073189")
+    assert not vins_same_vehicle("", "WAUZZZ4G8EN073189")
+    assert not vins_same_vehicle(None, None)

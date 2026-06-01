@@ -8,6 +8,7 @@ import threading
 from datetime import UTC, datetime
 
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.telemetry_utils import vins_same_vehicle
 
 log = get_logger(__name__)
 
@@ -40,6 +41,16 @@ class CarsMixin:
             row = None
             if vin:
                 row = cur.execute("SELECT id FROM cars WHERE vin = ?", (vin,)).fetchone()
+                if row is None:
+                    # Tolerate a single dropped VIN char (16 vs 17): reuse the
+                    # car whose full/corrected VIN this incomplete OBD read
+                    # matches, instead of inserting a duplicate vehicle.
+                    for cand in cur.execute(
+                        "SELECT id, vin FROM cars WHERE vin IS NOT NULL"
+                    ).fetchall():
+                        if vins_same_vehicle(cand["vin"], vin):
+                            row = cand
+                            break
             if row is None and profile_path:
                 row = cur.execute(
                     "SELECT id FROM cars WHERE profile_path = ? AND vin IS NULL",
