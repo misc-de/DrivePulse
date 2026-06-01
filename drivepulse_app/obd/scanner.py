@@ -20,6 +20,19 @@ from drivepulse_app.obd.adapter import AdapterInfo, AdapterKind, batch_query_stp
 log = get_logger(__name__)
 
 
+def _obd_text(value: Any) -> str:
+    """Decode a python-obd mode-09 string value (VIN, Cal-ID, ECU name).
+
+    python-obd returns these as ``bytearray`` on many adapters; a plain
+    ``str(bytearray)`` leaks the ``bytearray(b'…')`` repr into the stored
+    profile and the scan-identity key. Decode bytes/bytearray as ASCII and
+    fall back to ``str`` for already-decoded values.
+    """
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("ascii", errors="ignore").strip()
+    return str(value).strip()
+
+
 class ObdScanner:
     """One-shot full-scan of a newly connected OBD adapter/vehicle."""
 
@@ -112,7 +125,14 @@ class ObdScanner:
         )
         if use_batch:
             live_data = self._run_mode1_batch(mode1_cmds, total_steps)
-            done = len(mode1_cmds)
+            if live_data:
+                done = len(mode1_cmds)
+            else:
+                # STPX returned nothing (e.g. not honoured over the Bluetooth
+                # pty bridge) — fall back to the reliable single-query loop so a
+                # detected STN adapter never produces a poorer scan than an ELM.
+                log.info("STPX batch empty, falling back to single-query scan")
+                done = self._run_mode1_single(mode1_cmds, live_data, total_steps, done)
         else:
             done = self._run_mode1_single(mode1_cmds, live_data, total_steps, done)
 
@@ -139,7 +159,7 @@ class ObdScanner:
             try:
                 r = self._query_locked(cmd)
                 if not r.is_null():
-                    vehicle_info[name] = str(r.value)
+                    vehicle_info[name] = _obd_text(r.value)
             except Exception:
                 log.exception("Could not query vehicle info command %s", name)
             if self._yield:
@@ -268,7 +288,7 @@ class ObdScanner:
                 return None
             r = self._query_locked(cmd)
             if not r.is_null():
-                val = str(r.value).strip()
+                val = _obd_text(r.value)
                 return val if val else None
         except Exception:
             log.info("Could not query VIN during OBD scan", exc_info=True)
