@@ -39,9 +39,32 @@ class AdapterInfo:
 # ---------------------------------------------------------------------------
 
 def _serial_port(connection: Any) -> Any | None:
-    """Return the underlying pyserial port from an obd.OBD connection."""
+    """Return the underlying pyserial port from an obd.OBD connection.
+
+    python-obd's ELM327 stores it as a name-mangled private attribute
+    (``self.__port`` → ``_ELM327__port``); the native backend exposes
+    ``_port``. Probe the known names, then fall back to any serial-like
+    attribute. Without this the probe never gets a port, ``raw_send`` returns
+    "" and the STN/OBDLink adapter is silently mis-detected as "unknown".
+    """
     iface = getattr(connection, "interface", None)
-    return getattr(iface, "_port", None) if iface is not None else None
+    if iface is None:
+        return None
+    # Known attribute names: native backend (_port), python-obd's ELM327
+    # (self.__port → _ELM327__port). Return the first that is set.
+    for name in ("_port", "_ELM327__port", "port"):
+        port = getattr(iface, name, None)
+        if port is not None:
+            return port
+    # Fallback: any serial-like attribute on the interface.
+    try:
+        members = list(vars(iface).values())
+    except TypeError:
+        members = []
+    for val in members:
+        if hasattr(val, "read") and hasattr(val, "write") and hasattr(val, "in_waiting"):
+            return val
+    return None
 
 
 def raw_send(port: Any, cmd: str, timeout: float = 1.5) -> str:
