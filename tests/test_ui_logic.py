@@ -180,6 +180,9 @@ def test_obd_indicator_connected_when_engine_off_no_pid_data(drivepulse_module):
         "source": "obd",
         "obd_connecting": False,
         "connection_status": "OBD connected: bt:00:04:3E:8C:16:AC",
+        # Engine off → no PID values, but the adapter still answers commands
+        # without read errors, so the link counts as healthy.
+        "_command_count": 8, "_read_error_count": 0,
         "rpm": None, "speed": None, "coolant_temp": None,
         "throttle_pos": None, "engine_load": None,
     })
@@ -187,6 +190,34 @@ def test_obd_indicator_connected_when_engine_off_no_pid_data(drivepulse_module):
     assert "success" in window.obd_indicator["box"].props["css_classes"]
     # No live engine data, so the gauges themselves stay inactive.
     assert window.rpm_gauge.active is False
+
+
+def test_obd_indicator_searching_when_dongle_out_of_range(drivepulse_module):
+    # A connected dongle that leaves range keeps emitting cached source=obd
+    # payloads whose reads now fail (errors == commands). After the holdover the
+    # icon must drop to "searching" instead of lingering green / claiming to be
+    # connected to a dongle that is gone.
+    import time as _t
+
+    window = _payload_window(drivepulse_module)
+    # Leaving a live OBD session triggers cleanup callbacks — stub them.
+    window.cars_page = type(
+        "CarsSpy", (),
+        {"update_live": lambda self, p: None, "clear_live_session": lambda self: None},
+    )()
+    window._stop_obd_recorder = lambda: None  # type: ignore[method-assign]
+    window._update_from_payload({
+        "source": "obd", "_command_count": 6, "_read_error_count": 0,
+        "coolant_temp": {"value": 80},
+    })
+    assert "success" in window.obd_indicator["box"].props["css_classes"]
+
+    window._obd_last_healthy = _t.monotonic() - 999  # last good read long ago
+    window._update_from_payload({
+        "source": "obd", "_command_count": 6, "_read_error_count": 6,
+    })
+    assert "dim-label" in window.obd_indicator["box"].props["css_classes"]
+    assert "success" not in window.obd_indicator["box"].props["css_classes"]
 
 
 def test_scan_identity_auto_registers_unknown_vehicle(tmp_path, drivepulse_module):

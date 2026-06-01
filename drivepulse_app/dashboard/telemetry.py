@@ -60,10 +60,12 @@ class DashboardTelemetryMixin:
     # first assignment inside this mixin's methods.
     last_payload: dict[str, Any] | None
     _gps_last_seen: float
+    _obd_last_healthy: float
 
     # Concrete DashboardWindow state surfaced to this mixin.
     # See project_mixin_typing.md.
     GPS_UNAVAIL_HOLDOVER: ClassVar[float]
+    OBD_LINK_HOLDOVER: ClassVar[float]
     language: str
     units: str
     db: DriveDB
@@ -307,13 +309,23 @@ class DashboardTelemetryMixin:
         speed = self._display_speed(speed_source_kmh)
         temp = self._plain_number(payload, "coolant_temp") if active else None
         obd_connected = active and self._has_obd_data(payload)
-        # The header link indicator must reflect the adapter *connection*, not
-        # whether live engine PIDs are flowing. With the engine off the ECU
-        # returns no rpm/speed/coolant, so has_obd_data() is False even though
-        # the dongle is connected — that used to leave the icon stuck in
-        # "searching". Drive the icon from the link state; keep the data-gated
-        # obd_connected for the gauges/session/recording logic below.
-        obd_link_up = active
+        # Header link indicator: green requires a *healthy* exchange recently,
+        # not merely a payload tagged source=obd. A connected dongle answers
+        # commands even with the engine off (no PID values, but no read errors),
+        # whereas a dongle that left range keeps emitting cached source=obd
+        # payloads for a moment and then triggers a reconnect. Track the last
+        # healthy read and apply a short holdover so the icon turns grey once
+        # real exchanges stop, instead of lingering green or claiming to be
+        # connected to a dongle that is gone. (Engine-off / no-PID payloads
+        # still count as healthy via has_obd_data + a successful command cycle.)
+        cmd = int(payload.get("_command_count", 0) or 0)
+        errs = int(payload.get("_read_error_count", 0) or 0)
+        read_ok = cmd > 0 and errs < cmd
+        if source == "mock" or (active and (read_ok or self._has_obd_data(payload))):
+            self._obd_last_healthy = time.monotonic()
+        obd_link_up = active and (
+            time.monotonic() - getattr(self, "_obd_last_healthy", 0.0)
+        ) < self.OBD_LINK_HOLDOVER
         was_obd_active = getattr(self, "_obd_active", False)
         self._obd_active = obd_connected
         if was_obd_active and not obd_connected:
