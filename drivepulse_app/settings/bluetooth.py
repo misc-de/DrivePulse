@@ -16,6 +16,7 @@ from gi.repository import Adw, GLib, Gtk
 from drivepulse_app.common import _translate
 from drivepulse_app.obd.devices import (
     bind_bt_to_rfcomm,
+    pair_bt_device,
     probe_bt_rfcomm_socket,
     scan_bt_nearby_devices,
     scan_bt_paired_devices,
@@ -84,7 +85,13 @@ class SettingsBluetoothMixin:
 
         return False
 
-    def _on_bt_connect_clicked(self, btn: Gtk.Button, addr: str, row: Adw.ActionRow) -> None:
+    def _on_bt_connect_clicked(
+        self,
+        btn: Gtk.Button,
+        addr: str,
+        row: Adw.ActionRow,
+        pair_first: bool = False,
+    ) -> None:
         btn.set_sensitive(False)
         spinner = Gtk.Spinner()
         spinner.start()
@@ -92,7 +99,7 @@ class SettingsBluetoothMixin:
         row.set_subtitle(_translate(self.language, "settings.bt_obd.connecting"))
         threading.Thread(
             target=self._bt_bind_thread,
-            args=(addr, btn, spinner, row),
+            args=(addr, btn, spinner, row, pair_first),
             daemon=True,
         ).start()
 
@@ -102,9 +109,34 @@ class SettingsBluetoothMixin:
         btn: Gtk.Button,
         spinner: Gtk.Spinner,
         row: Adw.ActionRow,
+        pair_first: bool = False,
     ) -> None:
+        # Devices picked from the "nearby" scan are not bonded yet. Pair + trust
+        # them via BlueZ before rfcomm bind, so the user never has to leave the
+        # app for the OS Bluetooth panel.
+        if pair_first:
+            GLib.idle_add(row.set_subtitle, _translate(self.language, "settings.bt_obd.pairing"))
+            ok, err = pair_bt_device(addr)
+            if not ok:
+                GLib.idle_add(self._bt_pair_failed, err, btn, spinner, row)
+                return
         dev, err = bind_bt_to_rfcomm(addr)
         GLib.idle_add(self._bt_bind_done, dev, err, addr, btn, spinner, row)
+
+    def _bt_pair_failed(
+        self,
+        err: str,
+        btn: Gtk.Button,
+        spinner: Gtk.Spinner,
+        row: Adw.ActionRow,
+    ) -> bool:
+        spinner.stop()
+        row.remove(spinner)
+        row.set_subtitle(f"✗ {_translate(self.language, 'settings.bt_obd.pair_failed')}: {err}")
+        btn.set_label(_translate(self.language, "settings.bt_obd.connect"))
+        btn.add_css_class("suggested-action")
+        btn.set_sensitive(True)
+        return False
 
     def _bt_bind_done(
         self,
@@ -210,7 +242,7 @@ class SettingsBluetoothMixin:
             connect_btn = Gtk.Button(label=_translate(self.language, "settings.bt_obd.connect"))
             connect_btn.set_valign(Gtk.Align.CENTER)
             connect_btn.add_css_class("suggested-action")
-            connect_btn.connect("clicked", self._on_bt_connect_clicked, addr, row)
+            connect_btn.connect("clicked", self._on_bt_connect_clicked, addr, row, True)
             row.add_suffix(connect_btn)
             self._bt_nearby_expander.add_row(row)
             self._bt_nearby_rows.append(row)

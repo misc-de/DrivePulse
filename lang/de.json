@@ -79,6 +79,8 @@
   "settings.bt_obd.nearby.scanning": "Suche nach Geräten in der Nähe (6 s) …",
   "settings.bt_obd.nearby.none_found": "Keine Geräte in der Nähe gefunden",
   "settings.bt_obd.trying_direct": "Versuche direkte Verbindung …",
+  "settings.bt_obd.pairing": "Kopple Gerät …",
+  "settings.bt_obd.pair_failed": "Kopplung fehlgeschlagen",
   "settings.theme_mode": "App-Theme",
   "settings.theme_mode.auto": "Automatisch",
   "settings.theme_mode.dark": "Dunkel",
