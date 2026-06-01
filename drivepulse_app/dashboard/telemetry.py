@@ -293,6 +293,13 @@ class DashboardTelemetryMixin:
         speed = self._display_speed(speed_source_kmh)
         temp = self._plain_number(payload, "coolant_temp") if active else None
         obd_connected = active and self._has_obd_data(payload)
+        # The header link indicator must reflect the adapter *connection*, not
+        # whether live engine PIDs are flowing. With the engine off the ECU
+        # returns no rpm/speed/coolant, so has_obd_data() is False even though
+        # the dongle is connected — that used to leave the icon stuck in
+        # "searching". Drive the icon from the link state; keep the data-gated
+        # obd_connected for the gauges/session/recording logic below.
+        obd_link_up = active
         was_obd_active = getattr(self, "_obd_active", False)
         self._obd_active = obd_connected
         if was_obd_active and not obd_connected:
@@ -304,7 +311,7 @@ class DashboardTelemetryMixin:
         _prev_gps_connected = getattr(self, "_gps_was_connected", False)
         self._gps_was_connected = gps_connected
 
-        self._set_link_indicator(self.obd_indicator, obd_connected, obd_connecting)
+        self._set_link_indicator(self.obd_indicator, obd_link_up, obd_connecting)
         self._set_link_indicator(self.gps_indicator, gps_connected, False)
 
         self.rpm_gauge.set_value(rpm, None if rpm is None else f"{rpm:.0f}")
