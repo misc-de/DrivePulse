@@ -176,3 +176,43 @@ def test_obd_text_decodes_bytearray_vin():
     assert _obd_text(bytearray(b"WAUZZZ4G8EN073189")) == "WAUZZZ4G8EN073189"
     assert _obd_text(b"4G0115  0006BDA") == "4G0115  0006BDA"
     assert _obd_text("already-string ") == "already-string"
+
+
+class _FakeSerial:
+    in_waiting = 0
+
+    def read(self, _n):
+        return b""
+
+    def write(self, _d):
+        pass
+
+
+def test_serial_port_finds_python_obd_mangled_port():
+    from drivepulse_app.obd.adapter import _serial_port
+
+    # python-obd's ELM327 stores the port as self.__port → _ELM327__port.
+    class ELM327:
+        def __init__(self):
+            self.__port = _FakeSerial()
+
+    class _FakeOBD:
+        def __init__(self):
+            self.interface = ELM327()
+
+    assert _serial_port(_FakeOBD()) is not None
+    assert _serial_port(None) is None
+
+
+def test_serial_port_finds_native_backend_port():
+    from drivepulse_app.obd.adapter import _serial_port
+
+    class _NativeIface:
+        def __init__(self):
+            self._port = _FakeSerial()
+
+    class _NativeOBD:
+        def __init__(self):
+            self.interface = _NativeIface()
+
+    assert _serial_port(_NativeOBD()) is not None
