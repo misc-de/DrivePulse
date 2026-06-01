@@ -661,13 +661,23 @@ class DashboardWindow(
         box.append(label)
         return {"box": box, "image": image, "spinner": spinner, "label": label}
 
-    def _set_link_indicator(self, indicator: dict[str, Any], connected: bool, connecting: bool = False) -> None:
+    def _set_link_indicator(
+        self,
+        indicator: dict[str, Any],
+        connected: bool,
+        connecting: bool = False,
+        degraded: bool = False,
+    ) -> None:
         box = indicator["box"]
         spinner = indicator["spinner"]
         image = indicator["image"]
         box.remove_css_class("dim-label")
         box.remove_css_class("success")
-        if connected:
+        box.remove_css_class("warning")
+        if connected and degraded:
+            # Linked but no live data (e.g. engine off): amber, not green.
+            box.add_css_class("warning")
+        elif connected:
             box.add_css_class("success")
         else:
             box.add_css_class("dim-label")

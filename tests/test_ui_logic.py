@@ -169,25 +169,26 @@ def test_obd_indicator_spins_while_connecting(drivepulse_module):
     assert window.obd_indicator["image"].props["visible"] is False
 
 
-def test_obd_indicator_connected_when_engine_off_no_pid_data(drivepulse_module):
-    # Regression: engine off → the ECU returns no rpm/speed/coolant/throttle/
-    # load, but the dongle is connected (source == "obd"). The link indicator
-    # must show connected ("success"), not stay stuck "searching" — the symptom
-    # the OBDLink MX+ showed with the ignition off.
+def test_obd_indicator_amber_when_connected_without_data(drivepulse_module):
+    # Engine off → the ECU returns no rpm/speed/coolant/throttle/load, but the
+    # dongle is connected and answering commands without errors. The link
+    # indicator must show the "connected, no data" state in amber ("warning"):
+    # not green (no live data) and not grey/searching (the link is up).
     window = _payload_window(drivepulse_module)
 
     window._update_from_payload({
         "source": "obd",
         "obd_connecting": False,
         "connection_status": "OBD connected: bt:00:04:3E:8C:16:AC",
-        # Engine off → no PID values, but the adapter still answers commands
-        # without read errors, so the link counts as healthy.
         "_command_count": 8, "_read_error_count": 0,
         "rpm": None, "speed": None, "coolant_temp": None,
         "throttle_pos": None, "engine_load": None,
     })
 
-    assert "success" in window.obd_indicator["box"].props["css_classes"]
+    classes = window.obd_indicator["box"].props["css_classes"]
+    assert "warning" in classes
+    assert "success" not in classes
+    assert "dim-label" not in classes
     # No live engine data, so the gauges themselves stay inactive.
     assert window.rpm_gauge.active is False
 

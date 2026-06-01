@@ -308,7 +308,8 @@ class DashboardTelemetryMixin:
         speed_source_kmh = obd_speed_kmh if obd_speed_kmh is not None else gps_speed_kmh
         speed = self._display_speed(speed_source_kmh)
         temp = self._plain_number(payload, "coolant_temp") if active else None
-        obd_connected = active and self._has_obd_data(payload)
+        obd_has_data = self._has_obd_data(payload)
+        obd_connected = active and obd_has_data
         # Header link indicator: green requires a *healthy* exchange recently,
         # not merely a payload tagged source=obd. A connected dongle answers
         # commands even with the engine off (no PID values, but no read errors),
@@ -321,7 +322,7 @@ class DashboardTelemetryMixin:
         cmd = int(payload.get("_command_count", 0) or 0)
         errs = int(payload.get("_read_error_count", 0) or 0)
         read_ok = cmd > 0 and errs < cmd
-        if source == "mock" or (active and (read_ok or self._has_obd_data(payload))):
+        if source == "mock" or (active and (read_ok or obd_has_data)):
             self._obd_last_healthy = time.monotonic()
         obd_link_up = active and (
             time.monotonic() - getattr(self, "_obd_last_healthy", 0.0)
@@ -337,7 +338,10 @@ class DashboardTelemetryMixin:
         _prev_gps_connected = getattr(self, "_gps_was_connected", False)
         self._gps_was_connected = gps_connected
 
-        self._set_link_indicator(self.obd_indicator, obd_link_up, obd_connecting)
+        self._set_link_indicator(
+            self.obd_indicator, obd_link_up, obd_connecting,
+            degraded=obd_link_up and not obd_has_data,
+        )
         self._set_link_indicator(self.gps_indicator, gps_connected, False)
 
         self.rpm_gauge.set_value(rpm, None if rpm is None else f"{rpm:.0f}")
