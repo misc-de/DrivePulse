@@ -709,8 +709,7 @@ class SettingsDialog(
         self._bt_nearby_scan_btn = _nearby_scan_btn
         bt_group.add(self._bt_nearby_expander.widget)
 
-        # Bluetooth OBD dongle options hidden for testing — may be removed.
-        bt_group.set_visible(False)
+        app_page.add(bt_group)
 
         self._paired_addrs: set[str] = set()
 
