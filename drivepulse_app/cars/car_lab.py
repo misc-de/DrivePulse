@@ -278,25 +278,25 @@ class CarsCarLabMixin:
     # --- module scan (which control units are present) ----------------------
 
     def _cl_module_row(self, name: str, tx: str, rx: str, on_click: Callable[[], None]) -> Gtk.Button:
-        """A left-aligned module button: a per-module symbol, the name on top
-        and a tx/rx caption below. Wraps cleanly on mobile instead of
-        overflowing the row."""
+        """A module button: a per-module symbol, then the module name and its
+        tx/rx addresses on a single line at the same height — name left, tx/rx
+        right (name ellipsizes instead of wrapping so the line stays intact)."""
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        row.set_halign(Gtk.Align.START)
+        row.set_halign(Gtk.Align.FILL)
         icon = Gtk.Image.new_from_icon_name(module_icon_name(name))
         icon.set_pixel_size(24)
         icon.set_valign(Gtk.Align.CENTER)
         row.append(icon)
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        inner.set_valign(Gtk.Align.CENTER)
         title = Gtk.Label(label=name, xalign=0.0)
-        title.set_wrap(True)
-        sub = Gtk.Label(label=f"tx={tx} · rx={rx}", xalign=0.0)
+        title.set_valign(Gtk.Align.CENTER)
+        title.set_hexpand(True)
+        title.set_ellipsize(Pango.EllipsizeMode.END)
+        row.append(title)
+        sub = Gtk.Label(label=f"tx={tx} · rx={rx}", xalign=1.0)
         sub.add_css_class("caption")
         sub.add_css_class("dim-label")
-        inner.append(title)
-        inner.append(sub)
-        row.append(inner)
+        sub.set_valign(Gtk.Align.CENTER)
+        row.append(sub)
         b = Gtk.Button()
         b.set_child(row)
         b.add_css_class("flat")
@@ -475,10 +475,19 @@ class CarsCarLabMixin:
         for row in rows:
             groups.setdefault(row["label"] or "?", []).append(row)
         for module, entries in groups.items():
-            group = Adw.PreferencesGroup(title=module)
+            # Section header: the module icon BEFORE the module name.
+            header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            header.set_margin_top(6)
             icon = Gtk.Image.new_from_icon_name(module_icon_name(module))
             icon.set_pixel_size(20)
-            group.set_header_suffix(icon)
+            icon.set_valign(Gtk.Align.CENTER)
+            header.append(icon)
+            name_lbl = Gtk.Label(label=module, xalign=0.0)
+            name_lbl.set_valign(Gtk.Align.CENTER)
+            name_lbl.add_css_class("heading")
+            header.append(name_lbl)
+            box.append(header)
+            group = Adw.PreferencesGroup()
             for row in entries:
                 did = int(row["id"])
                 group.add(self._cl_list_button(
@@ -524,29 +533,28 @@ class CarsCarLabMixin:
         return box
 
     def _cl_kv_row(self, key: str, value: str, dim: bool = False) -> Gtk.Box:
-        """A stacked key/value row: caption-heading key on top, wrapping value
-        below. Long hex/ASCII values wrap cleanly instead of overflowing."""
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        box.set_margin_top(6)
-        box.set_hexpand(True)
+        """A key/value row: the description left-aligned, the value right-
+        aligned on the same line. Long hex/ASCII values wrap (right-aligned)
+        instead of overflowing the window."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        row.set_margin_top(6)
+        row.set_hexpand(True)
 
         key_lbl = Gtk.Label(label=key, xalign=0.0)
         key_lbl.set_halign(Gtk.Align.START)
-        key_lbl.set_hexpand(True)
-        key_lbl.set_wrap(True)
-        key_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        key_lbl.set_valign(Gtk.Align.START)
         key_lbl.add_css_class("caption-heading")
-        box.append(key_lbl)
+        row.append(key_lbl)
 
-        value_lbl = Gtk.Label(label=value, xalign=0.0, selectable=True)
-        value_lbl.set_halign(Gtk.Align.START)
+        value_lbl = Gtk.Label(label=value, xalign=1.0, selectable=True)
+        value_lbl.set_halign(Gtk.Align.END)
         value_lbl.set_hexpand(True)
         value_lbl.set_wrap(True)
         value_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         if dim:
             value_lbl.add_css_class("dim-label")
-        box.append(value_lbl)
-        return box
+        row.append(value_lbl)
+        return row
 
     def _open_discovery_detail(self, data: dict) -> None:
         scroll = Gtk.ScrolledWindow()
