@@ -193,6 +193,25 @@ def test_obd_indicator_amber_when_connected_without_data(drivepulse_module):
     assert window.rpm_gauge.active is False
 
 
+def test_bt_error_text_maps_unreachable_to_hint():
+    # Raw BlueZ errors that really mean "dongle didn't answer" must become the
+    # actionable hint, not leak through as a cryptic authorization-looking error.
+    import types
+
+    from drivepulse_app.settings.bluetooth import SettingsBluetoothMixin
+
+    obj = types.SimpleNamespace(language="en")
+    for err in (
+        "org.bluez.Error.ConnectionAttemptFailed",
+        "Device 00:04:3E:8C:16:AC not available",
+        "OSError(112, 'Host is down')",
+        "timed out",
+    ):
+        assert "unreachable" in SettingsBluetoothMixin._bt_error_text(obj, err).lower()
+    # Unknown errors pass through verbatim (still surfaced to the user).
+    assert "weird glitch" in SettingsBluetoothMixin._bt_error_text(obj, "weird glitch")
+
+
 def test_obd_indicator_searching_when_dongle_out_of_range(drivepulse_module):
     # A connected dongle that leaves range keeps emitting cached source=obd
     # payloads whose reads now fail (errors == commands). After the holdover the

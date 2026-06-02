@@ -335,42 +335,42 @@ class ObdReader(GObject.Object):
             if not self.stop_event.is_set():
                 if self._configured_port.startswith("bt:"):
                     addr, ch = parse_bt_port(self._configured_port)
-                    # Try rfcomm bind first (creates /dev/rfcommN, most reliable)
-                    dev = self._rfcomm_bind(addr, ch)
-                    if dev:
-                        success = False
-                        try:
-                            connect_kwargs: dict[str, Any] = {
-                                "fast": False,
-                                "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT),
-                                "baudrate": OBD_BAUDRATE if OBD_BAUDRATE is not None else 38400,
-                            }
-                            self._connection_log("connect_attempt", port=dev, bt_addr=addr, **connect_kwargs)
-                            self.connection = obd_backend.OBD(dev, **connect_kwargs)
-                            connected = bool(self.connection and self.connection.is_connected())
-                            self._connection_log("connect_result", port=dev, bt_addr=addr, connected=connected,
-                                                 status=str(getattr(self.connection, "status", lambda: "unknown")()))
-                            if connected:
-                                self.mock = False
-                                self.mock_reason = ""
-                                self.connected_port = dev
-                                self.failed_read_count = 0
-                                supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
-                                self._connection_log("connect_success", port=dev, supported_commands=supported)
-                                self._probe_adapter()
-                                success = True
-                            else:
+                    # Direct RFCOMM-socket bridge first: it's the reliable path
+                    # for SPP dongles (the OBDLink MX+'s rfcomm-bind OBD handshake
+                    # fails and only the direct bridge connects). Trying it first
+                    # skips the wasted bind attempt and avoids leaving a stale
+                    # /dev/rfcommN node behind. rfcomm bind stays as the fallback
+                    # for adapters that need it (e.g. some ELM327 clones).
+                    success = self._try_bt_direct(addr, ch)
+                    if not success:
+                        self._connection_log("bt_direct_failed_trying_rfcomm", bt_addr=addr)
+                        dev = self._rfcomm_bind(addr, ch)
+                        if dev:
+                            try:
+                                connect_kwargs: dict[str, Any] = {
+                                    "fast": False,
+                                    "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT),
+                                    "baudrate": OBD_BAUDRATE if OBD_BAUDRATE is not None else 38400,
+                                }
+                                self._connection_log("connect_attempt", port=dev, bt_addr=addr, **connect_kwargs)
+                                self.connection = obd_backend.OBD(dev, **connect_kwargs)
+                                connected = bool(self.connection and self.connection.is_connected())
+                                self._connection_log("connect_result", port=dev, bt_addr=addr, connected=connected,
+                                                     status=str(getattr(self.connection, "status", lambda: "unknown")()))
+                                if connected:
+                                    self.mock = False
+                                    self.mock_reason = ""
+                                    self.connected_port = dev
+                                    self.failed_read_count = 0
+                                    supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
+                                    self._connection_log("connect_success", port=dev, supported_commands=supported)
+                                    self._probe_adapter()
+                                    success = True
+                                else:
+                                    self._close_connection()
+                            except Exception as exc:
                                 self._close_connection()
-                        except Exception as exc:
-                            self._close_connection()
-                            self._connection_log("connect_exception", port=dev, error=repr(exc))
-                        if not success:
-                            # rfcomm port open but OBD handshake failed — ELM clone fallback
-                            self._connection_log("bt_rfcomm_obd_failed_trying_direct", bt_addr=addr, dev=dev)
-                            success = self._try_bt_direct(addr, ch)
-                    else:
-                        # rfcomm bind unavailable — fall back to direct BT socket
-                        success = self._try_bt_direct(addr, ch)
+                                self._connection_log("connect_exception", port=dev, error=repr(exc))
                 else:
                     is_rfcomm = self._configured_port.startswith("/dev/rfcomm")
                     success = False
