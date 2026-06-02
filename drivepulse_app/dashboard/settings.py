@@ -264,6 +264,7 @@ class DashboardSettingsMixin:
             on_photo_thumb_cache_max_mb_changed=self._set_photo_thumb_cache_max_mb,
             current_sync_access=getattr(self, "sync_access", "lan_only"),
             on_sync_access_changed=self._set_sync_access,
+            obd_status_provider=self._obd_status_snapshot,
         )
 
         def _on_page_hidden(_p: object) -> None:
@@ -701,6 +702,30 @@ class DashboardSettingsMixin:
         self.obd_port = port
         self._save_settings()
         self.reader.set_configured_port(port)
+
+    def _obd_status_snapshot(self) -> dict[str, Any]:
+        """Live OBD connection snapshot for the settings "Connected Dongle:" group.
+
+        Defensive: the reader's connection/adapter fields may be absent or
+        mid-transition, so every access is guarded.
+        """
+        reader = getattr(self, "reader", None)
+        connected = False
+        port: str | None = None
+        adapter = ""
+        try:
+            connected = bool(getattr(reader, "connection", None)) and not bool(getattr(reader, "mock", False))
+            port = getattr(reader, "connected_port", None)
+            info = getattr(reader, "_adapter_info", None)
+            if info is not None:
+                kind = getattr(info, "kind", None)
+                # AdapterKind is an Enum; prefer its human-ish name, fall back to value.
+                kind_str = getattr(kind, "name", None) or (str(getattr(kind, "value", "")) if kind else "")
+                version = getattr(info, "version", "") or ""
+                adapter = f"{kind_str} {version}".strip()
+        except Exception:
+            log.debug("Could not build OBD status snapshot", exc_info=True)
+        return {"connected": connected, "port": port, "adapter": adapter}
 
     def _set_units(self, units: str) -> None:
         if units == self.units:
