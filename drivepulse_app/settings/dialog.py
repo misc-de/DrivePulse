@@ -174,6 +174,7 @@ class SettingsDialog(
         on_photo_thumb_cache_max_mb_changed: Callable[[int], None] | None = None,
         current_sync_access: str = "lan_only",
         on_sync_access_changed: Callable[[str], None] | None = None,
+        obd_status_provider: Callable[[], dict | None] | None = None,
     ) -> None:
         super().__init__(tag="settings")
         self.language = _normalize_language(current_language)
@@ -239,6 +240,10 @@ class SettingsDialog(
         self._current_sync_access = current_sync_access if current_sync_access in {"off", "lan_only", "any"} else "lan_only"
         self._remote_version: str | None = None
         self._closing = False
+        self._obd_status_provider = obd_status_provider
+        # The outer NavigationView the settings page lives in — used to push the
+        # OBD-dongle subpage. Mirrors the pattern in sync/dialog.py.
+        self._outer_nav: Adw.NavigationView | None = getattr(parent, "nav_view", None)
         self.set_title(_translate(self.language, "settings.title"))
         self.connect("hiding", self._on_hiding)
 
@@ -683,46 +688,22 @@ class SettingsDialog(
         sync_group.add(self._sync_access_row)
         app_page.add(sync_group)
 
-        # OBD group
-        app_page.add(obd_group)
+        # ── OBD-Dongle subpage ───────────────────────────────────────────────
+        # Dongle dropdown + unified scan list + live "Connected Dongle:" infos
+        # live on a dedicated subpage reached via an activatable row below.
+        self._obd_subpage = self._build_obd_subpage(obd_group)
 
-        # ── Paired BT devices (already bonded to this phone) ─────────────────
-        bt_group = Adw.PreferencesGroup(
-            title=_translate(self.language, "settings.bt_obd"),
-            description=_translate(self.language, "settings.bt_obd.desc"),
+        # Activatable row on the App page that opens the OBD-dongle subpage.
+        obd_open_group = Adw.PreferencesGroup()
+        self._obd_open_row = Adw.ActionRow(
+            title=_translate(self.language, "settings.obd_dongle.open_row"),
+            subtitle=_translate(self.language, "settings.obd_dongle.open_row.subtitle"),
         )
-
-        self._bt_expander = _BtExpander()
-        self._bt_expander.set_title(_translate(self.language, "settings.bt_obd.scan"))
-        self._bt_expander.set_subtitle(_translate(self.language, "settings.bt_obd.scan.subtitle"))
-        self._bt_device_rows: list[Adw.ActionRow] = []
-
-        _bt_refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
-        _bt_refresh_btn.set_valign(Gtk.Align.CENTER)
-        _bt_refresh_btn.add_css_class("flat")
-        _bt_refresh_btn.set_tooltip_text(_translate(self.language, "settings.bt_obd.refresh"))
-        _bt_refresh_btn.connect("clicked", self._on_bt_refresh_clicked)
-        self._bt_expander.add_action(_bt_refresh_btn)
-        bt_group.add(self._bt_expander.widget)
-
-        # ── Nearby BT devices (discovery scan) ───────────────────────────────
-        self._bt_nearby_expander = _BtExpander()
-        self._bt_nearby_expander.set_title(_translate(self.language, "settings.bt_obd.nearby"))
-        self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.subtitle"))
-        self._bt_nearby_rows: list[Adw.ActionRow] = []
-
-        _nearby_scan_btn = Gtk.Button(icon_name="view-refresh-symbolic")
-        _nearby_scan_btn.set_valign(Gtk.Align.CENTER)
-        _nearby_scan_btn.add_css_class("flat")
-        _nearby_scan_btn.set_tooltip_text(_translate(self.language, "settings.bt_obd.nearby.scan"))
-        _nearby_scan_btn.connect("clicked", self._on_bt_nearby_scan_clicked)
-        self._bt_nearby_expander.add_action(_nearby_scan_btn)
-        self._bt_nearby_scan_btn = _nearby_scan_btn
-        bt_group.add(self._bt_nearby_expander.widget)
-
-        app_page.add(bt_group)
-
-        self._paired_addrs: set[str] = set()
+        self._obd_open_row.set_activatable(True)
+        self._obd_open_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+        self._obd_open_row.connect("activated", self._on_obd_open_row_activated)
+        obd_open_group.add(self._obd_open_row)
+        app_page.add(obd_open_group)
 
         # ── Display page ──────────────────────────────────────────────────────
         display_page = Adw.PreferencesPage(
@@ -997,6 +978,105 @@ class SettingsDialog(
         self.connect("map", lambda *_: GLib.idle_add(_clear_focus))
 
         self.set_child(toolbar_view)
+
+    # ── OBD-Dongle subpage ────────────────────────────────────────────────────
+
+    def _build_obd_subpage(self, obd_group: Adw.PreferencesGroup) -> Adw.NavigationPage:
+        """Assemble the OBD-dongle subpage: dropdown + unified scan + live infos."""
+        page = Adw.PreferencesPage(
+            title=_translate(self.language, "settings.obd_dongle.page"),
+        )
+
+        # Dongle dropdown (moved off the App page).
+        page.add(obd_group)
+
+        # Unified scan list — a single discovery scan that shows both already
+        # paired and freshly found OBD devices. "Connect" pairs first when the
+        # device isn't bonded yet (handled in the BT mixin).
+        scan_group = Adw.PreferencesGroup(
+            title=_translate(self.language, "settings.bt_obd"),
+            description=_translate(self.language, "settings.bt_obd.desc"),
+        )
+        self._bt_nearby_expander = _BtExpander()
+        self._bt_nearby_expander.set_title(_translate(self.language, "settings.obd_dongle.scan_title"))
+        self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.obd_dongle.scan_subtitle"))
+        self._bt_nearby_rows: list[Adw.ActionRow] = []
+
+        _nearby_scan_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        _nearby_scan_btn.set_valign(Gtk.Align.CENTER)
+        _nearby_scan_btn.add_css_class("flat")
+        _nearby_scan_btn.set_tooltip_text(_translate(self.language, "settings.bt_obd.nearby.scan"))
+        _nearby_scan_btn.connect("clicked", self._on_bt_nearby_scan_clicked)
+        self._bt_nearby_expander.add_action(_nearby_scan_btn)
+        self._bt_nearby_scan_btn = _nearby_scan_btn
+        scan_group.add(self._bt_nearby_expander.widget)
+        page.add(scan_group)
+
+        # Live "Connected Dongle:" infos, snapshotted at construction time.
+        page.add(self._build_connected_dongle_group())
+
+        return Adw.NavigationPage(
+            title=_translate(self.language, "settings.obd_dongle.page"),
+            child=page,
+            tag="settings-obd-dongle",
+        )
+
+    def _build_connected_dongle_group(self) -> Adw.PreferencesGroup:
+        """Group showing a snapshot of the live OBD connection state."""
+        group = Adw.PreferencesGroup(
+            title=_translate(self.language, "settings.obd_dongle.connected_heading"),
+        )
+
+        status: dict | None = None
+        if self._obd_status_provider is not None:
+            try:
+                status = self._obd_status_provider()
+            except Exception:
+                status = None
+
+        connected = bool(status and status.get("connected"))
+        if not connected:
+            row = Adw.ActionRow(
+                title=_translate(self.language, "settings.obd_dongle.not_connected"),
+            )
+            row.set_activatable(False)
+            group.add(row)
+            return group
+
+        assert status is not None  # narrowed by `connected`
+
+        def _info_row(title: str, value: str) -> Adw.ActionRow:
+            row = Adw.ActionRow(title=title)
+            row.set_activatable(False)
+            label = Gtk.Label(label=value)
+            label.add_css_class("dim-label")
+            label.set_valign(Gtk.Align.CENTER)
+            label.set_selectable(True)
+            row.add_suffix(label)
+            return row
+
+        group.add(_info_row(
+            _translate(self.language, "settings.obd_dongle.status"),
+            _translate(self.language, "settings.obd_dongle.status.connected"),
+        ))
+        port = str(status.get("port") or "")
+        if port:
+            group.add(_info_row(
+                _translate(self.language, "settings.obd_dongle.address"), port,
+            ))
+        adapter = str(status.get("adapter") or "")
+        if adapter:
+            group.add(_info_row(
+                _translate(self.language, "settings.obd_dongle.adapter"), adapter,
+            ))
+        return group
+
+    def _on_obd_open_row_activated(self, _row: Adw.ActionRow) -> None:
+        if self._outer_nav is None:
+            return
+        if self._outer_nav.find_page("settings-obd-dongle") is not None:
+            return
+        self._outer_nav.push(self._obd_subpage)
 
     # ── Page lifecycle (NavigationPage signals) ───────────────────────────────
 

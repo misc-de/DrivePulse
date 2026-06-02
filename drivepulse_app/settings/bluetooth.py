@@ -2,8 +2,13 @@
 
 Extracted from ``settings_dialog.py`` to give the BT plumbing its own
 self-contained module. All methods here run as a mixin on ``SettingsDialog``
-and rely on ``self._bt_expander``/``self._bt_nearby_expander`` plus the
-widget attributes wired up in ``SettingsDialog.__init__``.
+and rely on ``self._bt_nearby_expander`` plus the widget attributes wired up
+in ``SettingsDialog.__init__``.
+
+The scan list is unified: a single nearby-discovery scan surfaces both
+already-paired and newly-found OBD devices. ``Connect`` pairs first when the
+device isn't bonded yet, so there is no longer a separate "paired devices"
+list.
 """
 from __future__ import annotations
 
@@ -19,7 +24,6 @@ from drivepulse_app.obd.devices import (
     pair_bt_device,
     probe_bt_rfcomm_socket,
     scan_bt_nearby_devices,
-    scan_bt_paired_devices,
 )
 
 if TYPE_CHECKING:
@@ -27,63 +31,17 @@ if TYPE_CHECKING:
 
 
 class SettingsBluetoothMixin:
-    """Paired-device list + nearby BT scan + connect/bind flows."""
+    """Unified OBD-device scan + connect/pair/bind flows."""
 
     # Concrete SettingsDialog state surfaced to this mixin. See
     # project_mixin_typing.md.
     language: str
     _closing: bool
-    _bt_expander: _BtExpander
     _bt_nearby_expander: _BtExpander
-    _bt_device_rows: list[Adw.ActionRow]
     _bt_nearby_rows: list[Adw.ActionRow]
     _bt_nearby_scan_btn: Gtk.Button
     on_obd_port_changed: Callable[[str | None], None] | None
     _refresh_dongle_dropdown: Callable[[str | None], None]
-
-    def _on_bt_refresh_clicked(self, _btn: Gtk.Button) -> None:
-        self._bt_scan_async()
-
-    def _bt_scan_async(self) -> None:
-        self._bt_expander.set_subtitle(_translate(self.language, "settings.bt_obd.scanning"))
-        threading.Thread(target=self._bt_scan_thread, daemon=True).start()
-
-    def _bt_scan_thread(self) -> None:
-        devices = scan_bt_paired_devices()  # [(label, "bt:ADDR"), ...]
-        GLib.idle_add(self._bt_scan_done, devices)
-
-    def _bt_scan_done(self, devices: list[tuple[str, str]]) -> bool:
-        if self._closing:
-            return False
-        for row in self._bt_device_rows:
-            self._bt_expander.remove(row)
-        self._bt_device_rows.clear()
-        self._paired_addrs = {bt_port[3:].upper() for _, bt_port in devices}
-
-        if not devices:
-            self._bt_expander.set_subtitle(_translate(self.language, "settings.bt_obd.none_found"))
-            return False
-
-        count = len(devices)
-        self._bt_expander.set_subtitle(
-            _translate(self.language, "settings.bt_obd.found").format(n=count)
-        )
-
-        for label, bt_port in devices:
-            addr = bt_port[3:]  # strip "bt:"
-            row = Adw.ActionRow(title=label)
-            row.set_activatable(False)
-
-            connect_btn = Gtk.Button(label=_translate(self.language, "settings.bt_obd.connect"))
-            connect_btn.set_valign(Gtk.Align.CENTER)
-            connect_btn.add_css_class("suggested-action")
-            connect_btn.connect("clicked", self._on_bt_connect_clicked, addr, row)
-            row.add_suffix(connect_btn)
-
-            self._bt_expander.add_row(row)
-            self._bt_device_rows.append(row)
-
-        return False
 
     def _on_bt_connect_clicked(
         self,
@@ -237,7 +195,9 @@ class SettingsBluetoothMixin:
         threading.Thread(target=self._bt_nearby_scan_thread, daemon=True).start()
 
     def _bt_nearby_scan_thread(self) -> None:
-        devices = scan_bt_nearby_devices(scan_seconds=6, known_addrs=self._paired_addrs)
+        # known_addrs=None → keep already-paired OBD devices in the unified list,
+        # not just brand-new discoveries.
+        devices = scan_bt_nearby_devices(scan_seconds=6, known_addrs=None)
         GLib.idle_add(self._bt_nearby_scan_done, devices)
 
     def _bt_nearby_scan_done(self, devices: list[tuple[str, str]]) -> bool:
