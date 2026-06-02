@@ -172,7 +172,6 @@ class CarsCarLabMixin:
     # name → (icon, short nav label key, builder)
     def _carlab_nav_items(self) -> list[tuple[str, str, str, Callable[[], Gtk.Widget]]]:
         return [
-            ("scan", "edit-find-symbolic", "cars.carlab.nav.scan", self._build_module_scan),
             ("discover", "dp-ecu-generic-symbolic", "cars.carlab.nav.discover", self._build_discover),
             ("discoveries", "view-list-symbolic", "cars.carlab.nav.discoveries", self._build_discoveries_list),
             ("find", "edit-find-replace-symbolic", "cars.carlab.nav.find", self._build_find_functions),
@@ -260,7 +259,7 @@ class CarsCarLabMixin:
         self._cl_stack = stack
         for name, _icon, _label_key, builder in self._carlab_nav_items():
             stack.add_named(self._cl_scroller(builder()), name)
-        stack.set_visible_child_name("scan")
+        stack.set_visible_child_name("discover")
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         outer.append(self._carlab_top_nav(stack))
@@ -305,58 +304,6 @@ class CarsCarLabMixin:
         b.connect("clicked", lambda _b: on_click())
         return b
 
-    def _build_module_scan(self) -> Gtk.Widget:
-        box = self._carlab_page_box()
-        intro = Gtk.Label(label=self._carlab_t("cars.carlab.scan.intro"), xalign=0.0)
-        intro.set_wrap(True)
-        intro.add_css_class("dim-label")
-        box.append(intro)
-
-        status = self._carlab_status_label()
-        results = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        run = Gtk.Button(label=self._carlab_t("cars.carlab.scan.run"))
-        run.add_css_class("suggested-action")
-        run.set_halign(Gtk.Align.START)
-
-        def on_run(_b: Gtk.Button) -> None:
-            if self.on_carlab_scan is None:
-                status.set_text(self._carlab_t("cars.carlab.no_connection"))
-                return
-            status.set_text(self._carlab_t("cars.carlab.scan.running"))
-            run.set_sensitive(False)
-
-            def done(modules: list) -> None:
-                run.set_sensitive(True)
-                child = results.get_first_child()
-                while child is not None:
-                    results.remove(child)
-                    child = results.get_first_child()
-                if not modules:
-                    status.set_text(self._carlab_t("cars.carlab.scan.none"))
-                    return
-                # Remember which modules answered so Discover/Functions can
-                # offer only confirmed-present units on this car.
-                if self.db is not None and self._selected_car_id is not None:
-                    try:
-                        self.db.save_scanned_modules(self._selected_car_id, modules)
-                    except Exception:
-                        log.exception("Could not save scanned modules")
-                status.set_text(self._carlab_t("cars.carlab.scan.found", n=len(modules)))
-                for m in modules:
-                    name, tx, rx = m["name"], m["tx"], m["rx"]
-                    results.append(self._cl_module_row(
-                        name, tx, rx,
-                        functools.partial(self._run_discover_for, name, tx, rx),
-                    ))
-
-            self.on_carlab_scan(done)
-
-        run.connect("clicked", on_run)
-        box.append(run)
-        box.append(status)
-        box.append(results)
-        return box
-
     def _run_discover_for(
         self, name: str, tx: str, rx: str,
         on_result: Callable[[dict], None] | None = None,
@@ -385,44 +332,94 @@ class CarsCarLabMixin:
     # --- 1. discover --------------------------------------------------------
 
     def _build_discover(self) -> Gtk.Widget:
+        """Discover view: run a full module scan, then read any found module.
+
+        A "Start complete Scan" button probes the vehicle for present control
+        units (saving them); below it the known modules are shown as a clickable
+        list. Tapping a module discovers it and renders the result inline.
+        """
         box = self._carlab_page_box()
-        if not self._carlab_candidates():
+        intro = Gtk.Label(label=self._carlab_t("cars.carlab.scan.intro"), xalign=0.0)
+        intro.set_wrap(True)
+        intro.add_css_class("dim-label")
+        box.append(intro)
+
+        scan_status = self._carlab_status_label()
+        scan_btn = Gtk.Button(label=self._carlab_t("cars.carlab.discover.full_scan"))
+        scan_btn.add_css_class("suggested-action")
+        scan_btn.set_halign(Gtk.Align.START)
+
+        # The known modules and per-module discovery results render here.
+        modules_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        modules_box.set_margin_top(6)
+
+        def on_scan(_b: Gtk.Button) -> None:
+            if self.on_carlab_scan is None:
+                scan_status.set_text(self._carlab_t("cars.carlab.no_connection"))
+                return
+            scan_status.set_text(self._carlab_t("cars.carlab.scan.running"))
+            scan_btn.set_sensitive(False)
+
+            def done(modules: list) -> None:
+                scan_btn.set_sensitive(True)
+                if not modules:
+                    scan_status.set_text(self._carlab_t("cars.carlab.scan.none"))
+                else:
+                    # Remember which modules answered so Discover/Functions can
+                    # offer only confirmed-present units on this car.
+                    if self.db is not None and self._selected_car_id is not None:
+                        try:
+                            self.db.save_scanned_modules(self._selected_car_id, modules)
+                        except Exception:
+                            log.exception("Could not save scanned modules")
+                    scan_status.set_text(self._carlab_t("cars.carlab.scan.found", n=len(modules)))
+                # Rebuild the whole Discover page so the module list reflects
+                # the latest scan.
+                stack = getattr(self, "_cl_stack", None)
+                if stack is not None:
+                    self._carlab_rebuild_page(stack, "discover")
+
+            self.on_carlab_scan(done)
+
+        scan_btn.connect("clicked", on_scan)
+        box.append(scan_btn)
+        box.append(scan_status)
+
+        candidates = self._carlab_candidates()
+        if not candidates:
             box.append(self._carlab_scan_hint())
             return box
-        dropdown, names = self._carlab_module_dropdown()
-        box.append(Gtk.Label(label=self._carlab_t("cars.carlab.module"), xalign=0.0))
-        box.append(dropdown)
+
+        box.append(self._carlab_section(self._carlab_t("cars.carlab.discover.modules")))
         status = self._carlab_status_label()
-        run = Gtk.Button(label=self._carlab_t("cars.carlab.discover.run"))
-        run.add_css_class("suggested-action")
-        run.set_halign(Gtk.Align.START)
-        # The discovery result is rendered inline here, right below the button.
+        # Per-module discovery result renders inline below the tapped module.
         result_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         result_box.set_margin_top(6)
 
-        def on_run(_b: Gtk.Button) -> None:
-            if self.on_carlab_discover is None or self._selected_car_id is None:
-                status.set_text(self._carlab_t("cars.carlab.no_connection"))
-                return
-            module = names[dropdown.get_selected()]
-            tx, rx = self._carlab_candidates()[module]
-            status.set_text(self._carlab_t("cars.carlab.discover.running", module=module))
-            run.set_sensitive(False)
-            self._cl_clear(result_box)
-
-            def on_result(data: dict) -> None:
-                run.set_sensitive(True)
-                self._cl_clear(result_box)
-                if not data:
-                    status.set_text(self._carlab_t("cars.carlab.no_data"))
+        def make_on_click(module: str, tx: str, rx: str) -> Callable[[], None]:
+            def on_click() -> None:
+                if self.on_carlab_discover is None or self._selected_car_id is None:
+                    status.set_text(self._carlab_t("cars.carlab.no_connection"))
                     return
-                status.set_text("")
-                result_box.append(self._build_discovery_content(data))
+                status.set_text(self._carlab_t("cars.carlab.discover.running", module=module))
+                self._cl_clear(result_box)
 
-            self._run_discover_for(module, tx, rx, on_result=on_result)
+                def on_result(data: dict) -> None:
+                    self._cl_clear(result_box)
+                    if not data:
+                        status.set_text(self._carlab_t("cars.carlab.no_data"))
+                        return
+                    status.set_text("")
+                    result_box.append(self._build_discovery_content(data))
 
-        run.connect("clicked", on_run)
-        box.append(run)
+                self._run_discover_for(module, tx, rx, on_result=on_result)
+
+            return on_click
+
+        for name in sorted(candidates):
+            tx, rx = candidates[name]
+            modules_box.append(self._cl_module_row(name, tx, rx, make_on_click(name, tx, rx)))
+        box.append(modules_box)
         box.append(status)
         box.append(result_box)
         return box
@@ -471,13 +468,24 @@ class CarsCarLabMixin:
         if not rows:
             box.append(Gtk.Label(label=self._carlab_t("cars.carlab.discoveries.empty"), xalign=0.0))
             return
+        # ``list_discoveries_for_car`` already returns newest-first. Group the
+        # rows by control module (label), keeping that DESC order within each
+        # group, and emit the groups whose newest discovery is most recent first.
+        groups: dict[str, list[Any]] = {}
         for row in rows:
-            label = f"{row['label'] or '?'}  ·  {row['created_at']}"
-            did = int(row["id"])
-            box.append(self._cl_list_button(
-                label, functools.partial(self._open_discovery_by_id, did),
-                icon=module_icon_name(row["label"] or ""),
-            ))
+            groups.setdefault(row["label"] or "?", []).append(row)
+        for module, entries in groups.items():
+            group = Adw.PreferencesGroup(title=module)
+            icon = Gtk.Image.new_from_icon_name(module_icon_name(module))
+            icon.set_pixel_size(20)
+            group.set_header_suffix(icon)
+            for row in entries:
+                did = int(row["id"])
+                group.add(self._cl_list_button(
+                    str(row["created_at"]),
+                    functools.partial(self._open_discovery_by_id, did),
+                ))
+            box.append(group)
 
     def _open_discovery_by_id(self, did: int) -> None:
         self._open_discovery_detail(self.db.get_discovery_data(did))
@@ -501,16 +509,43 @@ class CarsCarLabMixin:
             box.append(self._carlab_section(self._carlab_t("cars.carlab.identification")))
             for name, entry in ident.items():
                 val = entry.get("ascii") or entry.get("hex", "")
-                box.append(Gtk.Label(label=f"{name}: {val}", xalign=0.0, selectable=True))
+                box.append(self._cl_kv_row(str(name), str(val)))
 
         responses = data.get("did_responses") or {}
         box.append(self._carlab_section(self._carlab_t("cars.carlab.dids")))
         for key, entry in responses.items():
             if "hex" in entry:
                 extra = f"  \"{entry['ascii']}\"" if entry.get("ascii") else ""
-                box.append(Gtk.Label(label=f"DID {key}: {entry['hex']}{extra}", xalign=0.0, selectable=True))
+                box.append(self._cl_kv_row(f"DID {key}", f"{entry['hex']}{extra}"))
             else:
-                box.append(Gtk.Label(label=f"DID {key}: -- {entry.get('nrc_name', '')}", xalign=0.0))
+                box.append(self._cl_kv_row(
+                    f"DID {key}", f"-- {entry.get('nrc_name', '')}", dim=True
+                ))
+        return box
+
+    def _cl_kv_row(self, key: str, value: str, dim: bool = False) -> Gtk.Box:
+        """A stacked key/value row: caption-heading key on top, wrapping value
+        below. Long hex/ASCII values wrap cleanly instead of overflowing."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(6)
+        box.set_hexpand(True)
+
+        key_lbl = Gtk.Label(label=key, xalign=0.0)
+        key_lbl.set_halign(Gtk.Align.START)
+        key_lbl.set_hexpand(True)
+        key_lbl.set_wrap(True)
+        key_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        key_lbl.add_css_class("caption-heading")
+        box.append(key_lbl)
+
+        value_lbl = Gtk.Label(label=value, xalign=0.0, selectable=True)
+        value_lbl.set_halign(Gtk.Align.START)
+        value_lbl.set_hexpand(True)
+        value_lbl.set_wrap(True)
+        value_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        if dim:
+            value_lbl.add_css_class("dim-label")
+        box.append(value_lbl)
         return box
 
     def _open_discovery_detail(self, data: dict) -> None:
