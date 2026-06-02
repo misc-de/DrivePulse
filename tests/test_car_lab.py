@@ -9,6 +9,27 @@ from drivepulse_app.cars.car_lab import (
 )
 from drivepulse_app.obd.uds import VAG_CODING_DID
 
+# --- headless widget-tree helpers -------------------------------------------
+
+
+def _texts(widget):
+    """Recursively collect every label/text string in a stub widget tree."""
+    out = []
+    text = getattr(widget, "text", None)
+    if isinstance(text, str) and text:
+        out.append(text)
+    nodes = list(getattr(widget, "children", []) or [])
+    # Buttons/list rows attach their content via set_child -> props["child"].
+    child_prop = getattr(widget, "props", {}).get("child")
+    if child_prop is not None:
+        nodes.append(child_prop)
+    for child in nodes:
+        # _Stack stores (child, name, title) tuples; _Widget stores widgets.
+        node = child[0] if isinstance(child, tuple) else child
+        if hasattr(node, "children") or hasattr(node, "text") or hasattr(node, "props"):
+            out.extend(_texts(node))
+    return out
+
 # --- module_icon_name -------------------------------------------------------
 
 def test_module_icon_name_known_module():
@@ -85,3 +106,112 @@ def test_watch_dids_ignores_other_modules_and_entries_without_hex():
     )
     # Only the engine discovery contributes; F1B0 has no "hex", ZZZZ is not hex.
     assert _watch_dids(db, "engine") == sorted({VAG_CODING_DID, 0xF190})
+
+
+# --- headless builder smoke tests (Discover + Saved) ------------------------
+#
+# Build the Discover and Saved widget trees against the conftest GTK stubs with
+# DB methods stubbed, to validate the tree assembles and shows the expected
+# content. CarsPage state is minimal (only the attributes the two builders
+# touch), so these exercise the new grouping/scan-list layout without a window.
+
+
+class _ScanDB:
+    """Stub DB exposing only the methods the Discover/Saved builders read."""
+
+    def __init__(self, modules=(), discoveries=(), data_by_id=None):
+        self._modules = list(modules)
+        self._discoveries = list(discoveries)
+        self._data_by_id = data_by_id or {}
+
+    def list_scanned_modules_for_car(self, _car_id):
+        return self._modules
+
+    def list_discoveries_for_car(self, _car_id):
+        return self._discoveries
+
+    def get_discovery_data(self, disc_id):
+        return self._data_by_id.get(disc_id, {})
+
+
+def _make_lab(db):
+    """A concrete CarsCarLabMixin instance with the minimal page state."""
+
+    class _Lab(CarsCarLabMixin):
+        pass
+
+    lab = _Lab()
+    lab.language = "en"
+    lab.db = db
+    lab._selected_car_id = 1
+    lab.mock_mode = False
+    lab.on_carlab_scan = lambda on_done: None
+    lab.on_carlab_discover = lambda tx, rx, done: None
+    # The stub boxes don't model get_first_child()/remove(); a fresh build has
+    # nothing to clear, so make the clear helper a no-op for these tests.
+    lab._cl_clear = lambda _box: None  # type: ignore[method-assign]
+    return lab
+
+
+def test_build_discover_without_scan_shows_full_scan_and_hint():
+    lab = _make_lab(_ScanDB(modules=[]))
+    texts = _texts(lab._build_discover())
+    # The "Start complete scan" button is always present …
+    assert any("complete scan" in t.lower() for t in texts)
+    # … and with no scanned modules the needs-scan hint is shown.
+    assert any("appear here" in t.lower() for t in texts)
+
+
+def test_build_discover_lists_known_modules():
+    db = _ScanDB(modules=[
+        {"name": "engine", "tx": "7E0", "rx": "7E8"},
+        {"name": "abs", "tx": "713", "rx": "77D"},
+    ])
+    lab = _make_lab(db)
+    texts = _texts(lab._build_discover())
+    assert any("complete scan" in t.lower() for t in texts)
+    # Both confirmed-present modules appear as clickable rows.
+    assert "engine" in texts
+    assert "abs" in texts
+    # tx/rx caption is rendered for at least one module.
+    assert any("tx=7E0" in t for t in texts)
+
+
+def test_build_saved_groups_by_module_newest_first():
+    # Newest-first input (as list_discoveries_for_car returns).
+    discoveries = [
+        {"id": 3, "label": "engine", "created_at": "2026-05-03T00:00:00Z"},
+        {"id": 2, "label": "abs", "created_at": "2026-05-02T00:00:00Z"},
+        {"id": 1, "label": "engine", "created_at": "2026-05-01T00:00:00Z"},
+    ]
+    lab = _make_lab(_ScanDB(discoveries=discoveries))
+    box = lab._build_discoveries_list()
+    # One PreferencesGroup per distinct module, newest group first (engine's
+    # newest discovery is more recent than abs's).
+    group_titles = [g.props.get("title") for g in box.children]
+    assert group_titles == ["engine", "abs"]
+    # Both engine discoveries are nested under its group, newest first.
+    texts = _texts(box)
+    assert "2026-05-03T00:00:00Z" in texts
+    assert "2026-05-01T00:00:00Z" in texts
+    assert "2026-05-02T00:00:00Z" in texts
+
+
+def test_build_saved_empty_shows_placeholder():
+    lab = _make_lab(_ScanDB(discoveries=[]))
+    texts = _texts(lab._build_discoveries_list())
+    assert any("no discoveries" in t.lower() for t in texts)
+
+
+def test_discovery_content_wraps_long_values():
+    long_hex = "DE" * 60
+    data = {
+        "module": "engine", "tx": "7E0", "rx": "7E8",
+        "identification": {"VIN": {"ascii": "WAUZZZ" * 10}},
+        "did_responses": {"F190": {"hex": long_hex}},
+    }
+    lab = _make_lab(_ScanDB())
+    box = lab._build_discovery_content(data)
+    texts = _texts(box)
+    assert any(long_hex in t for t in texts)
+    assert any("WAUZZZ" in t for t in texts)
