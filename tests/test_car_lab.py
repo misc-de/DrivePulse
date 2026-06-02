@@ -186,15 +186,17 @@ def test_build_saved_groups_by_module_newest_first():
     ]
     lab = _make_lab(_ScanDB(discoveries=discoveries))
     box = lab._build_discoveries_list()
-    # One PreferencesGroup per distinct module, newest group first (engine's
-    # newest discovery is more recent than abs's).
-    group_titles = [g.props.get("title") for g in box.children]
-    assert group_titles == ["engine", "abs"]
-    # Both engine discoveries are nested under its group, newest first.
     texts = _texts(box)
+    # Each module gets a section header (icon before the name); the engine
+    # group comes first (its newest discovery is more recent than abs's).
+    assert texts.index("engine") < texts.index("abs")
+    # Every discovery's timestamp is listed, and engine's two are grouped
+    # before the abs section (newest-first within the group).
     assert "2026-05-03T00:00:00Z" in texts
     assert "2026-05-01T00:00:00Z" in texts
     assert "2026-05-02T00:00:00Z" in texts
+    assert texts.index("2026-05-03T00:00:00Z") < texts.index("abs")
+    assert texts.index("2026-05-01T00:00:00Z") < texts.index("abs")
 
 
 def test_build_saved_empty_shows_placeholder():

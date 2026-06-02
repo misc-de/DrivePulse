@@ -38,6 +38,13 @@ class _WrapMode:
     WORD_CHAR = _EnumValue("word-char")
 
 
+class _EllipsizeMode:
+    NONE = _EnumValue("none")
+    START = _EnumValue("start")
+    MIDDLE = _EnumValue("middle")
+    END = _EnumValue("end")
+
+
 class _Widget:
     def __init__(self, *args, **kwargs) -> None:
         self.children = []
@@ -615,7 +622,7 @@ def _build_gi_stub_modules() -> tuple[types.ModuleType, types.ModuleType]:
     )
     gobject = types.SimpleNamespace(Object=object)
     gio = types.SimpleNamespace(ListStore=_ListStore)
-    pango = types.SimpleNamespace(WrapMode=_WrapMode)
+    pango = types.SimpleNamespace(WrapMode=_WrapMode, EllipsizeMode=_EllipsizeMode)
     gdk = types.SimpleNamespace(Display=types.SimpleNamespace(get_default=lambda: None))
 
     repository = types.ModuleType("gi.repository")
