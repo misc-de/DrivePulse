@@ -172,12 +172,13 @@ def scan_bt_nearby_devices(
 def pair_bt_device(addr: str, pin: str = "1234", timeout: float = 30.0) -> tuple[bool, str]:
     """Pair and trust a Bluetooth device via an interactive bluetoothctl session.
 
-    Bonding itself is performed by BlueZ; we drive bluetoothctl with the default
-    agent so SSP "just works" adapters (e.g. OBDLink MX+) bond without any user
-    interaction. For legacy adapters that demand a PIN, *pin* (default "1234",
-    the common ELM327/OBDLink code) is offered, and a numeric-comparison prompt
-    is answered with "yes". Unneeded replies are ignored by bluetoothctl as
-    invalid commands, so sending both is harmless.
+    Registers a ``NoInputNoOutput`` agent and makes it the default, so SSP
+    pairing uses "Just Works": BlueZ bonds automatically without raising a
+    PIN / numeric-comparison prompt. That is what stops the OS (e.g. Phosh)
+    Bluetooth agent from popping its own confirmation dialog over DrivePulse
+    during the OBDLink MX+'s first contact. The *pin*/"yes" replies are kept as
+    a harmless fallback for the rare adapter that still asks; with
+    NoInputNoOutput they are simply ignored as invalid commands.
 
     Returns (success, message). Already-paired devices count as success.
     """
@@ -197,7 +198,7 @@ def pair_bt_device(addr: str, pin: str = "1234", timeout: float = 30.0) -> tuple
     assert proc.stdin is not None
     out = ""
     try:
-        for cmd in ("power on", "agent on", "default-agent", f"pair {addr}"):
+        for cmd in ("power on", "agent NoInputNoOutput", "default-agent", f"pair {addr}"):
             proc.stdin.write(cmd + "\n")
             proc.stdin.flush()
             _time.sleep(0.6)
