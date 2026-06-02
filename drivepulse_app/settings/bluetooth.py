@@ -123,6 +123,22 @@ class SettingsBluetoothMixin:
         dev, err = bind_bt_to_rfcomm(addr)
         GLib.idle_add(self._bt_bind_done, dev, err, addr, btn, spinner, row)
 
+    def _bt_error_text(self, err: str) -> str:
+        """Friendly text for a failed BT connect/pair.
+
+        The raw BlueZ errors (ConnectionAttemptFailed, "Device … not available",
+        "Host is down", timeouts) all really mean the dongle didn't answer — it
+        is asleep / out of range / unpowered, not an authorization problem. Map
+        those to an actionable hint; pass other errors through.
+        """
+        low = (err or "").lower()
+        if any(s in low for s in (
+            "not available", "connectionattemptfailed", "host is down",
+            "no route", "timed out", "timeout", "page timeout",
+        )):
+            return _translate(self.language, "settings.bt_obd.not_reachable")
+        return f"{_translate(self.language, 'settings.bt_obd.pair_failed')}: {err}"
+
     def _bt_pair_failed(
         self,
         err: str,
@@ -132,7 +148,7 @@ class SettingsBluetoothMixin:
     ) -> bool:
         spinner.stop()
         row.remove(spinner)
-        row.set_subtitle(f"✗ {_translate(self.language, 'settings.bt_obd.pair_failed')}: {err}")
+        row.set_subtitle(f"✗ {self._bt_error_text(err)}")
         btn.set_label(_translate(self.language, "settings.bt_obd.connect"))
         btn.add_css_class("suggested-action")
         btn.set_sensitive(True)
@@ -207,7 +223,7 @@ class SettingsBluetoothMixin:
                 self.on_obd_port_changed(bt_port)
             self._refresh_dongle_dropdown(bt_port)
         else:
-            row.set_subtitle(f"✗ {err}")
+            row.set_subtitle(f"✗ {self._bt_error_text(err)}")
             btn.set_label(_translate(self.language, "settings.bt_obd.connect"))
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
