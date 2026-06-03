@@ -571,6 +571,9 @@ class DashboardWindow(
         self.connect("notify::default-width", self._on_size_changed)
         self.connect("notify::default-height", self._on_size_changed)
         self.add_tick_callback(self._layout_tick)
+        # Decay the OBD/GPS link icons to grey when the reader goes silent
+        # (dropped Bluetooth bridge); otherwise the last icon state sticks.
+        GLib.timeout_add_seconds(1, self._link_indicator_tick)
         GLib.idle_add(self._on_size_changed)
 
         self._nav_rotation_css = Gtk.CssProvider()

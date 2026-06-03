@@ -240,6 +240,56 @@ def test_obd_indicator_searching_when_dongle_out_of_range(drivepulse_module):
     assert "success" not in window.obd_indicator["box"].props["css_classes"]
 
 
+def test_link_indicator_tick_decays_stale_icons_to_grey(drivepulse_module):
+    # When the reader goes silent (dropped Bluetooth bridge), no payload arrives
+    # to re-evaluate the holdover — the periodic tick must drop both icons to
+    # grey instead of leaving the last state (e.g. amber) stuck.
+    import time as _t
+
+    window = _payload_window(drivepulse_module)
+    window._set_link_indicator(window.obd_indicator, True, False, degraded=True)  # amber
+    window._set_link_indicator(window.gps_indicator, True, False)                 # green
+    window._obd_last_healthy = _t.monotonic() - 999
+    window._gps_last_seen = _t.monotonic() - 999
+
+    assert window._link_indicator_tick() is True  # keeps the timeout alive
+
+    obd = window.obd_indicator["box"].props["css_classes"]
+    gps = window.gps_indicator["box"].props["css_classes"]
+    assert "dim-label" in obd and "warning" not in obd and "success" not in obd
+    assert "dim-label" in gps and "success" not in gps
+
+
+def test_link_indicator_tick_leaves_fresh_obd_icon(drivepulse_module):
+    # A fresh OBD link must not be greyed by the tick; only the stale GPS icon is.
+    import time as _t
+
+    window = _payload_window(drivepulse_module)
+    window._set_link_indicator(window.obd_indicator, True, False)  # green
+    window._obd_last_healthy = _t.monotonic()  # healthy right now
+    window._gps_last_seen = 0.0                # GPS never seen → stale
+
+    window._link_indicator_tick()
+
+    assert "success" in window.obd_indicator["box"].props["css_classes"]
+    assert "dim-label" in window.gps_indicator["box"].props["css_classes"]
+
+
+def test_gps_update_survives_missing_map_page(drivepulse_module):
+    # The map page is built lazily on first open; until then map_page is None.
+    # A GPS fix must not crash trying to call update_gps on None.
+    window = _payload_window(drivepulse_module)
+    window.map_page = None
+    window._last_gps_speed_kmh = None
+
+    window._update_from_payload({
+        "source": "gps",
+        "gps_lat": {"value": 48.1}, "gps_lon": {"value": 11.5},
+    })
+
+    assert "success" in window.gps_indicator["box"].props["css_classes"]
+
+
 def test_scan_identity_auto_registers_unknown_vehicle(tmp_path, drivepulse_module):
     # Unknown vehicles are immediately registered via _add_live_vehicle_from_identity.
     from drivepulse_app.db import DriveDB

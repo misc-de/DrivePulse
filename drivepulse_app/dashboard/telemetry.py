@@ -71,6 +71,7 @@ class DashboardTelemetryMixin:
     db: DriveDB
     cars_page: CarsPage
     stopwatch_page: Any
+    map_page: Any
     trip_recorder: TripRecorder
     rpm_gauge: Gauge
     speed_gauge: Gauge
@@ -233,6 +234,24 @@ class DashboardTelemetryMixin:
             return True
         return (now - getattr(self, "_gps_last_seen", 0.0)) < self.GPS_UNAVAIL_HOLDOVER
 
+    def _link_indicator_tick(self) -> bool:
+        """Decay the OBD/GPS link icons to grey once no fresh payload has
+        arrived within the holdover.
+
+        The indicators are otherwise only updated when the reader emits a
+        payload. If the Bluetooth pty bridge drops (errno 107/110 are common)
+        the reader stops emitting, so without this periodic check the last icon
+        state — e.g. amber "linked, no data" — sticks indefinitely even though
+        BlueZ reports the dongle disconnected. Visual only; runs ~1 Hz and only
+        ever turns an icon grey, never green/amber, so it cannot falsely claim a
+        live link."""
+        now = time.monotonic()
+        if (now - getattr(self, "_obd_last_healthy", 0.0)) >= self.OBD_LINK_HOLDOVER:
+            self._set_link_indicator(self.obd_indicator, False, False)
+        if (now - getattr(self, "_gps_last_seen", 0.0)) >= self.GPS_UNAVAIL_HOLDOVER:
+            self._set_link_indicator(self.gps_indicator, False, False)
+        return True
+
     def _update_from_payload(self, payload: dict[str, Any]) -> None:
         source = payload.get("source", "")
 
@@ -275,7 +294,7 @@ class DashboardTelemetryMixin:
                 )
             self.stopwatch_page.update_payload(payload, self._plain_number)
             self.cars_page.update_live(payload)
-            if hasattr(self, "map_page"):
+            if getattr(self, "map_page", None) is not None:
                 self.map_page.update_gps(lat, lon, gps_heading, gps_speed_kmh)
             if hasattr(self, "dashcam_page"):
                 self.dashcam_page.update_gps(lat, lon, gps_speed_kmh)
@@ -303,7 +322,7 @@ class DashboardTelemetryMixin:
         rpm = self._plain_number(payload, "rpm") if active else None
         obd_speed_kmh = self._plain_number(payload, "speed") if active else None
         gps_speed_kmh = self._plain_number(payload, "gps_speed") if active else None
-        if source == "obd" and obd_speed_kmh is not None and hasattr(self, "map_page"):
+        if source == "obd" and obd_speed_kmh is not None and getattr(self, "map_page", None) is not None:
             self.map_page.update_obd_speed(obd_speed_kmh)
         speed_source_kmh = obd_speed_kmh if obd_speed_kmh is not None else gps_speed_kmh
         speed = self._display_speed(speed_source_kmh)
