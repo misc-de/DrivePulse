@@ -88,6 +88,39 @@ def _hex_snapshot(snap: dict[int, str]) -> dict[int, bytes]:
     return out
 
 
+def partition_discovery_dids(
+    data: dict, include_failures: bool = True
+) -> tuple[list[tuple[str, int, str]], list[tuple[str, int, str]]]:
+    """Split a discovery's ``did_responses`` into ``(known, failed)`` rows.
+
+    Each row is ``(did_hex, did_int, value_text)``. *known* are the DIDs we
+    could actually read (a positive response carried a value), sorted by DID
+    number so the numbers line up. *failed* are the negative responses
+    (``requestOutOfRange`` etc.), also DID-sorted — and returned empty when
+    *include_failures* is False, so the live Discover view lists only what we
+    read out.
+    """
+    responses = data.get("did_responses") or {}
+    known: list[tuple[str, int, str]] = []
+    failed: list[tuple[str, int, str]] = []
+    for key, entry in responses.items():
+        if not isinstance(entry, dict):
+            continue
+        try:
+            did_int = int(str(key), 16)
+        except ValueError:
+            did_int = 0
+        if "hex" in entry:
+            ascii_val = entry.get("ascii")
+            value = f'{entry["hex"]}  "{ascii_val}"' if ascii_val else str(entry["hex"])
+            known.append((str(key), did_int, value))
+        elif include_failures:
+            failed.append((str(key), did_int, str(entry.get("nrc_name", ""))))
+    known.sort(key=lambda r: r[1])
+    failed.sort(key=lambda r: r[1])
+    return known, failed
+
+
 class CarsCarLabMixin:
     # Provided by CarsPage / other mixins.
     language: str
@@ -410,7 +443,10 @@ class CarsCarLabMixin:
                         status.set_text(self._carlab_t("cars.carlab.no_data"))
                         return
                     status.set_text("")
-                    result_box.append(self._build_discovery_content(data))
+                    # Live Discover: only the values we could read, no NRC noise.
+                    result_box.append(
+                        self._build_discovery_content(data, include_failures=False)
+                    )
 
                 self._run_discover_for(module, tx, rx, on_result=on_result)
 
@@ -499,9 +535,20 @@ class CarsCarLabMixin:
     def _open_discovery_by_id(self, did: int) -> None:
         self._open_discovery_detail(self.db.get_discovery_data(did))
 
-    def _build_discovery_content(self, data: dict) -> Gtk.Box:
-        """The discovery result body (header + identification + DIDs), reused
-        both as an inline panel and as a pushed detail page."""
+    def _did_label(self, did_hex: str) -> str:
+        """Plain-language (DE/EN) name for a DID, e.g. F187 → „Teilenummer
+        (Hersteller)". Falls back to ``DID <hex>`` when we have no label."""
+        key = f"cars.carlab.did.{did_hex.upper()}"
+        label = self._carlab_t(key)
+        return label if label != key else f"DID {did_hex}"
+
+    def _build_discovery_content(self, data: dict, include_failures: bool = True) -> Gtk.Box:
+        """The discovery result body: a module header + one DID table.
+
+        Readable values sit at the top (DID number | label | value); the
+        unreadable ones (``requestOutOfRange`` …) follow, dimmed. The live
+        Discover view passes *include_failures=False* so it lists only the
+        values we could read, grouped under each module's header."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         module = str(data.get("module", "?"))
         head_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -513,24 +560,56 @@ class CarsCarLabMixin:
         head_row.append(Gtk.Label(label=head, xalign=0.0))
         box.append(head_row)
 
-        ident = data.get("identification") or {}
-        if ident:
-            box.append(self._carlab_section(self._carlab_t("cars.carlab.identification")))
-            for name, entry in ident.items():
-                val = entry.get("ascii") or entry.get("hex", "")
-                box.append(self._cl_kv_row(str(name), str(val)))
+        known, failed = partition_discovery_dids(data, include_failures=include_failures)
+        if not known and not failed:
+            box.append(Gtk.Label(label=self._carlab_t("cars.carlab.no_data"), xalign=0.0))
+            return box
 
-        responses = data.get("did_responses") or {}
         box.append(self._carlab_section(self._carlab_t("cars.carlab.dids")))
-        for key, entry in responses.items():
-            if "hex" in entry:
-                extra = f"  \"{entry['ascii']}\"" if entry.get("ascii") else ""
-                box.append(self._cl_kv_row(f"DID {key}", f"{entry['hex']}{extra}"))
-            else:
-                box.append(self._cl_kv_row(
-                    f"DID {key}", f"-- {entry.get('nrc_name', '')}", dim=True
-                ))
+        for did_hex, _did_int, value in known:
+            box.append(self._cl_did_row(did_hex, self._did_label(did_hex), value))
+        for did_hex, _did_int, nrc in failed:
+            box.append(self._cl_did_row(did_hex, self._did_label(did_hex), f"-- {nrc}", dim=True))
         return box
+
+    def _cl_did_row(self, did_hex: str, label: str, value: str, dim: bool = False) -> Gtk.Box:
+        """A discovery row in three columns: DID number | friendly label | value.
+
+        The DID sits in its own fixed-width monospace column so the numbers
+        line up; the label takes the middle, the value is right-aligned and
+        wraps instead of overflowing the window."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        row.set_margin_top(6)
+        row.set_hexpand(True)
+
+        did_lbl = Gtk.Label(label=did_hex, xalign=0.0)
+        did_lbl.set_halign(Gtk.Align.START)
+        did_lbl.set_valign(Gtk.Align.START)
+        did_lbl.set_width_chars(5)
+        did_lbl.add_css_class("monospace")
+        did_lbl.add_css_class("dim-label")
+        row.append(did_lbl)
+
+        name_lbl = Gtk.Label(label=label, xalign=0.0)
+        name_lbl.set_halign(Gtk.Align.START)
+        name_lbl.set_valign(Gtk.Align.START)
+        name_lbl.set_width_chars(16)
+        name_lbl.set_max_width_chars(20)
+        name_lbl.set_wrap(True)
+        name_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        name_lbl.add_css_class("caption-heading")
+        row.append(name_lbl)
+
+        value_lbl = Gtk.Label(label=value, xalign=1.0, selectable=True)
+        value_lbl.set_halign(Gtk.Align.END)
+        value_lbl.set_valign(Gtk.Align.START)
+        value_lbl.set_hexpand(True)
+        value_lbl.set_wrap(True)
+        value_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        if dim:
+            value_lbl.add_css_class("dim-label")
+        row.append(value_lbl)
+        return row
 
     def _cl_kv_row(self, key: str, value: str, dim: bool = False) -> Gtk.Box:
         """A key/value row: the description left-aligned, the value right-
