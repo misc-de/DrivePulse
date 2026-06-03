@@ -129,6 +129,7 @@ class CarsCarLabMixin:
     _selected_car_id: int | None
     # Set by the window: (tx, rx, on_done) / (tx, rx, dids, on_done).
     on_carlab_discover: Callable[[str, str, Callable[[dict], None]], None] | None = None
+    on_carlab_sweep: Callable[[str, str, Callable[[dict], None]], None] | None = None
     on_carlab_snapshot: Callable[[str, str, list[int], Callable[[dict], None]], None] | None = None
     # Mock only: flip a simulated coding bit so a capture produces a diff.
     on_carlab_mock_toggle: Callable[[], None] | None = None
@@ -362,6 +363,30 @@ class CarsCarLabMixin:
 
         self.on_carlab_discover(tx, rx, done)
 
+    def _run_sweep_for(
+        self, name: str, tx: str, rx: str,
+        on_result: Callable[[dict], None] | None = None,
+    ) -> None:
+        """Deep DID sweep of one module (saved as a '<name> (deep)' discovery)."""
+        if self.on_carlab_sweep is None or self._selected_car_id is None:
+            return
+        car_id = self._selected_car_id
+        label = f"{name} (deep)"
+
+        def done(result: dict) -> None:
+            if result:
+                result["module"] = name
+                try:
+                    self.db.add_discovery(car_id, result, label=label)
+                except Exception:
+                    log.exception("Could not save sweep discovery")
+            if on_result is not None:
+                on_result(result)
+            elif result:
+                self._open_discovery_detail(result)
+
+        self.on_carlab_sweep(tx, rx, done)
+
     # --- 1. discover --------------------------------------------------------
 
     def _build_discover(self) -> Gtk.Widget:
@@ -424,6 +449,11 @@ class CarsCarLabMixin:
             return box
 
         box.append(self._carlab_section(self._carlab_t("cars.carlab.discover.modules")))
+        # Deep-scan toggle: when on, a module tap sweeps its whole DID space
+        # (DISCOVERY_SWEEP_RANGES) instead of only the named identification DIDs.
+        deep_check = Gtk.CheckButton(label=self._carlab_t("cars.carlab.discover.deep"))
+        deep_check.set_tooltip_text(self._carlab_t("cars.carlab.discover.deep_hint"))
+        box.append(deep_check)
         status = self._carlab_status_label()
         # Per-module discovery result renders inline below the tapped module.
         result_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -431,10 +461,13 @@ class CarsCarLabMixin:
 
         def make_on_click(module: str, tx: str, rx: str) -> Callable[[], None]:
             def on_click() -> None:
-                if self.on_carlab_discover is None or self._selected_car_id is None:
+                deep = deep_check.get_active()
+                runner = self.on_carlab_sweep if deep else self.on_carlab_discover
+                if runner is None or self._selected_car_id is None:
                     status.set_text(self._carlab_t("cars.carlab.no_connection"))
                     return
-                status.set_text(self._carlab_t("cars.carlab.discover.running", module=module))
+                key = "cars.carlab.discover.sweeping" if deep else "cars.carlab.discover.running"
+                status.set_text(self._carlab_t(key, module=module))
                 self._cl_clear(result_box)
 
                 def on_result(data: dict) -> None:
@@ -443,12 +476,15 @@ class CarsCarLabMixin:
                         status.set_text(self._carlab_t("cars.carlab.no_data"))
                         return
                     status.set_text("")
-                    # Live Discover: only the values we could read, no NRC noise.
+                    # Deep sweep also surfaces "present but gated" DIDs (failures).
                     result_box.append(
-                        self._build_discovery_content(data, include_failures=False)
+                        self._build_discovery_content(data, include_failures=deep)
                     )
 
-                self._run_discover_for(module, tx, rx, on_result=on_result)
+                if deep:
+                    self._run_sweep_for(module, tx, rx, on_result=on_result)
+                else:
+                    self._run_discover_for(module, tx, rx, on_result=on_result)
 
             return on_click
 

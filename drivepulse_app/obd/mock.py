@@ -104,9 +104,19 @@ class MockUdsSimulator:
             0xF187: b"4G0920900",           # spare part number
             0xF189: b"H05",                  # SW version
             0xF18A: b"VAG",                  # supplier id
+            0xF18C: b"ZBR1234567",          # ECU serial number
             0xF191: b"4G0920900A",          # HW number
             0xF197: b"KOMBIINSTRUMENT",      # system name
+            0xF19D: b"2013-05-14",          # installation date
+            # Adaptation-style values in the VAG 0x0600 block (non-ASCII) — what
+            # a deep sweep turns up beyond the identification DIDs.
+            0x0601: bytes([0x01, 0x2C]),    # an adaptation channel = 300
+            0x0602: bytes([0x00, 0x05]),
         }
+
+    # DIDs that exist but answer with a non-0x31 NRC (here securityAccessDenied)
+    # so a sweep records them as "present but gated", not "absent".
+    _GATED: dict[int, int] = {0x0603: 0x33}
 
     # Addresses the simulated vehicle "answers" on (engine, instruments,
     # central electrics, gateway) — a believable mixed result for a module scan.
@@ -162,6 +172,53 @@ class MockUdsSimulator:
             if data is None:
                 out["did_responses"][key] = {"nrc": "31", "nrc_name": "requestOutOfRange"}
                 continue
+            entry: dict[str, Any] = {"hex": data.hex().upper()}
+            ascii_val = as_ascii(data)
+            if ascii_val is not None:
+                entry["ascii"] = ascii_val
+            out["did_responses"][key] = entry
+            if did in IDENTIFICATION_DIDS:
+                out["identification"][IDENTIFICATION_DIDS[did]] = entry
+            if did == VAG_CODING_DID:
+                out["coding"][key] = entry
+        return out
+
+    def sweep(self, tx: str, rx: str, dids: list[int]) -> dict[str, Any]:
+        """Simulate a deep DID sweep: positives + gated DIDs, 0x31 skipped.
+
+        Mirrors :meth:`ObdReader.sweep_module` so the offline flow matches the
+        real one — present DIDs return values, ``_GATED`` ones a non-0x31 NRC,
+        and unknown DIDs are simply absent from the result.
+        """
+        from datetime import UTC, datetime
+
+        from drivepulse_app.obd.uds import (
+            NRC_NAMES,
+            IDENTIFICATION_DIDS,
+            VAG_CODING_DID,
+            as_ascii,
+        )
+
+        self._counter = (self._counter + 1) & 0xFF
+        out: dict[str, Any] = {
+            "created_at": datetime.now(UTC).isoformat(),
+            "tx": tx.upper(), "rx": rx.upper(), "mock": True, "sweep": True,
+            "did_count": len(dids),
+            "identification": {}, "coding": {}, "did_responses": {},
+        }
+        for did in dids:
+            key = f"{did:04X}"
+            if did in self._GATED:
+                nrc = self._GATED[did]
+                out["did_responses"][key] = {
+                    "nrc": f"{nrc:02X}",
+                    "nrc_name": NRC_NAMES.get(nrc, "unknown"),
+                    "gated": True,
+                }
+                continue
+            data = self._did_bytes(did)
+            if data is None:
+                continue  # 0x31 requestOutOfRange → not stored (sweep noise)
             entry: dict[str, Any] = {"hex": data.hex().upper()}
             ascii_val = as_ascii(data)
             if ascii_val is not None:

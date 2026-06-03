@@ -608,6 +608,66 @@ class ObdReader(GObject.Object):
 
         return self.run_uds_session(tx, rx, work, protocol) or {}
 
+    def sweep_module(
+        self,
+        tx: str,
+        rx: str,
+        ranges: list[tuple[int, int]] | None = None,
+        protocol: str = "6",
+    ) -> dict[str, Any]:
+        """Deep read-only sweep of a module's DID space (discovery-shaped dict).
+
+        Reads every DID in *ranges* (default :data:`DISCOVERY_SWEEP_RANGES`) and
+        records: every positive value, plus negatives that are NOT
+        ``requestOutOfRange`` (0x31). A 0x31 means "no such DID" — pure noise
+        over a big sweep — while any other NRC (securityAccessDenied,
+        conditionsNotCorrect, session…) means the DID *exists* but isn't
+        readable right now, which is exactly what's worth knowing.
+        """
+        from drivepulse_app.obd.uds import (
+            DISCOVERY_SWEEP_RANGES,
+            IDENTIFICATION_DIDS,
+            VAG_CODING_DID,
+            as_ascii,
+            did_payload,
+            expand_ranges,
+        )
+
+        dids = expand_ranges(ranges or list(DISCOVERY_SWEEP_RANGES))
+
+        if self.mock:
+            return self._mock_uds.sweep(tx, rx, dids) if self.force_mock else {}
+
+        def work(client: Any) -> dict[str, Any]:
+            out: dict[str, Any] = {
+                "created_at": datetime.now(UTC).isoformat(),
+                "tx": tx.upper(), "rx": rx.upper(), "sweep": True,
+                "did_count": len(dids),
+                "identification": {}, "coding": {}, "did_responses": {},
+            }
+            for did, resp in client.scan_dids(dids):
+                key = f"{did:04X}"
+                payload = did_payload(resp, did)
+                if payload is not None:
+                    entry: dict[str, Any] = {"hex": payload.hex().upper()}
+                    ascii_val = as_ascii(payload)
+                    if ascii_val is not None:
+                        entry["ascii"] = ascii_val
+                    out["did_responses"][key] = entry
+                    if did in IDENTIFICATION_DIDS:
+                        out["identification"][IDENTIFICATION_DIDS[did]] = entry
+                    if did == VAG_CODING_DID:
+                        out["coding"][key] = entry
+                elif resp.negative is not None and resp.negative.nrc != 0x31:
+                    out["did_responses"][key] = {
+                        "nrc": f"{resp.negative.nrc:02X}",
+                        "nrc_name": resp.negative.name,
+                        "gated": True,
+                    }
+            return out
+
+        return self.run_uds_session(tx, rx, work, protocol) or {}
+
     def uds_snapshot(
         self, tx: str, rx: str, dids: list[int], protocol: str = "6"
     ) -> dict[int, str]:
