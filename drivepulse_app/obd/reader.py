@@ -240,6 +240,43 @@ class ObdReader(GObject.Object):
         with self._obd_lock:
             return raw_send(port, cmd)
 
+    def _resync_obd_locked(self) -> None:
+        """Drain the serial line and re-assert python-obd's connect-time format.
+
+        After a raw STPX batch a slow multi-frame response can keep arriving
+        over the Bluetooth pty bridge past raw_send's read window; python-obd
+        then reads those stale frames as answers to its own queries and returns
+        NO DATA for everything (observed on scan 208: full scan, 0 live values,
+        even PID 0100 null). Drain until the line is quiet, then restore the
+        exact init python-obd applies on connect — ATE0/ATH1/ATL0, see
+        python-obd elm327.py — so subsequent queries parse again.
+        """
+        port = _serial_port(self.connection)
+        if port is None:
+            return
+        with self._obd_lock:
+            try:
+                prev_timeout = getattr(port, "timeout", None)
+                try:
+                    port.timeout = 0.1
+                except Exception:
+                    pass
+                quiet = 0
+                deadline = time.monotonic() + 2.0
+                # Three consecutive empty reads (~0.3 s) = line idle; 2 s cap so
+                # a chatty adapter can never wedge the scan here.
+                while time.monotonic() < deadline and quiet < 3:
+                    chunk = port.read(getattr(port, "in_waiting", 0) or 1)
+                    quiet = 0 if chunk else quiet + 1
+                try:
+                    port.timeout = prev_timeout
+                except Exception:
+                    pass
+            except Exception:
+                log.debug("post-STPX drain failed", exc_info=True)
+            for cmd in ("ATE0", "ATH1", "ATL0"):
+                raw_send(port, cmd)
+
     def _probe_adapter(self) -> None:
         """Detect adapter type after a successful connection and cache the result."""
         if self.connection is None or self.mock:
@@ -655,6 +692,7 @@ class ObdReader(GObject.Object):
                     stop_event=self.stop_event,
                     obd_module=obd_backend,
                     raw_send_locked=self._send_raw_locked,
+                    resync_locked=self._resync_obd_locked,
                     adapter_info=adapter_info,
                 ).run()
             except Exception as exc:

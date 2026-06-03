@@ -216,3 +216,92 @@ def test_serial_port_finds_native_backend_port():
             self.interface = _NativeIface()
 
     assert _serial_port(_NativeOBD()) is not None
+
+
+# ---------------------------------------------------------------------------
+# ObdScanner._run_mode1_batch orchestration: the STPX→fallback hand-off.
+# Regression guard for scan 208 (STN2255 over BT pty): STPX came back empty,
+# the scan saved 0 live values. The batch step must (1) resync the adapter
+# after the raw STPX exchange and (2) when STPX yields nothing, return empty
+# so the caller does a *complete* single-query fallback instead of a partial
+# scan that drops every STPX-only PID.
+# ---------------------------------------------------------------------------
+
+class _Cmd:
+    """Minimal stand-in for a python-obd Mode-01 command."""
+    def __init__(self, pid: int, name: str):
+        self.pid = pid
+        self.mode = 1
+        self._name = name
+
+    def __str__(self):
+        return self._name
+
+
+class _Resp:
+    def __init__(self, null: bool, value=None):
+        self._null = null
+        self.value = value
+
+    def is_null(self):
+        return self._null
+
+
+def _make_scanner(raw_send, resync, query_locked):
+    from types import SimpleNamespace
+
+    from drivepulse_app.obd.scanner import ObdScanner
+
+    return ObdScanner(
+        connection=SimpleNamespace(supported_commands=set()),
+        port="bt:test",
+        on_update=lambda payload: None,
+        session_cache=set(),
+        query_locked=query_locked,
+        raw_send_locked=raw_send,
+        resync_locked=resync,
+    )
+
+
+def test_scanner_batch_returns_empty_and_resyncs_when_stpx_silent():
+    calls = {"resync": 0, "queries": []}
+    scanner = _make_scanner(
+        raw_send=lambda _cmd: "",                       # STPX silent over BT pty
+        resync=lambda: calls.__setitem__("resync", calls["resync"] + 1),
+        query_locked=lambda cmd: calls["queries"].append(str(cmd)) or _Resp(False, "x"),
+    )
+    cmds = [_Cmd(0x0C, "RPM"), _Cmd(0x05, "COOLANT_TEMP")]  # both decode-table PIDs
+
+    out = scanner._run_mode1_batch(cmds, total_steps=10)
+
+    assert out == {}                 # → run() falls back over the FULL PID set
+    assert calls["resync"] == 1      # adapter resynced before returning
+    assert calls["queries"] == []    # no partial python-obd query slipped through
+
+
+def test_scanner_batch_keeps_stpx_values_and_single_queries_nondecode_pids():
+    calls = {"resync": 0, "queries": []}
+    scanner = _make_scanner(
+        raw_send=lambda _cmd: "7E8 04 41 0C 1A F8",     # STPX decodes RPM
+        resync=lambda: calls.__setitem__("resync", calls["resync"] + 1),
+        query_locked=lambda cmd: calls["queries"].append(str(cmd)) or _Resp(False, "present"),
+    )
+    # 0x0C is in the decode table (STPX), 0x00 is not (single-query fallback).
+    cmds = [_Cmd(0x0C, "RPM"), _Cmd(0x00, "PIDS_A")]
+
+    out = scanner._run_mode1_batch(cmds, total_steps=10)
+
+    assert "RPM" in out                     # STPX value preserved
+    assert calls["resync"] == 1             # resynced before the fallback queries
+    assert calls["queries"] == ["PIDS_A"]   # only the non-decode PID single-queried
+    assert out["PIDS_A"] == "present"       # _to_plain str-fallback for plain value
+
+
+def test_scanner_resync_is_noop_without_callable():
+    # Older callers may not inject resync_locked; the batch must not crash.
+    scanner = _make_scanner(
+        raw_send=lambda _cmd: "",
+        resync=None,
+        query_locked=lambda cmd: _Resp(True),
+    )
+    assert scanner._run_mode1_batch([_Cmd(0x0C, "RPM")], total_steps=10) == {}

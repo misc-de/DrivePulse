@@ -48,6 +48,7 @@ class ObdScanner:
         stop_event: threading.Event | None = None,
         obd_module: Any = None,
         raw_send_locked: Callable[[str], str] | None = None,
+        resync_locked: Callable[[], None] | None = None,
         adapter_info: AdapterInfo | None = None,
     ) -> None:
         self.connection = connection
@@ -60,6 +61,7 @@ class ObdScanner:
         # the reader thread can safely interleave its own queries via a shared lock.
         self._query_locked = query_locked or connection.query
         self._raw_send_locked = raw_send_locked
+        self._resync_locked = resync_locked
         self._adapter_info = adapter_info
         # Adapter-specific yield overrides the caller's default when known.
         if adapter_info is not None:
@@ -244,20 +246,46 @@ class ObdScanner:
             else:
                 fallback_cmds.append(cmd)
 
-        live_data: dict[str, Any] = {}
-
         # Batch path
+        stpx_results: dict[str, Any] = {}
         if batch_pids and self._raw_send_locked is not None:
-            live_data.update(batch_query_stpx(self._raw_send_locked, batch_pids))
+            stpx_results = batch_query_stpx(self._raw_send_locked, batch_pids)
 
+        # The raw STPX exchange can leave a slow multi-frame response in flight
+        # on the Bluetooth pty bridge (raw_send's read window expires first) and
+        # python-obd's own flushInput is unreliable over a pty — so the queries
+        # that follow read stale frames and return NO DATA for everything.
+        # Drain the line and restore python-obd's init before any single query.
+        self._resync()
+
+        # STPX produced nothing → not honoured on this link. Return empty so the
+        # caller runs a *complete* single-query fallback; returning only the
+        # partial non-decode PIDs would make run() treat the scan as done and
+        # silently drop every STPX-only PID (RPM, coolant, speed, …).
+        if not stpx_results:
+            return {}
+
+        live_data: dict[str, Any] = dict(stpx_results)
         self._emit("scanning", 0.7, "STPX batch done")
 
         # Single-query fallback for PIDs not in the decode table
         if fallback_cmds:
-            done_fb = 0
-            self._run_mode1_single(fallback_cmds, live_data, max(1, len(fallback_cmds)), done_fb)
+            self._run_mode1_single(fallback_cmds, live_data, max(1, len(fallback_cmds)), 0)
 
         return live_data
+
+    def _resync(self) -> None:
+        """Restore a clean, python-obd-compatible channel after a raw STPX batch.
+
+        Delegates to the reader's locked resync (drain the serial line until
+        quiet, then re-assert ATE0/ATH1/ATL0). No-op when not provided.
+        """
+        if self._resync_locked is None:
+            return
+        try:
+            self._resync_locked()
+        except Exception:
+            log.debug("post-STPX resync failed", exc_info=True)
 
     def _emit_identity(self, vin: str | None, identity: str,
                        cal_id: Any = None, cvn: Any = None, protocol: Any = None) -> None:
