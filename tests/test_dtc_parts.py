@@ -67,3 +67,30 @@ def test_dtc_parts_code_colon_with_extra_colons_in_description():
     code, desc = _dtc_parts("P0420: Mode: ratio out of range")
     assert code == "P0420"
     assert desc == "Mode: ratio out of range"
+
+
+# ── Health-snapshot formatting helpers (scan detail view) ──────────────────
+
+from drivepulse_app.cars.scan_widgets import (  # noqa: E402
+    _fmt_num,
+    _pretty_monitor,
+    _readiness_label,
+)
+
+
+def test_fmt_num_drops_trailing_zero_float():
+    assert _fmt_num(2225.0) == "2225"
+    assert _fmt_num(16.078) == "16.078"
+    assert _fmt_num(None) == "—"
+    assert _fmt_num("11.9V") == "11.9V"
+
+
+def test_pretty_monitor_strips_prefix():
+    assert _pretty_monitor("MONITOR_CATALYST_B1") == "Catalyst B1"
+    assert _pretty_monitor("MONITOR_MISFIRE_CYLINDER_3") == "Misfire Cylinder 3"
+
+
+def test_readiness_label_strips_monitoring_suffix():
+    assert _readiness_label("MISFIRE_MONITORING") == "Misfire"
+    assert _readiness_label("EVAPORATIVE_SYSTEM_MONITORING") == "Evaporative"
+    assert _readiness_label("OXYGEN_SENSOR_HEATER_MONITORING") == "Oxygen Sensor Heater"
