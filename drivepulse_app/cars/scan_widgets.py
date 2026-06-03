@@ -78,6 +78,33 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
+def _fmt_num(v: Any) -> str:
+    """Compact number: drop a trailing .0, leave everything else as-is."""
+    if v is None:
+        return "—"
+    if isinstance(v, float):
+        return str(int(v)) if v.is_integer() else f"{v:g}"
+    return str(v)
+
+
+def _pretty_monitor(name: str) -> str:
+    """'MONITOR_CATALYST_B1' → 'Catalyst B1'."""
+    s = str(name)
+    if s.startswith("MONITOR_"):
+        s = s[len("MONITOR_"):]
+    return s.replace("_", " ").title()
+
+
+def _readiness_label(name: str) -> str:
+    """'OXYGEN_SENSOR_HEATER_MONITORING' → 'Oxygen Sensor Heater'."""
+    s = str(name)
+    for suffix in ("_SYSTEM_MONITORING", "_MONITORING"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    return s.replace("_", " ").title()
+
+
 def _format_scan_date(raw: Any) -> str:
     if not raw:
         return "—"
@@ -220,6 +247,125 @@ def _build_scan_detail_widget(
                 r.set_subtitle(GLib.markup_escape_text(dtc_desc))
             p_lb.append(r)
         outer.append(p_lb)
+
+    # Permanent DTCs (Mode 0A) — persist until the fault self-heals; cannot be
+    # cleared with Mode 04, so they're the strongest "real history" signal.
+    permanent_dtcs = data.get("permanent_dtcs") or []
+    if permanent_dtcs:
+        pm_title = Gtk.Label(label=_translate(language, "cars.scan.permanent_dtcs"), xalign=0.0)
+        pm_title.add_css_class("heading")
+        outer.append(pm_title)
+        pm_lb = Gtk.ListBox()
+        pm_lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        pm_lb.add_css_class("boxed-list")
+        pm_lb.set_valign(Gtk.Align.START)
+        for code in permanent_dtcs:
+            dtc_code, dtc_desc = _dtc_parts(code)
+            r = Adw.ActionRow()
+            r.set_title(GLib.markup_escape_text(dtc_code))
+            if dtc_desc:
+                r.set_subtitle(GLib.markup_escape_text(dtc_desc))
+            r.add_css_class("error")
+            pm_lb.append(r)
+        outer.append(pm_lb)
+
+    # Readiness monitors (Mode 01 STATUS): MIL state + per-monitor ready/not.
+    readiness = data.get("readiness") or {}
+    if readiness:
+        rd_title = Gtk.Label(label=_translate(language, "cars.scan.readiness"), xalign=0.0)
+        rd_title.add_css_class("heading")
+        outer.append(rd_title)
+        rd_lb = Gtk.ListBox()
+        rd_lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        rd_lb.add_css_class("boxed-list")
+        rd_lb.set_valign(Gtk.Align.START)
+        mil_on = bool(readiness.get("MIL"))
+        mil_row = Adw.ActionRow()
+        mil_row.set_title(GLib.markup_escape_text(_translate(language, "cars.scan.mil")))
+        mil_lbl = Gtk.Label(
+            label=_translate(language, "cars.scan.mil_on" if mil_on else "cars.scan.mil_off")
+        )
+        mil_lbl.add_css_class("error" if mil_on else "success")
+        mil_lbl.set_halign(Gtk.Align.END)
+        mil_lbl.set_valign(Gtk.Align.CENTER)
+        mil_row.add_suffix(mil_lbl)
+        rd_lb.append(mil_row)
+        for mname, mval in sorted((readiness.get("monitors") or {}).items()):
+            complete = bool((mval or {}).get("complete"))
+            r = Adw.ActionRow()
+            r.set_title(GLib.markup_escape_text(_readiness_label(mname)))
+            key = "cars.scan.readiness_ready" if complete else "cars.scan.readiness_not_ready"
+            mark = ("✓ " if complete else "✗ ") + _translate(language, key)
+            lbl = Gtk.Label(label=mark)
+            lbl.add_css_class("success" if complete else "warning")
+            lbl.set_halign(Gtk.Align.END)
+            lbl.set_valign(Gtk.Align.CENTER)
+            r.add_suffix(lbl)
+            rd_lb.append(r)
+        outer.append(rd_lb)
+
+    # On-board monitor tests (Mode 06) — collapsible per monitor.
+    monitors = data.get("monitors") or {}
+    if monitors:
+        mo_title = Gtk.Label(label=_translate(language, "cars.scan.monitors"), xalign=0.0)
+        mo_title.add_css_class("heading")
+        outer.append(mo_title)
+        mo_lb = Gtk.ListBox()
+        mo_lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        mo_lb.add_css_class("boxed-list")
+        mo_lb.set_valign(Gtk.Align.START)
+        for mon_name, tests in sorted(monitors.items()):
+            tests = tests or []
+            exp = Adw.ExpanderRow()
+            exp.set_title(GLib.markup_escape_text(_pretty_monitor(mon_name)))
+            all_passed = bool(tests) and all(bool(t.get("passed")) for t in tests)
+            badge = Gtk.Label(label="✓" if all_passed else "•")
+            badge.add_css_class("success" if all_passed else "dim-label")
+            badge.set_valign(Gtk.Align.CENTER)
+            exp.add_suffix(badge)
+            for t in tests:
+                cr = Adw.ActionRow()
+                tid = t.get("tid")
+                tname = t.get("name")
+                if (not tname or tname == "Unknown") and isinstance(tid, int):
+                    tname = f"TID 0x{tid:02X}"
+                cr.set_title(GLib.markup_escape_text(str(tname or "Test")))
+                unit = t.get("unit") or ""
+                lo, hi = t.get("min"), t.get("max")
+                if lo is not None or hi is not None:
+                    cr.set_subtitle(
+                        GLib.markup_escape_text(f"{_fmt_num(lo)}–{_fmt_num(hi)} {unit}".strip())
+                    )
+                lbl = Gtk.Label(label=f"{_fmt_num(t.get('value'))} {unit}".strip())
+                lbl.add_css_class("monospace")
+                lbl.set_halign(Gtk.Align.END)
+                lbl.set_valign(Gtk.Align.CENTER)
+                cr.add_suffix(lbl)
+                exp.add_row(cr)
+            mo_lb.append(exp)
+        outer.append(mo_lb)
+
+    # IUMPR (Mode 09 PID 08) drive-cycle / monitor completion counters per ECU.
+    iumpr = data.get("iumpr") or {}
+    if iumpr:
+        iu_title = Gtk.Label(label=_translate(language, "cars.scan.iumpr"), xalign=0.0)
+        iu_title.add_css_class("heading")
+        outer.append(iu_title)
+        iu_lb = Gtk.ListBox()
+        iu_lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        iu_lb.add_css_class("boxed-list")
+        iu_lb.set_valign(Gtk.Align.START)
+        for _ecu, payload in sorted(iumpr.items()):
+            for name, num in (payload or {}).get("values", {}).items():
+                r = Adw.ActionRow()
+                r.set_title(GLib.markup_escape_text(str(name)))
+                lbl = Gtk.Label(label=str(num))
+                lbl.add_css_class("monospace")
+                lbl.set_halign(Gtk.Align.END)
+                lbl.set_valign(Gtk.Align.CENTER)
+                r.add_suffix(lbl)
+                iu_lb.append(r)
+        outer.append(iu_lb)
 
     live = data.get("live_data") or {}
     if live:
