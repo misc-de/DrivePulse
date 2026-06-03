@@ -1,8 +1,19 @@
-"""Map tour/navigation mixin — state machine, TTS, step detection."""
+"""Map tour/navigation mixin — state machine, maneuver overlay, lane guidance.
+
+The tour feature is split across four cooperating mixins, all composed into
+``MapPage`` so calls resolve via ``self``:
+
+* :class:`MapTourMixin` (here)      — lifecycle (start/pause/resume/abort),
+  progress tracking and the turn-by-turn maneuver overlay + lane guidance.
+* :class:`~drivepulse_app.map.tour_tts.MapTourTtsMixin`        — voice guidance.
+* :class:`~drivepulse_app.map.tour_speed.MapTourSpeedMixin`    — speed-limit
+  zones and the over-speed warning.
+* :class:`~drivepulse_app.map.tour_reroute.MapTourRerouteMixin`— auto-reroute
+  and intermediate-waypoint tracking.
+"""
 from __future__ import annotations
 
 import threading
-import time
 from collections.abc import Callable
 from typing import Any, ClassVar
 
@@ -14,18 +25,12 @@ from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map._jsbridge import js_call
 from drivepulse_app.map._tour_progress import (
     build_maneuver_positions,
-    build_speed_zones,
     compute_route_progress_tables,
     maneuver_passed,
     nearest_route_progress,
     next_actionable_step_idx,
-    off_route_decision,
-    tts_distance_text,
-    waypoint_is_passed,
 )
 from drivepulse_app.map.services import (
-    compute_route,
-    fetch_overpass_speed_zones,
     format_distance,
     haversine,
     maneuver_icon,
@@ -33,17 +38,15 @@ from drivepulse_app.map.services import (
     osrm_route,
 )
 from drivepulse_app.tts import service as tts_service
-from drivepulse_app.tts.service import VoiceGender
 
 log = get_logger(__name__)
 
 
 class MapTourMixin:
-    """Tour/navigation state machine, TTS and step detection."""
+    """Tour lifecycle, route-progress tracking and the maneuver overlay."""
 
     # Concrete MapPage initializes these as Optional[(float, float)].
     _start_coord: tuple[float, float] | None
-    _end_coord: tuple[float, float] | None
     # Trip-trace render args buffered until the user confirms (or None when idle).
     _pending_trip_trace_args: (
         tuple[list[list[float]], str | None, float | None, float | None, list[float] | None] | None
@@ -55,10 +58,9 @@ class MapTourMixin:
     _backend: str
     _gps_lat: float | None
     _gps_lon: float | None
-    _gps_heading: float
-    _gps_speed_mps: float
-    _GPS_MAX_STALE_S: float
-    _OBD_SPEED_STALE_S: float
+    _tour_coords: list[list[float]]
+    _tour_steps: list[dict]
+    _tour_waypoints: list[tuple[float, float]]
     _shumate_map: Any
     _maneuver_overlay: Any
     _maneuver_icon: Any
@@ -66,25 +68,15 @@ class MapTourMixin:
     _maneuver_distance_lbl: Any
     _lane_row: Any
     _speed_zone_overlay: Any
-    _speed_zone_lbl: Any
-    _status_lbl: Any
     _tour_start_btn: Any
     _tour_start_lbl: Any
     _tour_btn_icon: Any
     _tour_controls_box: Any
     _steps_panel: Any
     _steps_toggle_btn: Any
-    _steps_listbox: Any
     _zoom_in_btn: Any
     _zoom_out_btn: Any
-    _wp_layer: Any
-    _path_layer: Any
     _guide_path_layer: Any
-    _tts_enabled: bool
-    _tts_language: str
-    _tts_voice: VoiceGender
-    _tts_quality: str
-    _tts_spoken_thresholds: set[int]
 
     _on_tour_started: Callable[..., Any] | None
     _on_tour_stopped: Callable[..., Any] | None
@@ -94,15 +86,19 @@ class MapTourMixin:
     _set_follow: Callable[[bool], bool]
     _set_steps_panel_visible: Callable[[bool], None]
     _set_route_loading: Callable[..., Any]
-    _show_route_info: Callable[..., Any]
     _highlight_active_step: Callable[..., Any]
-    _rebuild_steps_list: Callable[..., Any]
     _fetch_trip_trace: Callable[..., Any]
-    _make_wp_marker: Callable[..., Any]
     _shumate_max_zoom: Callable[..., Any]
-    _shumate_set_path: Callable[..., Any]
     _shumate_set_guide: Callable[..., Any]
     _viewport_lock: Callable[..., Any]
+
+    # Methods defined in the sibling tour mixins, called here via ``self``.
+    _build_speed_zones: Callable[[], list[tuple[float, float]]]
+    _start_overpass_speed_fetch: Callable[[], None]
+    _update_speed_zone_overlay: Callable[[], None]
+    _prerender_upcoming_steps: Callable[..., None]
+    _update_tts: Callable[..., None]
+    _set_next_wp_btn_visible: Callable[[bool], None]
 
     # Comfortable street-level zoom for tour following; max zoom (22) was
     # too close to be useful for navigation.
@@ -130,18 +126,9 @@ class MapTourMixin:
         "new name", "notification", "continue",
     })
 
-    _TTS_THRESHOLDS = (300, 80)
-
-    # Off-route detection: reroute automatically when the perpendicular distance
-    # from the GPS to the snapped route position exceeds this threshold for a
-    # sustained period. Speed gate prevents rerouting while nearly stationary
-    # (GPS drift, waiting at traffic lights).
-    _OFF_ROUTE_M = 30.0          # metres off-route to start the timer
-    _OFF_ROUTE_CONFIRM_S = 4.0   # seconds off-route before rerouting fires
-    _REROUTE_COOLDOWN_S = 30.0   # minimum gap between successive auto-reroutes
-    _REROUTE_MIN_SPEED_KMH = 10.0  # don't reroute below this speed
-    _BYPASS_MAX_DIST_M = 250.0   # only drop a behind-heading WP when within this radius
-
+    # Shared progress/reroute counters; the sibling speed/reroute mixins read
+    # these, but the initial values live here next to the lifecycle that resets
+    # them in _begin_tour / _abort_tour.
     _off_route_since: float = 0.0
     _last_reroute_time: float = 0.0
     _route_gen: int = 0
@@ -278,7 +265,7 @@ class MapTourMixin:
         self._wp_in_radius = False
         self._set_next_wp_btn_visible(False)
         self._tts_last_step_idx = -1
-        self._tts_spoken_thresholds = set()
+        self._tts_spoken_thresholds: set[int] = set()
         self._tts_prerender_step_idx = -1
         self._speed_zones = []
         self._lane_step_idx = -1
@@ -408,49 +395,6 @@ class MapTourMixin:
             self._tour_coords, self._tour_steps
         )
 
-    def _build_speed_zones(self) -> list[tuple[float, float]]:
-        """Build (cum_dist_m, speed_kmh) breakpoints.
-
-        Prefers Valhalla's real ``speed_limit`` values.  Falls back to the
-        ref-tag heuristic (A* → 120, B* → 70, urban → 40) so the sign is
-        always shown during mock-mode tours where Valhalla data may be absent.
-        """
-        return build_speed_zones(self._tour_steps, self._step_cum_m)
-
-    def _start_overpass_speed_fetch(self) -> None:
-        """Kick off a background thread that pre-fetches per-segment speed limits."""
-        coords = list(self._tour_coords) if self._tour_coords else []
-        if not coords:
-            return
-        gen = self._route_gen
-        t = threading.Thread(
-            target=self._overpass_speed_bg,
-            args=(coords, gen),
-            daemon=True,
-        )
-        t.start()
-
-    def _overpass_speed_bg(
-        self, coords: list[list[float]], gen: int
-    ) -> None:
-        try:
-            zones = fetch_overpass_speed_zones(coords)
-        except Exception:
-            log.exception("Overpass speed fetch failed")
-            zones = []
-        GLib.idle_add(self._apply_overpass_speed_zones, zones, gen)
-
-    def _apply_overpass_speed_zones(
-        self, zones: list[tuple[float, float]], gen: int
-    ) -> bool:
-        if gen != self._route_gen or not self._tour_active:
-            return False
-        if zones:
-            self._speed_zones = zones
-            self._speed_zones_from_overpass = True
-            log.debug("Overpass speed zones: %d breakpoints loaded", len(zones))
-        return False
-
     def _build_maneuver_positions(self) -> list[float]:
         """Return cumulative distances (m) for each actionable turn maneuver."""
         skip = self._NON_ACTIONABLE_STEP_TYPES | {"depart", "arrive"}
@@ -576,150 +520,6 @@ class MapTourMixin:
         self._update_speed_zone_overlay()
         self._update_lane_guidance(step)
 
-    def _update_tts(self, step: dict, distance_m: float) -> None:
-        if not self._tts_enabled:
-            return
-        current_idx = self._tour_step_idx
-        if current_idx != self._tts_last_step_idx:
-            self._tts_last_step_idx = current_idx
-            self._tts_spoken_thresholds = set()
-            # Don't announce immediately — the threshold loop below will fire on
-            # the very next tick (or this one) at the appropriate distance.
-
-        # Look-ahead: fire threshold early enough to compensate for TTS latency.
-        # At 50 km/h and 1s latency the car travels ~14m — audible instructions
-        # would otherwise describe a maneuver the driver has already reached.
-        look_ahead_m = self._gps_speed_mps * tts_service.get_latency_s()
-        trigger_dist = distance_m + look_ahead_m
-
-        for threshold in self._TTS_THRESHOLDS:
-            if threshold in self._tts_spoken_thresholds:
-                continue
-            if trigger_dist <= threshold:
-                self._tts_announce(step, distance_m)
-                self._tts_spoken_thresholds.add(threshold)
-                break
-
-    def _tts_effective_language(self) -> str:
-        if self._tts_language != "auto":
-            return self._tts_language
-        return self.language if self.language in {"en", "de"} else "en"
-
-    def _tts_distance_text(self, meters: float, lang: str) -> str:
-        return tts_distance_text(meters, lang)
-
-    def _update_speed_zone_overlay(self) -> None:
-        if self._speed_zone_overlay is None or self._speed_zone_lbl is None:
-            return
-        if not self._speed_zones:
-            self._speed_zone_overlay.set_visible(False)
-            return
-        progress_m = self._gps_progress_m()
-        speed: float | None = None
-        for cum_m, spd in self._speed_zones:
-            if cum_m <= progress_m:
-                speed = spd
-            else:
-                break
-        if speed is None:
-            self._speed_zone_overlay.set_visible(False)
-            return
-        self._speed_zone_lbl.set_text(str(int(speed)))
-        self._speed_zone_overlay.set_visible(True)
-
-        # Speed-limit warning beep — only with Overpass data, only once per step.
-        if (
-            getattr(self, "_speed_warn_enabled", True)
-            and getattr(self, "_speed_zones_from_overpass", False)
-            and not getattr(self, "_speed_warn_fired", False)
-            and self._tour_active
-        ):
-            import time as _time
-            _now = _time.monotonic()
-            _gps_age = _now - getattr(self, "_gps_filt_time", 0.0)
-            if _gps_age < self._GPS_MAX_STALE_S:
-                vehicle_kmh = getattr(self, "_gps_filt_speed_kmh", 0.0) or 0.0
-            else:
-                _obd_age = _now - getattr(self, "_obd_speed_time", 0.0)
-                vehicle_kmh = (
-                    getattr(self, "_obd_speed_kmh", None) or 0.0
-                    if _obd_age < self._OBD_SPEED_STALE_S
-                    else 0.0
-                )
-            if vehicle_kmh >= speed * 1.30:
-                self._speed_warn_fired = True
-                self._play_speed_beep(long_double=True)
-            elif vehicle_kmh >= speed * 1.15:
-                self._speed_warn_fired = True
-                self._play_speed_beep(long_double=False)
-
-    def _play_speed_beep(self, long_double: bool) -> None:
-        import io
-        import math
-        import struct
-        import subprocess
-        import wave
-
-        def _do() -> None:
-            rate = 22050
-            freq = 880.0
-            volume = 0.65
-            # short: 160 ms single tone  |  long-double: 280 ms + 120 ms gap + 280 ms
-            segments = (
-                [(280, True), (120, False), (280, True)] if long_double else [(160, True)]
-            )
-            frames: list[bytes] = []
-            for ms, on in segments:
-                n = int(rate * ms / 1000)
-                for i in range(n):
-                    v = int(32767 * volume * math.sin(2 * math.pi * freq * i / rate)) if on else 0
-                    frames.append(struct.pack("<h", v))
-            buf = io.BytesIO()
-            with wave.open(buf, "wb") as w:
-                w.setnchannels(1)
-                w.setsampwidth(2)
-                w.setframerate(rate)
-                w.writeframes(b"".join(frames))
-            try:
-                proc = subprocess.Popen(
-                    ["aplay", "-q"],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                proc.communicate(input=buf.getvalue(), timeout=3)
-            except (OSError, subprocess.SubprocessError):
-                log.debug("aplay maneuver beep failed", exc_info=True)
-
-        threading.Thread(target=_do, daemon=True).start()
-
-    def _prerender_upcoming_steps(self, from_idx: int, count: int = 5) -> None:
-        """Pre-render TTS audio for the next *count* steps starting at *from_idx*.
-
-        Uses threshold distances (300 m, 80 m) to approximate the spoken text.
-        At typical speeds the 80 m threshold collapses to maneuver-text-only
-        (heard_dist < 60 m), so that variant always matches exactly.
-        """
-        if not self._tts_enabled:
-            return
-        lang = self._tts_effective_language()
-        gender = self._tts_voice
-        for i in range(from_idx, min(from_idx + count, len(self._tour_steps))):
-            step = self._tour_steps[i]
-            if step.get("type") in {"depart", "arrive"}:
-                continue
-            maneuver_text = _translate(
-                lang, maneuver_text_key(step.get("type", ""), step.get("modifier", ""))
-            )
-            for threshold_m in self._TTS_THRESHOLDS:
-                heard_dist = float(threshold_m)
-                if heard_dist > 60:
-                    dist_text = self._tts_distance_text(heard_dist, lang)
-                    text = _translate(lang, "tts.in_distance").format(distance=dist_text) + " " + maneuver_text
-                else:
-                    text = maneuver_text
-                tts_service.prerender(text, lang, gender, quality=self._tts_quality)
-
     # Valhalla lane indication → matching nav icon
     _LANE_ICON: ClassVar[dict[str, str]] = {
         "left":         "dp-nav-left-symbolic",
@@ -772,235 +572,3 @@ class MapTourMixin:
             self._lane_row.append(box)
 
         self._lane_row.set_visible(True)
-
-    # ── Auto-rerouting ────────────────────────────────────────────────────────
-
-    def _check_off_route(self, off_dist_m: float, now: float) -> None:
-        """Called each GPS tick with the perpendicular distance to the route."""
-        speed_kmh = self._gps_speed_mps * 3.6
-        self._off_route_since, should_reroute = off_route_decision(
-            off_dist_m, speed_kmh, self._off_route_since, now, self._last_reroute_time,
-            off_route_m=self._OFF_ROUTE_M,
-            min_speed_kmh=self._REROUTE_MIN_SPEED_KMH,
-            confirm_s=self._OFF_ROUTE_CONFIRM_S,
-            cooldown_s=self._REROUTE_COOLDOWN_S,
-        )
-        if should_reroute:
-            self._trigger_reroute()
-
-    def _trigger_reroute(self) -> None:
-        if self._gps_lat is None or self._gps_lon is None:
-            return
-        # Use the tracked remaining waypoints so already-visited intermediates
-        # are not included in the recalculated route.
-        remaining = list(getattr(self, "_remaining_dest_wps", None) or [])
-        if not remaining:
-            wps = getattr(self, "_tour_waypoints", None) or []
-            remaining = list(wps[1:])
-        if not remaining:
-            return
-
-        # Only drop an intermediate waypoint when the driver has clearly
-        # *passed* it: WP must be both behind (bearing > 110° off heading) AND
-        # geographically close (≤ _BYPASS_MAX_DIST_M). A far-ahead WP that is
-        # momentarily off-heading (e.g. mid-turn or on a parallel street) must
-        # stay in the route so the rerouter brings us back to it instead of
-        # cutting straight to the final destination. The final destination
-        # (last entry) is never skipped.
-        if getattr(self, "_gps_heading_valid", False) and len(remaining) > 1:
-            while len(remaining) > 1:
-                wp = remaining[0]
-                passed, wp_dist, brng = waypoint_is_passed(
-                    self._gps_lat, self._gps_lon, self._gps_heading,
-                    wp[0], wp[1], self._BYPASS_MAX_DIST_M,
-                )
-                if not passed:
-                    break
-                log.info(
-                    "Reroute: skipping passed waypoint (%.5f, %.5f) "
-                    "— dist=%.0fm, heading=%.0f°, wp_bearing=%.0f°",
-                    wp[0], wp[1], wp_dist, self._gps_heading, brng,
-                )
-                remaining.pop(0)
-                self._remaining_dest_wps = list(remaining)
-
-        new_points = [(self._gps_lat, self._gps_lon), *remaining]
-        self._last_reroute_time = time.monotonic()
-        self._off_route_since = 0.0
-        log.info("Off-route: recalculating route from current GPS position")
-        threading.Thread(
-            target=self._fetch_reroute_bg,
-            args=(new_points,),
-            daemon=True,
-        ).start()
-
-    def _fetch_reroute_bg(self, all_points: list[tuple[float, float]]) -> None:
-        try:
-            result = compute_route(all_points)
-        except Exception:
-            log.exception("Auto-reroute fetch failed")
-            result = None
-        GLib.idle_add(self._apply_rerouted_route, all_points, result)
-
-    def _apply_rerouted_route(
-        self,
-        all_points: list[tuple[float, float]],
-        result: tuple[list[list[float]], float, float, list[dict]] | None,
-    ) -> bool:
-        if result is None or not self._tour_active:
-            return False
-        coords, duration_s, distance_m, steps = result
-        if not steps or not coords:
-            return False
-
-        self._tour_steps = steps
-        self._tour_step_idx = 0
-        self._step_min_dist = None
-        self._tour_coords = list(coords)
-        self._gps_route_idx = 0
-        self._snapped_lat = None
-        self._snapped_lon = None
-        self._snapped_cum_m = 0.0
-        self._compute_route_progress_tables()
-        self._start_coord = all_points[0]
-        self._end_coord = all_points[-1]
-        self._tour_waypoints = list(all_points)
-        self._route_coords = coords
-        self._tts_last_step_idx = -1
-        self._tts_spoken_thresholds = set()
-        self._tts_prerender_step_idx = -1
-        self._lane_step_idx = -1
-        self._speed_zones = self._build_speed_zones()
-        self._speed_zones_from_overpass = False
-        self._speed_warn_fired = False
-        self._route_gen += 1
-        self._start_overpass_speed_fetch()
-        self._prerender_upcoming_steps(0, 5)
-        self._skip_non_actionable_steps()
-        self._update_maneuver_overlay()
-        self._highlight_active_step()
-
-        if self._status_lbl is not None:
-            self._status_lbl.set_text("")
-        self._show_route_info(duration_s, distance_m)
-
-        if self._backend == "webkit":
-            self._js(js_call("mapSetRoute", coords))
-            self._js(js_call("mapSetWaypoints", [[p[0], p[1]] for p in all_points]))
-        elif self._shumate_map is not None:
-            self._shumate_set_path(self._path_layer, coords)
-            if self._wp_layer is not None:
-                self._wp_layer.remove_all()
-                for i, pt in enumerate(all_points):
-                    role = "start" if i == 0 else ("end" if i == len(all_points) - 1 else "via")
-                    self._wp_layer.add_marker(self._make_wp_marker(pt[0], pt[1], role))
-
-        if (
-            self._steps_toggle_btn is not None
-            and self._steps_toggle_btn.get_active()
-            and self._steps_listbox is not None
-        ):
-            self._rebuild_steps_list()
-            if self._steps_panel is not None:
-                self._set_steps_panel_visible(bool(self._tour_steps))
-
-        if self._on_tour_resumed is not None:
-            self._on_tour_resumed()
-
-        log.info("Route recalculated: %.1f km, %d steps", distance_m / 1000, len(steps))
-        return False
-
-    # ── Intermediate waypoint tracking ───────────────────────────────────────
-
-    def _check_waypoint_proximity(self) -> None:
-        """Called every GPS tick — shows/hides the 'Next waypoint' button and
-        automatically marks a waypoint as reached when the driver departs the
-        200 m approach radius after having entered it."""
-        if not self._tour_active:
-            return
-        remaining = getattr(self, "_remaining_dest_wps", [])
-        # len >= 2 means there is at least one intermediate waypoint before the
-        # final destination.  len == 1 means we're heading straight to the end.
-        if len(remaining) < 2:
-            self._set_next_wp_btn_visible(False)
-            return
-        next_wp = remaining[0]
-        pos_lat = self._snapped_lat if self._snapped_lat is not None else self._gps_lat
-        pos_lon = self._snapped_lon if self._snapped_lon is not None else self._gps_lon
-        if pos_lat is None or pos_lon is None:
-            return
-        dist = haversine(pos_lat, pos_lon, next_wp[0], next_wp[1])
-        if dist <= 200.0:
-            self._wp_in_radius = True
-            self._set_next_wp_btn_visible(True)
-        elif self._wp_in_radius:
-            # Driver has left the 200 m radius → waypoint considered reached.
-            self._wp_in_radius = False
-            self._set_next_wp_btn_visible(False)
-            self._on_waypoint_reached()
-
-    def _on_waypoint_reached(self) -> None:
-        """Mark the current intermediate waypoint as done, advance the list, and
-        immediately recalculate the route so old segments are removed from the
-        display and the navigation points reflect only the remaining legs."""
-        remaining = getattr(self, "_remaining_dest_wps", [])
-        if len(remaining) < 2:
-            return
-        wp = remaining[0]
-        log.info("Intermediate waypoint reached: (%.5f, %.5f)", wp[0], wp[1])
-        self._remaining_dest_wps = remaining[1:]
-        log.info(
-            "Remaining destination waypoints: %d", len(self._remaining_dest_wps)
-        )
-        # Trigger an immediate route recalculation from current GPS to the
-        # remaining waypoints.  This removes old route segments (the part
-        # leading to the now-completed intermediate goal) from both the map
-        # and the turn-by-turn step list.
-        if (
-            self._tour_active
-            and self._gps_lat is not None
-            and self._gps_lon is not None
-            and self._remaining_dest_wps
-        ):
-            new_points = [(self._gps_lat, self._gps_lon), *self._remaining_dest_wps]
-            self._last_reroute_time = time.monotonic()
-            self._off_route_since = 0.0
-            log.info("Recalculating route after waypoint reached")
-            threading.Thread(
-                target=self._fetch_reroute_bg,
-                args=(new_points,),
-                daemon=True,
-            ).start()
-
-    def _on_next_wp_clicked(self, _btn: object) -> None:
-        """User taps 'Next waypoint' to manually advance past the current
-        intermediate waypoint; the route is recalculated inside
-        _on_waypoint_reached so old segments disappear immediately."""
-        self._wp_in_radius = False
-        self._set_next_wp_btn_visible(False)
-        self._on_waypoint_reached()
-
-    def _set_next_wp_btn_visible(self, visible: bool) -> None:
-        btn = getattr(self, "_next_wp_btn", None)
-        if btn is not None:
-            btn.set_visible(visible)
-
-    # ── TTS ──────────────────────────────────────────────────────────────────
-
-    def _tts_announce(self, step: dict, distance_m: float) -> None:
-        if not self._tts_enabled:
-            return
-        if step.get("type") == "depart":
-            return
-        lang = self._tts_effective_language()
-        maneuver_text = _translate(lang, maneuver_text_key(step.get("type", ""), step.get("modifier", "")))
-        # Subtract look-ahead so the spoken distance matches reality at the
-        # moment the driver hears the announcement, not when it was triggered.
-        look_ahead_m = self._gps_speed_mps * tts_service.get_latency_s()
-        heard_dist = max(0.0, distance_m - look_ahead_m)
-        if heard_dist > 60:
-            dist_text = self._tts_distance_text(heard_dist, lang)
-            text = _translate(lang, "tts.in_distance").format(distance=dist_text) + " " + maneuver_text
-        else:
-            text = maneuver_text
-        tts_service.speak(text, lang, self._tts_voice, quality=self._tts_quality)

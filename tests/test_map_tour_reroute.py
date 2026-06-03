@@ -1,4 +1,4 @@
-"""Unit tests for MapTourMixin auto-reroute logic.
+"""Unit tests for MapTourRerouteMixin auto-reroute logic.
 
 Focus: the bypass heuristic in ``_trigger_reroute`` that may drop an
 intermediate waypoint when the driver appears to have already passed it.
@@ -12,8 +12,8 @@ from typing import ClassVar
 
 import pytest
 
-from drivepulse_app.map import tour as tour_mod
-from drivepulse_app.map.tour import MapTourMixin
+from drivepulse_app.map import tour_reroute as tour_mod
+from drivepulse_app.map.tour_reroute import MapTourRerouteMixin
 
 
 class _FakeThread:
@@ -48,7 +48,7 @@ def _make_inst(
     remaining=None,
     waypoints=None,
 ):
-    inst = object.__new__(MapTourMixin)
+    inst = object.__new__(MapTourRerouteMixin)
     inst._gps_lat = gps_lat
     inst._gps_lon = gps_lon
     inst._gps_heading = heading
@@ -176,5 +176,5 @@ def test_off_route_thresholds_are_tightened():
     """Bug 1 was that the rerouter reacted too late. The constants must
     stay at or below the tightened values: 30 m / 4 s. Loosening them
     again should require an explicit code-review decision."""
-    assert MapTourMixin._OFF_ROUTE_M <= 30.0
-    assert MapTourMixin._OFF_ROUTE_CONFIRM_S <= 4.0
+    assert MapTourRerouteMixin._OFF_ROUTE_M <= 30.0
+    assert MapTourRerouteMixin._OFF_ROUTE_CONFIRM_S <= 4.0
