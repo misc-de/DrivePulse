@@ -314,8 +314,8 @@ def _build_scan_detail_widget(
         mo_lb.set_selection_mode(Gtk.SelectionMode.NONE)
         mo_lb.add_css_class("boxed-list")
         mo_lb.set_valign(Gtk.Align.START)
-        for mon_name, tests in sorted(monitors.items()):
-            tests = tests or []
+        for mon_name, mon_tests in sorted(monitors.items()):
+            tests = mon_tests or []
             exp = Adw.ExpanderRow()
             exp.set_title(GLib.markup_escape_text(_pretty_monitor(mon_name)))
             all_passed = bool(tests) and all(bool(t.get("passed")) for t in tests)

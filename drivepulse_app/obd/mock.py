@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import random
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 
 class MockObdSimulator:
@@ -116,7 +116,7 @@ class MockUdsSimulator:
 
     # DIDs that exist but answer with a non-0x31 NRC (here securityAccessDenied)
     # so a sweep records them as "present but gated", not "absent".
-    _GATED: dict[int, int] = {0x0603: 0x33}
+    _GATED: ClassVar[dict[int, int]] = {0x0603: 0x33}
 
     # Addresses the simulated vehicle "answers" on (engine, instruments,
     # central electrics, gateway) — a believable mixed result for a module scan.
@@ -193,8 +193,8 @@ class MockUdsSimulator:
         from datetime import UTC, datetime
 
         from drivepulse_app.obd.uds import (
-            NRC_NAMES,
             IDENTIFICATION_DIDS,
+            NRC_NAMES,
             VAG_CODING_DID,
             as_ascii,
         )
