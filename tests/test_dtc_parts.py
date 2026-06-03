@@ -71,7 +71,7 @@ def test_dtc_parts_code_colon_with_extra_colons_in_description():
 
 # ── Health-snapshot formatting helpers (scan detail view) ──────────────────
 
-from drivepulse_app.cars.scan_widgets import (  # noqa: E402
+from drivepulse_app.cars.scan_widgets import (
     _fmt_num,
     _pretty_monitor,
     _readiness_label,
