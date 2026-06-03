@@ -19,6 +19,90 @@ from drivepulse_app.obd.adapter import AdapterInfo, AdapterKind, batch_query_stp
 
 log = get_logger(__name__)
 
+# Emissions readiness monitors python-obd exposes on a STATUS (Mode 01 PID 01)
+# response — union of base + spark + compression test names (deduped, order
+# preserved). Hardcoded so this works even when python-obd isn't importable.
+_READINESS_TESTS: tuple[str, ...] = (
+    "MISFIRE_MONITORING", "FUEL_SYSTEM_MONITORING", "COMPONENT_MONITORING",
+    "CATALYST_MONITORING", "HEATED_CATALYST_MONITORING",
+    "EVAPORATIVE_SYSTEM_MONITORING", "SECONDARY_AIR_SYSTEM_MONITORING",
+    "OXYGEN_SENSOR_MONITORING", "OXYGEN_SENSOR_HEATER_MONITORING",
+    "EGR_VVT_SYSTEM_MONITORING", "NMHC_CATALYST_MONITORING",
+    "NOX_SCR_AFTERTREATMENT_MONITORING", "BOOST_PRESSURE_MONITORING",
+    "EXHAUST_GAS_SENSOR_MONITORING", "PM_FILTER_MONITORING",
+)
+
+# In-use performance tracking (Mode 09 PID 08) data items in standard SAE J1979
+# order for spark-ignition vehicles. Stored alongside the raw words so a
+# different item count never silently mislabels values.
+_IUMPR_LABELS: tuple[str, ...] = (
+    "OBDCOND", "IGNCNTR",
+    "CATCOMP1", "CATCOND1", "CATCOMP2", "CATCOND2",
+    "O2SCOMP1", "O2SCOND1", "O2SCOMP2", "O2SCOND2",
+    "EGRCOMP", "EGRCOND", "AIRCOMP", "AIRCOND", "EVAPCOMP", "EVAPCOND",
+    "SO2SCOMP1", "SO2SCOND1", "SO2SCOMP2", "SO2SCOND2",
+)
+
+
+def _reassemble_isotp(raw: str) -> dict[str, bytes]:
+    """Rebuild ISO-TP payloads (per CAN header) from a headers-on raw response.
+
+    Handles single frames (``7E8 06 …``), first frames (``7E8 10 2B …``) and
+    consecutive frames (``7E8 21 …``). Returns ``{header: payload_bytes}``.
+    """
+    pending: dict[str, dict[str, Any]] = {}
+    done: dict[str, bytes] = {}
+    for line in raw.replace("\r", "\n").split("\n"):
+        tokens = line.split()
+        if len(tokens) < 2:
+            continue
+        header = tokens[0]
+        try:
+            b = [int(t, 16) for t in tokens[1:]]
+        except ValueError:
+            continue
+        if not b:
+            continue
+        pci = b[0] >> 4
+        if pci == 0x0:  # single frame: low nibble = length
+            length = b[0] & 0x0F
+            done[header] = bytes(b[1:1 + length])
+        elif pci == 0x1:  # first frame: 12-bit total length, data from byte 2
+            total = ((b[0] & 0x0F) << 8) | b[1]
+            pending[header] = {"total": total, "data": b[2:]}
+        elif pci == 0x2:  # consecutive frame: data from byte 1
+            buf = pending.get(header)
+            if buf is not None:
+                buf["data"].extend(b[1:])
+    for header, buf in pending.items():
+        done[header] = bytes(buf["data"][: buf["total"]])
+    return done
+
+
+def parse_iumpr(raw: str) -> dict[str, Any]:
+    """Parse a raw Mode 09 PID 08 (IUMPR) response into per-ECU counters.
+
+    The reply is ``49 08 <NODI> <NODI 16-bit words>``; we label the words in
+    standard spark order and also keep the raw word list. Returns
+    ``{header: {"values": {...}, "raw_words": [...]}}`` (usually one ECU).
+    """
+    out: dict[str, Any] = {}
+    for header, data in _reassemble_isotp(raw).items():
+        if len(data) < 3 or data[0] != 0x49 or data[1] != 0x08:
+            continue
+        nodi = data[2]
+        body = data[3:]
+        words = [
+            (body[i] << 8) | body[i + 1]
+            for i in range(0, min(nodi * 2, len(body) - 1), 2)
+        ]
+        values = {
+            (_IUMPR_LABELS[i] if i < len(_IUMPR_LABELS) else f"ITEM_{i}"): w
+            for i, w in enumerate(words)
+        }
+        out[header] = {"values": values, "raw_words": words}
+    return out
+
 
 def _obd_text(value: Any) -> str:
     """Decode a python-obd mode-09 string value (VIN, Cal-ID, ECU name).
@@ -43,11 +127,11 @@ class ObdScanner:
         on_update: Callable[[dict[str, Any]], None],
         session_cache: set[str],
         force_rescan: bool = False,
-        query_locked: Callable[[Any], Any] | None = None,
+        query_locked: Callable[..., Any] | None = None,
         yield_between_queries: float = 0.0,
         stop_event: threading.Event | None = None,
         obd_module: Any = None,
-        raw_send_locked: Callable[[str], str] | None = None,
+        raw_send_locked: Callable[..., str] | None = None,
         resync_locked: Callable[[], None] | None = None,
         adapter_info: AdapterInfo | None = None,
     ) -> None:
@@ -113,7 +197,9 @@ class ObdScanner:
             [cmd for cmd in getattr(self.connection, "supported_commands", set()) if getattr(cmd, "mode", 0) == 1],
             key=lambda c: getattr(c, "pid", 0),
         )
-        total_steps = max(1, len(mode1_cmds) + 4)
+        # post-mode-01 phases: stored/pending/permanent DTC, vehicle info,
+        # monitors, readiness, IUMPR, saving.
+        total_steps = max(1, len(mode1_cmds) + 8)
         done = 0
 
         # Mode 01: snapshot of all supported live-data PIDs.
@@ -167,6 +253,26 @@ class ObdScanner:
             if self._yield:
                 time.sleep(self._yield)
 
+        # Mode 06: on-board monitor test results (catalyst, O2, misfire, VVT…)
+        done += 1
+        self._emit("scanning", done / total_steps, "On-Board-Monitore")
+        monitors = self._query_monitors()
+
+        # Mode 01 STATUS: emissions readiness monitors
+        done += 1
+        self._emit("scanning", done / total_steps, "Readiness")
+        readiness = self._query_readiness()
+
+        # Mode 0A: permanent (non-clearable) DTCs
+        done += 1
+        self._emit("scanning", done / total_steps, "DTC (permanent)")
+        permanent_dtcs = self._query_permanent_dtcs()
+
+        # Mode 09 PID 08: in-use performance tracking (IUMPR)
+        done += 1
+        self._emit("scanning", done / total_steps, "IUMPR")
+        iumpr = self._query_iumpr()
+
         done += 1
         self._emit("saving", done / total_steps, "Profil speichern")
         adapter_kind = (
@@ -185,7 +291,11 @@ class ObdScanner:
             "live_data": live_data,
             "dtcs": dtcs,
             "pending_dtcs": pending_dtcs,
+            "permanent_dtcs": permanent_dtcs,
             "vehicle_info": vehicle_info,
+            "monitors": monitors,
+            "readiness": readiness,
+            "iumpr": iumpr,
         }
         self._session_cache.add(identity)
 
@@ -322,11 +432,11 @@ class ObdScanner:
             log.info("Could not query VIN during OBD scan", exc_info=True)
         return None
 
-    def _query_dtc_list(self, cmd: Any) -> list[dict]:
+    def _query_dtc_list(self, cmd: Any, force: bool = False) -> list[dict]:
         if cmd is None:
             return []
         try:
-            r = self._query_locked(cmd)
+            r = self._query_locked(cmd, force=force) if force else self._query_locked(cmd)
             if not r.is_null() and r.value:
                 result = []
                 for d in r.value:
@@ -338,6 +448,123 @@ class ObdScanner:
         except Exception:
             log.info("Could not query DTC command %s", cmd, exc_info=True)
         return []
+
+    @staticmethod
+    def _scalar(v: Any) -> Any:
+        """Pull a JSON-friendly number out of a (possibly pint) quantity."""
+        if v is None:
+            return None
+        mag = getattr(v, "magnitude", v)
+        try:
+            return round(float(mag), 4)
+        except (TypeError, ValueError):
+            return str(v)
+
+    @staticmethod
+    def _unit(v: Any) -> str:
+        u = getattr(v, "units", None)
+        if u is None:
+            return ""
+        try:
+            return f"{u:~}".strip()
+        except (TypeError, ValueError):
+            return str(u)
+
+    def _query_monitors(self) -> dict[str, list[dict]]:
+        """Mode 06 on-board monitor test results, grouped by monitor name."""
+        out: dict[str, list[dict]] = {}
+        cmds = sorted(
+            [c for c in getattr(self.connection, "supported_commands", set())
+             if getattr(c, "mode", None) == 6 and not str(getattr(c, "name", "")).startswith("MIDS")],
+            key=lambda c: str(getattr(c, "name", "")),
+        )
+        for cmd in cmds:
+            if self._stop_event is not None and self._stop_event.is_set():
+                break
+            try:
+                r = self._query_locked(cmd)
+                if r is None or r.is_null():
+                    continue
+                tests_obj = getattr(r.value, "tests", None)
+                if tests_obj is None:
+                    rows = []
+                elif hasattr(tests_obj, "values"):
+                    rows = list(tests_obj.values())
+                else:
+                    rows = list(tests_obj)
+                entries = [
+                    {
+                        "tid": getattr(t, "tid", None),
+                        "name": getattr(t, "name", None),
+                        "value": self._scalar(getattr(t, "value", None)),
+                        "min": self._scalar(getattr(t, "min", None)),
+                        "max": self._scalar(getattr(t, "max", None)),
+                        "unit": self._unit(getattr(t, "value", None)),
+                        "passed": bool(getattr(t, "passed", False)),
+                    }
+                    for t in rows
+                ]
+                if entries:
+                    out[str(cmd.name)] = entries
+            except Exception:
+                log.info("Could not query monitor %s", cmd, exc_info=True)
+            if self._yield:
+                time.sleep(self._yield)
+        return out
+
+    def _query_readiness(self) -> dict[str, Any]:
+        """Emissions readiness from STATUS (Mode 01 PID 01): MIL, monitors."""
+        cmd = getattr(self.obd.commands, "STATUS", None) if self.obd else None
+        if cmd is None:
+            return {}
+        try:
+            r = self._query_locked(cmd)
+            if r is None or r.is_null():
+                return {}
+            st = r.value
+            monitors = {}
+            for name in _READINESS_TESTS:
+                t = getattr(st, name, None)
+                if t is not None and getattr(t, "available", False):
+                    monitors[name] = {"complete": bool(getattr(t, "complete", False))}
+            return {
+                "MIL": bool(getattr(st, "MIL", False)),
+                "dtc_count": int(getattr(st, "DTC_count", 0) or 0),
+                "ignition_type": getattr(st, "ignition_type", None),
+                "monitors": monitors,
+            }
+        except Exception:
+            log.info("Could not query readiness STATUS", exc_info=True)
+            return {}
+
+    def _query_permanent_dtcs(self) -> list[dict]:
+        """Mode 0A permanent DTCs — not in python-obd, queried via a custom
+        command (force, since it's never in supported_commands). The Mode 03
+        DTC decoder fits Mode 0A (response 0x4A + count + 2-byte codes)."""
+        if self.obd is None:
+            return []
+        try:
+            from obd.decoders import dtc as dtc_decoder
+            cmd = self.obd.OBDCommand(
+                "PERMANENT_DTC", "Permanent DTCs (Mode 0A)", b"0A", 0,
+                dtc_decoder, self.obd.ECU.ALL, False,
+            )
+        except Exception:
+            log.info("Could not build permanent-DTC command", exc_info=True)
+            return []
+        return self._query_dtc_list(cmd, force=True)
+
+    def _query_iumpr(self) -> dict[str, Any]:
+        """Mode 09 PID 08 in-use performance tracking — raw query + parse
+        (python-obd has no command and its assembly dropped the reply here)."""
+        if self._raw_send_locked is None:
+            return {}
+        try:
+            raw = self._raw_send_locked("0908", timeout=4.0)
+            return parse_iumpr(raw)
+        except Exception:
+            log.info("Could not query IUMPR (Mode 09 PID 08)", exc_info=True)
+            return {}
 
     def _get_protocol(self) -> str:
         try:
