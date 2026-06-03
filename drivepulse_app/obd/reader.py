@@ -232,13 +232,17 @@ class ObdReader(GObject.Object):
             self._bt_bridge.close()
             self._bt_bridge = None
 
-    def _send_raw_locked(self, cmd: str) -> str:
-        """Send a raw AT/ST command while holding the shared OBD serial lock."""
+    def _send_raw_locked(self, cmd: str, timeout: float = 1.5) -> str:
+        """Send a raw AT/ST command while holding the shared OBD serial lock.
+
+        *timeout* widens the read window for slow multi-frame answers (e.g. the
+        7-frame Mode 09 IUMPR response over the Bluetooth pty bridge).
+        """
         port = _serial_port(self.connection)
         if port is None:
             return ""
         with self._obd_lock:
-            return raw_send(port, cmd)
+            return raw_send(port, cmd, timeout=timeout)
 
     def _resync_obd_locked(self) -> None:
         """Drain the serial line and re-assert python-obd's connect-time format.
@@ -493,11 +497,14 @@ class ObdReader(GObject.Object):
         self.mock_reason = "kein nutzbarer Dongle gefunden"
         self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
 
-    def _query_locked(self, command: Any) -> Any:
+    def _query_locked(self, command: Any, force: bool = False) -> Any:
         """Run an OBD query through the shared lock so the reader and scanner
-        threads cannot interleave bytes on the serial line."""
+        threads cannot interleave bytes on the serial line.
+
+        *force* lets the scanner query custom commands (e.g. Mode 0A permanent
+        DTCs) that python-obd never lists in ``supported_commands``."""
         with self._obd_lock:
-            return self.connection.query(command)
+            return self.connection.query(command, force=force)
 
     def clear_dtcs(self) -> bool:
         """Send OBD Mode 04 (CLEAR_DTC). Returns True if the ECU acknowledged.
