@@ -82,15 +82,206 @@ def build_maneuver_positions(
     step_cum_m: Sequence[float],
     skip_types: Iterable[str],
 ) -> list[float]:
-    """Return cumulative distances (m) for each actionable turn maneuver."""
+    """Return cumulative distances (m) for each actionable turn maneuver.
+
+    A U-turn is always actionable, even when the backend tags it with an
+    otherwise-skipped type (OSRM emits U-turns as ``type="continue"``), so a
+    ``uturn`` modifier overrides the skip set.
+    """
     skip = set(skip_types)
     positions: list[float] = []
     for i, step in enumerate(steps):
-        if step.get("type", "") in skip:
+        if step.get("type", "") in skip and step.get("modifier") != "uturn":
             continue
         if i < len(step_cum_m):
             positions.append(step_cum_m[i])
     return positions
+
+
+# Geometry-based U-turn detection (see annotate_uturns).
+_UTURN_REVERSAL_DEG = 150.0       # min heading reversal to count as a U-turn
+_UTURN_LEG_WINDOW_M = 30.0        # bearing measured over this distance each side
+_UTURN_RETURN_PROXIMITY_M = 35.0  # the two legs must end this close (U-turn signature)
+_UTURN_RELABEL_DIST_M = 30.0      # apex must be within this of a step to relabel it
+_UTURN_MERGE_CONNECTOR_M = 40.0   # fold an adjacent same-side turn shorter than this
+
+# Step types whose maneuver may be relabelled to a U-turn. Roundabouts, ramps,
+# merges, depart and arrive are deliberately excluded — a U-turn must not
+# override them even if the geometry briefly reverses.
+_UTURN_RELABELABLE_TYPES = frozenset({
+    "turn", "continue", "new name", "end of road", "fork",
+})
+
+
+def _uturn_leg_point(
+    coords: Sequence[Sequence[float]], idx: int, window_m: float, *, forward: bool
+) -> Sequence[float] | None:
+    """Return the route vertex ~``window_m`` from ``idx`` (or None if too short)."""
+    n = len(coords)
+    d = 0.0
+    j = idx
+    if forward:
+        while j < n - 1 and d < window_m:
+            d += haversine(coords[j][1], coords[j][0], coords[j + 1][1], coords[j + 1][0])
+            j += 1
+    else:
+        while j > 0 and d < window_m:
+            d += haversine(coords[j - 1][1], coords[j - 1][0], coords[j][1], coords[j][0])
+            j -= 1
+    if d < window_m * 0.5:
+        return None
+    return coords[j]
+
+
+def _detect_uturn_apexes(
+    coords: Sequence[Sequence[float]], route_cum_m: Sequence[float]
+) -> list[int]:
+    """Find route vertices where travel direction reverses ~180° over a short span.
+
+    A genuine U-turn has two signatures: the heading reverses by at least
+    ``_UTURN_REVERSAL_DEG`` AND the points one leg-window before and after end up
+    within ``_UTURN_RETURN_PROXIMITY_M`` of each other (you come back beside where
+    you were). The proximity test is what separates a U-turn from an ordinary
+    sharp junction turn or a wide loop, neither of which doubles back on itself.
+
+    Returns vertex indices, one per U-turn (consecutive hits collapse to the
+    sharpest).
+    """
+    hits: list[tuple[int, float]] = []
+    for i in range(len(coords)):
+        before = _uturn_leg_point(coords, i, _UTURN_LEG_WINDOW_M, forward=False)
+        after = _uturn_leg_point(coords, i, _UTURN_LEG_WINDOW_M, forward=True)
+        if before is None or after is None:
+            continue
+        in_b = bearing(before[1], before[0], coords[i][1], coords[i][0])
+        out_b = bearing(coords[i][1], coords[i][0], after[1], after[0])
+        diff = abs(in_b - out_b) % 360.0
+        if diff > 180.0:
+            diff = 360.0 - diff
+        if diff < _UTURN_REVERSAL_DEG:
+            continue
+        if haversine(before[1], before[0], after[1], after[0]) > _UTURN_RETURN_PROXIMITY_M:
+            continue
+        if hits and route_cum_m[i] - route_cum_m[hits[-1][0]] < 20.0:
+            if diff > hits[-1][1]:
+                hits[-1] = (i, diff)
+            continue
+        hits.append((i, diff))
+    return [i for i, _ in hits]
+
+
+def _same_turn_side(mod_a: str, mod_b: str) -> bool:
+    return ("left" in mod_a and "left" in mod_b) or ("right" in mod_a and "right" in mod_b)
+
+
+def _relabel_step_as_uturn(
+    steps: list[dict[str, Any]], step_cum: list[float], k: int
+) -> None:
+    """Mark step ``k`` as a U-turn, folding short same-side connector turns in.
+
+    Backends split a reversal into two adjacent same-side turns over a short
+    connector, and the apex may snap to either of them. Any immediately
+    adjacent same-side ``turn`` reachable over a connector shorter than
+    ``_UTURN_MERGE_CONNECTOR_M`` is absorbed (on both sides), so the pair reads
+    as one U-turn anchored at the earliest maneuver (announced in time) with the
+    distances summed. With no such neighbour, step ``k`` is relabelled in place.
+    Total step distance is preserved either way so the progress tables stay
+    consistent.
+    """
+    side = steps[k].get("modifier", "")
+    lo = hi = k
+    if (
+        k - 1 >= 0
+        and steps[k - 1].get("type") == "turn"
+        and (step_cum[k] - step_cum[k - 1]) < _UTURN_MERGE_CONNECTOR_M
+        and _same_turn_side(steps[k - 1].get("modifier", ""), side)
+    ):
+        lo = k - 1
+    if (
+        k + 1 < len(steps)
+        and steps[k + 1].get("type") == "turn"
+        and (step_cum[k + 1] - step_cum[k]) < _UTURN_MERGE_CONNECTOR_M
+        and _same_turn_side(steps[k + 1].get("modifier", ""), side)
+    ):
+        hi = k + 1
+
+    if lo == hi:
+        steps[k]["type"] = "turn"
+        steps[k]["modifier"] = "uturn"
+        return
+
+    merged = dict(steps[lo])
+    merged["type"] = "turn"
+    merged["modifier"] = "uturn"
+    merged["distance"] = sum(float(steps[j].get("distance") or 0.0) for j in range(lo, hi + 1))
+    merged["name"] = next(
+        (steps[j].get("name") for j in range(lo, hi + 1) if steps[j].get("name")), ""
+    )
+    steps[lo : hi + 1] = [merged]
+    step_cum[lo : hi + 1] = [step_cum[lo]]
+
+
+def annotate_uturns(
+    coords: Sequence[Sequence[float]],
+    steps: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Label real U-turns the routing backend left unmarked.
+
+    Backends sometimes represent a physical U-turn as one or two ordinary turn
+    maneuvers (Valhalla splits a tight reversal into two same-side turns) rather
+    than tagging it ``uturn``. The driver then gets no U-turn instruction — the
+    reversal vanishes into "a long straight, then a turn". This pass scans the
+    route geometry for ~180° reversals (:func:`_detect_uturn_apexes`) and, for
+    each one not already marked, relabels the nearest maneuver to ``uturn``,
+    folding a short same-side connector turn into it so it reads as a single
+    instruction.
+
+    Returns a new step list (inputs are not mutated); total step distance is
+    preserved so downstream progress tables stay consistent. ``coords`` are
+    ``[lon, lat]`` pairs.
+    """
+    out = [dict(s) for s in steps]
+    if len(coords) < 3 or not out:
+        return out
+
+    route_cum_m: list[float] = [0.0]
+    for i in range(1, len(coords)):
+        route_cum_m.append(
+            route_cum_m[-1]
+            + haversine(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0])
+        )
+
+    apex_indices = _detect_uturn_apexes(coords, route_cum_m)
+    if not apex_indices:
+        return out
+
+    # Cumulative route position of each step, found by snapping its maneuver
+    # coordinate to the geometry with a forward-only search so the outbound and
+    # return legs of a U-turn (which sit close together) cannot cross-match.
+    step_cum: list[float] = []
+    search = 0
+    for s in out:
+        best_i, best_d = search, float("inf")
+        for i in range(search, len(coords)):
+            d = haversine(s["lat"], s["lon"], coords[i][1], coords[i][0])
+            if d < best_d:
+                best_d, best_i = d, i
+        step_cum.append(route_cum_m[best_i])
+        search = best_i
+
+    # Apply from the last apex to the first so earlier indices stay valid as
+    # merges shrink the list.
+    for ai in sorted(apex_indices, reverse=True):
+        apex_cum = route_cum_m[ai]
+        k = min(range(len(out)), key=lambda j: abs(step_cum[j] - apex_cum))
+        if out[k].get("modifier") == "uturn":
+            continue  # backend already marked this reversal
+        if abs(step_cum[k] - apex_cum) > _UTURN_RELABEL_DIST_M:
+            continue  # no maneuver sits at the reversal — leave the route as-is
+        if out[k].get("type") not in _UTURN_RELABELABLE_TYPES:
+            continue  # don't override roundabouts, ramps, merges, arrive…
+        _relabel_step_as_uturn(out, step_cum, k)
+    return out
 
 
 def nearest_route_progress(
@@ -126,9 +317,18 @@ def next_actionable_step_idx(
     idx: int,
     non_actionable_types: Iterable[str],
 ) -> int:
-    """Advance ``idx`` past consecutive non-actionable steps (but never past the last)."""
+    """Advance ``idx`` past consecutive non-actionable steps (but never past the last).
+
+    A ``uturn`` maneuver is never skipped even when its type is in the skip set
+    (OSRM labels U-turns ``type="continue"``) — otherwise the driver gets no
+    U-turn instruction and the reversal silently collapses into the prior step.
+    """
     skip = set(non_actionable_types)
-    while idx < len(steps) - 1 and steps[idx].get("type") in skip:
+    while (
+        idx < len(steps) - 1
+        and steps[idx].get("type") in skip
+        and steps[idx].get("modifier") != "uturn"
+    ):
         idx += 1
     return idx
 

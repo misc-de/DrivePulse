@@ -17,7 +17,11 @@ from gi.repository import GLib
 
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map._jsbridge import js_call
-from drivepulse_app.map._tour_progress import off_route_decision, waypoint_is_passed
+from drivepulse_app.map._tour_progress import (
+    annotate_uturns,
+    off_route_decision,
+    waypoint_is_passed,
+)
 from drivepulse_app.map.services import compute_route, haversine
 
 log = get_logger(__name__)
@@ -130,7 +134,25 @@ class MapTourRerouteMixin:
         new_points = [(self._gps_lat, self._gps_lon), *remaining]
         self._last_reroute_time = time.monotonic()
         self._off_route_since = 0.0
-        log.info("Off-route: recalculating route from current GPS position")
+        # Reroute diagnostics: capture the bypass-decision inputs for the next
+        # remaining waypoint so a drive where the route balloons back to a
+        # deliberately-bypassed via can be reconstructed from the log.
+        wp0 = remaining[0]
+        passed0, wp0_dist, wp0_brng = waypoint_is_passed(
+            self._gps_lat, self._gps_lon, self._gps_heading,
+            wp0[0], wp0[1], self._BYPASS_MAX_DIST_M,
+        )
+        hdiff = abs(self._gps_heading - wp0_brng) % 360.0
+        if hdiff > 180.0:
+            hdiff = 360.0 - hdiff
+        log.info(
+            "Off-route: recalculating route from current GPS position "
+            "(gps=(%.5f,%.5f) heading=%.0f hvalid=%s remaining=%d "
+            "next_wp=(%.5f,%.5f) wp_dist=%.0fm bearing_diff=%.0f passed=%s)",
+            self._gps_lat, self._gps_lon, self._gps_heading,
+            getattr(self, "_gps_heading_valid", False), len(remaining),
+            wp0[0], wp0[1], wp0_dist, hdiff, passed0,
+        )
         threading.Thread(
             target=self._fetch_reroute_bg,
             args=(new_points,),
@@ -156,6 +178,10 @@ class MapTourRerouteMixin:
         if not steps or not coords:
             return False
 
+        # Some backends (e.g. OSRM) emit U-turns as type="continue" or split
+        # them into ordinary turns; relabel them so the driver is actually told
+        # to make the U-turn instead of silently skipping it.
+        steps = annotate_uturns(coords, steps)
         self._tour_steps = steps
         self._tour_step_idx = 0
         self._step_min_dist = None
@@ -210,7 +236,11 @@ class MapTourRerouteMixin:
         if self._on_tour_resumed is not None:
             self._on_tour_resumed()
 
-        log.info("Route recalculated: %.1f km, %d steps", distance_m / 1000, len(steps))
+        log.info(
+            "Route recalculated: %.1f km, %d steps, waypoints=%s",
+            distance_m / 1000, len(steps),
+            [(round(p[0], 5), round(p[1], 5)) for p in all_points],
+        )
         return False
 
     # ── Intermediate waypoint tracking ───────────────────────────────────────
