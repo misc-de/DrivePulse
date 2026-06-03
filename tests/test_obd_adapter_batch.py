@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from drivepulse_app.obd.adapter import _MODE1_DECODE, batch_query_stpx
+from drivepulse_app.obd.adapter import _MODE1_DECODE, _MODE1_LEN, batch_query_stpx
 
 
 def _send_fixed(response: str):
@@ -49,6 +49,44 @@ def test_batch_query_handles_multi_frame_response():
     assert "RPM" in out and "SPEED" in out and "THROTTLE_POS" in out
     assert out["SPEED"]["value"] == 80
     assert out["THROTTLE_POS"]["value"] == pytest.approx(49.8, abs=0.1)
+
+
+def test_batch_query_reassembles_isotp_multiframe():
+    # A real multi-PID request (01 04 05 0B 0C 0D 11) to an STN2255 over BT
+    # comes back as an ISO-TP multi-frame response, NOT one line per PID. The
+    # old line parser rejected every 10/21 frame and returned {} ("STPX batch
+    # empty"). These are the exact bytes captured from the car (engine off).
+    raw = "\n".join([
+        "7E8 10 0C 41 04 00 05 41 0C",   # first frame: total 0x0C bytes
+        "7E8 21 00 00 0D 00 11 29 00",   # consecutive frame (+ CAN padding)
+        "7E9 10 0A 41 04 00 05 41 0C",   # second ECU answers too
+        "7E9 21 00 00 0D 00 AA AA AA",
+    ])
+    out = batch_query_stpx(
+        _send_fixed(raw), pid_numbers=[0x04, 0x05, 0x0B, 0x0C, 0x0D, 0x11]
+    )
+    # 7E8 payload: 41 04 00 05 41 0C 00 00 0D 00 11 29
+    assert out["ENGINE_LOAD"]["value"] == 0.0
+    assert out["COOLANT_TEMP"]["value"] == 0x41 - 40          # 25 °C
+    assert out["RPM"]["value"] == 0.0
+    assert out["SPEED"]["value"] == 0
+    assert out["THROTTLE_POS"]["value"] == pytest.approx(16.1, abs=0.1)
+
+
+def test_batch_query_decodes_two_pids_in_one_single_frame():
+    # When a multi-PID answer is short enough it arrives as ONE single frame
+    # holding several pid+value groups — the walk must split them by length.
+    raw = "7E8 06 41 0D 50 0C 1A F8"   # speed 0x50, then RPM 0x1AF8
+    out = batch_query_stpx(_send_fixed(raw), pid_numbers=[0x0D, 0x0C])
+    assert out["SPEED"]["value"] == 0x50
+    assert out["RPM"]["value"] == pytest.approx(1726.0)
+
+
+def test_mode1_len_covers_every_decode_pid():
+    # Drift guard: a PID decodable but without a known wire length would silently
+    # truncate any multi-PID frame it appears in.
+    missing = sorted(hex(p) for p in _MODE1_DECODE if p not in _MODE1_LEN)
+    assert missing == [], f"PIDs missing from _MODE1_LEN: {missing}"
 
 
 def test_batch_query_returns_empty_for_no_decodable_pids():
