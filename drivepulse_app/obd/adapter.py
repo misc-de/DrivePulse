@@ -226,6 +226,21 @@ _MODE1_DECODE: dict[int, tuple[str, Callable[[bytes], Any]]] = {
     0x67: ("COOLANT_TEMP_2",            lambda d: d[1] - 40),
 }
 
+# Wire length (data bytes) of each Mode-01 PID per SAE J1979. Needed to split a
+# multi-PID response (``41 <pid><data…><pid><data…>``) back into individual PIDs:
+# the value length is NOT always what the decoder above reads — the O2-sensor
+# PIDs 0x14–0x17 carry 2 bytes but the decoder only uses the first, and 0x67
+# carries 3. Every key in _MODE1_DECODE must have an entry here (a test guards
+# this); a PID without a known length stops the walk for the rest of its frame.
+_MODE1_LEN: dict[int, int] = {
+    0x04: 1, 0x05: 1, 0x06: 1, 0x07: 1, 0x08: 1, 0x09: 1, 0x0A: 1, 0x0B: 1,
+    0x0C: 2, 0x0D: 1, 0x0E: 1, 0x0F: 1, 0x10: 2, 0x11: 1,
+    0x14: 2, 0x15: 2, 0x16: 2, 0x17: 2, 0x1F: 2, 0x21: 2, 0x22: 2, 0x23: 2,
+    0x2C: 1, 0x2E: 1, 0x2F: 1, 0x31: 2, 0x33: 1,
+    0x42: 2, 0x43: 2, 0x45: 1, 0x46: 1, 0x47: 1, 0x49: 1, 0x4A: 1, 0x4C: 1,
+    0x4D: 2, 0x5A: 1, 0x5C: 1, 0x5E: 2, 0x62: 1, 0x63: 2, 0x67: 3,
+}
+
 # Safely stay within a CAN frame: 8 bytes – 1 mode byte = 7 PIDs max; use 6.
 _STPX_CHUNK = 6
 
@@ -254,6 +269,72 @@ def _parse_stpx_line(line: str) -> tuple[int, bytes] | None:
     return pid, data
 
 
+def _decode_mode1_stream(data: bytes, results: dict[str, Any]) -> None:
+    """Walk a reassembled Mode-01 payload and add every decodable PID to *results*.
+
+    A multi-PID response packs several ``pid + value`` groups behind a single
+    ``41`` marker, e.g. ``41 04 00 0C 1A F8 0D 50`` (load, RPM, speed). We use
+    each PID's wire length (``_MODE1_LEN``) to find where the next PID begins; a
+    PID with no known length means we can no longer locate the following one, so
+    we stop walking this payload.
+    """
+    if not data or data[0] != 0x41:
+        return
+    i = 1
+    while i < len(data):
+        pid = data[i]
+        length = _MODE1_LEN.get(pid)
+        if length is None:
+            break  # unknown wire length → can't realign on the next PID
+        chunk = data[i + 1 : i + 1 + length]
+        i += 1 + length
+        if len(chunk) < length:
+            break  # frame truncated mid-value
+        decoder_entry = _MODE1_DECODE.get(pid)
+        if decoder_entry is None:
+            continue
+        name, decode_fn = decoder_entry
+        try:
+            results[name] = {"value": decode_fn(chunk), "unit": ""}
+        except Exception:
+            log.debug("STPX decode error for PID 0x%02X", pid)
+
+
+def _stpx_collect(raw: str, results: dict[str, Any]) -> None:
+    """Decode one STPX raw response into *results*.
+
+    Handles both single-frame replies (``7E8 04 41 0C 1A F8``) and ISO-TP
+    multi-frame replies (first frame ``7E8 10 0C 41 …`` + consecutive frames
+    ``7E8 21 …``). A multi-PID request returns one multi-frame response per
+    responding ECU, so frames are reassembled per CAN header before decoding —
+    the missing piece that made batches with >1 short PID come back empty.
+    """
+    pending: dict[str, dict[str, Any]] = {}  # CAN header → {"total", "data"}
+    for line in raw.splitlines():
+        tokens = line.split()
+        if len(tokens) < 2:
+            continue
+        header = tokens[0]
+        try:
+            payload = [int(t, 16) for t in tokens[1:]]  # skip CAN header
+        except ValueError:
+            continue
+        pci = payload[0] >> 4
+        if pci == 0x0:  # single frame: low nibble = length, then 41 pid data…
+            length = payload[0] & 0x0F
+            _decode_mode1_stream(bytes(payload[1 : 1 + length]), results)
+        elif pci == 0x1:  # first frame: 12-bit total length, data from byte 2
+            total = ((payload[0] & 0x0F) << 8) | payload[1]
+            pending[header] = {"total": total, "data": payload[2:]}
+        elif pci == 0x2:  # consecutive frame: data from byte 1
+            buf = pending.get(header)
+            if buf is not None:
+                buf["data"].extend(payload[1:])
+        # pci 0x3 = flow control; never sent by the adapter to us → ignore
+    for buf in pending.values():
+        _decode_mode1_stream(bytes(buf["data"][: buf["total"]]), results)
+
+
 def batch_query_stpx(
     send_raw: Callable[[str], str],
     pid_numbers: list[int],
@@ -279,19 +360,6 @@ def batch_query_stpx(
             log.debug("STPX chunk [%s] failed: %s", pid_hex, exc)
             continue
 
-        for line in raw.splitlines():
-            parsed = _parse_stpx_line(line)
-            if parsed is None:
-                continue
-            pid, data = parsed
-            decoder_entry = _MODE1_DECODE.get(pid)
-            if decoder_entry is None:
-                continue
-            name, decode_fn = decoder_entry
-            try:
-                value = decode_fn(data)
-                results[name] = {"value": value, "unit": ""}
-            except Exception:
-                log.debug("STPX decode error for PID 0x%02X", pid)
+        _stpx_collect(raw, results)
 
     return results
