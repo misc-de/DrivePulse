@@ -13,7 +13,10 @@ Mixins:
   MapStepsPanelMixin   (layout_steps.py)       — Turn-by-turn steps side panel
   MapTourActionsMixin  (layout_tour_actions.py)— Topnav, saved-tour list, history
   MapReplayMixin       (replay.py)             — Trip-replay info card, chart, polyline + marker
-  MapTourMixin         (tour.py)               — Tour state machine, TTS, step detection
+  MapTourMixin         (tour.py)               — Tour state machine, maneuver overlay, lanes
+  MapTourTtsMixin      (tour_tts.py)           — Turn-by-turn voice guidance
+  MapTourSpeedMixin    (tour_speed.py)         — Speed-limit zones + over-speed warning
+  MapTourRerouteMixin  (tour_reroute.py)       — Auto-reroute + intermediate-waypoint tracking
   MapTrafficMixin      (traffic.py)            — Autobahn traffic API, filtering, popover
 """
 from __future__ import annotations
@@ -53,6 +56,9 @@ from drivepulse_app.map.services import (
 from drivepulse_app.map.shumate import MapShumateMixin
 from drivepulse_app.map.state_poll import MapStatePollMixin
 from drivepulse_app.map.tour import MapTourMixin
+from drivepulse_app.map.tour_reroute import MapTourRerouteMixin
+from drivepulse_app.map.tour_speed import MapTourSpeedMixin
+from drivepulse_app.map.tour_tts import MapTourTtsMixin
 from drivepulse_app.map.traffic import MapTrafficMixin
 from drivepulse_app.map.webkit import MapWebKitMixin
 from drivepulse_app.tts import service as tts_service
@@ -73,6 +79,9 @@ class MapPage(
     MapTourSavedMixin,
     MapReplayMixin,
     MapTourMixin,
+    MapTourTtsMixin,
+    MapTourSpeedMixin,
+    MapTourRerouteMixin,
     MapTrafficMixin,
     MapGpsFilterMixin,
     MapStatePollMixin,
