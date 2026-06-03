@@ -126,6 +126,26 @@ VAG_MODULES: dict[str, tuple[str, str]] = {
 # UDS-era VAG modules; adaptation values are individual DIDs above 0x0600.
 VAG_CODING_DID = 0x0600
 
+# DID ranges a "deep scan" sweeps to discover what a module exposes beyond the
+# handful of named identification DIDs. Kept bounded on purpose — a blind sweep
+# of the whole 16-bit space would be thousands of round-trips. These two blocks
+# are standards-justified starting points; which DIDs actually hold useful
+# values (measuring blocks, adaptations) is manufacturer-specific and is
+# refined from a real live sweep. Each entry is an inclusive (start, end) range.
+DISCOVERY_SWEEP_RANGES: tuple[tuple[int, int], ...] = (
+    (0xF180, 0xF1FF),  # ISO 14229-1 identification space (Annex C)
+    (0x0600, 0x060F),  # VAG long-coding (0x0600) + adjacent adaptation DIDs
+)
+
+
+def expand_ranges(ranges: Iterable[tuple[int, int]]) -> list[int]:
+    """Flatten inclusive (start, end) DID ranges into a sorted, de-duplicated list."""
+    seen: set[int] = set()
+    for start, end in ranges:
+        lo, hi = (start, end) if start <= end else (end, start)
+        seen.update(range(lo, hi + 1))
+    return sorted(seen)
+
 
 @dataclass(frozen=True)
 class ModuleAddr:
