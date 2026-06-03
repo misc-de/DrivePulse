@@ -6,6 +6,7 @@ from drivepulse_app.cars.car_lab import (
     CarsCarLabMixin,
     _hex_snapshot,
     module_icon_name,
+    partition_discovery_dids,
 )
 from drivepulse_app.obd.uds import VAG_CODING_DID
 
@@ -205,15 +206,59 @@ def test_build_saved_empty_shows_placeholder():
     assert any("no discoveries" in t.lower() for t in texts)
 
 
-def test_discovery_content_wraps_long_values():
+def test_discovery_content_wraps_long_values_labels_and_did_column():
     long_hex = "DE" * 60
     data = {
         "module": "engine", "tx": "7E0", "rx": "7E8",
-        "identification": {"VIN": {"ascii": "WAUZZZ" * 10}},
-        "did_responses": {"F190": {"hex": long_hex}},
+        "did_responses": {
+            "F190": {"hex": long_hex, "ascii": "WAUZZZ" * 10},
+            "F183": {"nrc": "31", "nrc_name": "requestOutOfRange"},
+        },
+    }
+    lab = _make_lab(_ScanDB())  # language "en"
+    texts = _texts(lab._build_discovery_content(data))  # saved view: failures shown
+    assert any(long_hex in t for t in texts)   # long value wraps, not truncated
+    assert any("WAUZZZ" in t for t in texts)
+    assert "F190" in texts                     # DID number rendered in its own column
+    assert "VIN" in texts                      # friendly label (en.json)
+    # The unreadable DID still appears in the full/saved view, dimmed.
+    assert "F183" in texts
+    assert any("requestOutOfRange" in t for t in texts)
+
+
+def test_discovery_content_live_view_omits_failures():
+    data = {
+        "module": "engine", "tx": "7E0", "rx": "7E8",
+        "did_responses": {
+            "F187": {"hex": "30", "ascii": "4G0"},
+            "F183": {"nrc": "31", "nrc_name": "requestOutOfRange"},
+        },
     }
     lab = _make_lab(_ScanDB())
-    box = lab._build_discovery_content(data)
-    texts = _texts(box)
-    assert any(long_hex in t for t in texts)
-    assert any("WAUZZZ" in t for t in texts)
+    texts = _texts(lab._build_discovery_content(data, include_failures=False))
+    assert "F187" in texts                                    # readable value shown
+    assert "F183" not in texts                                # failed DID dropped
+    assert not any("requestOutOfRange" in t for t in texts)   # no NRC noise
+
+
+def test_partition_discovery_dids_known_first_and_sorted():
+    data = {"did_responses": {
+        "F190": {"hex": "aa"},
+        "F187": {"hex": "bb", "ascii": "X"},
+        "F183": {"nrc": "31", "nrc_name": "requestOutOfRange"},
+        "0600": {"hex": "cc"},
+    }}
+    known, failed = partition_discovery_dids(data, include_failures=True)
+    assert [k[0] for k in known] == ["0600", "F187", "F190"]  # known, DID-sorted
+    assert known[1][2] == 'bb  "X"'                           # ascii appended to hex
+    assert [f[0] for f in failed] == ["F183"]
+
+
+def test_partition_discovery_dids_excludes_failures_when_disabled():
+    data = {"did_responses": {
+        "F187": {"hex": "bb"},
+        "F183": {"nrc_name": "requestOutOfRange"},
+    }}
+    known, failed = partition_discovery_dids(data, include_failures=False)
+    assert [k[0] for k in known] == ["F187"]
+    assert failed == []
