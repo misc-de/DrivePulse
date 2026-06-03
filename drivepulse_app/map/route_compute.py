@@ -11,6 +11,7 @@ from gi.repository import GLib
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map._jsbridge import js_call
+from drivepulse_app.map._tour_progress import annotate_uturns
 from drivepulse_app.map.services import compute_route, geocode, resolve_route_points
 
 log = get_logger(__name__)
@@ -94,6 +95,9 @@ class MapRouteComputeMixin:
         # New route invalidates any paused tour state from a prior route.
         if self._tour_paused or self._tour_active:
             self._abort_tour()
+        # Label any U-turns the backend left unmarked so turn-by-turn announces
+        # them instead of collapsing the reversal into the preceding step.
+        steps = annotate_uturns(coords, steps)
         self._tour_steps = steps
         self._tour_step_idx = 0
         self._step_min_dist = None

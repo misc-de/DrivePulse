@@ -1,6 +1,7 @@
 """Unit tests for the pure route-progress maths extracted from MapTourMixin."""
 
 from drivepulse_app.map._tour_progress import (
+    annotate_uturns,
     build_maneuver_positions,
     build_speed_zones,
     compute_route_progress_tables,
@@ -242,6 +243,117 @@ def test_next_actionable_never_advances_past_last_step():
     # All remaining steps are non-actionable: stop on the final index, not beyond.
     steps = [{"type": "continue"}, {"type": "continue"}, {"type": "continue"}]
     assert next_actionable_step_idx(steps, 0, _NON_ACTIONABLE) == 2
+
+
+def test_next_actionable_does_not_skip_uturn_continue():
+    # OSRM tags U-turns type="continue"; the skip set must not swallow them or
+    # the driver gets no U-turn instruction.
+    steps = [{"type": "continue", "modifier": "uturn"}, {"type": "turn"}]
+    assert next_actionable_step_idx(steps, 0, _NON_ACTIONABLE) == 0
+
+
+def test_next_actionable_stops_on_uturn_after_plain_continue():
+    steps = [
+        {"type": "continue", "modifier": "straight"},
+        {"type": "continue", "modifier": "uturn"},
+        {"type": "turn"},
+    ]
+    assert next_actionable_step_idx(steps, 0, _NON_ACTIONABLE) == 1
+
+
+def test_build_maneuver_positions_keeps_uturn_despite_skip_type():
+    steps = [
+        {"type": "turn", "modifier": "left"},
+        {"type": "continue", "modifier": "uturn"},
+        {"type": "continue", "modifier": "straight"},
+    ]
+    step_cum = [0.0, 100.0, 200.0]
+    # The plain "continue" is dropped; the U-turn survives the skip set.
+    assert build_maneuver_positions(steps, step_cum, {"continue"}) == [0.0, 100.0]
+
+
+# --- annotate_uturns --------------------------------------------------------
+
+
+def _uturn_geometry():
+    """Out-and-back geometry: an east leg, a tight reversal, a west leg ~11 m
+    north. Returns ``(coords, apex_idx)`` with coords as ``[lon, lat]`` pairs and
+    a clean ~180° reversal at the apex."""
+    coords = [[8.0 + k * 0.00012, 50.0] for k in range(9)]
+    apex = len(coords) - 1
+    coords += [[8.0 + k * 0.00012, 50.0001] for k in range(8, -1, -1)]
+    return coords, apex
+
+
+def test_annotate_uturns_merges_split_turns_into_single_uturn():
+    coords, apex = _uturn_geometry()
+    # Backend split the reversal into two short same-side turns at the apex.
+    steps = [
+        {"lat": coords[0][1], "lon": coords[0][0], "type": "depart", "modifier": "", "name": "A", "distance": 80.0},
+        {"lat": coords[apex][1], "lon": coords[apex][0], "type": "turn", "modifier": "left", "name": "", "distance": 12.0},
+        {"lat": coords[apex + 1][1], "lon": coords[apex + 1][0], "type": "turn", "modifier": "left", "name": "B", "distance": 80.0},
+        {"lat": coords[-1][1], "lon": coords[-1][0], "type": "arrive", "modifier": "", "name": "", "distance": 0.0},
+    ]
+    out = annotate_uturns(coords, steps)
+    mods = [s.get("modifier") for s in out]
+    assert mods.count("uturn") == 1
+    # The two split lefts collapse into one U-turn.
+    assert len(out) == len(steps) - 1
+    uturn = next(s for s in out if s["modifier"] == "uturn")
+    assert uturn["type"] == "turn"
+    assert uturn["distance"] == 92.0  # 12 + 80, distance preserved
+    assert sum(s["distance"] for s in out) == sum(s["distance"] for s in steps)
+
+
+def test_annotate_uturns_noop_when_backend_already_labelled():
+    coords, apex = _uturn_geometry()
+    steps = [
+        {"lat": coords[0][1], "lon": coords[0][0], "type": "depart", "modifier": "", "distance": 80.0},
+        {"lat": coords[apex][1], "lon": coords[apex][0], "type": "continue", "modifier": "uturn", "name": "B", "distance": 92.0},
+        {"lat": coords[-1][1], "lon": coords[-1][0], "type": "arrive", "modifier": "", "distance": 0.0},
+    ]
+    out = annotate_uturns(coords, steps)
+    assert [s.get("modifier") for s in out] == ["", "uturn", ""]
+    assert len(out) == len(steps)
+
+
+def test_annotate_uturns_ignores_ordinary_sharp_turn():
+    # L-shaped route: east then north — a 90° corner, no reversal, no doubling back.
+    coords = [[8.0 + k * 0.00012, 50.0] for k in range(9)]
+    corner = len(coords) - 1
+    coords += [[coords[corner][0], 50.0 + k * 0.0001] for k in range(1, 9)]
+    steps = [
+        {"lat": coords[0][1], "lon": coords[0][0], "type": "depart", "modifier": "", "distance": 80.0},
+        {"lat": coords[corner][1], "lon": coords[corner][0], "type": "turn", "modifier": "left", "distance": 80.0},
+        {"lat": coords[-1][1], "lon": coords[-1][0], "type": "arrive", "modifier": "", "distance": 0.0},
+    ]
+    out = annotate_uturns(coords, steps)
+    assert all(s.get("modifier") != "uturn" for s in out)
+    assert len(out) == len(steps)
+
+
+def test_annotate_uturns_is_idempotent():
+    coords, apex = _uturn_geometry()
+    steps = [
+        {"lat": coords[0][1], "lon": coords[0][0], "type": "depart", "modifier": "", "name": "A", "distance": 80.0},
+        {"lat": coords[apex][1], "lon": coords[apex][0], "type": "turn", "modifier": "left", "name": "", "distance": 12.0},
+        {"lat": coords[apex + 1][1], "lon": coords[apex + 1][0], "type": "turn", "modifier": "left", "name": "B", "distance": 80.0},
+        {"lat": coords[-1][1], "lon": coords[-1][0], "type": "arrive", "modifier": "", "name": "", "distance": 0.0},
+    ]
+    once = annotate_uturns(coords, steps)
+    twice = annotate_uturns(coords, once)
+    assert [s.get("modifier") for s in once] == [s.get("modifier") for s in twice]
+    assert len(once) == len(twice)
+
+
+def test_annotate_uturns_does_not_mutate_input():
+    coords, apex = _uturn_geometry()
+    steps = [
+        {"lat": coords[apex][1], "lon": coords[apex][0], "type": "turn", "modifier": "left", "distance": 12.0},
+    ]
+    before = [dict(s) for s in steps]
+    annotate_uturns(coords, steps)
+    assert steps == before
 
 
 # --- maneuver_passed --------------------------------------------------------

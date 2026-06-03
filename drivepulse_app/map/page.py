@@ -37,6 +37,7 @@ from drivepulse_app.common import SOURCE_LANGUAGE, _normalize_language, _transla
 from drivepulse_app.db import DriveDB
 from drivepulse_app.diagnostics import get_logger, write_diagnostic_log
 from drivepulse_app.map._jsbridge import js_call
+from drivepulse_app.map._tour_progress import annotate_uturns
 from drivepulse_app.map.gps_filter import MapGpsFilterMixin
 from drivepulse_app.map.layout import MapLayoutMixin
 from drivepulse_app.map.layout_search import MapSearchBarMixin
@@ -860,6 +861,9 @@ class MapPage(
             self._tour_start_btn.set_sensitive(True)
         if result is not None:
             snapped_coords, duration_s, distance_m, steps = result
+            # A reconstructed tour can contain a U-turn the map-matcher split
+            # into ordinary turns; relabel it so the reversal is announced.
+            steps = annotate_uturns(snapped_coords, steps)
             self._tour_coords = snapped_coords
             self._tour_steps = steps
             self._tour_step_idx = 0
