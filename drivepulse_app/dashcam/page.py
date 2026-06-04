@@ -224,6 +224,8 @@ class DashcamPage(Gtk.Box):
             on_error=lambda msg:       GLib.idle_add(self._show_error, msg),
         )
         self._recorder.on_preview_ready = self._on_preview_ready
+        self._recorder.on_memory_low = lambda: GLib.idle_add(
+            self._show_error, "", "dashcam.error.memory")
 
         # Called on the GTK main thread whenever recording starts or stops.
         self.on_recording_changed: Callable[[bool], None] | None = None
@@ -846,7 +848,7 @@ class DashcamPage(Gtk.Box):
         self._update_status()
         return False
 
-    def _show_error(self, _msg: str) -> bool:
+    def _show_error(self, _msg: str, key: str = "dashcam.error.camera") -> bool:
         self._recorder.is_recording = False
         for btn in self._save_btns:
             btn.set_visible(False)
@@ -855,7 +857,7 @@ class DashcamPage(Gtk.Box):
         self._update_toggle_btn()
         if self.on_recording_changed is not None:
             self.on_recording_changed(False)
-        toast_msg = _translate(self.language, "dashcam.error.camera")
+        toast_msg = _translate(self.language, key)
         root = self.get_root()
         if root is not None and hasattr(root, "add_toast"):
             root.add_toast(Adw.Toast.new(toast_msg))

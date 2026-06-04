@@ -159,6 +159,7 @@
   "dashcam.event.saved": "Event saved: {n} clip(s)",
   "dashcam.event.nothing": "No recording available to save yet.",
   "dashcam.error.camera": "Camera unavailable – recording not started.",
+  "dashcam.error.memory": "Recording stopped – running low on memory.",
   "dashcam.settings.title": "Recording Settings",
   "dashcam.settings.camera": "Camera",
   "dashcam.settings.resolution": "Resolution",
