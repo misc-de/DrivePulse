@@ -66,6 +66,7 @@ class MapGpsFilterMixin:
     _update_maneuver_overlay: Callable[..., Any]
     _check_off_route: Callable[..., Any]
     _check_waypoint_proximity: Callable[..., Any]
+    _maybe_resume_persisted_tour: Callable[[], None]
 
     # ── GPS kinematic sanity filter ───────────────────────────────────────────
 
@@ -110,6 +111,10 @@ class MapGpsFilterMixin:
         # ~5 km/h GPS heading readings are too noisy to disambiguate direction.
         self._gps_heading_valid = heading is not None and (speed_kmh or 0.0) >= 5.0
         self._gps_speed_mps = (speed_kmh / 3.6) if speed_kmh is not None else self._gps_speed_mps
+
+        # First fix after startup: offer to resume a tour the app was restarted
+        # out of (one-shot, self-guarded — cheap on every later tick).
+        self._maybe_resume_persisted_tour()
 
         # Snap GPS onto the nearest route segment during active/paused navigation.
         snap_for_display = False

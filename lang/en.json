@@ -206,6 +206,7 @@
   "map.tour_calculate_failed.body": "The tour calculation was not possible.",
   "map.tour_stop": "Stop tour",
   "map.tour_resume": "Resume tour",
+  "map.tour.resumed": "Previous tour restored – tap Start to continue",
   "map.tour_abort": "Abort tour",
   "map.tour_reset.tooltip": "Discard tour / route plan",
   "map.next_waypoint": "Next waypoint",

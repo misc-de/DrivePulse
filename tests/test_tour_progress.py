@@ -9,6 +9,7 @@ from drivepulse_app.map._tour_progress import (
     nearest_route_progress,
     next_actionable_step_idx,
     off_route_decision,
+    reconcile_passed_waypoints,
     tts_distance_text,
     waypoint_is_passed,
 )
@@ -410,3 +411,59 @@ def test_maneuver_route_fallback_needs_margin():
 def test_maneuver_passed_handles_none_min_dist():
     # No closest approach recorded yet and no route table -> not passed (no crash).
     assert maneuver_passed(None, 50.0, progress_m=0.0, step_route_cum_m=None, **_MANEUVER_KW) is False
+
+
+# --- reconcile_passed_waypoints --------------------------------------------
+
+# Straight west->east route at lat 50°N; each 0.002° lon step is ~143 m.
+_RC_COORDS = [[8.000, 50.0], [8.002, 50.0], [8.004, 50.0], [8.006, 50.0],
+              [8.008, 50.0], [8.010, 50.0]]
+_RC_CUM = compute_route_progress_tables(_RC_COORDS, [])[0]
+# Waypoints as (lat, lon): two vias then the final destination.
+_RC_VIA1 = (50.0, 8.002)
+_RC_VIA2 = (50.0, 8.006)
+_RC_FINAL = (50.0, 8.010)
+_RC_REMAINING = [_RC_VIA1, _RC_VIA2, _RC_FINAL]
+
+
+def test_reconcile_keeps_all_when_at_start():
+    # GPS at the route start -> nothing is behind us yet.
+    out = reconcile_passed_waypoints(_RC_COORDS, _RC_CUM, _RC_REMAINING, 50.0, 8.000)
+    assert out == _RC_REMAINING
+
+
+def test_reconcile_drops_one_passed_via():
+    # GPS past via1 (lon 8.004) but before via2 -> drop only via1.
+    out = reconcile_passed_waypoints(_RC_COORDS, _RC_CUM, _RC_REMAINING, 50.0, 8.004)
+    assert out == [_RC_VIA2, _RC_FINAL]
+
+
+def test_reconcile_drops_both_vias():
+    # GPS past via2 (lon 8.0075) -> both vias gone, final stays.
+    out = reconcile_passed_waypoints(_RC_COORDS, _RC_CUM, _RC_REMAINING, 50.0, 8.0075)
+    assert out == [_RC_FINAL]
+
+
+def test_reconcile_never_drops_final_destination():
+    # GPS at/after the final destination -> the final entry is still kept.
+    out = reconcile_passed_waypoints(_RC_COORDS, _RC_CUM, [_RC_VIA2, _RC_FINAL], 50.0, 8.010)
+    assert out == [_RC_FINAL]
+
+
+def test_reconcile_bails_when_far_off_route():
+    # GPS ~1.1 km north of the route -> projection untrusted, list unchanged.
+    out = reconcile_passed_waypoints(_RC_COORDS, _RC_CUM, _RC_REMAINING, 50.01, 8.004)
+    assert out == _RC_REMAINING
+
+
+def test_reconcile_handles_missing_gps():
+    assert reconcile_passed_waypoints(_RC_COORDS, _RC_CUM, _RC_REMAINING, None, None) == _RC_REMAINING
+
+
+def test_reconcile_single_destination_unchanged():
+    # Only the final destination remains -> nothing to reconcile.
+    assert reconcile_passed_waypoints(_RC_COORDS, _RC_CUM, [_RC_FINAL], 50.0, 8.004) == [_RC_FINAL]
+
+
+def test_reconcile_handles_degenerate_route():
+    assert reconcile_passed_waypoints([], [], _RC_REMAINING, 50.0, 8.004) == _RC_REMAINING

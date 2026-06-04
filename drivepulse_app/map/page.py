@@ -177,6 +177,9 @@ class MapPage(
         self._tour_active: bool = False
         self._tour_paused: bool = False
         self._tour_completed: bool = False
+        # One-shot guard: on the first GPS fix after startup, check whether a
+        # tour was persisted (app restarted mid-drive) and offer to resume it.
+        self._resume_checked: bool = False
         self._tour_steps: list[dict] = []
         self._tour_step_idx: int = 0
         self._tour_coords: list[list[float]] = []

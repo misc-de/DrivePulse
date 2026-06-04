@@ -22,6 +22,7 @@ from gi.repository import Gtk as _Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map import _tour_state
 from drivepulse_app.map._jsbridge import js_call
 from drivepulse_app.map._tour_progress import (
     build_maneuver_positions,
@@ -29,6 +30,7 @@ from drivepulse_app.map._tour_progress import (
     maneuver_passed,
     nearest_route_progress,
     next_actionable_step_idx,
+    reconcile_passed_waypoints,
 )
 from drivepulse_app.map.services import (
     format_distance,
@@ -159,6 +161,16 @@ class MapTourMixin:
             return
         self._begin_tour()
 
+    def _persist_active_tour(self) -> None:
+        """Persist the remaining destination waypoints so an app restart can
+        resume the tour from the legs the driver has not yet completed. An
+        empty remaining list clears the persisted state."""
+        _tour_state.save_active_tour(
+            list(getattr(self, "_remaining_dest_wps", []) or []),
+            name=getattr(self, "_loaded_tour_name", None),
+            tour_id=getattr(self, "_loaded_tour_id", None),
+        )
+
     def _begin_tour(self) -> None:
         if self._start_coord is None:
             return
@@ -182,6 +194,16 @@ class MapTourMixin:
         self._off_route_since = 0.0
         self._last_reroute_time = 0.0
         self._remaining_dest_wps = list(self._tour_waypoints[1:]) if self._tour_waypoints else []
+        # Drop intermediate vias the driver is already past (app restart
+        # mid-drive, or drove ahead before tapping Start) so the tour resumes
+        # where they actually are instead of routing back to a reached stop.
+        if len(self._remaining_dest_wps) > 1:
+            self._remaining_dest_wps = reconcile_passed_waypoints(
+                self._tour_coords, getattr(self, "_route_cum_m", []),
+                self._remaining_dest_wps, self._gps_lat, self._gps_lon,
+            )
+        # Persist progress so an app restart can resume from the remaining legs.
+        self._persist_active_tour()
         self._wp_in_radius = False
         self._speed_zones = self._build_speed_zones()
         self._speed_zones_from_overpass = False
@@ -262,6 +284,7 @@ class MapTourMixin:
         self._off_route_since = 0.0
         self._last_reroute_time = 0.0
         self._remaining_dest_wps = []
+        _tour_state.clear_active_tour()
         self._wp_in_radius = False
         self._set_next_wp_btn_visible(False)
         self._tts_last_step_idx = -1
@@ -483,6 +506,7 @@ class MapTourMixin:
             # Step passed — last step means route complete.
             if self._tour_step_idx >= len(self._tour_steps) - 1:
                 self._tour_completed = True
+                _tour_state.clear_active_tour()
                 self._maneuver_overlay.set_visible(False)
                 return
 

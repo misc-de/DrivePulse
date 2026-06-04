@@ -3,6 +3,7 @@ routing engine in a worker thread, push the polyline / waypoints / fit-bounds
 to the map backend on the GLib main loop."""
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -10,6 +11,7 @@ from gi.repository import GLib
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map import _tour_state
 from drivepulse_app.map._jsbridge import js_call
 from drivepulse_app.map._tour_progress import annotate_uturns
 from drivepulse_app.map.services import compute_route, geocode, resolve_route_points
@@ -45,6 +47,9 @@ class MapRouteComputeMixin:
     _snapped_cum_m: float
     _gps_route_idx: int
     _route_coords: list[list[float]]
+    _resume_checked: bool
+    _loaded_tour_id: int | None
+    _loaded_tour_name: str | None
 
     _js: Callable[[str], None]
     _restore_route_btn: Callable[..., Any]
@@ -155,4 +160,59 @@ class MapRouteComputeMixin:
         elif self._shumate_map is not None:
             self._shumate_show_route(all_points, coords)
 
+        return False
+
+    # ── Resume a tour that was interrupted by an app restart ──────────────────
+
+    def _maybe_resume_persisted_tour(self) -> None:
+        """One-shot at startup: if a tour was persisted (the app was restarted
+        mid-drive), rebuild it from the current GPS position to the remaining
+        destinations and present it ready to continue. Called from the GPS
+        handler so a fix is available to anchor the resumed route."""
+        if self._resume_checked:
+            return
+        if self._gps_lat is None or self._gps_lon is None:
+            return  # wait for a fix — the flag stays False so we retry next tick
+        self._resume_checked = True
+        # Don't override a route the user already loaded/started this session.
+        if self._tour_active or self._tour_paused or self._tour_coords:
+            return
+        state = _tour_state.load_active_tour()
+        if state is None:
+            return
+        remaining: list[tuple[float, float]] = state["remaining"]
+        if not remaining:
+            return
+        self._loaded_tour_name = state.get("name") or None
+        self._loaded_tour_id = state.get("id")
+        all_points = [(self._gps_lat, self._gps_lon), *remaining]
+        log.info("Resuming persisted tour: %d remaining destination(s)", len(remaining))
+        threading.Thread(
+            target=self._resume_compute_bg, args=(all_points,), daemon=True
+        ).start()
+
+    def _resume_compute_bg(self, all_points: list[tuple[float, float]]) -> None:
+        try:
+            result = compute_route(all_points)
+        except Exception:
+            log.exception("Resume route computation failed")
+            result = None
+        GLib.idle_add(self._resume_route_result, all_points, result)
+
+    def _resume_route_result(
+        self,
+        all_points: list[tuple[float, float]],
+        result: tuple[list[list[float]], float, float, list[dict]] | None,
+    ) -> bool:
+        if result is None:
+            # Resume route failed to compute (e.g. routing backend down) — keep
+            # the persisted state so the next launch can try again.
+            return False
+        self._route_result(all_points, result)
+        # Present the drawn route as a resumable tour: the button reads "resume"
+        # and a hint tells the driver their previous tour was restored. Tapping
+        # the tour button runs _begin_tour, which reconciles already-passed vias.
+        self._set_tour_button("resume")
+        if self._status_lbl is not None:
+            self._status_lbl.set_text(_translate(self.language, "map.tour.resumed"))
         return False

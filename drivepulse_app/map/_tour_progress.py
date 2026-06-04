@@ -13,7 +13,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from drivepulse_app.common import _translate
-from drivepulse_app.map._geometry import bearing, haversine
+from drivepulse_app.map._geometry import bearing, haversine, snap_to_route
 from drivepulse_app.map._speed_zones import mock_speed_kmh
 
 
@@ -402,6 +402,53 @@ def waypoint_is_passed(
     drove_past = dist_m <= max_dist_m and diff > bearing_threshold_deg
     driving_away = diff > behind_deg
     return drove_past or driving_away, dist_m, brng
+
+
+def reconcile_passed_waypoints(
+    coords: list[list[float]],
+    route_cum_m: list[float],
+    remaining: Sequence[tuple[float, float]],
+    gps_lat: float | None,
+    gps_lon: float | None,
+    *,
+    max_off_route_m: float = 80.0,
+    passed_margin_m: float = 40.0,
+) -> list[tuple[float, float]]:
+    """Drop leading intermediate waypoints the driver is already past.
+
+    When a tour is (re)started the driver may already be partway along the
+    planned route — e.g. after an app restart mid-drive, or after driving ahead
+    before tapping *Start*. This snaps the current GPS position onto the route
+    and drops every leading *intermediate* waypoint whose own position along the
+    route lies behind the driver's progress (by more than ``passed_margin_m``).
+    The final destination (the last entry) is never dropped.
+
+    If GPS is unavailable, the route is degenerate, or the fix is further than
+    ``max_off_route_m`` from the route, the position can't be trusted and the
+    list is returned unchanged.
+
+    ``coords`` are ``[lon, lat]`` pairs; ``remaining`` and the return value are
+    ``(lat, lon)`` tuples.
+    """
+    remaining = list(remaining)
+    if len(remaining) < 2 or gps_lat is None or gps_lon is None:
+        return remaining
+    if len(coords) < 2 or not route_cum_m:
+        return remaining
+
+    n = len(coords)
+    slat, slon, _seg, gps_cum = snap_to_route(gps_lat, gps_lon, coords, route_cum_m, 0, window=n)
+    if haversine(gps_lat, gps_lon, slat, slon) > max_off_route_m:
+        return remaining  # too far off-route to trust the projection
+
+    drop = 0
+    for wp in remaining[:-1]:  # never consider the final destination
+        _wl, _wo, _si, wp_cum = snap_to_route(wp[0], wp[1], coords, route_cum_m, 0, window=n)
+        if gps_cum - wp_cum > passed_margin_m:
+            drop += 1
+        else:
+            break
+    return remaining[drop:]
 
 
 def off_route_decision(
