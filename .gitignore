@@ -12,3 +12,5 @@ __pycache__/
 drivepulse.db
 .ruff_cache
 .mypy_cache
+.github
+.agents
