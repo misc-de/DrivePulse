@@ -156,6 +156,10 @@ class MapPage(
         self._gps_lon: float | None = None
         self._gps_heading: float = 0.0
         self._gps_heading_valid: bool = False
+        # Last heading recorded while actually moving. Reused to snap onto the
+        # correct carriageway while stationary (red lights), when the live
+        # heading is too noisy to trust. See gps_filter._maybe sticky logic.
+        self._last_moving_heading: float | None = None
         self._gps_speed_mps: float = 0.0
         self._follow_gps: bool = True
         self._last_map_js: float = 0.0   # throttle: last time mapSetCar was sent

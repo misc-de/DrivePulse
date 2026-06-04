@@ -33,6 +33,7 @@ class MapGpsFilterMixin:
     _obd_speed_kmh: float | None
     _last_map_js_lat: float | None
     _last_map_js_lon: float | None
+    _last_moving_heading: float | None
 
     # More MapPage state surfaced to this mixin. See project_mixin_typing.md.
     _backend: str
@@ -110,6 +111,8 @@ class MapGpsFilterMixin:
         # Heading is only reliable when the vehicle is actually moving; below
         # ~5 km/h GPS heading readings are too noisy to disambiguate direction.
         self._gps_heading_valid = heading is not None and (speed_kmh or 0.0) >= 5.0
+        if self._gps_heading_valid:
+            self._last_moving_heading = self._gps_heading
         self._gps_speed_mps = (speed_kmh / 3.6) if speed_kmh is not None else self._gps_speed_mps
 
         # First fix after startup: offer to resume a tour the app was restarted
@@ -119,7 +122,11 @@ class MapGpsFilterMixin:
         # Snap GPS onto the nearest route segment during active/paused navigation.
         snap_for_display = False
         if (self._tour_active or self._tour_paused) and len(self._tour_coords) >= 2 and self._route_cum_m:
-            heading_snap = self._gps_heading if self._gps_heading_valid else None
+            # While moving use the live heading; while stationary (red light)
+            # fall back to the last heading recorded in motion so snap_to_route's
+            # carriageway disambiguation stays active and the marker can't flip
+            # onto the oncoming lane / the round-trip return leg.
+            heading_snap = self._gps_heading if self._gps_heading_valid else self._last_moving_heading
             slat, slon, seg_idx, scum = snap_to_route(
                 lat, lon, self._tour_coords, self._route_cum_m, self._gps_route_idx,
                 heading=heading_snap,
