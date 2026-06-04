@@ -16,6 +16,7 @@ Valhalla/OSRM didn't provide them.
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -24,7 +25,40 @@ from drivepulse_app.map._geometry import _pt_seg_dist2_approx
 
 HttpPost = Callable[..., Any]
 
-_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Try the main instance first, then community mirrors — the main overpass-api.de
+# returns 504/empty under load often enough that a single failure used to leave a
+# whole tour without real speed limits.
+_OVERPASS_URLS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+)
+_OVERPASS_URL = _OVERPASS_URLS[0]
+
+# Small TTL cache of computed zone breakpoints, keyed by the exact Overpass query
+# (which encodes the sampled route points). Lets an identical/recomputed route —
+# e.g. an app-restart resume — reuse limits instead of re-hitting a flaky
+# Overpass, so a single 504 can't blank the whole tour.
+_ZONE_CACHE: dict[str, tuple[float, list[tuple[float, float]]]] = {}
+_ZONE_CACHE_TTL_S = 900.0
+
+
+def _zone_cache_get(query: str) -> list[tuple[float, float]] | None:
+    hit = _ZONE_CACHE.get(query)
+    if hit is None:
+        return None
+    ts, zones = hit
+    if time.monotonic() - ts > _ZONE_CACHE_TTL_S:
+        _ZONE_CACHE.pop(query, None)
+        return None
+    return zones
+
+
+def _zone_cache_put(query: str, zones: list[tuple[float, float]]) -> None:
+    _ZONE_CACHE[query] = (time.monotonic(), zones)
+    if len(_ZONE_CACHE) > 64:  # bound memory — drop the oldest entries
+        for k, _ in sorted(_ZONE_CACHE.items(), key=lambda kv: kv[1][0])[:16]:
+            _ZONE_CACHE.pop(k, None)
 
 # Named maxspeed tags used by OSM / Valhalla (→ km/h)
 _MAXSPEED_NAMED: dict[str, float] = {
@@ -127,7 +161,15 @@ def fetch_overpass_speed_zones(
         f"out body geom;\n"
     )
 
-    data = http_post_fn(_OVERPASS_URL, query)
+    cached = _zone_cache_get(query)
+    if cached is not None:
+        return list(cached)
+
+    data = None
+    for url in _OVERPASS_URLS:
+        data = http_post_fn(url, query)
+        if data:
+            break
     if not data:
         return []
 
@@ -168,6 +210,8 @@ def fetch_overpass_speed_zones(
             zones.append((cum_m, best_speed))
             prev_speed = best_speed
 
+    if zones:
+        _zone_cache_put(query, zones)
     return zones
 
 

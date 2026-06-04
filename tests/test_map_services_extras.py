@@ -232,3 +232,52 @@ def test_viewport_lock_resets_flag_on_normal_exit():
         assert page._setting_pos is True
 
     assert page._setting_pos is False
+
+
+# ─── Overpass speed-zone fetch: mirror fallback + result cache ────────────────
+
+from drivepulse_app.map._speed_zones import (  # noqa: E402
+    _ZONE_CACHE,
+    fetch_overpass_speed_zones,
+)
+
+_WAY_30 = {
+    "type": "way",
+    "tags": {"maxspeed": "30"},
+    "geometry": [{"lat": 50.0, "lon": 8.0}, {"lat": 50.01, "lon": 8.0}],
+}
+
+
+def test_overpass_falls_back_to_mirror_when_primary_empty():
+    """A 504/empty from the primary endpoint must not blank the limits — the
+    next mirror is tried before giving up."""
+    _ZONE_CACHE.clear()
+    calls: list[str] = []
+
+    def fake_post(url, query):
+        calls.append(url)
+        return None if "overpass-api.de" in url else {"elements": [_WAY_30]}
+
+    coords = [[8.0, 50.0], [8.0, 50.005], [8.0, 50.01]]
+    zones = fetch_overpass_speed_zones(coords, http_post_fn=fake_post)
+    assert zones and zones[0][1] == 30.0
+    assert "overpass-api.de" in calls[0]      # primary tried first
+    assert len(calls) >= 2                     # then fell back to a mirror
+
+
+def test_overpass_result_is_cached_per_query():
+    """An identical route (e.g. an app-restart resume) reuses the cached zones
+    instead of hitting a flaky Overpass again."""
+    _ZONE_CACHE.clear()
+    posts = {"n": 0}
+
+    def fake_post(url, query):
+        posts["n"] += 1
+        return {"elements": [_WAY_30]}
+
+    coords = [[8.0, 50.0], [8.0, 50.01]]
+    first = fetch_overpass_speed_zones(coords, http_post_fn=fake_post)
+    n_after_first = posts["n"]
+    second = fetch_overpass_speed_zones(coords, http_post_fn=fake_post)
+    assert first == second
+    assert posts["n"] == n_after_first         # served from cache, no new POST

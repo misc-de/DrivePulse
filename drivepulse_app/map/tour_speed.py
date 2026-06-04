@@ -88,6 +88,16 @@ class MapTourSpeedMixin:
         if not self._speed_zones:
             self._speed_zone_overlay.set_visible(False)
             return
+        # Only post a number we actually trust: real per-segment limits from
+        # Overpass. Without them the zones are just the urban/ref heuristic
+        # (e.g. 40 km/h for any unref'd street), which is plain wrong in
+        # Tempo-30 areas — better to show no sign than a confidently-wrong one.
+        # The mock-mode simulator has no Overpass, so it keeps its heuristic.
+        if not getattr(self, "_speed_zones_from_overpass", False) and not getattr(
+            self, "mock_mode", False
+        ):
+            self._speed_zone_overlay.set_visible(False)
+            return
         progress_m = self._gps_progress_m()
         speed: float | None = None
         for cum_m, spd in self._speed_zones:

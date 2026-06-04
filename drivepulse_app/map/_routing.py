@@ -40,7 +40,10 @@ def _log_valhalla_trace_failure(
 
 ROUTING_BACKENDS = ["osrm", "valhalla"]
 
-_VALHALLA_URL = "https://valhalla.openstreetmap.de/route"
+# NB: the API lives on the `valhalla1` host — the bare `valhalla.openstreetmap.de`
+# now serves the JS demo frontend (HTTP 200 + HTML), which silently breaks JSON
+# parsing and used to make every route fall back to OSRM (no speed limits).
+_VALHALLA_URL = "https://valhalla1.openstreetmap.de/route"
 _VALHALLA_TRACE_URLS = [
     "https://valhalla1.openstreetmap.de/trace_route",
 ]
