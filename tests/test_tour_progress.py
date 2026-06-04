@@ -204,9 +204,19 @@ def test_waypoint_passed_when_behind_and_close():
     assert dist < 200.0
 
 
-def test_waypoint_not_passed_when_behind_but_far():
-    # Behind the heading but well beyond the bypass radius -> keep it in the route.
+def test_waypoint_passed_when_driving_straight_away_even_if_far():
+    # The driver took their own way: the waypoint is now almost directly behind
+    # (bearing diff ~180°), far beyond the bypass radius -> dropped so the route
+    # doesn't balloon back to it. Regression for the 1.6 km "via-bypass" bug.
     passed, dist, _ = waypoint_is_passed(_GPS_LAT, _GPS_LON, 0.0, *_WP_FAR_SOUTH, 200.0)
+    assert passed is True
+    assert dist > 200.0
+
+
+def test_waypoint_kept_when_far_and_only_moderately_off_heading():
+    # Far away and behind-ish but below behind_deg (diff 130°) -> keep it, so a
+    # mid-turn / parallel-street wobble doesn't skip a real upcoming via.
+    passed, dist, _ = waypoint_is_passed(_GPS_LAT, _GPS_LON, 50.0, *_WP_FAR_SOUTH, 200.0)
     assert passed is False
     assert dist > 200.0
 
@@ -219,11 +229,22 @@ def test_waypoint_bearing_wraparound_near_north():
 
 
 def test_waypoint_bearing_threshold_is_configurable():
-    # A waypoint due south (bearing diff 180°) is passed at the default 110°
-    # threshold but not when the threshold is raised above 180°.
+    # A close waypoint due south (bearing diff 180°) is passed at the default
+    # 110° threshold but not when both thresholds are raised above 180° (which
+    # disables the drove-past *and* driving-away paths).
     assert waypoint_is_passed(_GPS_LAT, _GPS_LON, 0.0, *_WP_SOUTH, 200.0)[0] is True
     assert waypoint_is_passed(
-        _GPS_LAT, _GPS_LON, 0.0, *_WP_SOUTH, 200.0, bearing_threshold_deg=181.0
+        _GPS_LAT, _GPS_LON, 0.0, *_WP_SOUTH, 200.0,
+        bearing_threshold_deg=181.0, behind_deg=181.0,
+    )[0] is False
+
+
+def test_waypoint_driving_away_threshold_is_configurable():
+    # A far waypoint directly behind (diff 180°) is dropped at the default
+    # behind_deg, but kept when behind_deg is raised above 180°.
+    assert waypoint_is_passed(_GPS_LAT, _GPS_LON, 0.0, *_WP_FAR_SOUTH, 200.0)[0] is True
+    assert waypoint_is_passed(
+        _GPS_LAT, _GPS_LON, 0.0, *_WP_FAR_SOUTH, 200.0, behind_deg=181.0
     )[0] is False
 
 

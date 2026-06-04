@@ -84,6 +84,12 @@ class MapGpsFilterMixin:
     # discrepancy between GPS speed and OBD speed triggers position rejection.
     _OBD_SPEED_STALE_S: float = 5.0
     _OBD_GPS_SPEED_DIFF_KMH: float = 30.0
+    # Display snapping: glue the position marker to the route only while within
+    # this radius of it. Kept in step with _OFF_ROUTE_M (the reroute trigger) so
+    # that leaving the route both un-snaps the marker (the driver sees they are
+    # off the line) and starts the off-route timer, instead of staying glued to
+    # a stale route.
+    _SNAP_DISPLAY_MAX_M: float = 30.0
 
     def update_gps(
         self,
@@ -106,6 +112,7 @@ class MapGpsFilterMixin:
         self._gps_speed_mps = (speed_kmh / 3.6) if speed_kmh is not None else self._gps_speed_mps
 
         # Snap GPS onto the nearest route segment during active/paused navigation.
+        snap_for_display = False
         if (self._tour_active or self._tour_paused) and len(self._tour_coords) >= 2 and self._route_cum_m:
             heading_snap = self._gps_heading if self._gps_heading_valid else None
             slat, slon, seg_idx, scum = snap_to_route(
@@ -116,15 +123,20 @@ class MapGpsFilterMixin:
             self._snapped_lon = slon
             self._gps_route_idx = seg_idx
             self._snapped_cum_m = scum
+            off_dist_m = haversine(lat, lon, slat, slon)
             if self._tour_active:
-                off_dist_m = haversine(lat, lon, slat, slon)
                 self._check_off_route(off_dist_m, now)
+            # Glue the marker to the route only while the driver is on it; beyond
+            # the threshold show the true GPS position so a deliberate detour is
+            # visible instead of being snapped onto the stale route. The snapped
+            # position itself is kept for waypoint-proximity / progress tracking.
+            snap_for_display = off_dist_m <= self._SNAP_DISPLAY_MAX_M
         else:
             self._snapped_lat = None
             self._snapped_lon = None
 
-        display_lat = self._snapped_lat if self._snapped_lat is not None else lat
-        display_lon = self._snapped_lon if self._snapped_lon is not None else lon
+        display_lat = self._snapped_lat if (snap_for_display and self._snapped_lat is not None) else lat
+        display_lon = self._snapped_lon if (snap_for_display and self._snapped_lon is not None) else lon
 
         # During an active tour always re-engage follow so the map tracks the driver.
         if self._tour_active and not self._follow_gps:
