@@ -370,7 +370,10 @@ class CarsDetailRenderMixin:
                 if not _scan_stats or not (_scan_stats.get("values") or []):
                     continue
             label = _translate(self.language, label_key)
-            if pid_key == _SPECIAL_VIN and not is_live and self._selected_car_id is not None:
+            # VIN is hand-editable both on a saved car (writes the DB) and on the
+            # live vehicle (no OBD VIN on older/ISO-9141-2 cars) — typing it there
+            # registers the vehicle through the normal add flow.
+            if pid_key == _SPECIAL_VIN and (is_live or self._selected_car_id is not None):
                 row = self._make_editable_field_row(pid_key, label, value_text, is_unknown)
                 self.value_list.append(row)
                 continue
@@ -724,10 +727,13 @@ class CarsDetailRenderMixin:
         # data — no edit affordance.
         if pid_key != _SPECIAL_VIN:
             return
+        is_live = self._selected_source == self.LIVE_ID
         car_id = self._selected_car_id
-        if car_id is None or self.db is None:
+        if not is_live and (car_id is None or self.db is None):
             return
-        heading = _translate(self.language, "cars.field.edit_vin")
+        heading = _translate(
+            self.language, "cars.live.enter_vin" if is_live else "cars.field.edit_vin"
+        )
         entry_title = _translate(self.language, "cars.pid.VIN")
 
         dialog = Adw.AlertDialog()
@@ -750,9 +756,19 @@ class CarsDetailRenderMixin:
         def _on_response(d: Adw.AlertDialog, response: str) -> None:
             if response != "save":
                 return
+            value = entry.get_text().strip().upper().replace(" ", "")
+            if is_live:
+                # No saved car yet: a typed VIN feeds the normal live-add path,
+                # which upserts the vehicle (brand is derived from the WMI).
+                if len(value) < 11:
+                    self._show_toast(_translate(self.language, "cars.live.vin_invalid"))
+                    return
+                self._live_identity = {**self._live_identity, "VIN": value}
+                self._add_live_vehicle()
+                self._show_toast(_translate(self.language, "cars.live.vin_saved"))
+                return
             if self.db is None:
                 return
-            value = entry.get_text().strip()
             try:
                 self.db.update_car_vin(car_id, value)
             except Exception:
