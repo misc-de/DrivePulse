@@ -15,6 +15,10 @@ class BluetoothPtyBridge:
     """Bridges a Bluetooth RFCOMM socket to a PTY so pyserial/python-obd can use it."""
 
     _CONNECT_TIMEOUT = 10.0
+    # Bounded recv so the relay loop re-checks _stop instead of blocking forever.
+    # socket.close() does NOT interrupt a thread parked in recv() — without this
+    # (plus the shutdown() in close()) that thread leaks and wedges reconnects.
+    _RECV_TIMEOUT = 1.0
 
     def __init__(self, addr: str, channel: int = 1) -> None:
         self.addr = addr
@@ -31,7 +35,7 @@ class BluetoothPtyBridge:
         try:
             sock.settimeout(self._CONNECT_TIMEOUT)
             sock.connect((self.addr, self.channel))
-            sock.settimeout(None)
+            sock.settimeout(self._RECV_TIMEOUT)
         except Exception:
             sock.close()
             raise
@@ -65,6 +69,8 @@ class BluetoothPtyBridge:
                     if not data:
                         break
                     os.write(fd, data)
+                except TimeoutError:
+                    continue  # idle window elapsed → re-check _stop, keep relaying
                 except OSError as exc:
                     log.info("Bluetooth socket->PTY relay stopped: %s", exc)
                     break
@@ -74,6 +80,11 @@ class BluetoothPtyBridge:
     def close(self) -> None:
         self._stop.set()
         if self._sock is not None:
+            try:
+                # close() alone never unblocks a concurrent recv() — shutdown does.
+                self._sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # peer already gone / socket not connected
             try:
                 self._sock.close()
             except OSError as exc:
