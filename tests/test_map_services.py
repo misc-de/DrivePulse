@@ -221,6 +221,39 @@ def test_snap_to_route_fallback_no_coords():
     assert slon == 11.0
 
 
+def test_snap_to_route_heading_disambiguates_opposite_carriageway():
+    """On a round trip that returns on the same road, a stationary fix between
+    the two legs snaps to the leg matching the travel heading — the basis for
+    the sticky-heading fix that stops the marker flipping at red lights."""
+    from drivepulse_app.map.services import haversine, snap_to_route
+
+    # Eastbound leg at lat 0, then a westbound return leg ~111 m north (lat 0.001).
+    coords = [[0.0, 0.0], [0.5, 0.0], [1.0, 0.0],
+              [1.0, 0.001], [0.5, 0.001], [0.0, 0.001]]
+    cum_m = [0.0]
+    for i in range(len(coords) - 2):
+        a, b = coords[i], coords[i + 1]
+        cum_m.append(cum_m[-1] + haversine(a[1], a[0], b[1], b[0]))
+
+    # GPS sits between the legs but slightly closer to the WRONG (return) leg.
+    gps_lat, gps_lon = 0.0007, 0.5
+    n = len(coords)
+
+    # No heading: geometry alone snaps to the nearer (westbound return) leg.
+    _la, _lo, seg_none, _c = snap_to_route(gps_lat, gps_lon, coords, cum_m, 0, window=n)
+    assert seg_none >= 3
+
+    # Heading east (outbound): snaps to the eastbound leg despite being farther.
+    la_e, _lo, seg_e, _c = snap_to_route(gps_lat, gps_lon, coords, cum_m, 0, window=n, heading=90.0)
+    assert seg_e < 3
+    assert abs(la_e - 0.0) < 1e-4
+
+    # Heading west (return): snaps back to the westbound leg.
+    la_w, _lo, seg_w, _c = snap_to_route(gps_lat, gps_lon, coords, cum_m, 0, window=n, heading=270.0)
+    assert seg_w >= 3
+    assert abs(la_w - 0.001) < 1e-4
+
+
 def test_valhalla_trace_route_uses_public_trace_host_and_break_via_types(monkeypatch):
     from drivepulse_app.map import services
 
