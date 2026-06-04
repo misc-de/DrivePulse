@@ -22,7 +22,7 @@ from drivepulse_app.map._tour_progress import (
     off_route_decision,
     waypoint_is_passed,
 )
-from drivepulse_app.map.services import compute_route, haversine
+from drivepulse_app.map.services import bearing, compute_route, haversine
 
 log = get_logger(__name__)
 
@@ -49,6 +49,7 @@ class MapTourRerouteMixin:
     _status_lbl: Any
     _shumate_map: Any
     _path_layer: Any
+    _guide_path_layer: Any
     _wp_layer: Any
     _steps_toggle_btn: Any
     _steps_listbox: Any
@@ -81,6 +82,16 @@ class MapTourRerouteMixin:
     _REROUTE_MIN_SPEED_KMH = 10.0  # don't reroute below this speed
     _BYPASS_MAX_DIST_M = 250.0   # only drop a behind-heading WP when within this radius
 
+    # Wrong-way / U-turn reroute: a U-turn keeps you *on* the route line (~0 m
+    # off), so the distance test above never fires. Detect it instead by the GPS
+    # heading running opposite to the route's own direction at the snapped
+    # segment. This deliberately overrides the cooldown — a reversal is a clear,
+    # intentional signal — but keeps a short min-gap so it can't thrash.
+    _UTURN_REROUTE_DEG = 120.0   # heading vs route direction beyond this = wrong-way
+    _UTURN_CONFIRM_S = 3.0       # sustained wrong-way for this long before rerouting
+    _UTURN_MIN_GAP_S = 8.0       # minimum gap after any reroute before a U-turn one
+    _wrong_way_since: float = 0.0
+
     # ── Auto-rerouting ────────────────────────────────────────────────────────
 
     def _check_off_route(self, off_dist_m: float, now: float) -> None:
@@ -94,7 +105,62 @@ class MapTourRerouteMixin:
             cooldown_s=self._REROUTE_COOLDOWN_S,
         )
         if should_reroute:
+            self._wrong_way_since = 0.0
             self._trigger_reroute()
+            return
+        # A U-turn keeps you on the route line, so the distance test never fires
+        # — catch it by heading instead (and let it override the cooldown).
+        if self._wrong_way_reroute(speed_kmh, now):
+            self._trigger_reroute()
+
+    def _route_bearing_at_idx(self, idx: int) -> float | None:
+        """Bearing (deg) of the route's travel direction at vertex *idx*, or None.
+
+        ``_tour_coords`` are ``[lon, lat]`` pairs; ``idx`` is the snapped segment's
+        start vertex (``self._gps_route_idx``)."""
+        coords = self._tour_coords
+        if not coords or idx < 0 or idx >= len(coords) - 1:
+            return None
+        a, b = coords[idx], coords[idx + 1]
+        return bearing(a[1], a[0], b[1], b[0])
+
+    def _wrong_way_reroute(self, speed_kmh: float, now: float) -> bool:
+        """True once the driver has been heading opposite the route long enough
+        to warrant a reroute — a U-turn the perpendicular-distance test misses."""
+        if speed_kmh < self._REROUTE_MIN_SPEED_KMH or not getattr(
+            self, "_gps_heading_valid", False
+        ):
+            self._wrong_way_since = 0.0
+            return False
+        route_brng = self._route_bearing_at_idx(self._gps_route_idx)
+        if route_brng is None:
+            self._wrong_way_since = 0.0
+            return False
+        # Don't fight a U-turn the route itself prescribes here.
+        idx = self._tour_step_idx
+        step = self._tour_steps[idx] if 0 <= idx < len(self._tour_steps) else {}
+        if step.get("modifier") == "uturn":
+            self._wrong_way_since = 0.0
+            return False
+        diff = abs(self._gps_heading - route_brng) % 360.0
+        if diff > 180.0:
+            diff = 360.0 - diff
+        if diff < self._UTURN_REROUTE_DEG:
+            self._wrong_way_since = 0.0
+            return False
+        if self._wrong_way_since == 0.0:
+            self._wrong_way_since = now
+            return False
+        if now - self._wrong_way_since < self._UTURN_CONFIRM_S:
+            return False
+        if now - self._last_reroute_time < self._UTURN_MIN_GAP_S:
+            return False
+        log.info(
+            "Wrong-way/U-turn: heading=%.0f vs route=%.0f (diff=%.0f) — rerouting",
+            self._gps_heading, route_brng, diff,
+        )
+        self._wrong_way_since = 0.0
+        return True
 
     def _trigger_reroute(self) -> None:
         if self._gps_lat is None or self._gps_lon is None:
@@ -138,6 +204,7 @@ class MapTourRerouteMixin:
         new_points = [(self._gps_lat, self._gps_lon), *remaining]
         self._last_reroute_time = time.monotonic()
         self._off_route_since = 0.0
+        self._wrong_way_since = 0.0
         # Reroute diagnostics: capture the bypass-decision inputs for the next
         # remaining waypoint so a drive where the route balloons back to a
         # deliberately-bypassed via can be reconstructed from the log.
@@ -210,6 +277,16 @@ class MapTourRerouteMixin:
         self._start_overpass_speed_fetch()
         self._prerender_upcoming_steps(0, 5)
         self._skip_non_actionable_steps()
+        # A reroute restarts the step list at the "depart" maneuver ("Start
+        # tour"), which is meaningless mid-drive — skip straight to the first
+        # real turn so the card never shows "Start tour / 0 m" while moving.
+        if (
+            self._tour_step_idx == 0
+            and len(self._tour_steps) > 1
+            and self._tour_steps[0].get("type") == "depart"
+        ):
+            self._tour_step_idx = 1
+            self._step_min_dist = None
         self._update_maneuver_overlay()
         self._highlight_active_step()
 
@@ -220,12 +297,23 @@ class MapTourRerouteMixin:
         if self._backend == "webkit":
             self._js(js_call("mapSetRoute", coords))
             self._js(js_call("mapSetWaypoints", [[p[0], p[1]] for p in all_points]))
+            self._js("mapClearGuideToStart()")
         elif self._shumate_map is not None:
             self._shumate_set_path(self._path_layer, coords)
+            if hasattr(self, "_shumate_set_route_muted"):
+                self._shumate_set_route_muted(False)  # new route = valid again
+            # We're navigating the real route now — drop any leftover
+            # guide-to-start (green) line so it can't linger to the destination.
+            if self._guide_path_layer is not None:
+                self._guide_path_layer.remove_all()
             if self._wp_layer is not None:
                 self._wp_layer.remove_all()
                 for i, pt in enumerate(all_points):
                     role = "start" if i == 0 else ("end" if i == len(all_points) - 1 else "via")
+                    # A reroute always happens mid-drive — never re-add the start
+                    # arrow (it would just pin a car-lookalike at the reroute spot).
+                    if role == "start":
+                        continue
                     self._wp_layer.add_marker(self._make_wp_marker(pt[0], pt[1], role))
 
         if (

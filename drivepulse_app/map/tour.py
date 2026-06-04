@@ -31,6 +31,7 @@ from drivepulse_app.map._tour_progress import (
     nearest_route_progress,
     next_actionable_step_idx,
     reconcile_passed_waypoints,
+    waypoint_is_passed,
 )
 from drivepulse_app.map.services import (
     format_distance,
@@ -60,6 +61,7 @@ class MapTourMixin:
     _backend: str
     _gps_lat: float | None
     _gps_lon: float | None
+    _gps_heading: float
     _tour_coords: list[list[float]]
     _tour_steps: list[dict]
     _tour_waypoints: list[tuple[float, float]]
@@ -121,6 +123,11 @@ class MapTourMixin:
     # step passed. Large enough to ignore GPS noise (~3–5 m), small enough
     # not to wait until we're halfway to the next maneuver.
     _MANEUVER_PASS_GROWTH_M = 8.0
+
+    # Within this distance of the final destination the tour auto-finishes —
+    # the driver stops *at* the destination and never drives "past" the arrive
+    # maneuver, so the overshoot test alone would leave navigation hanging.
+    _ARRIVAL_RADIUS_M = 25.0
 
     # OSRM step types that don't represent an actionable maneuver.
     # "continue" = road continues with minor direction/name change — not worth showing.
@@ -202,6 +209,27 @@ class MapTourMixin:
                 self._tour_coords, getattr(self, "_route_cum_m", []),
                 self._remaining_dest_wps, self._gps_lat, self._gps_lon,
             )
+        # reconcile_passed_waypoints only drops vias we drove geometrically
+        # *past*. Also drop vias we've clearly turned away from — the same
+        # heading-based bypass the live rerouter uses — so an app-restart resume
+        # or a reloaded saved tour can't resurrect a deliberately-skipped via and
+        # balloon the route into a 1.6 km out-and-back. The destination stays.
+        if (
+            getattr(self, "_gps_heading_valid", False)
+            and self._gps_lat is not None
+            and self._gps_lon is not None
+        ):
+            max_dist = getattr(self, "_BYPASS_MAX_DIST_M", 250.0)
+            while len(self._remaining_dest_wps) > 1:
+                wp = self._remaining_dest_wps[0]
+                passed, _wd, _wb = waypoint_is_passed(
+                    self._gps_lat, self._gps_lon, self._gps_heading,
+                    wp[0], wp[1], max_dist,
+                )
+                if not passed:
+                    break
+                log.info("Begin-tour: dropping bypassed via (%.5f, %.5f)", wp[0], wp[1])
+                self._remaining_dest_wps = self._remaining_dest_wps[1:]
         # Persist progress so an app restart can resume from the remaining legs.
         self._persist_active_tour()
         self._wp_in_radius = False
@@ -317,6 +345,61 @@ class MapTourMixin:
         if self._speed_zone_overlay is not None:
             self._speed_zone_overlay.set_visible(False)
         self._highlight_active_step()
+        if was_running and self._on_tour_stopped is not None:
+            self._on_tour_stopped()
+        if hasattr(self, "_update_left_chrome_visibility"):
+            self._update_left_chrome_visibility()
+
+    def _complete_tour(self) -> None:
+        """Arrived at the final destination: end navigation cleanly.
+
+        Mirrors the teardown of :meth:`_abort_tour` but deliberately does NOT
+        stop TTS, so the "you have arrived" announcement (already triggered at
+        the <=80 m threshold) plays to the end. Clears all route layers — including
+        the green guide-to-start line that otherwise lingered after arrival.
+        """
+        was_running = self._tour_active or self._tour_paused
+        self._tour_completed = True
+        self._tour_active = False
+        self._tour_paused = False
+        self._step_min_dist = None
+        self._gps_route_idx = 0
+        self._snapped_lat = None
+        self._snapped_lon = None
+        self._snapped_cum_m = 0.0
+        self._off_route_since = 0.0
+        self._last_reroute_time = 0.0
+        self._remaining_dest_wps = []
+        _tour_state.clear_active_tour()
+        self._wp_in_radius = False
+        self._set_next_wp_btn_visible(False)
+        self._tts_last_step_idx = -1
+        self._tts_prerender_step_idx = -1
+        self._speed_zones = []
+        self._lane_step_idx = -1
+        self._set_nav_chrome_visible(True)
+        self._set_tour_button("start")
+        if self._backend == "webkit":
+            self._js("mapSetTourActive(false)")
+            self._js("mapResetView()")
+            self._js("mapClearGuideToStart()")
+        elif self._shumate_map is not None:
+            if hasattr(self, "_shumate_clear_route_layers"):
+                self._shumate_clear_route_layers()
+            viewport = self._shumate_map.get_viewport()
+            if viewport is not None and hasattr(viewport, "set_rotation"):
+                try:
+                    viewport.set_rotation(0.0)
+                except Exception:
+                    log.debug("Shumate viewport.set_rotation(0) on arrival failed", exc_info=True)
+        if self._maneuver_overlay is not None:
+            self._maneuver_overlay.set_visible(False)
+        if self._lane_row is not None:
+            self._lane_row.set_visible(False)
+        if self._speed_zone_overlay is not None:
+            self._speed_zone_overlay.set_visible(False)
+        self._highlight_active_step()
+        log.info("Tour complete — arrived at destination, navigation ended")
         if was_running and self._on_tour_stopped is not None:
             self._on_tour_stopped()
         if hasattr(self, "_update_left_chrome_visibility"):
@@ -505,9 +588,7 @@ class MapTourMixin:
 
             # Step passed — last step means route complete.
             if self._tour_step_idx >= len(self._tour_steps) - 1:
-                self._tour_completed = True
-                _tour_state.clear_active_tour()
-                self._maneuver_overlay.set_visible(False)
+                self._complete_tour()
                 return
 
             self._tour_step_idx += 1
@@ -541,6 +622,16 @@ class MapTourMixin:
         self._maneuver_overlay.set_visible(True)
         self._highlight_active_step()
         self._update_tts(step, distance_m)
+        # Reached the final destination — finish the tour. The arrival
+        # announcement above has just been triggered; we stop *at* the
+        # destination instead of driving past the arrive maneuver, so this
+        # distance check (not the overshoot test) is what ends navigation.
+        if (
+            self._tour_step_idx >= len(self._tour_steps) - 1
+            and distance_m <= self._ARRIVAL_RADIUS_M
+        ):
+            self._complete_tour()
+            return
         self._update_speed_zone_overlay()
         self._update_lane_guidance(step)
 

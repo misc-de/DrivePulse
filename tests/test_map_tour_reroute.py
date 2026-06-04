@@ -197,3 +197,65 @@ def test_off_route_thresholds_are_tightened():
     again should require an explicit code-review decision."""
     assert MapTourRerouteMixin._OFF_ROUTE_M <= 30.0
     assert MapTourRerouteMixin._OFF_ROUTE_CONFIRM_S <= 4.0
+
+
+# ── Wrong-way / U-turn reroute (heading-based; the distance test can't see it) ─
+
+def _make_wrongway_inst(
+    *,
+    heading,
+    route_coords=None,
+    step_modifier="",
+    last_reroute=0.0,
+    wrong_way_since=0.0,
+    heading_valid=True,
+):
+    inst = object.__new__(MapTourRerouteMixin)
+    inst._gps_heading = heading
+    inst._gps_heading_valid = heading_valid
+    # Default route heads due north → bearing at segment 0 is 0°.
+    inst._tour_coords = route_coords or [[8.0, 50.0], [8.0, 50.02]]
+    inst._gps_route_idx = 0
+    inst._tour_steps = [{"type": "turn", "modifier": step_modifier}]
+    inst._tour_step_idx = 0
+    inst._last_reroute_time = last_reroute
+    inst._wrong_way_since = wrong_way_since
+    return inst
+
+
+def test_wrong_way_triggers_after_confirm():
+    """Heading south (180°) on a north-bound route (0°): diff 180° > 120°.
+    Fires only after the confirm window, overriding the normal cooldown."""
+    inst = _make_wrongway_inst(heading=180.0)
+    assert inst._wrong_way_reroute(speed_kmh=40.0, now=100.0) is False  # starts timer
+    assert inst._wrong_way_since == 100.0
+    assert inst._wrong_way_reroute(speed_kmh=40.0, now=102.0) is False  # still confirming
+    assert inst._wrong_way_reroute(speed_kmh=40.0, now=104.0) is True   # >3s + >8s gap
+    assert inst._wrong_way_since == 0.0
+
+
+def test_wrong_way_resets_when_back_on_heading():
+    inst = _make_wrongway_inst(heading=180.0)
+    assert inst._wrong_way_reroute(speed_kmh=40.0, now=100.0) is False
+    inst._gps_heading = 5.0  # turned back onto the route direction → timer resets
+    assert inst._wrong_way_reroute(speed_kmh=40.0, now=101.0) is False
+    assert inst._wrong_way_since == 0.0
+
+
+def test_wrong_way_ignored_for_prescribed_uturn():
+    """When the route itself prescribes a U-turn here, never fight it."""
+    inst = _make_wrongway_inst(heading=180.0, step_modifier="uturn")
+    assert inst._wrong_way_reroute(speed_kmh=40.0, now=100.0) is False
+    assert inst._wrong_way_reroute(speed_kmh=40.0, now=104.0) is False
+
+
+def test_wrong_way_ignored_below_min_speed():
+    inst = _make_wrongway_inst(heading=180.0)
+    assert inst._wrong_way_reroute(speed_kmh=5.0, now=100.0) is False
+    assert inst._wrong_way_since == 0.0
+
+
+def test_wrong_way_respects_min_gap_after_reroute():
+    """Sustained wrong-way, but a reroute fired 4 s ago (< 8 s min-gap): hold."""
+    inst = _make_wrongway_inst(heading=180.0, last_reroute=100.0, wrong_way_since=100.0)
+    assert inst._wrong_way_reroute(speed_kmh=40.0, now=104.0) is False

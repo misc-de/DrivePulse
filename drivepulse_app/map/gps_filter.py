@@ -143,6 +143,11 @@ class MapGpsFilterMixin:
             # visible instead of being snapped onto the stale route. The snapped
             # position itself is kept for waypoint-proximity / progress tracking.
             snap_for_display = off_dist_m <= self._SNAP_DISPLAY_MAX_M
+            # Grey the route when the driver is clearly off it but a reroute
+            # hasn't fired yet (slow / cooldown gate) so a stale line isn't shown
+            # as the valid path. No-op on WebKit (the method guards on its layer).
+            if self._tour_active and hasattr(self, "_shumate_set_route_muted"):
+                self._shumate_set_route_muted(not snap_for_display)
         else:
             self._snapped_lat = None
             self._snapped_lon = None

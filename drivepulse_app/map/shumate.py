@@ -120,8 +120,10 @@ class MapShumateMixin:
 
         self._guide_path_layer = Shumate.PathLayer.new(viewport)
         guide_color = Gdk.RGBA()
+        # Green so the guide-to-start / return leg is clearly distinct from the
+        # blue active route when both are briefly on screen.
         guide_color.red, guide_color.green, guide_color.blue, guide_color.alpha = (
-            0.96, 0.65, 0.14, 0.85
+            0.18, 0.70, 0.33, 0.85
         )
         self._guide_path_layer.set_stroke_color(guide_color)
         self._guide_path_layer.set_stroke_width(4.0)
@@ -135,6 +137,8 @@ class MapShumateMixin:
         self._path_layer.set_stroke_color(route_color)
         self._path_layer.set_stroke_width(5.0)
         inner.add_layer(self._path_layer)
+        self._route_color = route_color
+        self._route_muted = False
 
         self._wp_layer = Shumate.MarkerLayer.new(viewport)
         inner.add_layer(self._wp_layer)
@@ -255,6 +259,24 @@ class MapShumateMixin:
     def _shumate_set_guide(self, coords: list[list[float]]) -> None:
         self._shumate_set_path(self._guide_path_layer, coords)
 
+    def _shumate_set_route_muted(self, muted: bool) -> None:
+        """Grey the active route line while the driver is clearly off it but no
+        reroute has fired yet (min-speed / cooldown gate), so a stale line isn't
+        shown as if it were still the valid path. Restores the blue when back on
+        route or when a fresh route is drawn."""
+        if getattr(self, "_path_layer", None) is None:
+            return
+        if muted == getattr(self, "_route_muted", False):
+            return
+        self._route_muted = muted
+        col = Gdk.RGBA()
+        if muted:
+            col.red, col.green, col.blue, col.alpha = (0.55, 0.55, 0.58, 0.55)
+        else:
+            rc = self._route_color
+            col.red, col.green, col.blue, col.alpha = (rc.red, rc.green, rc.blue, rc.alpha)
+        self._path_layer.set_stroke_color(col)
+
     def _shumate_apply_attribution(self) -> None:
         """Hide the license banner when the current map source has no license
         text and pull bottom-anchored OSD overlay widgets down by the
@@ -333,10 +355,17 @@ class MapShumateMixin:
         coords: list[list[float]],
     ) -> None:
         self._shumate_set_path(self._path_layer, coords)
+        self._shumate_set_route_muted(False)  # a freshly drawn route is the valid one
         if self._wp_layer is not None:
             self._wp_layer.remove_all()
+            tour_active = getattr(self, "_tour_active", False)
             for i, pt in enumerate(all_points):
                 role = "start" if i == 0 else ("end" if i == len(all_points) - 1 else "via")
+                # The start arrow looks just like the live car marker and only
+                # helps in the pre-drive preview — drop it once a tour is running
+                # so it can't be mistaken for a second vehicle / left hanging.
+                if role == "start" and tour_active:
+                    continue
                 self._wp_layer.add_marker(self._make_wp_marker(pt[0], pt[1], role))
         if coords and self._shumate_map is not None:
             lats = [c[1] for c in coords]
