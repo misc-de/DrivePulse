@@ -933,12 +933,42 @@ class DashcamPage(Gtk.Box):
             row.set_title(clip.name)
             mb = clip.stat().st_size / 1_048_576 if clip.exists() else 0
             row.set_subtitle(f"{mb:.1f} MB")
+            # Activating the row (tap / Enter) plays the clip; the trash button
+            # suffix consumes its own click and never triggers activation.
+            row.set_activatable(True)
+            row.connect("activated", lambda _r, p=clip: self._play_clip(p))
             del_btn = Gtk.Button(icon_name="user-trash-symbolic")
             del_btn.add_css_class("flat")
             del_btn.set_valign(Gtk.Align.CENTER)
             del_btn.connect("clicked", lambda _b, p=clip: self._delete_saved(p))
             row.add_suffix(del_btn)
             self._saved_list_box.append(row)
+
+    def _play_clip(self, path: Path) -> None:
+        """Play a saved clip in an embedded player pushed as a nav sub-page.
+
+        Gtk.Video decodes via the same GStreamer stack already in use, so no
+        external player has to be installed on the phone. Popping the page back
+        drops the widget and stops playback.
+        """
+        if self._nav_view is None or not path.exists():
+            return
+        video = Gtk.Video.new_for_filename(str(path))
+        video.set_autoplay(True)
+        video.set_hexpand(True)
+        video.set_vexpand(True)
+        video.add_css_class("dc-black-bg")
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
+        toolbar.add_top_bar(header)
+        toolbar.set_content(video)
+
+        page = Adw.NavigationPage(child=toolbar, title=path.name)
+        page.set_tag("dashcam-player")
+        self._nav_view.push(page)
 
     def _delete_saved(self, path: Path) -> None:
         self._recorder.delete_protected(path)
