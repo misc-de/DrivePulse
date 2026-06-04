@@ -69,6 +69,7 @@ class MapTourRerouteMixin:
     _make_wp_marker: Callable[..., Any]
     _js: Callable[[str], None]
     _on_tour_resumed: Callable[..., Any] | None
+    _persist_active_tour: Callable[[], None]
 
     # Off-route detection: reroute automatically when the perpendicular distance
     # from the GPS to the snapped route position exceeds this threshold for a
@@ -131,6 +132,9 @@ class MapTourRerouteMixin:
                 remaining.pop(0)
                 self._remaining_dest_wps = list(remaining)
 
+        # A bypassed via may have been dropped above — persist the new progress
+        # so an app restart resumes from the legs that are genuinely left.
+        self._persist_active_tour()
         new_points = [(self._gps_lat, self._gps_lon), *remaining]
         self._last_reroute_time = time.monotonic()
         self._off_route_since = 0.0
@@ -285,6 +289,7 @@ class MapTourRerouteMixin:
         log.info(
             "Remaining destination waypoints: %d", len(self._remaining_dest_wps)
         )
+        self._persist_active_tour()
         # Trigger an immediate route recalculation from current GPS to the
         # remaining waypoints.  This removes old route segments (the part
         # leading to the now-completed intermediate goal) from both the map

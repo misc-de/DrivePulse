@@ -57,6 +57,7 @@ def _make_inst(
     inst._remaining_dest_wps = list(remaining or [])
     inst._last_reroute_time = 0.0
     inst._off_route_since = 99.0  # arbitrary non-zero — must be reset to 0
+    inst._persist_active_tour = lambda: None  # provided by MapTourMixin in the app
     return inst
 
 
