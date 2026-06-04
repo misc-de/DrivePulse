@@ -41,6 +41,18 @@ CODECS = ["vp8", "vp9", "av1"]
 _SEGMENT_GLOBS = ("dc_*.webm", "dc_*.mp4")
 _PROTECTED_GLOBS = ("*.webm", "*.mp4")
 
+# Bounded, frame-dropping queue in front of the encoder. leaky=downstream makes a
+# slow software encoder drop the OLDEST queued frame instead of back-pressuring the
+# camera — on the Halium/droidcamsrc stack that back-pressure makes camerahalserver
+# buffer raw frames without bound (~150-290 MB/s at 1440p), draining all RAM in ~30 s
+# until the kernel/lmkd OOM-killer takes down the compositor (phosh). Dropping frames
+# keeps memory flat; only the recorded FPS degrades when the CPU can't keep up.
+_REC_QUEUE = "queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=downstream"
+
+# Last-resort guard: if MemAvailable falls below this (MiB) during recording, stop
+# before the OOM killer fires. Belt-and-suspenders behind _REC_QUEUE + capture caps.
+_MEM_FLOOR_MB = 250
+
 
 def list_cameras() -> list[str]:
     """Return V4L2 video capture device paths (excludes codec/metadata devices)."""
@@ -103,6 +115,18 @@ def query_camera_modes(device: str) -> dict[str, list[int]]:
     }
 
 
+def _mem_available_mb() -> int | None:
+    """Return MemAvailable from /proc/meminfo in MiB, or None if unreadable."""
+    try:
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+    except (OSError, ValueError):
+        return None
+    return None
+
+
 class DashcamRecorder:
     """
     Continuously records in fixed-length segments.
@@ -143,9 +167,13 @@ class DashcamRecorder:
 
         # Called on the GTK main thread when in-process GStreamer provides a preview.
         self.on_preview_ready: Callable[[Any], None] | None = None
+        # Called (from the watchdog thread) when recording is auto-stopped because
+        # free memory ran low — lets the UI reset its state and inform the user.
+        self.on_memory_low: Callable[[], None] | None = None
 
         self._proc:          subprocess.Popen | None = None
         self._thread:        threading.Thread | None = None
+        self._watchdog:      threading.Thread | None = None
         self._stop_event     = threading.Event()
         self._lock           = threading.Lock()
         self._segments:      list[Path] = []
@@ -182,6 +210,9 @@ class DashcamRecorder:
         self.is_recording = True
         self._thread = threading.Thread(target=self._record_loop, daemon=True, name="dashcam")
         self._thread.start()
+        self._watchdog = threading.Thread(
+            target=self._memory_watchdog, daemon=True, name="dashcam-mem")
+        self._watchdog.start()
 
     def stop(self) -> None:
         if not self.is_recording:
@@ -192,6 +223,8 @@ class DashcamRecorder:
         if self._thread:
             # GStreamer EOS finalisation can take a few seconds; give it time.
             self._thread.join(timeout=10)
+        if self._watchdog:
+            self._watchdog.join(timeout=3)
 
     def save_event(self) -> list[Path]:
         """Protect the previous + current rolling segment around the trigger.
@@ -349,6 +382,7 @@ class DashcamRecorder:
             f"max-size-time={seg_ns} muxer-factory={muxer_factory} "
             f"location={self.rolling_dir}/dc_%05d.{ext}"
         )
+        caps = self._gst_caps_chain()
 
         for src in sources:
             if self._stop_event.is_set():
@@ -358,13 +392,13 @@ class DashcamRecorder:
             for with_preview in (True, False):
                 if with_preview:
                     pl = (
-                        f"{src} ! videoconvert ! videoflip method=0 ! tee name=t "
+                        f"{src} ! videoconvert ! {caps} ! videoflip method=0 ! tee name=t "
                         f"t. ! queue max-size-buffers=2 leaky=downstream "
                         f"! gtk4paintablesink name=preview sync=false "
-                        f"t. ! queue {rec_tail}"
+                        f"t. ! {_REC_QUEUE} {rec_tail}"
                     )
                 else:
-                    pl = f"{src} ! videoconvert ! videoflip method=0 ! queue {rec_tail}"
+                    pl = f"{src} ! videoconvert ! {caps} ! videoflip method=0 ! {_REC_QUEUE} {rec_tail}"
 
                 # ── Initialise pipeline on the GTK main thread ─────────────────
                 # gtk4paintablesink must connect to the GTK rendering context,
@@ -497,20 +531,48 @@ class DashcamRecorder:
         # All supported codecs (VP8/VP9/AV1) ship in WebM.
         return "webm"
 
+    def _gst_caps_chain(self) -> str:
+        """Constrain capture to the configured resolution/fps before the tee/encoder.
+
+        Without this the camera negotiates its native mode (e.g. 2560x1440@30 on
+        the FuriPhone) regardless of settings, flooding the software encoder with
+        far more pixels and frames than it can handle. videorate caps the frame
+        rate (dropping surplus frames early, before the convert/scale cost),
+        videoscale enforces the resolution; add-borders keeps the aspect ratio so
+        a 4:3 target of a 16:9 sensor isn't stretched.
+        """
+        try:
+            w, h = (int(v) for v in self.resolution.split("x"))
+        except (ValueError, AttributeError):
+            w, h = 1280, 720
+        fps = self.fps if self.fps and self.fps > 0 else 25
+        return (
+            f"videorate ! videoscale add-borders=true "
+            f"! video/x-raw,width={w},height={h},framerate={fps}/1"
+        )
+
     def _gst_encoder_tail(self) -> tuple[str, str, str]:
         """Return (encoder_chain, muxer_factory, muxer_props_struct) for current codec.
 
         encoder_chain starts with '!' and ends just before the muxer/splitmuxsink.
         muxer_props_struct is a Gst.Structure-parseable string applied to
         splitmuxsink's child mux via the muxer-properties property.
+
+        Encoders run multi-threaded (threads + token-partitions / row-mt+tiles) so
+        realtime software encoding spreads across the idle cores instead of pinning
+        a single one — a single-threaded encoder can't keep up at 1080p and lets
+        frames pile up behind it.
         """
         if self.codec == "vp9":
-            enc = "! vp9enc deadline=1 cpu-used=8 target-bitrate=2000000"
+            enc = ("! vp9enc deadline=1 cpu-used=8 threads=4 row-mt=true "
+                   "tile-columns=2 target-bitrate=2000000")
         elif self.codec == "av1":
             # svtav1enc target-bitrate is in kbit/s; preset 10 ≈ realtime on x86.
+            # svtav1enc parallelises internally via its preset, no threads= knob.
             enc = "! svtav1enc preset=10 target-bitrate=2000 ! av1parse"
         else:
-            enc = "! vp8enc deadline=1 cpu-used=4 target-bitrate=2000000"
+            enc = ("! vp8enc deadline=1 cpu-used=4 threads=4 "
+                   "token-partitions=2 target-bitrate=2000000")
         # streamable=true makes webmmux flush clusters as they're written so the
         # file stays playable after a crash without needing seek-back to the head.
         return enc, "webmmux", "props,streamable=(boolean)true"
@@ -551,12 +613,14 @@ class DashcamRecorder:
             "autovideosrc",
         ]
         enc_chain, muxer_factory, _ = self._gst_encoder_tail()
+        caps = self._gst_caps_chain()
         for src in gst_sources:
             if self._stop_event.is_set():
                 return False
             pipeline = (
-                f"{src} ! videoconvert ! videoflip method=0"
+                f"{src} ! videoconvert ! {caps} ! videoflip method=0"
                 f"{osd_elements}"
+                f" ! {_REC_QUEUE}"
                 f" {enc_chain}"
                 f" ! {muxer_factory} streamable=true"
                 f" ! filesink location={out}"
@@ -658,6 +722,34 @@ class DashcamRecorder:
                 log.debug("Could not signal dashcam process", exc_info=True)
             except subprocess.TimeoutExpired:
                 proc.kill()
+
+    def _memory_watchdog(self) -> None:
+        """Auto-stop recording if free memory collapses, before the kernel/lmkd
+        OOM killer fires and takes down the compositor (phosh).
+
+        _REC_QUEUE + the capture caps should already keep memory flat; this is the
+        last-resort guard against an unforeseen source/codec/resolution that still
+        floods RAM. Two consecutive low readings are required so a brief dip doesn't
+        abort a recording needlessly.
+        """
+        low_streak = 0
+        while not self._stop_event.wait(2.0):
+            avail = _mem_available_mb()
+            if avail is None:
+                continue
+            if avail >= _MEM_FLOOR_MB:
+                low_streak = 0
+                continue
+            low_streak += 1
+            log.warning("Dashcam mem watchdog: MemAvailable %d MB < %d MB (streak %d)",
+                        avail, _MEM_FLOOR_MB, low_streak)
+            if low_streak >= 2:
+                log.error("Dashcam mem watchdog: stopping recording to prevent OOM")
+                self._stop_event.set()
+                self._kill_proc()
+                if self.on_memory_low:
+                    self.on_memory_low()
+                return
 
     def _refresh_osd_file(self) -> None:
         osd_txt = self._osd_txt

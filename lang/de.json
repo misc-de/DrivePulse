@@ -159,6 +159,7 @@
   "dashcam.event.saved": "Event gesichert: {n} Clip(s)",
   "dashcam.event.nothing": "Noch keine Aufnahme zum Sichern vorhanden.",
   "dashcam.error.camera": "Kamera nicht verfügbar – Aufnahme nicht gestartet.",
+  "dashcam.error.memory": "Aufnahme gestoppt – Arbeitsspeicher zu knapp.",
   "dashcam.settings.title": "Aufnahme-Einstellungen",
   "dashcam.settings.camera": "Kamera",
   "dashcam.settings.resolution": "Auflösung",
