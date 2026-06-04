@@ -371,14 +371,25 @@ def waypoint_is_passed(
     max_dist_m: float,
     *,
     bearing_threshold_deg: float = 110.0,
+    behind_deg: float = 135.0,
 ) -> tuple[bool, float, float]:
-    """Decide whether an intermediate waypoint has been driven past.
+    """Decide whether an intermediate waypoint has been driven past or bypassed.
 
-    A waypoint only counts as *passed* (and may be dropped from a reroute) when
-    it is both geographically close (``<= max_dist_m``) and clearly *behind* the
-    current heading — its bearing differs from the heading by more than
-    ``bearing_threshold_deg``. A far-ahead waypoint that is momentarily
-    off-heading (mid-turn, parallel street) must stay in the route.
+    Two situations count as *passed* (the waypoint may be dropped from a
+    reroute):
+
+    * **Drove right past it** — the waypoint is close (``<= max_dist_m``) *and*
+      clearly behind the heading (bearing differs by more than
+      ``bearing_threshold_deg``).
+    * **Driving away from it** — the waypoint is almost directly behind the
+      heading (bearing differs by more than ``behind_deg``), so the driver has
+      committed to leaving it *regardless of distance*. This is what stops a
+      deliberately-skipped via from ballooning the route back to itself when the
+      driver takes their own way and is already far past it.
+
+    A waypoint that is far away but only moderately off-heading (mid-turn, a
+    parallel street, an upcoming bend) stays in the route so the rerouter brings
+    us back to it instead of cutting straight to the final destination.
 
     Returns ``(passed, dist_m, wp_bearing_deg)``; the distance and bearing are
     returned so callers can log them without recomputing.
@@ -388,8 +399,9 @@ def waypoint_is_passed(
     diff = abs(gps_heading - brng) % 360.0
     if diff > 180.0:
         diff = 360.0 - diff
-    passed = dist_m <= max_dist_m and diff > bearing_threshold_deg
-    return passed, dist_m, brng
+    drove_past = dist_m <= max_dist_m and diff > bearing_threshold_deg
+    driving_away = diff > behind_deg
+    return drove_past or driving_away, dist_m, brng
 
 
 def off_route_decision(

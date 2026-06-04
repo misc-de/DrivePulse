@@ -68,17 +68,37 @@ def _captured_points() -> list[tuple[float, float]]:
     return args[0]
 
 
-# ── Bug-2 regression: far-ahead intermediate WP must not be dropped ──────────
+# ── Via-bypass fix: far via the driver heads straight away from is dropped ────
 
-def test_far_intermediate_wp_is_kept_even_when_behind_heading():
-    """Driver heading north, intermediate WP ~1.1 km south of current
-    position (bearing 180°, diff 180° > 110°). Because the WP is FAR
-    (> 250 m), it must remain in the recalculated route — the rerouter
-    should turn us around, not skip the stop."""
+def test_far_intermediate_wp_dropped_when_driving_straight_away():
+    """Driver heading north, intermediate WP ~1.1 km *south* (bearing 180°,
+    diff 180°): the driver has taken their own way and is driving straight
+    away from the via, so it is dropped and the route goes to the final
+    destination instead of ballooning >1 km back to the bypassed via.
+    Real-world repro: round-trip with the via 1.6 km behind while heading 89°."""
     intermediate = (49.99, 8.0)   # ~1112 m south of (50, 8)
     final = (50.01, 8.0)          # ~1112 m north of (50, 8)
     inst = _make_inst(
-        heading=0.0,              # facing north
+        heading=0.0,              # facing north, directly away from the via
+        heading_valid=True,
+        remaining=[intermediate, final],
+    )
+
+    inst._trigger_reroute()
+
+    assert inst._remaining_dest_wps == [final]
+    points = _captured_points()
+    assert points == [(50.0, 8.0), final]
+
+
+def test_far_intermediate_wp_kept_when_only_moderately_off_heading():
+    """A far via that is behind-ish but not straight-behind (diff 125°, below
+    behind_deg) is kept — a mid-turn or parallel-street wobble must not skip a
+    stop that is still kilometres ahead on the planned route."""
+    intermediate = (49.99, 8.0)   # ~1112 m south, bearing 180°
+    final = (50.01, 8.0)
+    inst = _make_inst(
+        heading=55.0,             # diff 125° -> behind but not driving straight away
         heading_valid=True,
         remaining=[intermediate, final],
     )
@@ -87,9 +107,7 @@ def test_far_intermediate_wp_is_kept_even_when_behind_heading():
 
     assert inst._remaining_dest_wps == [intermediate, final]
     points = _captured_points()
-    assert points[0] == (50.0, 8.0)
-    assert points[1] == intermediate
-    assert points[-1] == final
+    assert points == [(50.0, 8.0), intermediate, final]
 
 
 # ── Close-and-behind WP: legitimate bypass, drop it ──────────────────────────

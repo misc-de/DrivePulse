@@ -107,13 +107,13 @@ class MapTourRerouteMixin:
         if not remaining:
             return
 
-        # Only drop an intermediate waypoint when the driver has clearly
-        # *passed* it: WP must be both behind (bearing > 110° off heading) AND
-        # geographically close (≤ _BYPASS_MAX_DIST_M). A far-ahead WP that is
-        # momentarily off-heading (e.g. mid-turn or on a parallel street) must
-        # stay in the route so the rerouter brings us back to it instead of
-        # cutting straight to the final destination. The final destination
-        # (last entry) is never skipped.
+        # Only drop an intermediate waypoint when the driver has clearly left
+        # it behind — either by driving right past it (close + behind) or by
+        # heading almost straight away from it (see waypoint_is_passed). A
+        # far-ahead WP that is only momentarily off-heading (mid-turn, parallel
+        # street) stays in the route so the rerouter brings us back to it
+        # instead of cutting straight to the final destination. The final
+        # destination (last entry) is never skipped.
         if getattr(self, "_gps_heading_valid", False) and len(remaining) > 1:
             while len(remaining) > 1:
                 wp = remaining[0]
