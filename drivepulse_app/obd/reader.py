@@ -181,6 +181,29 @@ class ObdReader(GObject.Object):
             candidates.append(OBD_SOCKET_URL)
         return [*candidates, None]
 
+    def _ensure_bt_powered(self) -> None:
+        """Best-effort power-on of the local Bluetooth adapter before a bt: connect.
+
+        On binder-based phones (FuriOS/bluebinder) the controller does not stay
+        powered when nothing is connected — it silently drops to ``Powered: no``
+        after idle, and a connect against an off adapter then fails for no
+        obvious reason. ``bluetoothctl power on`` is a fast no-op when already on;
+        any failure is logged but never blocks the connect attempt.
+        """
+        try:
+            result = subprocess.run(
+                ["bluetoothctl", "power", "on"],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            ok = result.returncode == 0 and "fail" not in result.stdout.lower()
+            self._connection_log("bt_power_on", ok=ok, out=result.stdout.strip()[-120:])
+        except FileNotFoundError:
+            self._connection_log("bt_power_on_not_found")
+        except subprocess.TimeoutExpired:
+            self._connection_log("bt_power_on_timeout")
+        except Exception as exc:
+            self._connection_log("bt_power_on_error", error=str(exc))
+
     def _try_bt_direct(self, addr: str, channel: int) -> bool:
         """Try direct Bluetooth RFCOMM socket without rfcomm bind. Returns True on success."""
         self._connection_log("bt_direct_attempt", bt_addr=addr, channel=channel)
@@ -376,6 +399,9 @@ class ObdReader(GObject.Object):
             if not self.stop_event.is_set():
                 if self._configured_port.startswith("bt:"):
                     addr, ch = parse_bt_port(self._configured_port)
+                    # The adapter may have idled off (binder/bluebinder phones);
+                    # power it back on before reaching for the dongle.
+                    self._ensure_bt_powered()
                     # Direct RFCOMM-socket bridge first: it's the reliable path
                     # for SPP dongles (the OBDLink MX+'s rfcomm-bind OBD handshake
                     # fails and only the direct bridge connects). Trying it first
