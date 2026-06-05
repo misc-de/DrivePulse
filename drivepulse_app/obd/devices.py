@@ -107,6 +107,13 @@ def scan_bt_nearby_devices(
         )
         try:
             assert proc.stdin is not None
+            # Power the adapter on first. A nearby scan against a powered-off
+            # controller silently surfaces only cached/paired devices that then
+            # fail to connect ("Bluetooth off") — exactly the confusing state a
+            # disabled radio produces. Mirrors pair_bt_device; harmless if on.
+            proc.stdin.write("power on\n")
+            proc.stdin.flush()
+            _time.sleep(0.5)
             proc.stdin.write("scan on\n")
             proc.stdin.flush()
             _time.sleep(scan_seconds)
