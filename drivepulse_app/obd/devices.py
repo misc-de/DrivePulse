@@ -178,13 +178,12 @@ def scan_bt_nearby_devices(
             rssi = rssi_map.get(addr, -999)
             if _looks_like_obd(name, addr):
                 matched.append((f"{name}  ({addr})", f"bt:{addr}", rssi))
-            else:
-                # A just-plugged ELM clone often advertises only its MAC (no OBD
-                # token) until paired, so surface unmatched in-range devices too —
-                # otherwise the name filter alone would hide the very dongle hunted.
-                is_unnamed = (not name) or name.lower() in (addr.lower(), addr.replace(":", "-").lower())
-                shown = f"BT {addr}" if is_unnamed else name
-                in_range_other.append((f"{shown}  ({addr})", f"bt:{addr}", rssi))
+            elif (not name) or name.lower() in (addr.lower(), addr.replace(":", "-").lower()):
+                # Unnamed in-range device: a just-plugged ELM clone often advertises
+                # only its MAC until paired, so keep these as candidates. Named
+                # non-OBD devices (headphones, keyboards, beacons) are skipped — they
+                # cannot be the dongle and would just be noise in this list.
+                in_range_other.append((f"BT {addr}  ({addr})", f"bt:{addr}", rssi))
         # In-range OBD dongles first, then other in-range devices, by signal.
         matched.sort(key=lambda x: x[2], reverse=True)
         in_range_other.sort(key=lambda x: x[2], reverse=True)

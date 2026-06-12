@@ -202,10 +202,10 @@ def _mock_popen(out: str):
     return lambda *_a, **_kw: _FakePopen(out)
 
 
-def test_scan_bt_nearby_ranks_in_range_and_drops_absent_paired(monkeypatch):
+def test_scan_bt_nearby_drops_absent_paired_and_named_non_obd(monkeypatch):
     # Live scan: an OBD dongle and a pair of headphones are both physically in
-    # range (have RSSI); the paired OBDLink MX+ is only in the device cache (no
-    # RSSI = not here now) and must be dropped, not listed as "nearby".
+    # range (have RSSI). The headphones have a real, non-OBD name → noise, skip.
+    # The paired OBDLink MX+ is only in the device cache (no RSSI = not here now).
     scan_out = (
         "[NEW] Device 11:22:33:44:55:66 OBDII\n"
         "[CHG] Device 11:22:33:44:55:66 RSSI: -55\n"
@@ -222,12 +222,9 @@ def test_scan_bt_nearby_ranks_in_range_and_drops_absent_paired(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _mock_run(devices_out))
 
     ports = [p for _, p in obd_devices.scan_bt_nearby_devices(scan_seconds=0)]
-    # In-range OBD dongle first, then other in-range device. The paired-but-absent
-    # MX+ (cache only, no RSSI) is NOT listed.
-    assert ports == [
-        "bt:11:22:33:44:55:66",
-        "bt:77:88:99:AA:BB:CC",
-    ]
+    # Only the in-range OBD dongle. Named-non-OBD headphones (noise) and the
+    # paired-but-absent MX+ (cache only, no RSSI) are both excluded.
+    assert ports == ["bt:11:22:33:44:55:66"]
 
 
 def test_scan_bt_nearby_surfaces_unnamed_in_range_device(monkeypatch):
