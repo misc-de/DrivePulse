@@ -33,7 +33,15 @@ from drivepulse_app.common import (
 )
 from drivepulse_app.diagnostics import append_jsonl, get_logger
 from drivepulse_app.obd.adapter import AdapterInfo, _serial_port, probe_adapter, raw_send
-from drivepulse_app.obd.devices import candidate_bt_addresses, parse_bt_port
+from drivepulse_app.obd.devices import (
+    _looks_like_obd,
+    candidate_bt_addresses,
+    pair_bt_device,
+    paired_obd_addresses,
+    parse_bt_port,
+    scan_bt_nearby_devices,
+    scan_bt_paired_devices,
+)
 from drivepulse_app.obd.mock import MockObdSimulator, MockUdsSimulator
 from drivepulse_app.obd.polling import (
     OBD_COMMAND_ATTRS,
@@ -106,6 +114,11 @@ class ObdReader(GObject.Object):
         self._bt_bridge: BluetoothPtyBridge | None = None
         self._configured_port: str | None = None
         self._force_reconnect = False
+        # One shot per reader life: if we don't find any paired OBD dongle, do
+        # an inquiry scan and auto-pair OBD-named devices in range. Keeps the
+        # cost bounded (a ~6 s scan + a ~10–30 s pair) to first connect only —
+        # subsequent connects use the already-bonded device immediately.
+        self._auto_pair_attempted = False
         self._scanned_identities: set[str] = set()
         self._last_scan_monotonic: float = 0.0
         self._adapter_info: AdapterInfo | None = None
@@ -368,6 +381,160 @@ class ObdReader(GObject.Object):
                 self._connection_log("rfcomm_bind_error", addr=addr, error=str(exc))
         return None
 
+    def _bt_candidates(self) -> list[tuple[str, int, str]]:
+        """Bluetooth dongles to try, in priority order: (addr, channel, source).
+
+        The user may keep several OBD adapters paired (one per car). We try the
+        configured port first (user's preferred dongle), then OBD_BT_ADDR env
+        entries, then every paired BT device whose name matches a known OBD
+        brand — so switching cars no longer requires re-configuring the port.
+        Duplicates are dropped.
+        """
+        # Diagnostic: dump every paired device the system reports, before SPP
+        # filtering. Makes it visible in the log whether a "just-paired" dongle
+        # is actually known to BlueZ (paired-but-not-trusted is a common limbo).
+        try:
+            paired_dump = [
+                {"addr": port_url[3:].upper(),
+                 "name": label[4:].rsplit(" (", 1)[0] if label.startswith("BT: ") else label}
+                for label, port_url in scan_bt_paired_devices()
+            ]
+            self._connection_log("bt_paired_seen", count=len(paired_dump), devices=paired_dump)
+        except Exception as exc:
+            self._connection_log("bt_paired_seen_error", error=str(exc))
+
+        seen: set[str] = set()
+        result: list[tuple[str, int, str]] = []
+        if self._configured_port and self._configured_port.startswith("bt:"):
+            addr, ch = parse_bt_port(self._configured_port)
+            seen.add(addr)
+            result.append((addr, ch, "configured"))
+        for addr, ch in candidate_bt_addresses():
+            if addr not in seen:
+                seen.add(addr)
+                result.append((addr, ch, "env"))
+        for addr, ch, name in paired_obd_addresses():
+            if addr not in seen:
+                seen.add(addr)
+                result.append((addr, ch, f"paired:{name}"))
+        return result
+
+    def _try_bt(self, addr: str, channel: int) -> bool:
+        """Try one BT address: direct RFCOMM socket first, rfcomm bind as fallback."""
+        if self._try_bt_direct(addr, channel):
+            return True
+        self._connection_log("bt_direct_failed_trying_rfcomm", bt_addr=addr)
+        dev = self._rfcomm_bind(addr, channel)
+        if not dev:
+            return False
+        try:
+            connect_kwargs: dict[str, Any] = {
+                "fast": False,
+                "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT),
+                "baudrate": OBD_BAUDRATE if OBD_BAUDRATE is not None else 38400,
+            }
+            self._connection_log("connect_attempt", port=dev, bt_addr=addr, **connect_kwargs)
+            self.connection = obd_backend.OBD(dev, **connect_kwargs)
+            connected = bool(self.connection and self.connection.is_connected())
+            self._connection_log("connect_result", port=dev, bt_addr=addr, connected=connected,
+                                 status=str(getattr(self.connection, "status", lambda: "unknown")()))
+            if connected:
+                self.mock = False
+                self.mock_reason = ""
+                self.connected_port = dev
+                self.failed_read_count = 0
+                supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
+                self._connection_log("connect_success", port=dev, supported_commands=supported)
+                self._probe_adapter()
+                return True
+            self._close_connection()
+            return False
+        except Exception as exc:
+            self._close_connection()
+            self._connection_log("connect_exception", port=dev, error=repr(exc))
+            return False
+
+    def _auto_pair_nearby_obd(self) -> int:
+        """Inquiry-scan and auto-pair any OBD-named device in range.
+
+        Used as a fallback when no paired OBD dongle answered: a brand-new ELM
+        clone or freshly powered MX+ shows up in nearby discovery but isn't
+        bonded yet, so RFCOMM connects bounce with "Host is down". Pairing via
+        the NoInputNoOutput agent (Just-Works SSP) bonds it without a PIN
+        dialog. Returns the number of devices successfully paired.
+
+        Skips unnamed in-range devices: ``scan_bt_nearby_devices`` keeps them
+        as soft candidates but we don't want to pair random BLE noise blindly.
+        """
+        self._connection_log("auto_pair_scan_start")
+        try:
+            known_addrs = {pu[3:].upper() for _l, pu in scan_bt_paired_devices()}
+            # 20 s window: cheap ELM clones advertise on a slow duty cycle so a
+            # single HCI inquiry round (~10 s) often misses them. Two full rounds
+            # is the sweet spot — longer barely improves yield.
+            nearby = scan_bt_nearby_devices(scan_seconds=20, known_addrs=known_addrs)
+        except Exception as exc:
+            self._connection_log("auto_pair_scan_error", error=str(exc))
+            return 0
+        self._connection_log(
+            "auto_pair_scan_done",
+            count=len(nearby),
+            devices=[{"label": label, "port": port} for label, port in nearby],
+        )
+        paired_n = 0
+        for label, port_url in nearby:
+            if self.stop_event.is_set():
+                return paired_n
+            addr = port_url[3:].upper()
+            # Label format is "<name>  (<addr>)" (two spaces, see devices.py).
+            name = label.rsplit("(", 1)[0].strip() if "(" in label else label
+            if not _looks_like_obd(name, addr):
+                self._connection_log("auto_pair_skip_unnamed", addr=addr, label=label)
+                continue
+            self._connection_log("auto_pair_attempt", addr=addr, name=name)
+            try:
+                ok, msg = pair_bt_device(addr)
+            except Exception as exc:
+                self._connection_log("auto_pair_exception", addr=addr, error=str(exc))
+                continue
+            self._connection_log("auto_pair_result", addr=addr, ok=ok, msg=msg)
+            if ok:
+                paired_n += 1
+        return paired_n
+
+    def _try_serial(self, port: str) -> bool:
+        """Try one /dev/* serial port (USB ELM or rfcomm node)."""
+        is_rfcomm = port.startswith("/dev/rfcomm")
+        try:
+            connect_kwargs: dict[str, Any] = {
+                "fast": False if is_rfcomm else OBD_FAST,
+                "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT) if is_rfcomm else OBD_TIMEOUT_SECONDS,
+            }
+            if OBD_BAUDRATE is not None:
+                connect_kwargs["baudrate"] = OBD_BAUDRATE
+            elif is_rfcomm:
+                connect_kwargs["baudrate"] = 38400
+            self._connection_log("connect_attempt", port=port, **connect_kwargs)
+            self.connection = obd_backend.OBD(port, **connect_kwargs)
+            connected = bool(self.connection and self.connection.is_connected())
+            self._connection_log("connect_result", port=port, connected=connected,
+                                 status=str(getattr(self.connection, "status", lambda: "unknown")()))
+            if connected:
+                self.mock = False
+                self.mock_reason = ""
+                self.connected_port = port
+                self.failed_read_count = 0
+                supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
+                self._connection_log("connect_success", port=port, supported_commands=supported)
+                self._probe_adapter()
+                return True
+            self._close_connection()
+            return False
+        except Exception as exc:
+            self._close_connection()
+            self._connection_log("connect_exception", port=port, error=repr(exc), error_type=type(exc).__name__)
+            return False
+
     def _connect(self) -> None:
         if self.force_mock:
             self.mock = True
@@ -394,134 +561,100 @@ class ObdReader(GObject.Object):
 
         self._close_connection()
 
-        # Settings-configured port takes priority over auto-scan
-        if self._configured_port:
-            if not self.stop_event.is_set():
-                if self._configured_port.startswith("bt:"):
-                    addr, ch = parse_bt_port(self._configured_port)
-                    # The adapter may have idled off (binder/bluebinder phones);
-                    # power it back on before reaching for the dongle.
-                    self._ensure_bt_powered()
-                    # Direct RFCOMM-socket bridge first: it's the reliable path
-                    # for SPP dongles (the OBDLink MX+'s rfcomm-bind OBD handshake
-                    # fails and only the direct bridge connects). Trying it first
-                    # skips the wasted bind attempt and avoids leaving a stale
-                    # /dev/rfcommN node behind. rfcomm bind stays as the fallback
-                    # for adapters that need it (e.g. some ELM327 clones).
-                    success = self._try_bt_direct(addr, ch)
-                    if not success:
-                        self._connection_log("bt_direct_failed_trying_rfcomm", bt_addr=addr)
-                        dev = self._rfcomm_bind(addr, ch)
-                        if dev:
-                            try:
-                                connect_kwargs: dict[str, Any] = {
-                                    "fast": False,
-                                    "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT),
-                                    "baudrate": OBD_BAUDRATE if OBD_BAUDRATE is not None else 38400,
-                                }
-                                self._connection_log("connect_attempt", port=dev, bt_addr=addr, **connect_kwargs)
-                                self.connection = obd_backend.OBD(dev, **connect_kwargs)
-                                connected = bool(self.connection and self.connection.is_connected())
-                                self._connection_log("connect_result", port=dev, bt_addr=addr, connected=connected,
-                                                     status=str(getattr(self.connection, "status", lambda: "unknown")()))
-                                if connected:
-                                    self.mock = False
-                                    self.mock_reason = ""
-                                    self.connected_port = dev
-                                    self.failed_read_count = 0
-                                    supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
-                                    self._connection_log("connect_success", port=dev, supported_commands=supported)
-                                    self._probe_adapter()
-                                    success = True
-                                else:
-                                    self._close_connection()
-                            except Exception as exc:
-                                self._close_connection()
-                                self._connection_log("connect_exception", port=dev, error=repr(exc))
-                else:
-                    is_rfcomm = self._configured_port.startswith("/dev/rfcomm")
-                    success = False
-                    try:
-                        connect_kwargs = {
-                            "fast": False if is_rfcomm else OBD_FAST,
-                            "timeout": max(OBD_TIMEOUT_SECONDS, self._BT_OBD_TIMEOUT) if is_rfcomm else OBD_TIMEOUT_SECONDS,
-                        }
-                        if OBD_BAUDRATE is not None:
-                            connect_kwargs["baudrate"] = OBD_BAUDRATE
-                        elif is_rfcomm:
-                            connect_kwargs["baudrate"] = 38400
-                        self._connection_log("connect_attempt", port=self._configured_port, **connect_kwargs)
-                        self.connection = obd_backend.OBD(self._configured_port, **connect_kwargs)
-                        connected = bool(self.connection and self.connection.is_connected())
-                        self._connection_log("connect_result", port=self._configured_port, connected=connected,
-                                             status=str(getattr(self.connection, "status", lambda: "unknown")()))
-                        if connected:
-                            self.mock = False
-                            self.mock_reason = ""
-                            self.connected_port = self._configured_port
-                            self.failed_read_count = 0
-                            supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
-                            self._connection_log("connect_success", port=self._configured_port, supported_commands=supported)
-                            self._probe_adapter()
-                            success = True
-                        else:
-                            self._close_connection()
-                    except Exception as exc:
-                        self._close_connection()
-                        self._connection_log("connect_exception", port=self._configured_port, error=repr(exc), error_type=type(exc).__name__)
-                if not success:
-                    self.mock = True
-                    self.mock_reason = f"Dongle unreachable: {self._configured_port}"
-                    self._connection_log("connect_failed", reason=self.mock_reason, port=self._configured_port, fallback="mock")
-            return
-
-        # No configured port: auto-scan all candidates
-        for port in self._candidate_ports():
+        # 1. Settings-configured non-BT port (USB ELM, ELM-WiFi URL, …). The BT
+        #    case is handled by the unified BT scan below so a missing/asleep
+        #    preferred dongle no longer skips the other paired OBD adapters.
+        if self._configured_port and not self._configured_port.startswith("bt:"):
             if self.stop_event.is_set():
                 self._connection_log("connect_aborted", reason="stop_event")
                 return
+            if self._try_serial(self._configured_port):
+                return
 
-            try:
-                connect_kwargs = {
-                    "fast": OBD_FAST,
-                    "timeout": OBD_TIMEOUT_SECONDS,
-                }
-                if OBD_BAUDRATE is not None:
-                    connect_kwargs["baudrate"] = OBD_BAUDRATE
-                self._connection_log("connect_attempt", port=port, **connect_kwargs)
-                self.connection = obd_backend.OBD(port, **connect_kwargs)
-                connected = bool(self.connection and self.connection.is_connected())
-                self._connection_log(
-                    "connect_result",
-                    port=port,
-                    connected=connected,
-                    status=str(getattr(self.connection, "status", lambda: "unknown")()),
-                )
-                if connected:
-                    self.mock = False
-                    self.mock_reason = ""
-                    self.connected_port = port
-                    self.failed_read_count = 0
-                    supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
-                    self._connection_log("connect_success", port=port, supported_commands=supported)
-                    self._probe_adapter()
+        # 2. All known BT OBD adapters: configured (preferred) → ENV → every
+        #    paired device with an OBD-looking name. First one that handshakes
+        #    wins. Lets the same install drive any car that has a paired dongle.
+        bt_candidates = self._bt_candidates()
+        if bt_candidates:
+            self._ensure_bt_powered()
+        for addr, channel, source in bt_candidates:
+            if self.stop_event.is_set():
+                self._connection_log("connect_aborted", reason="stop_event")
+                return
+            self._connection_log("bt_candidate", bt_addr=addr, source=source)
+            if self._try_bt(addr, channel):
+                return
+
+        # 2b. No BT dongle responded. Do a one-shot inquiry scan and auto-pair
+        #     any OBD-named device in range, then retry the BT loop. Bounded to
+        #     one attempt per reader life so a failing pair doesn't burn time on
+        #     every reconnect tick. Triggered even when a "paired" but offline
+        #     dongle (e.g. an old MX+ in another car) is in the candidate list —
+        #     otherwise a new ELM in range would never get bonded.
+        if not self._auto_pair_attempted:
+            self._auto_pair_attempted = True
+            if self.stop_event.is_set():
+                self._connection_log("connect_aborted", reason="stop_event")
+                return
+            paired_n = self._auto_pair_nearby_obd()
+            if paired_n > 0:
+                bt_candidates = self._bt_candidates()
+                for addr, channel, source in bt_candidates:
+                    if self.stop_event.is_set():
+                        self._connection_log("connect_aborted", reason="stop_event")
+                        return
+                    self._connection_log("bt_candidate", bt_addr=addr, source=source, after_auto_pair=True)
+                    if self._try_bt(addr, channel):
+                        return
+
+        # 3. No BT match — auto-scan local serial/USB ports as a last resort.
+        if not self._configured_port:
+            for port in self._candidate_ports():
+                if self.stop_event.is_set():
+                    self._connection_log("connect_aborted", reason="stop_event")
                     return
-
-                self._close_connection()
-            except Exception as exc:
-                self._close_connection()
-                self._connection_log("connect_exception", port=port, error=repr(exc), error_type=type(exc).__name__)
-
-        for addr, channel in candidate_bt_addresses():
-            if self.stop_event.is_set():
-                self._connection_log("connect_aborted", reason="stop_event")
-                return
-            if self._try_bt_direct(addr, channel):
-                return
+                if port and port.startswith("/dev/rfcomm"):
+                    # Already covered by the BT loop's rfcomm-bind fallback; trying
+                    # a stale node here would just race the BT path.
+                    continue
+                if self._try_serial(port) if port else False:
+                    return
+                if port is None:
+                    # python-obd's "no port" auto-scan fallback (returns Not Connected
+                    # when nothing usable is found). Still worth one shot.
+                    if self._try_serial_none():
+                        return
 
         self.mock = True
         self.mock_reason = "kein nutzbarer Dongle gefunden"
         self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
+
+    def _try_serial_none(self) -> bool:
+        """Last-resort: let python-obd autodetect (port=None)."""
+        try:
+            connect_kwargs: dict[str, Any] = {"fast": OBD_FAST, "timeout": OBD_TIMEOUT_SECONDS}
+            if OBD_BAUDRATE is not None:
+                connect_kwargs["baudrate"] = OBD_BAUDRATE
+            self._connection_log("connect_attempt", port=None, **connect_kwargs)
+            self.connection = obd_backend.OBD(None, **connect_kwargs)
+            connected = bool(self.connection and self.connection.is_connected())
+            self._connection_log("connect_result", port=None, connected=connected,
+                                 status=str(getattr(self.connection, "status", lambda: "unknown")()))
+            if connected:
+                self.mock = False
+                self.mock_reason = ""
+                self.connected_port = None
+                self.failed_read_count = 0
+                supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
+                self._connection_log("connect_success", port=None, supported_commands=supported)
+                self._probe_adapter()
+                return True
+            self._close_connection()
+            return False
+        except Exception as exc:
+            self._close_connection()
+            self._connection_log("connect_exception", port=None, error=repr(exc), error_type=type(exc).__name__)
+            return False
 
     def _query_locked(self, command: Any, force: bool = False) -> Any:
         """Run an OBD query through the shared lock so the reader and scanner
