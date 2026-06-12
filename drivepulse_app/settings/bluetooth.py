@@ -246,4 +246,8 @@ class SettingsBluetoothMixin:
             row.add_suffix(connect_btn)
             self._bt_nearby_expander.add_row(row)
             self._bt_nearby_rows.append(row)
+        # Auto-expand: rows added to a collapsed Adw.ExpanderRow stay hidden, so
+        # the user taps "scan", sees "N found" in the subtitle, but no tappable
+        # device — looks like nothing happened. Expand so the results are visible.
+        self._bt_nearby_expander.set_expanded(True)
         return False
