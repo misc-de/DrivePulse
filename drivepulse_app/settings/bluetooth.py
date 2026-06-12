@@ -195,11 +195,16 @@ class SettingsBluetoothMixin:
     # ── Nearby BT scan ────────────────────────────────────────────────────────
 
     def _on_bt_nearby_scan_clicked(self, btn: Gtk.Button) -> None:
+        if getattr(self, "_bt_nearby_scan_active", False):
+            return  # a scan is already running — ignore repeat taps
         token = getattr(self, "_bt_nearby_scan_token", 0) + 1
         self._bt_nearby_scan_token = token
         self._bt_nearby_scan_active = True
         log.info("nearby scan: click (token=%s)", token)
-        btn.set_sensitive(False)
+        # Swap the refresh icon for a running spinner while the scan is in flight.
+        spinner = Gtk.Spinner()
+        spinner.start()
+        btn.set_child(spinner)
         self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.scanning"))
         threading.Thread(target=self._bt_nearby_scan_thread, daemon=True).start()
         # Watchdog: if the worker never reports back (a wedged binder BT stack can
@@ -207,14 +212,19 @@ class SettingsBluetoothMixin:
         # the UI instead of leaving it frozen on "Scanning…" forever.
         GLib.timeout_add_seconds(15, self._bt_nearby_scan_watchdog, token)
 
+    def _bt_nearby_scan_reset_btn(self) -> None:
+        """Restore the scan button to its idle refresh icon (clears the spinner)."""
+        self._bt_nearby_scan_btn.set_icon_name("view-refresh-symbolic")
+        self._bt_nearby_scan_btn.set_sensitive(True)
+
     def _bt_nearby_scan_watchdog(self, token: int) -> bool:
-        if self._closing or not getattr(self, "_bt_nearby_scan_active", False):
+        if not getattr(self, "_bt_nearby_scan_active", False):
             return False
         if getattr(self, "_bt_nearby_scan_token", 0) != token:
             return False  # a newer scan superseded this one
         log.info("nearby scan: WATCHDOG fired (token=%s) — worker never reported", token)
         self._bt_nearby_scan_active = False
-        self._bt_nearby_scan_btn.set_sensitive(True)
+        self._bt_nearby_scan_reset_btn()
         self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.none_found"))
         return False
 
@@ -228,10 +238,11 @@ class SettingsBluetoothMixin:
 
     def _bt_nearby_scan_done(self, devices: list[tuple[str, str]]) -> bool:
         log.info("nearby scan: done callback (%d device(s))", len(devices))
-        if self._closing:
-            return False
+        # NOT gated on self._closing: that flag flips True the moment this OBD
+        # subpage is pushed on top of the main settings page (its "hiding" signal),
+        # which previously left every scan stuck on "Scanning…" with a dead button.
         self._bt_nearby_scan_active = False
-        self._bt_nearby_scan_btn.set_sensitive(True)
+        self._bt_nearby_scan_reset_btn()
         for row in self._bt_nearby_rows:
             self._bt_nearby_expander.remove(row)
         self._bt_nearby_rows.clear()
