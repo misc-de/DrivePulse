@@ -163,29 +163,32 @@ def scan_bt_nearby_devices(
         for addr, name in scan_names.items():
             if addr not in known_db:
                 known_db[addr] = name
+        # Only surface devices ACTUALLY DETECTED in this scan — i.e. they sent an
+        # RSSI or were freshly announced. A paired-but-absent dongle (e.g. an MX+
+        # left in another car) lives in bluetoothctl's devices cache with no RSSI;
+        # it is "known", not "nearby", and must not be listed as in range.
+        seen_now = set(rssi_map) | set(scan_names)
         matched: list[tuple[str, str, int]] = []
         in_range_other: list[tuple[str, str, int]] = []
         for addr, name in known_db.items():
+            if addr not in seen_now:
+                continue
             if known_addrs and addr in known_addrs:
                 continue
-            rssi = rssi_map.get(addr)
+            rssi = rssi_map.get(addr, -999)
             if _looks_like_obd(name, addr):
-                matched.append((f"{name}  ({addr})", f"bt:{addr}", rssi if rssi is not None else -999))
-            elif rssi is not None:
-                # Freshly seen this scan => physically in range right now. Surface
-                # it too: a just-plugged ELM clone often advertises only its MAC
-                # (no OBD token) until paired, so the name filter alone would hide
-                # the very dongle the user is hunting for.
+                matched.append((f"{name}  ({addr})", f"bt:{addr}", rssi))
+            else:
+                # A just-plugged ELM clone often advertises only its MAC (no OBD
+                # token) until paired, so surface unmatched in-range devices too —
+                # otherwise the name filter alone would hide the very dongle hunted.
                 is_unnamed = (not name) or name.lower() in (addr.lower(), addr.replace(":", "-").lower())
                 shown = f"BT {addr}" if is_unnamed else name
                 in_range_other.append((f"{shown}  ({addr})", f"bt:{addr}", rssi))
-        # Rank: in-range OBD dongles first, then other in-range devices, then
-        # stale paired OBD dongles (no RSSI = not here now, e.g. a removed MX+)
-        # last — so the dongle actually present outranks one left in another car.
-        matched_live = sorted((d for d in matched if d[2] != -999), key=lambda x: x[2], reverse=True)
-        matched_stale = [d for d in matched if d[2] == -999]
+        # In-range OBD dongles first, then other in-range devices, by signal.
+        matched.sort(key=lambda x: x[2], reverse=True)
         in_range_other.sort(key=lambda x: x[2], reverse=True)
-        combined = matched_live + in_range_other + matched_stale
+        combined = matched + in_range_other
         return [(label, port) for label, port, _ in combined[:10]]
     except Exception:
         return []
