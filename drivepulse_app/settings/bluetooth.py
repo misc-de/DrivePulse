@@ -40,6 +40,8 @@ class SettingsBluetoothMixin:
     _bt_nearby_expander: _BtExpander
     _bt_nearby_rows: list[Adw.ActionRow]
     _bt_nearby_scan_btn: Gtk.Button
+    _bt_nearby_scan_token: int
+    _bt_nearby_scan_active: bool
     on_obd_port_changed: Callable[[str | None], None] | None
     _refresh_dongle_dropdown: Callable[[str | None], None]
 
@@ -190,9 +192,26 @@ class SettingsBluetoothMixin:
     # ── Nearby BT scan ────────────────────────────────────────────────────────
 
     def _on_bt_nearby_scan_clicked(self, btn: Gtk.Button) -> None:
+        token = getattr(self, "_bt_nearby_scan_token", 0) + 1
+        self._bt_nearby_scan_token = token
+        self._bt_nearby_scan_active = True
         btn.set_sensitive(False)
         self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.scanning"))
         threading.Thread(target=self._bt_nearby_scan_thread, daemon=True).start()
+        # Watchdog: if the worker never reports back (a wedged binder BT stack can
+        # leave bluetoothctl stuck on "Waiting to connect to bluetoothd…"), unstick
+        # the UI instead of leaving it frozen on "Scanning…" forever.
+        GLib.timeout_add_seconds(15, self._bt_nearby_scan_watchdog, token)
+
+    def _bt_nearby_scan_watchdog(self, token: int) -> bool:
+        if self._closing or not getattr(self, "_bt_nearby_scan_active", False):
+            return False
+        if getattr(self, "_bt_nearby_scan_token", 0) != token:
+            return False  # a newer scan superseded this one
+        self._bt_nearby_scan_active = False
+        self._bt_nearby_scan_btn.set_sensitive(True)
+        self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.none_found"))
+        return False
 
     def _bt_nearby_scan_thread(self) -> None:
         # known_addrs=None → keep already-paired OBD devices in the unified list,
@@ -203,6 +222,7 @@ class SettingsBluetoothMixin:
     def _bt_nearby_scan_done(self, devices: list[tuple[str, str]]) -> bool:
         if self._closing:
             return False
+        self._bt_nearby_scan_active = False
         self._bt_nearby_scan_btn.set_sensitive(True)
         for row in self._bt_nearby_rows:
             self._bt_nearby_expander.remove(row)

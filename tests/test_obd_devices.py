@@ -178,3 +178,67 @@ def test_looks_like_obd_rejects_noise_and_unnamed():
     assert not obd_devices._looks_like_obd("F4-9D-8A-7C-5C-66", addr)
     assert not obd_devices._looks_like_obd("F4:9D:8A:7C:5C:66", addr)
     assert not obd_devices._looks_like_obd("", addr)
+
+
+# ─── scan_bt_nearby_devices (ranking + in-range fallback) ─────────────────────
+
+import io  # noqa: E402
+import time  # noqa: E402
+
+
+class _FakePopen:
+    def __init__(self, out: str):
+        self._out = out
+        self.stdin = io.StringIO()  # supports write()/flush()
+
+    def communicate(self, timeout=None):  # noqa: ARG002
+        return self._out, ""
+
+    def kill(self):
+        pass
+
+
+def _mock_popen(out: str):
+    return lambda *_a, **_kw: _FakePopen(out)
+
+
+def test_scan_bt_nearby_ranks_in_range_above_stale_and_keeps_unmatched(monkeypatch):
+    # Live scan: an OBD dongle and a pair of headphones are both physically in
+    # range (have RSSI); the paired OBDLink MX+ is only in the device cache (no
+    # RSSI = not here now).
+    scan_out = (
+        "[NEW] Device 11:22:33:44:55:66 OBDII\n"
+        "[CHG] Device 11:22:33:44:55:66 RSSI: -55\n"
+        "[NEW] Device 77:88:99:AA:BB:CC soundcore\n"
+        "[CHG] Device 77:88:99:AA:BB:CC RSSI: -40\n"
+    )
+    devices_out = (
+        "Device 11:22:33:44:55:66 OBDII\n"
+        "Device 77:88:99:AA:BB:CC soundcore\n"
+        "Device AA:BB:CC:DD:EE:FF OBDLink MX+ 02393\n"
+    )
+    monkeypatch.setattr(time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(subprocess, "Popen", _mock_popen(scan_out))
+    monkeypatch.setattr(subprocess, "run", _mock_run(devices_out))
+
+    ports = [p for _, p in obd_devices.scan_bt_nearby_devices(scan_seconds=0)]
+    # In-range OBD dongle first, then other in-range device, absent MX+ last.
+    assert ports == [
+        "bt:11:22:33:44:55:66",
+        "bt:77:88:99:AA:BB:CC",
+        "bt:AA:BB:CC:DD:EE:FF",
+    ]
+
+
+def test_scan_bt_nearby_surfaces_unnamed_in_range_device(monkeypatch):
+    # A just-plugged ELM clone often advertises only its MAC (no OBD token) until
+    # paired — it must still appear, labelled as a generic BT device.
+    addr = "DE:AD:BE:EF:00:11"
+    scan_out = f"[CHG] Device {addr} RSSI: -60\n"
+    devices_out = f"Device {addr}\n"  # name == MAC, no friendly name yet
+    monkeypatch.setattr(time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(subprocess, "Popen", _mock_popen(scan_out))
+    monkeypatch.setattr(subprocess, "run", _mock_run(devices_out))
+
+    result = obd_devices.scan_bt_nearby_devices(scan_seconds=0)
+    assert result == [(f"BT {addr}  ({addr})", f"bt:{addr}")]
