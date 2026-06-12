@@ -163,15 +163,30 @@ def scan_bt_nearby_devices(
         for addr, name in scan_names.items():
             if addr not in known_db:
                 known_db[addr] = name
-        devices: list[tuple[str, str, int]] = []
+        matched: list[tuple[str, str, int]] = []
+        in_range_other: list[tuple[str, str, int]] = []
         for addr, name in known_db.items():
             if known_addrs and addr in known_addrs:
                 continue
-            if not _looks_like_obd(name, addr):
-                continue
-            devices.append((f"{name}  ({addr})", f"bt:{addr}", rssi_map.get(addr, -999)))
-        devices.sort(key=lambda x: x[2], reverse=True)
-        return [(label, port) for label, port, _ in devices[:10]]
+            rssi = rssi_map.get(addr)
+            if _looks_like_obd(name, addr):
+                matched.append((f"{name}  ({addr})", f"bt:{addr}", rssi if rssi is not None else -999))
+            elif rssi is not None:
+                # Freshly seen this scan => physically in range right now. Surface
+                # it too: a just-plugged ELM clone often advertises only its MAC
+                # (no OBD token) until paired, so the name filter alone would hide
+                # the very dongle the user is hunting for.
+                is_unnamed = (not name) or name.lower() in (addr.lower(), addr.replace(":", "-").lower())
+                shown = f"BT {addr}" if is_unnamed else name
+                in_range_other.append((f"{shown}  ({addr})", f"bt:{addr}", rssi))
+        # Rank: in-range OBD dongles first, then other in-range devices, then
+        # stale paired OBD dongles (no RSSI = not here now, e.g. a removed MX+)
+        # last — so the dongle actually present outranks one left in another car.
+        matched_live = sorted((d for d in matched if d[2] != -999), key=lambda x: x[2], reverse=True)
+        matched_stale = [d for d in matched if d[2] == -999]
+        in_range_other.sort(key=lambda x: x[2], reverse=True)
+        combined = matched_live + in_range_other + matched_stale
+        return [(label, port) for label, port, _ in combined[:10]]
     except Exception:
         return []
 
