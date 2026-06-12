@@ -19,12 +19,15 @@ from typing import TYPE_CHECKING
 from gi.repository import Adw, GLib, Gtk
 
 from drivepulse_app.common import _translate
+from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.obd.devices import (
     bind_bt_to_rfcomm,
     pair_bt_device,
     probe_bt_rfcomm_socket,
     scan_bt_nearby_devices,
 )
+
+log = get_logger(__name__)
 
 if TYPE_CHECKING:
     from drivepulse_app.settings.dialog import _BtExpander
@@ -195,6 +198,7 @@ class SettingsBluetoothMixin:
         token = getattr(self, "_bt_nearby_scan_token", 0) + 1
         self._bt_nearby_scan_token = token
         self._bt_nearby_scan_active = True
+        log.info("nearby scan: click (token=%s)", token)
         btn.set_sensitive(False)
         self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.scanning"))
         threading.Thread(target=self._bt_nearby_scan_thread, daemon=True).start()
@@ -208,6 +212,7 @@ class SettingsBluetoothMixin:
             return False
         if getattr(self, "_bt_nearby_scan_token", 0) != token:
             return False  # a newer scan superseded this one
+        log.info("nearby scan: WATCHDOG fired (token=%s) — worker never reported", token)
         self._bt_nearby_scan_active = False
         self._bt_nearby_scan_btn.set_sensitive(True)
         self._bt_nearby_expander.set_subtitle(_translate(self.language, "settings.bt_obd.nearby.none_found"))
@@ -216,10 +221,13 @@ class SettingsBluetoothMixin:
     def _bt_nearby_scan_thread(self) -> None:
         # known_addrs=None → keep already-paired OBD devices in the unified list,
         # not just brand-new discoveries.
+        log.info("nearby scan: thread start")
         devices = scan_bt_nearby_devices(scan_seconds=6, known_addrs=None)
+        log.info("nearby scan: scan returned %d device(s), scheduling idle_add", len(devices))
         GLib.idle_add(self._bt_nearby_scan_done, devices)
 
     def _bt_nearby_scan_done(self, devices: list[tuple[str, str]]) -> bool:
+        log.info("nearby scan: done callback (%d device(s))", len(devices))
         if self._closing:
             return False
         self._bt_nearby_scan_active = False

@@ -1028,9 +1028,16 @@ class SettingsDialog(
         # Live "Connected Dongle:" infos, snapshotted at construction time.
         page.add(self._build_connected_dongle_group())
 
+        # Wrap the page in a ToolbarView with a HeaderBar so the NavigationView
+        # shows a back arrow (a bare PreferencesPage child has no header, which is
+        # why this subpage had no way back). Mirrors the main settings page.
+        header = Adw.HeaderBar()
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(header)
+        toolbar.set_content(page)
         return Adw.NavigationPage(
             title=_translate(self.language, "settings.obd_dongle.page"),
-            child=page,
+            child=toolbar,
             tag="settings-obd-dongle",
         )
 
