@@ -85,6 +85,65 @@ def scan_bt_paired_devices() -> list[tuple[str, str]]:
         return []
 
 
+# Standard 16-bit UUIDs in their 128-bit form. Pre-expanded so the substring
+# match against bluetoothctl's output is locale-independent.
+_SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"
+
+# UUIDs that rule a device OUT as an OBD dongle, even if it also exposes SPP.
+# Modern TWS earbuds (e.g. Anker Soundcore) advertise SPP for firmware-update
+# channels — without this exclusion they would be tried as OBD candidates and
+# burn ~8 s per connect cycle on the Host-is-down timeout.
+_NON_OBD_UUIDS = (
+    "0000110a",  # A2DP Source
+    "0000110b",  # A2DP Sink
+    "0000110c",  # AVRCP Target
+    "0000110e",  # AVRCP Controller
+    "0000111e",  # Handsfree
+    "00001108",  # Headset
+    "00001112",  # Headset Audio Gateway
+    "00001124",  # HID
+    "00001812",  # HID over GATT
+    "0000110d",  # Advanced Audio Distribution
+)
+
+
+def _has_spp_uuid(addr: str) -> bool:
+    """True if the paired device at *addr* looks like an OBD/serial adapter.
+
+    Requires the Serial Port Profile and rejects anything that also advertises
+    audio (A2DP/HFP/HSP) or input (HID) profiles. OBD dongles only ever expose
+    SPP (sometimes plus OBEX), so the exclusion list is unambiguous.
+    """
+    try:
+        result = subprocess.run(
+            ["bluetoothctl", "info", addr],
+            capture_output=True, text=True, timeout=4, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    out = result.stdout.lower()
+    if _SPP_UUID not in out:
+        return False
+    return not any(u in out for u in _NON_OBD_UUIDS)
+
+
+def paired_obd_addresses() -> list[tuple[str, int, str]]:
+    """Return (addr, channel=1, name) for paired BT devices that advertise SPP.
+
+    Lets the reader auto-try every plausible OBD dongle the system already knows
+    about — so a user who pairs an MX+ in one car and an ELM clone in another
+    doesn't need to re-configure the OBD port every time they switch vehicles.
+    Using SDP/SPP (not the device name) makes detection brand-agnostic.
+    """
+    result: list[tuple[str, int, str]] = []
+    for label, port_url in scan_bt_paired_devices():
+        addr = port_url[3:].upper()
+        name = label[4:].rsplit(" (", 1)[0] if label.startswith("BT: ") else addr
+        if _has_spp_uuid(addr):
+            result.append((addr, 1, name))
+    return result
+
+
 def scan_bt_nearby_devices(
     scan_seconds: int = 6,
     known_addrs: set[str] | None = None,
@@ -193,21 +252,9 @@ def scan_bt_nearby_devices(
         return []
 
 
-def pair_bt_device(addr: str, pin: str = "1234", timeout: float = 30.0) -> tuple[bool, str]:
-    """Pair and trust a Bluetooth device via an interactive bluetoothctl session.
-
-    Registers a ``NoInputNoOutput`` agent and makes it the default, so SSP
-    pairing uses "Just Works": BlueZ bonds automatically without raising a
-    PIN / numeric-comparison prompt. That is what stops the OS (e.g. Phosh)
-    Bluetooth agent from popping its own confirmation dialog over DrivePulse
-    during the OBDLink MX+'s first contact. The *pin*/"yes" replies are kept as
-    a harmless fallback for the rare adapter that still asks; with
-    NoInputNoOutput they are simply ignored as invalid commands.
-
-    Returns (success, message). Already-paired devices count as success.
-    """
+def _bluetoothctl_session(commands: list[str], timeout: float = 30.0) -> str:
+    """Run *commands* through one interactive bluetoothctl session. Returns combined output."""
     import time as _time
-    addr = addr.upper()
     try:
         proc = subprocess.Popen(
             ["bluetoothctl"],
@@ -216,41 +263,87 @@ def pair_bt_device(addr: str, pin: str = "1234", timeout: float = 30.0) -> tuple
             stderr=subprocess.STDOUT,
             text=True,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return False, f"bluetoothctl not available: {exc}"
-
+    except (OSError, subprocess.SubprocessError):
+        return ""
     assert proc.stdin is not None
-    out = ""
     try:
-        for cmd in ("power on", "agent NoInputNoOutput", "default-agent", f"pair {addr}"):
+        for cmd in commands:
             proc.stdin.write(cmd + "\n")
             proc.stdin.flush()
             _time.sleep(0.6)
-        for reply in ("yes", pin):
-            proc.stdin.write(reply + "\n")
-            proc.stdin.flush()
-            _time.sleep(1.0)
-        proc.stdin.write(f"trust {addr}\n")
-        proc.stdin.flush()
-        _time.sleep(0.4)
         proc.stdin.write("quit\n")
         proc.stdin.flush()
         out, _ = proc.communicate(timeout=timeout)
+        return out
     except subprocess.TimeoutExpired:
         proc.kill()
         try:
             out, _ = proc.communicate()
+            return out
         except (OSError, subprocess.SubprocessError, ValueError):
-            out = ""
-    except Exception as exc:
+            return ""
+    except Exception:
         proc.kill()
-        return False, str(exc)
+        return ""
+
+
+def pair_bt_device(
+    addr: str,
+    pin: str = "1234",
+    timeout: float = 35.0,
+    pin_candidates: tuple[str, ...] | None = None,
+) -> tuple[bool, str]:
+    """Pair, trust and connect a Bluetooth device via bluetoothctl.
+
+    ELM327 BT clones (HC-05/HC-06 modules) speak Bluetooth 2.0 legacy pairing
+    only — they reject Just-Works SSP and need a numeric PIN. So:
+
+    1. ``remove`` first to wipe any stale half-bonded state (a common cause of
+       BlueZ ``AuthenticationFailed`` on the next attempt — see bluez#605).
+    2. ``agent KeyboardOnly`` so this Python side supplies the PIN; BlueZ won't
+       hand the prompt over to the OS agent (Phosh/GNOME) and won't try SSP.
+    3. ``pair`` and feed PIN candidates in succession (1234 is the factory
+       default for HC-05/06; 0000 / 6789 are common alternates).
+    4. ``trust`` + explicit ``connect`` — without ``trust`` BlueZ re-prompts on
+       every reconnect, and some clones won't open the RFCOMM channel until a
+       ``connect`` lands.
+
+    Returns ``(success, message)``. Already-paired devices count as success.
+    """
+    addr = addr.upper()
+    pins = pin_candidates or (pin, "0000", "6789", "0123")
+
+    # Step 1: clear stale state. Idempotent — ignored if device isn't known.
+    _bluetoothctl_session([f"remove {addr}"], timeout=8.0)
+
+    # Step 2: pair + PIN-cascade in a fresh session.
+    cmds: list[str] = [
+        "power on",
+        "agent KeyboardOnly",
+        "default-agent",
+        f"pair {addr}",
+    ]
+    # Feed all candidate PINs; bluetoothctl ignores extras once paired.
+    for p in pins:
+        cmds.append(p)
+    # Trust + explicit connect for legacy adapters that need the bond verified.
+    cmds.extend([f"trust {addr}", f"connect {addr}"])
+    out = _bluetoothctl_session(cmds, timeout=timeout)
 
     low = out.lower()
-    if "pairing successful" in low or "alreadyexists" in low or "paired: yes" in low:
+    if (
+        "pairing successful" in low
+        or "alreadyexists" in low
+        or "paired: yes" in low
+        or "connection successful" in low
+    ):
+        # Best-effort: leave it disconnected so the OBD reader can open the
+        # RFCOMM socket itself (BlueZ won't lend the SPP channel while it
+        # holds an active LE/HFP link). Failure here is harmless.
+        _bluetoothctl_session([f"disconnect {addr}"], timeout=6.0)
         return True, "paired"
     for line in out.splitlines():
-        if "failed to pair" in line.lower():
+        if "failed to pair" in line.lower() or "authenticationfailed" in line.lower():
             return False, line.strip()
     return False, "pairing not confirmed"
 

@@ -9,6 +9,7 @@ from drivepulse_app import common
 from drivepulse_app.obd import devices as obd_devices
 from drivepulse_app.obd.devices import (
     candidate_bt_addresses,
+    paired_obd_addresses,
     parse_bt_port,
     scan_bt_paired_devices,
 )
@@ -158,6 +159,115 @@ def test_scan_bt_paired_devices_uppercases_mac_address(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _mock_run(sample))
     devices = scan_bt_paired_devices()
     assert devices[0][1] == "bt:AA:BB:CC:DD:EE:FF"
+
+
+# ─── paired_obd_addresses (multi-dongle auto-discovery) ──────────────────────
+
+
+def _spp_info_for(spp_addrs: set[str], also_audio_addrs: set[str] | None = None):
+    """Build a bluetoothctl-info mock.
+
+    *spp_addrs* report Serial Port. *also_audio_addrs* report SPP **and** A2DP
+    (the Soundcore-style false-positive case) — these must be rejected.
+    """
+    also_audio = also_audio_addrs or set()
+
+    def _run(*args, **_kw):
+        cmd = args[0] if args else []
+
+        class _R:
+            returncode = 0
+            stdout = ""
+
+        r = _R()
+        if len(cmd) >= 3 and cmd[0] == "bluetoothctl" and cmd[1] == "info":
+            addr = cmd[2].upper()
+            if addr in also_audio:
+                r.stdout = (
+                    f"Device {addr}\n"
+                    "\tUUID: Serial Port               "
+                    "(00001101-0000-1000-8000-00805f9b34fb)\n"
+                    "\tUUID: Audio Sink                "
+                    "(0000110b-0000-1000-8000-00805f9b34fb)\n"
+                )
+            elif addr in spp_addrs:
+                r.stdout = (
+                    f"Device {addr}\n"
+                    "\tUUID: Serial Port               "
+                    "(00001101-0000-1000-8000-00805f9b34fb)\n"
+                )
+            else:
+                r.stdout = (
+                    f"Device {addr}\n"
+                    "\tUUID: Audio Sink                "
+                    "(0000110b-0000-1000-8000-00805f9b34fb)\n"
+                )
+        return r
+    return _run
+
+
+def test_paired_obd_addresses_filters_only_spp_advertising(monkeypatch):
+    # Detection is brand-agnostic now: any paired device advertising the SPP
+    # UUID is considered an OBD candidate, even with an unknown name. Devices
+    # without SPP (headphones, HID) are filtered.
+    monkeypatch.setattr(obd_devices, "scan_bt_paired_devices", lambda: [
+        ("BT: OBDLink MX+ 02393 (00:04:3E:8C:16:AC)", "bt:00:04:3E:8C:16:AC"),
+        ("BT: Sony WH-1000XM4 (AA:BB:CC:DD:EE:FF)", "bt:AA:BB:CC:DD:EE:FF"),
+        ("BT: No-Name Klon (11:22:33:44:55:66)", "bt:11:22:33:44:55:66"),
+    ])
+    spp = {"00:04:3E:8C:16:AC", "11:22:33:44:55:66"}
+    monkeypatch.setattr(subprocess, "run", _spp_info_for(spp))
+    out = paired_obd_addresses()
+    addrs = [a for a, _ch, _n in out]
+    assert "00:04:3E:8C:16:AC" in addrs
+    assert "11:22:33:44:55:66" in addrs  # name not in keyword list — accepted via SPP
+    assert "AA:BB:CC:DD:EE:FF" not in addrs  # Sony headset (no SPP) filtered
+    assert all(ch == 1 for _a, ch, _n in out)
+
+
+def test_paired_obd_addresses_empty_when_no_paired_devices(monkeypatch):
+    monkeypatch.setattr(obd_devices, "scan_bt_paired_devices", lambda: [])
+    assert paired_obd_addresses() == []
+
+
+def test_paired_obd_addresses_returns_recovered_name(monkeypatch):
+    monkeypatch.setattr(obd_devices, "scan_bt_paired_devices", lambda: [
+        ("BT: OBDLink MX+ 02393 (00:04:3E:8C:16:AC)", "bt:00:04:3E:8C:16:AC"),
+    ])
+    monkeypatch.setattr(subprocess, "run", _spp_info_for({"00:04:3E:8C:16:AC"}))
+    out = paired_obd_addresses()
+    assert out == [("00:04:3E:8C:16:AC", 1, "OBDLink MX+ 02393")]
+
+
+def test_paired_obd_addresses_rejects_spp_plus_audio_devices(monkeypatch):
+    # Anker Soundcore TWS expose SPP for firmware updates *and* A2DP. Without
+    # the audio-profile exclusion the connector would burn ~8 s timing out
+    # against headphones every connect cycle.
+    soundcore = "F4:9D:8A:7C:5C:66"
+    monkeypatch.setattr(obd_devices, "scan_bt_paired_devices", lambda: [
+        ("BT: soundcore Liberty 4 Pro (F4:9D:8A:7C:5C:66)", "bt:F4:9D:8A:7C:5C:66"),
+        ("BT: OBDLink MX+ (00:04:3E:8C:16:AC)", "bt:00:04:3E:8C:16:AC"),
+    ])
+    monkeypatch.setattr(
+        subprocess, "run",
+        _spp_info_for({"00:04:3E:8C:16:AC"}, also_audio_addrs={soundcore}),
+    )
+    out = paired_obd_addresses()
+    addrs = [a for a, _ch, _n in out]
+    assert soundcore not in addrs
+    assert "00:04:3E:8C:16:AC" in addrs
+
+
+def test_paired_obd_addresses_empty_when_bluetoothctl_missing(monkeypatch):
+    # No bluetoothctl on the host (CI/sandbox) → no SPP probe possible →
+    # silently empty result, never raises.
+    monkeypatch.setattr(obd_devices, "scan_bt_paired_devices", lambda: [
+        ("BT: OBDLink MX+ 02393 (00:04:3E:8C:16:AC)", "bt:00:04:3E:8C:16:AC"),
+    ])
+    def _missing(*_a, **_kw):
+        raise FileNotFoundError("bluetoothctl missing")
+    monkeypatch.setattr(subprocess, "run", _missing)
+    assert paired_obd_addresses() == []
 
 
 # ─── _looks_like_obd (nearby-scan filter) ────────────────────────────────────
