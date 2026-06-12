@@ -497,6 +497,19 @@ class SettingsDialog(
         obd_devices = scan_obd_devices()  # (label, port, is_present)
         self._obd_port_values: list[str | None] = [None]
 
+        # Live connection truth for the green "present" marker. A configured
+        # dongle that is not actually connected (asleep / removed / left in
+        # another car) must NOT render green: the dropdown used to hard-code
+        # presence for the selected port, so a missing MX+ looked connected even
+        # while "Connected Dongle:" said otherwise.
+        _status: dict | None = None
+        if self._obd_status_provider is not None:
+            try:
+                _status = self._obd_status_provider()
+            except Exception:
+                _status = None
+        _live_connected = bool(_status and _status.get("connected"))
+
         self._dongle_store = Gio.ListStore(item_type=DeviceItem)
         dongle_store = self._dongle_store
         dongle_store.append(DeviceItem(
@@ -520,7 +533,7 @@ class SettingsDialog(
             dongle_store.append(DeviceItem(
                 label=self.dongle_label_for(current_obd_port),
                 port=current_obd_port,
-                is_present=True,
+                is_present=_live_connected,
                 is_connected=True,
             ))
             self._obd_port_values.append(current_obd_port)
