@@ -14,3 +14,4 @@ drivepulse.db
 .mypy_cache
 .github
 .agents
+.github/workflows
