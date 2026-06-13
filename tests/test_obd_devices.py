@@ -349,3 +349,29 @@ def test_scan_bt_nearby_surfaces_unnamed_in_range_device(monkeypatch):
 
     result = obd_devices.scan_bt_nearby_devices(scan_seconds=0)
     assert result == [(f"BT {addr}  ({addr})", f"bt:{addr}")]
+
+
+def test_scan_sets_dual_mode_transport_before_scan_on(monkeypatch):
+    # The scan must set a BR/EDR+LE discovery filter (transport auto) before
+    # `scan on`, so Bluetooth-Classic OBD dongles surface on LE-defaulting stacks.
+    captured: dict[str, str] = {}
+
+    class _Cap:
+        def __init__(self) -> None:
+            self.stdin = io.StringIO()
+
+        def communicate(self, timeout=None):  # noqa: ARG002
+            captured["stdin"] = self.stdin.getvalue()
+            return "", ""
+
+        def kill(self) -> None:
+            pass
+
+    monkeypatch.setattr(time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(subprocess, "Popen", lambda *_a, **_k: _Cap())
+    monkeypatch.setattr(subprocess, "run", _mock_run(""))
+
+    obd_devices.scan_bt_nearby_devices(scan_seconds=0)
+    cmds = captured["stdin"]
+    assert "transport auto" in cmds
+    assert cmds.index("transport auto") < cmds.index("scan on")
