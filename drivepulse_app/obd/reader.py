@@ -735,6 +735,10 @@ class ObdReader(GObject.Object):
             return None
 
         self._diagnostic_active = True
+        t0 = time.monotonic()
+        log.info(
+            "UDS session begin: port=%s proto=%s tx=%s rx=%s", port, protocol, tx.upper(), rx.upper()
+        )
         try:
             with self._obd_lock:
                 client = UdsClient(lambda cmd: raw_send(port, cmd))
@@ -748,6 +752,7 @@ class ObdReader(GObject.Object):
             return None
         finally:
             self._diagnostic_active = False
+            log.info("UDS session end (%.1fs)", time.monotonic() - t0)
 
     def discover_module(self, tx: str, rx: str, protocol: str = "6") -> dict[str, Any]:
         """Read-only inventory of one module: identification DIDs + VAG coding DID.
@@ -825,13 +830,18 @@ class ObdReader(GObject.Object):
             return self._mock_uds.sweep(tx, rx, dids) if self.force_mock else {}
 
         def work(client: Any) -> dict[str, Any]:
+            log.info(
+                "deep DID sweep start: tx=%s rx=%s dids=%d", tx.upper(), rx.upper(), len(dids)
+            )
+            t0 = time.monotonic()
             out: dict[str, Any] = {
                 "created_at": datetime.now(UTC).isoformat(),
                 "tx": tx.upper(), "rx": rx.upper(), "sweep": True,
                 "did_count": len(dids),
                 "identification": {}, "coding": {}, "did_responses": {},
             }
-            for did, resp in client.scan_dids(dids):
+            positive = gated = 0
+            for did, resp in client.scan_dids(dids, log_each=True):
                 key = f"{did:04X}"
                 payload = did_payload(resp, did)
                 if payload is not None:
@@ -840,6 +850,7 @@ class ObdReader(GObject.Object):
                     if ascii_val is not None:
                         entry["ascii"] = ascii_val
                     out["did_responses"][key] = entry
+                    positive += 1
                     if did in IDENTIFICATION_DIDS:
                         out["identification"][IDENTIFICATION_DIDS[did]] = entry
                     if did == VAG_CODING_DID:
@@ -850,6 +861,11 @@ class ObdReader(GObject.Object):
                         "nrc_name": resp.negative.name,
                         "gated": True,
                     }
+                    gated += 1
+            log.info(
+                "deep DID sweep done: %d positive, %d gated of %d DIDs in %.1fs",
+                positive, gated, len(dids), time.monotonic() - t0,
+            )
             return out
 
         return self.run_uds_session(tx, rx, work, protocol) or {}
