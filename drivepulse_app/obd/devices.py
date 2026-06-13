@@ -173,6 +173,15 @@ def scan_bt_nearby_devices(
             proc.stdin.write("power on\n")
             proc.stdin.flush()
             _time.sleep(0.5)
+            # Force a dual-mode (BR/EDR + LE) discovery filter. Several
+            # binder/bluebinder stacks default to LE-only discovery, so
+            # Bluetooth-Classic OBD dongles (HC-05/06 ELM clones, OBDLink MX+)
+            # never surface in the inquiry. `menu scan` → `transport auto` → `back`
+            # sets SetDiscoveryFilter.Transport; an older bluetoothctl simply
+            # ignores the unknown commands, so this stays safe.
+            proc.stdin.write("menu scan\ntransport auto\nback\n")
+            proc.stdin.flush()
+            _time.sleep(0.3)
             proc.stdin.write("scan on\n")
             proc.stdin.flush()
             _time.sleep(scan_seconds)
@@ -206,6 +215,18 @@ def scan_bt_nearby_devices(
                 pass
     except (OSError, subprocess.SubprocessError):
         log.debug("bluetoothctl scan probe failed", exc_info=True)
+    # Raw inquiry result for live debugging: every address the scan surfaced,
+    # with whatever name/RSSI we resolved — including ones the OBD filter later
+    # drops. Invaluable when a dongle "doesn't show up" (Classic vs LE, etc.).
+    if rssi_map or scan_names:
+        log.info(
+            "bt scan raw (%d): %s",
+            len(set(rssi_map) | set(scan_names)),
+            [{"addr": a, "name": scan_names.get(a, ""), "rssi": rssi_map.get(a)}
+             for a in sorted(set(rssi_map) | set(scan_names))],
+        )
+    else:
+        log.info("bt scan raw: nothing discovered")
     try:
         result = subprocess.run(
             ["bluetoothctl", "devices"],
@@ -346,6 +367,17 @@ def pair_bt_device(
         if "failed to pair" in line.lower() or "authenticationfailed" in line.lower():
             return False, line.strip()
     return False, "pairing not confirmed"
+
+
+def unpair_bt_device(addr: str) -> None:
+    """Remove (unpair) a Bluetooth device. Best-effort.
+
+    Used to undo a *pair-probe*: the auto-pair fallback bonds an unknown in-range
+    device just long enough to read its SDP profiles, then calls this to discard
+    it again when it turns out not to be a serial/OBD adapter — so no random
+    earbuds or phones are left bonded behind the user's back.
+    """
+    _bluetoothctl_session([f"remove {addr.upper()}"], timeout=8.0)
 
 
 def probe_bt_rfcomm_socket(addr: str, channel: int = 1, timeout: float = 10.0) -> tuple[bool, str]:

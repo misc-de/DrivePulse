@@ -34,6 +34,7 @@ from drivepulse_app.common import (
 from drivepulse_app.diagnostics import append_jsonl, get_logger
 from drivepulse_app.obd.adapter import AdapterInfo, _serial_port, probe_adapter, raw_send
 from drivepulse_app.obd.devices import (
+    _has_spp_uuid,
     _looks_like_obd,
     candidate_bt_addresses,
     pair_bt_device,
@@ -41,6 +42,7 @@ from drivepulse_app.obd.devices import (
     parse_bt_port,
     scan_bt_nearby_devices,
     scan_bt_paired_devices,
+    unpair_bt_device,
 )
 from drivepulse_app.obd.mock import MockObdSimulator, MockUdsSimulator
 from drivepulse_app.obd.polling import (
@@ -459,12 +461,13 @@ class ObdReader(GObject.Object):
 
         Used as a fallback when no paired OBD dongle answered: a brand-new ELM
         clone or freshly powered MX+ shows up in nearby discovery but isn't
-        bonded yet, so RFCOMM connects bounce with "Host is down". Pairing via
-        the NoInputNoOutput agent (Just-Works SSP) bonds it without a PIN
-        dialog. Returns the number of devices successfully paired.
+        bonded yet, so RFCOMM connects bounce with "Host is down". pair_bt_device
+        bonds it (legacy PIN cascade for HC-05/06 clones, Just-Works otherwise).
 
-        Skips unnamed in-range devices: ``scan_bt_nearby_devices`` keeps them
-        as soft candidates but we don't want to pair random BLE noise blindly.
+        Brand-agnostic: a named OBD dongle is tried directly; an unnamed/unknown
+        in-range device is *probed* — paired, SPP-verified, and unpaired again if
+        it isn't a serial adapter — bounded by a probe budget so we don't bond
+        the whole neighbourhood. Returns the number of confirmed OBD dongles.
         """
         self._connection_log("auto_pair_scan_start")
         try:
@@ -482,24 +485,46 @@ class ObdReader(GObject.Object):
             devices=[{"label": label, "port": port} for label, port in nearby],
         )
         paired_n = 0
+        probes = 0
+        _MAX_PROBES = 5  # bound pair-probe cost; the wanted dongle is usually closest
         for label, port_url in nearby:
             if self.stop_event.is_set():
                 return paired_n
             addr = port_url[3:].upper()
             # Label format is "<name>  (<addr>)" (two spaces, see devices.py).
             name = label.rsplit("(", 1)[0].strip() if "(" in label else label
-            if not _looks_like_obd(name, addr):
-                self._connection_log("auto_pair_skip_unnamed", addr=addr, label=label)
-                continue
-            self._connection_log("auto_pair_attempt", addr=addr, name=name)
+            named_obd = _looks_like_obd(name, addr)
+            # Named OBD dongles are high-confidence → always tried. Unnamed/unknown
+            # devices are probed within a budget so we don't bond every phone/beacon
+            # in a busy car park.
+            if not named_obd:
+                if probes >= _MAX_PROBES:
+                    self._connection_log("auto_pair_probe_budget", addr=addr, skipped=True)
+                    continue
+                probes += 1
+            self._connection_log("auto_pair_attempt", addr=addr, name=name, named_obd=named_obd)
             try:
                 ok, msg = pair_bt_device(addr)
             except Exception as exc:
                 self._connection_log("auto_pair_exception", addr=addr, error=str(exc))
                 continue
-            self._connection_log("auto_pair_result", addr=addr, ok=ok, msg=msg)
-            if ok:
+            if not ok:
+                self._connection_log("auto_pair_result", addr=addr, ok=False, msg=msg)
+                continue
+            # Paired — verify it's actually a serial/OBD adapter via SPP (brand-
+            # agnostic, no name list). Discard probed non-OBD bonds so nothing
+            # random is left paired; a named OBD device that momentarily fails the
+            # SPP readout stays paired to avoid thrashing.
+            is_obd = _has_spp_uuid(addr)
+            self._connection_log("auto_pair_result", addr=addr, ok=True, msg=msg, spp=is_obd)
+            if is_obd:
                 paired_n += 1
+            elif not named_obd:
+                try:
+                    unpair_bt_device(addr)
+                    self._connection_log("auto_pair_discarded_non_obd", addr=addr)
+                except Exception as exc:
+                    self._connection_log("auto_pair_discard_error", addr=addr, error=str(exc))
         return paired_n
 
     def _try_serial(self, port: str) -> bool:
