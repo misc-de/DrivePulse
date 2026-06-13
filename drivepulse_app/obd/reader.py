@@ -638,9 +638,11 @@ class ObdReader(GObject.Object):
                 if self.stop_event.is_set():
                     self._connection_log("connect_aborted", reason="stop_event")
                     return
-                if port and port.startswith("/dev/rfcomm"):
-                    # Already covered by the BT loop's rfcomm-bind fallback; trying
-                    # a stale node here would just race the BT path.
+                if port and port.startswith("/dev/rfcomm") and not OBD_PORT:
+                    # Skip AUTO-DISCOVERED rfcomm nodes — the BT loop's rfcomm-bind
+                    # fallback already covers those, and racing a stale node here
+                    # would just churn. An explicit OBD_PORT=/dev/rfcommN is the
+                    # user's choice (see startup hint) and is still honoured below.
                     continue
                 if self._try_serial(port) if port else False:
                     return
