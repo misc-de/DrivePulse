@@ -235,7 +235,32 @@ def test_connect_uses_configured_obd_parameters(monkeypatch, drivepulse_module, 
 
     assert reader.mock is False
     assert reader.connected_port == "/dev/rfcomm0"
-    assert connection.kwargs == {"fast": False, "timeout": 3.0, "baudrate": 38400}
+    # A /dev/rfcomm node is a Bluetooth link, so the connect timeout is floored to
+    # the BT minimum (max(OBD_TIMEOUT, _BT_OBD_TIMEOUT) = 15.0) — the floor only
+    # ever raises patience, never below the configured value. fast/baudrate pass
+    # through unchanged. A USB serial port uses OBD_TIMEOUT verbatim, see below.
+    assert connection.kwargs == {"fast": False, "timeout": 15.0, "baudrate": 38400}
+
+
+def test_connect_usb_port_uses_configured_timeout(monkeypatch, drivepulse_module, tmp_log_paths):
+    from drivepulse_app.obd import reader as obd_reader
+
+    connection = _Connection(True)
+    fake_obd = _fake_obd_module([connection])
+    monkeypatch.setattr(obd_reader, "obd", fake_obd)
+    monkeypatch.setattr(obd_reader, "obd_backend", fake_obd)
+    monkeypatch.setattr(obd_reader, "OBD_PORT", "/dev/ttyUSB0")
+    monkeypatch.setattr(obd_reader, "OBD_BAUDRATE", 38400)
+    monkeypatch.setattr(obd_reader, "OBD_TIMEOUT_SECONDS", 3.0)
+    monkeypatch.setattr(obd_reader, "OBD_FAST", True)
+
+    reader = drivepulse_module.ObdReader(lambda payload: None)
+    reader._connect()
+
+    assert reader.mock is False
+    assert reader.connected_port == "/dev/ttyUSB0"
+    # USB ELM: no BT floor — the configured OBD_TIMEOUT/OBD_FAST are used verbatim.
+    assert connection.kwargs == {"fast": True, "timeout": 3.0, "baudrate": 38400}
 
 
 def test_connect_falls_back_to_mock_when_no_connection(monkeypatch, drivepulse_module):
