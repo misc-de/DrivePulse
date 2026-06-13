@@ -401,18 +401,41 @@ class UdsClient:
         self,
         dids: Iterable[int],
         on_result: Callable[[int, UdsResponse], None] | None = None,
+        log_each: bool = False,
     ) -> Iterator[tuple[int, UdsResponse]]:
         """Read each DID in *dids*, yielding ``(did, response)`` as it goes.
 
         Errors per DID are swallowed and reported as a negative-style response
-        so a single unreadable DID never aborts the sweep.
+        so a single unreadable DID never aborts the sweep. When *log_each* is
+        set, every DID is logged at INFO with its outcome and round-trip time —
+        used by the deep sweep so a stalled or aborting DID is visible in the
+        log without enabling DEBUG.
         """
         for did in dids:
+            t0 = time.monotonic()
             try:
                 response = self.read_data_by_identifier(did)
             except UdsError as exc:
                 log.debug("DID 0x%04X: %s", did, exc)
                 response = UdsResponse(data=b"", negative=NegativeResponse(0x22, 0x10))
+            except Exception:
+                if log_each:
+                    log.info(
+                        "UDS sweep DID %04X -> EXCEPTION after %.0f ms (link lost?)",
+                        did, (time.monotonic() - t0) * 1000.0,
+                    )
+                raise
+            if log_each:
+                if response.negative is not None:
+                    outcome = f"NRC {response.negative.nrc:02X} {response.negative.name}"
+                elif response.data:
+                    outcome = f"OK {len(response.data)} B"
+                else:
+                    outcome = "empty/no-data"
+                log.info(
+                    "UDS sweep DID %04X -> %s (%.0f ms)",
+                    did, outcome, (time.monotonic() - t0) * 1000.0,
+                )
             if on_result is not None:
                 on_result(did, response)
             yield did, response
