@@ -36,10 +36,12 @@ from drivepulse_app.obd.adapter import AdapterInfo, _serial_port, probe_adapter,
 from drivepulse_app.obd.devices import (
     _has_spp_uuid,
     _looks_like_obd,
+    bt_is_reachable,
     candidate_bt_addresses,
     pair_bt_device,
     paired_obd_addresses,
     parse_bt_port,
+    scan_bt_known_devices,
     scan_bt_nearby_devices,
     scan_bt_paired_devices,
     unpair_bt_device,
@@ -173,10 +175,95 @@ class ObdReader(GObject.Object):
         except Exception:
             log.exception("Could not write OBD connection log event=%s", event)
 
+    def _announce(self, text: str, *, speak: bool = True, voice_text: str | None = None) -> None:
+        """Surface a connect/pair milestone to the UI and (optionally) TTS.
+
+        Driving means the user can't watch JSON logs. This pushes a German
+        human-readable status string into the dashboard's existing
+        ``connection_status`` field (rendered on the OBD indicator) and, when
+        TTS is enabled in settings, speaks it through Piper. *voice_text* lets
+        the spoken sentence differ from the on-screen banner where the screen
+        version benefits from being terser.
+
+        Repeated identical announcements are suppressed to avoid spamming the
+        TTS queue when the reader retries every few seconds.
+        """
+        if text == getattr(self, "_last_announce_text", None):
+            speak = False
+        else:
+            self._last_announce_text = text
+        try:
+            GLib.idle_add(
+                self.on_update,
+                {
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "source": "status",
+                    "connection_status": text,
+                    "obd_port": self.connected_port,
+                },
+            )
+        except Exception:
+            log.debug("UI status push failed for %r", text, exc_info=True)
+        if not speak:
+            return
+        try:
+            from drivepulse_app.app_settings import load_settings
+            from drivepulse_app.tts import service as _tts
+            s = load_settings()
+            if not s.get("tts_enabled"):
+                return
+            lang = s.get("tts_language") or "auto"
+            if lang == "auto":
+                lang = s.get("language") or "de"
+            voice = s.get("tts_voice") or "female"
+            quality = s.get("tts_quality") or "medium"
+            _tts.speak(voice_text or text, lang, gender=voice, quality=quality)
+        except Exception:
+            log.debug("TTS announce failed for %r", text, exc_info=True)
+
     def start(self) -> None:
         self._connection_log("reader_start")
+        self._prerender_announce_cache()
         self.thread = threading.Thread(target=self._run, name="obd-reader", daemon=True)
         self.thread.start()
+
+    def _prerender_announce_cache(self) -> None:
+        """Warm the Piper cache with the fixed connect/pair voice phrases.
+
+        Piper synthesizes ~1-2 s per phrase on first call — long enough that
+        a freshly-started reader spits "Dongle verbunden" several seconds
+        after the actual connect. Prerendering at start lets the eventual
+        ``speak()`` skip piper and just play the cached PCM (~50 ms total).
+        Background-threaded inside ``prerender`` itself; never blocks startup.
+        Banner text still includes the dongle name (visible diagnostic); the
+        spoken sentence stays neutral to avoid TTS engines mangling brand
+        names like "OBDII" or "vLinker" in unexpected ways across languages.
+        """
+        try:
+            from drivepulse_app.app_settings import load_settings
+            from drivepulse_app.tts import service as _tts
+        except Exception:
+            log.debug("TTS prerender: import failed", exc_info=True)
+            return
+        try:
+            s = load_settings()
+            if not s.get("tts_enabled"):
+                return
+            lang = s.get("tts_language") or "auto"
+            if lang == "auto":
+                lang = s.get("language") or "de"
+            gender = s.get("tts_voice") or "female"
+            quality = s.get("tts_quality") or "medium"
+            for phrase in (
+                "Dongle verbunden.",
+                "Dongle gekoppelt.",
+                "Dongle getrennt.",
+                "Kein Dongle gefunden. Bitte in den Einstellungen einen Dongle auswählen.",
+                "Pairing fehlgeschlagen.",
+            ):
+                _tts.prerender(phrase, lang, gender=gender, quality=quality)
+        except Exception:
+            log.debug("TTS prerender: failed to prime cache", exc_info=True)
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -233,6 +320,23 @@ class ObdReader(GObject.Object):
             self._connection_log("connect_attempt", port=bridge.pty_path, bt_addr=addr, **connect_kwargs)
             self.connection = obd_backend.OBD(bridge.pty_path, **connect_kwargs)
             connected = bool(self.connection and self.connection.is_connected())
+            # Live-check: python-obd reports "connected" the moment its PTY init
+            # finishes — even when the remote RFCOMM channel is half-dead and
+            # the dongle never actually answered ATZ. Forcing a real round-trip
+            # (an empty AT command) catches that case: a dead BT link returns
+            # an empty response and we treat the attempt as failed, no false
+            # ``connect_success`` event in the log.
+            if connected:
+                try:
+                    iface = getattr(self.connection, "interface", None)
+                    port_obj = _serial_port(self.connection)
+                    probe = raw_send(port_obj, "ATI", timeout=2.0) if port_obj is not None else ""
+                    if not probe.strip():
+                        connected = False
+                        self._connection_log("connect_live_check_failed", port=bridge.pty_path, bt_addr=addr)
+                except Exception as exc:
+                    connected = False
+                    self._connection_log("connect_live_check_error", bt_addr=addr, error=str(exc))
             self._connection_log("connect_result", port=bridge.pty_path, bt_addr=addr, connected=connected)
             if connected:
                 self._bt_bridge = bridge
@@ -242,6 +346,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=self.connected_port, supported_commands=supported)
+                self._announce("Dongle verbunden.")
                 self._probe_adapter()
                 return True
             self._close_connection()
@@ -447,6 +552,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=dev, supported_commands=supported)
+                self._announce("Dongle verbunden.")
                 self._probe_adapter()
                 return True
             self._close_connection()
@@ -470,6 +576,7 @@ class ObdReader(GObject.Object):
         the whole neighbourhood. Returns the number of confirmed OBD dongles.
         """
         self._connection_log("auto_pair_scan_start")
+        self._announce("Suche Dongle über Bluetooth …", speak=False)
         try:
             known_addrs = {pu[3:].upper() for _l, pu in scan_bt_paired_devices()}
             # 20 s window: cheap ELM clones advertise on a slow duty cycle so a
@@ -484,6 +591,37 @@ class ObdReader(GObject.Object):
             count=len(nearby),
             devices=[{"label": label, "port": port} for label, port in nearby],
         )
+
+        # Fallback: if the active inquiry returned nothing, read BlueZ's device
+        # cache. The Phosh BT panel (or any concurrent discovery) populates that
+        # cache even when our scan window finds zero — common on binder-stack
+        # phones where only one discovery runs at a time. We pick OBD-named
+        # entries that aren't already paired and feed them into the same pair
+        # loop below.
+        if not nearby:
+            try:
+                cached = scan_bt_known_devices()
+            except Exception as exc:
+                cached = []
+                self._connection_log("auto_pair_cache_error", error=str(exc))
+            cache_candidates = [
+                (f"{name}  ({addr})", f"bt:{addr}")
+                for name, addr in cached
+                if addr not in known_addrs and _looks_like_obd(name, addr)
+            ]
+            self._connection_log(
+                "auto_pair_cache_done",
+                cache_total=len(cached),
+                obd_candidates=len(cache_candidates),
+                devices=[{"label": l, "port": p} for l, p in cache_candidates],
+            )
+            nearby = cache_candidates
+
+        if not nearby:
+            self._announce("Kein Dongle in Reichweite gefunden.", speak=False)
+        else:
+            self._announce(f"{len(nearby)} Dongle gefunden.", speak=False)
+
         paired_n = 0
         probes = 0
         _MAX_PROBES = 5  # bound pair-probe cost; the wanted dongle is usually closest
@@ -502,14 +640,31 @@ class ObdReader(GObject.Object):
                     self._connection_log("auto_pair_probe_budget", addr=addr, skipped=True)
                     continue
                 probes += 1
+            # Pre-flight reachability check: a stale BlueZ cache entry (an old
+            # ELM in another car, a no-longer-powered dongle) can sit in the
+            # candidate list forever. l2ping settles in ~1 s when reachable, or
+            # times out in ~3 s — far cheaper than burning 25 s on the full
+            # pair handshake. Skip silently when l2ping isn't installed (the
+            # helper returns True there) so we never lose the pair path.
+            reachable = bt_is_reachable(addr, timeout=3.0)
+            self._connection_log("auto_pair_reachable", addr=addr, reachable=reachable)
+            if not reachable:
+                continue
             self._connection_log("auto_pair_attempt", addr=addr, name=name, named_obd=named_obd)
+            shortname = name if named_obd else "Dongle"
+            self._announce(f"Koppele {shortname} …", speak=False)
             try:
                 ok, msg = pair_bt_device(addr)
             except Exception as exc:
                 self._connection_log("auto_pair_exception", addr=addr, error=str(exc))
+                self._announce(f"Pairing-Fehler: {exc}", voice_text="Pairing fehlgeschlagen.")
                 continue
             if not ok:
                 self._connection_log("auto_pair_result", addr=addr, ok=False, msg=msg)
+                self._announce(
+                    f"Pairing fehlgeschlagen: {msg}",
+                    voice_text="Pairing fehlgeschlagen.",
+                )
                 continue
             # Paired — verify it's actually a serial/OBD adapter via SPP (brand-
             # agnostic, no name list). Discard probed non-OBD bonds so nothing
@@ -519,6 +674,10 @@ class ObdReader(GObject.Object):
             self._connection_log("auto_pair_result", addr=addr, ok=True, msg=msg, spp=is_obd)
             if is_obd:
                 paired_n += 1
+                self._announce(
+                    f"{shortname} gekoppelt — verbinde …",
+                    voice_text="Dongle gekoppelt.",
+                )
             elif not named_obd:
                 try:
                     unpair_bt_device(addr)
@@ -551,6 +710,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=port, supported_commands=supported)
+                self._announce("Dongle verbunden.")
                 self._probe_adapter()
                 return True
             self._close_connection()
@@ -610,27 +770,17 @@ class ObdReader(GObject.Object):
             if self._try_bt(addr, channel):
                 return
 
-        # 2b. No BT dongle responded. Do a one-shot inquiry scan and auto-pair
-        #     any OBD-named device in range, then retry the BT loop. Bounded to
-        #     one attempt per reader life so a failing pair doesn't burn time on
-        #     every reconnect tick. Triggered even when a "paired" but offline
-        #     dongle (e.g. an old MX+ in another car) is in the candidate list —
-        #     otherwise a new ELM in range would never get bonded.
-        if not self._auto_pair_attempted:
-            self._auto_pair_attempted = True
-            if self.stop_event.is_set():
-                self._connection_log("connect_aborted", reason="stop_event")
-                return
-            paired_n = self._auto_pair_nearby_obd()
-            if paired_n > 0:
-                bt_candidates = self._bt_candidates()
-                for addr, channel, source in bt_candidates:
-                    if self.stop_event.is_set():
-                        self._connection_log("connect_aborted", reason="stop_event")
-                        return
-                    self._connection_log("bt_candidate", bt_addr=addr, source=source, after_auto_pair=True)
-                    if self._try_bt(addr, channel):
-                        return
+        # 2b. No BT dongle responded. Silent auto-pair is intentionally OFF —
+        #     bonding a stranger's dongle without user consent surprised people
+        #     in the field (the reader would happily pair anything OBD-named in
+        #     range). Unknown dongles now surface in Settings → OBD-Dongle for
+        #     explicit selection; pair_bt_device runs only on that click. The
+        #     ``_auto_pair_nearby_obd`` helper stays in the file so the Settings
+        #     side can call it directly when the user picks an unpaired entry.
+        self._connection_log(
+            "auto_pair_skipped",
+            reason="needs user selection in Settings → OBD-Dongle",
+        )
 
         # 3. No BT match — auto-scan local serial/USB ports as a last resort.
         if not self._configured_port:
@@ -655,6 +805,10 @@ class ObdReader(GObject.Object):
         self.mock = True
         self.mock_reason = "kein nutzbarer Dongle gefunden"
         self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
+        self._announce(
+            "Kein Dongle gefunden — bitte in den Einstellungen einen Dongle auswählen.",
+            voice_text="Kein Dongle gefunden. Bitte in den Einstellungen einen Dongle auswählen.",
+        )
 
     def _try_serial_none(self) -> bool:
         """Last-resort: let python-obd autodetect (port=None)."""
@@ -1040,12 +1194,38 @@ class ObdReader(GObject.Object):
         read_error_count = int(payload.get("_read_error_count", 0))
         disconnected = bool(self.connection and not self.connection.is_connected())
         bt_dead = self._bt_bridge is not None and not self._bt_bridge.is_alive
-        failed_read = disconnected or bt_dead or (command_count > 0 and read_error_count >= command_count)
+        # Active liveness probe when the idle-backoff has suppressed real
+        # queries for a while. Without this the reader would happily sit on
+        # a dead Bluetooth bridge forever: nothing in the regular failed-read
+        # path can flip ``disconnected`` (python-obd's flag stays True until
+        # an actual error response arrives) and ``bt_dead`` only flips after
+        # the pump thread sees a socket EOF — which a half-broken RFCOMM
+        # link does not always deliver. A ~1 s ATI round-trip via the shared
+        # serial lock is cheap; an empty response means the channel is gone.
+        liveness_dead = False
+        if not disconnected and not bt_dead and command_count == 0 and self.connection is not None:
+            try:
+                port = _serial_port(self.connection)
+                if port is not None:
+                    if not raw_send(port, "ATI", timeout=1.0).strip():
+                        liveness_dead = True
+            except Exception:
+                liveness_dead = True
+        failed_read = disconnected or bt_dead or liveness_dead or (command_count > 0 and read_error_count >= command_count)
         self.failed_read_count = self.failed_read_count + 1 if failed_read else 0
         if self.failed_read_count < 3:
             return
 
         self._connection_log("reconnect_begin", reason="wiederholte Lesefehler", failed_reads=self.failed_read_count)
+        # Surface the loss to the user the moment we decide to reconnect — by
+        # this point the dongle has been silent for ~3 read cycles. Without
+        # this the only feedback was the indicator icon turning grey; the
+        # bottom-right status banner stayed on stale text and no TTS fired
+        # so a driver had no audible cue the link dropped.
+        self._announce(
+            "Dongle getrennt — versuche neu zu verbinden.",
+            voice_text="Dongle getrennt.",
+        )
         self.mock = False
         self.mock_reason = ""
         self._connect()

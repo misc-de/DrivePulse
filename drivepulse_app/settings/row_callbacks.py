@@ -109,6 +109,20 @@ class SettingsRowCallbacksMixin:
         # GObject type registration.
         from drivepulse_app.settings.dialog import DeviceItem
 
+        # Live connection truth — the dropdown's green ✓ icon must match the
+        # reader's actual state, not the saved port preference. Without this
+        # query a configured-but-offline dongle (asleep / removed / in another
+        # car) renders as connected at the top while the "Verbundener Dongle"
+        # panel below correctly says nothing is up.
+        live_connected = False
+        provider = getattr(self, "_obd_status_provider", None)
+        if provider is not None:
+            try:
+                status = provider() or {}
+                live_connected = bool(status.get("connected"))
+            except Exception:
+                pass
+
         self._dongle_updating = True
         try:
             obd_devices = scan_obd_devices()
@@ -118,14 +132,14 @@ class SettingsRowCallbacksMixin:
                 label=_translate(self.language, "settings.obd_dongle.auto"),
                 port=None,
                 is_present=False,
-                is_connected=(selected_port is None),
+                is_connected=(selected_port is None and live_connected),
             ))
             for lbl, port, is_present in obd_devices:
                 self._dongle_store.append(DeviceItem(
                     label=lbl,
                     port=port,
                     is_present=is_present,
-                    is_connected=(port == selected_port),
+                    is_connected=(port == selected_port and live_connected),
                 ))
                 self._obd_port_values.append(port)
             # Surface the configured port (bt:ADDR / /dev/pts bridge) when the
@@ -135,8 +149,8 @@ class SettingsRowCallbacksMixin:
                 self._dongle_store.append(DeviceItem(
                     label=self.dongle_label_for(selected_port),
                     port=selected_port,
-                    is_present=True,
-                    is_connected=True,
+                    is_present=live_connected,
+                    is_connected=live_connected,
                 ))
                 self._obd_port_values.append(selected_port)
             selected_idx = 0

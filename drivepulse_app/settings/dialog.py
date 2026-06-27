@@ -241,6 +241,12 @@ class SettingsDialog(
         self._remote_version: str | None = None
         self._closing = False
         self._obd_status_provider = obd_status_provider
+        # Snapshot the configured port + open subscriptions for the OBD-dongle
+        # subpage's live-state poller (see ``_obd_subpage_poll_tick``).
+        self.current_obd_port: str | None = current_obd_port
+        self._obd_subpage_poll_id: int = 0
+        self._obd_last_seen_connected: bool = False
+        self._bt_nearby_last_devices: list[tuple[str, str]] | None = None
         # The outer NavigationView the settings page lives in — used to push the
         # OBD-dongle subpage. Mirrors the pattern in sync/dialog.py.
         self._outer_nav: Adw.NavigationView | None = getattr(parent, "nav_view", None)
@@ -512,18 +518,24 @@ class SettingsDialog(
 
         self._dongle_store = Gio.ListStore(item_type=DeviceItem)
         dongle_store = self._dongle_store
+        # is_connected gates the green ✓ icon next to a row. It must follow
+        # the *live* reader state, not just the saved port preference —
+        # otherwise the dropdown shows "configured + paired-but-offline"
+        # dongles as connected (the BT entry stays green even when the
+        # bottom "Verbundener Dongle" panel correctly says nothing is up).
+        # The "auto" row inherits the live state when no port is configured.
         dongle_store.append(DeviceItem(
             label=_translate(self.language, "settings.obd_dongle.auto"),
             port=None,
             is_present=False,
-            is_connected=(current_obd_port is None),
+            is_connected=(current_obd_port is None and _live_connected),
         ))
         for lbl, port, is_present in obd_devices:
             dongle_store.append(DeviceItem(
                 label=lbl,
                 port=port,
                 is_present=is_present,
-                is_connected=(port == current_obd_port),
+                is_connected=(port == current_obd_port and _live_connected),
             ))
             self._obd_port_values.append(port)
         # Surface the configured port (bt:ADDR Bluetooth dongle / /dev/pts
@@ -534,7 +546,7 @@ class SettingsDialog(
                 label=self.dongle_label_for(current_obd_port),
                 port=current_obd_port,
                 is_present=_live_connected,
-                is_connected=True,
+                is_connected=_live_connected,
             ))
             self._obd_port_values.append(current_obd_port)
 
@@ -1035,18 +1047,117 @@ class SettingsDialog(
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(header)
         toolbar.set_content(page)
-        return Adw.NavigationPage(
+        nav_page = Adw.NavigationPage(
             title=_translate(self.language, "settings.obd_dongle.page"),
             child=toolbar,
             tag="settings-obd-dongle",
         )
+        # Auto-trigger the nearby scan when the subpage becomes visible.
+        # Users found "open Settings → see candidates listed" the natural
+        # flow; clicking a refresh icon to populate an empty list felt like
+        # an obstacle. Idempotent: the click handler bails out if a scan is
+        # already running.
+        nav_page.connect("shown", self._on_obd_subpage_shown)
+        nav_page.connect("hidden", self._on_obd_subpage_hidden)
+        return nav_page
+
+    def _on_obd_subpage_shown(self, _page: Adw.NavigationPage) -> None:
+        """Kick off a nearby BT scan + live state polling when the subpage opens."""
+        # Auto-scan once on first arrival.
+        if not getattr(self, "_bt_nearby_scan_active", False):
+            btn = getattr(self, "_bt_nearby_scan_btn", None)
+            if btn is not None:
+                self._on_bt_nearby_scan_clicked(btn)
+        # Start a 1.5 s poll that re-renders the dropdown and Nearby list when
+        # the live OBD connection state flips. Without this the user unplugs
+        # the dongle, the top-bar indicator turns grey, but Settings keeps
+        # showing the dongle as connected until they back out and re-enter.
+        self._obd_last_seen_connected = self._obd_status_is_connected()
+        if getattr(self, "_obd_subpage_poll_id", 0):
+            return
+        self._obd_subpage_poll_id = GLib.timeout_add(1500, self._obd_subpage_poll_tick)
+
+    def _on_obd_subpage_hidden(self, _page: Adw.NavigationPage) -> None:
+        """Stop the live-state poll when the user leaves the subpage."""
+        poll_id = getattr(self, "_obd_subpage_poll_id", 0)
+        if poll_id:
+            try:
+                GLib.source_remove(poll_id)
+            except Exception:
+                pass
+            self._obd_subpage_poll_id = 0
+
+    def _obd_status_is_connected(self) -> bool:
+        """Best-effort snapshot of the reader's current connection state."""
+        if self._obd_status_provider is None:
+            return False
+        try:
+            status = self._obd_status_provider() or {}
+            return bool(status.get("connected"))
+        except Exception:
+            return False
+
+    def _obd_subpage_poll_tick(self) -> bool:
+        """Periodic check while the subpage is visible — refresh on state flip."""
+        now_connected = self._obd_status_is_connected()
+        if now_connected != getattr(self, "_obd_last_seen_connected", False):
+            self._obd_last_seen_connected = now_connected
+            # Dropdown ✓ rendering + Nearby row buttons depend on the live
+            # state — rebuild both so the page mirrors what the reader is
+            # actually doing right now.
+            try:
+                self._refresh_dongle_dropdown(self.current_obd_port)
+            except Exception:
+                log.debug("dropdown refresh on state flip failed", exc_info=True)
+            cached_devs = getattr(self, "_bt_nearby_last_devices", None)
+            if cached_devs is not None:
+                try:
+                    self._bt_nearby_scan_done(cached_devs)
+                except Exception:
+                    log.debug("nearby re-render on state flip failed", exc_info=True)
+            # Bottom "Verbundener Dongle:" panel also depends on the live
+            # state — without rebuilding it the panel keeps showing whatever
+            # the first build saw (a half-second after the subpage opened).
+            try:
+                self._refresh_connected_dongle_group()
+            except Exception:
+                log.debug("connected-dongle panel refresh failed", exc_info=True)
+        return True  # keep polling while the subpage is visible
+
+    def _refresh_connected_dongle_group(self) -> None:
+        """Re-populate the "Verbundener Dongle:" panel with the current snapshot."""
+        group = getattr(self, "_connected_dongle_group", None)
+        if group is None:
+            return
+        # Adw.PreferencesGroup has no public clear() — remove children one by
+        # one via the GTK widget API. The group's internal listbox is a child.
+        child = group.get_first_child()
+        # The first child is the internal header; the rows live in a list under
+        # it. Easiest reliable path: remove every Adw.ActionRow we appended.
+        for row in list(getattr(self, "_connected_dongle_rows", [])):
+            try:
+                group.remove(row)
+            except Exception:
+                pass
+        self._connected_dongle_rows = []
+        self._populate_connected_dongle_group(group)
 
     def _build_connected_dongle_group(self) -> Adw.PreferencesGroup:
-        """Group showing a snapshot of the live OBD connection state."""
+        """Group showing a snapshot of the live OBD connection state.
+
+        Built once; the contents are repopulated by ``_refresh_connected_dongle_group``
+        when the subpage poller detects a connect/disconnect.
+        """
         group = Adw.PreferencesGroup(
             title=_translate(self.language, "settings.obd_dongle.connected_heading"),
         )
+        self._connected_dongle_group = group
+        self._connected_dongle_rows: list[Adw.ActionRow] = []
+        self._populate_connected_dongle_group(group)
+        return group
 
+    def _populate_connected_dongle_group(self, group: Adw.PreferencesGroup) -> None:
+        """Refresh the panel's rows in-place from the current status snapshot."""
         status: dict | None = None
         if self._obd_status_provider is not None:
             try:
@@ -1061,7 +1172,8 @@ class SettingsDialog(
             )
             row.set_activatable(False)
             group.add(row)
-            return group
+            self._connected_dongle_rows.append(row)
+            return
 
         assert status is not None  # narrowed by `connected`
 
@@ -1075,21 +1187,25 @@ class SettingsDialog(
             row.add_suffix(label)
             return row
 
-        group.add(_info_row(
-            _translate(self.language, "settings.obd_dongle.status"),
-            _translate(self.language, "settings.obd_dongle.status.connected"),
-        ))
+        rows = [
+            _info_row(
+                _translate(self.language, "settings.obd_dongle.status"),
+                _translate(self.language, "settings.obd_dongle.status.connected"),
+            ),
+        ]
         port = str(status.get("port") or "")
         if port:
-            group.add(_info_row(
+            rows.append(_info_row(
                 _translate(self.language, "settings.obd_dongle.address"), port,
             ))
         adapter = str(status.get("adapter") or "")
         if adapter:
-            group.add(_info_row(
+            rows.append(_info_row(
                 _translate(self.language, "settings.obd_dongle.adapter"), adapter,
             ))
-        return group
+        for row in rows:
+            group.add(row)
+            self._connected_dongle_rows.append(row)
 
     def _on_obd_open_row_activated(self, _row: Adw.ActionRow) -> None:
         if self._outer_nav is None:

@@ -210,7 +210,10 @@ class SettingsBluetoothMixin:
         # Watchdog: if the worker never reports back (a wedged binder BT stack can
         # leave bluetoothctl stuck on "Waiting to connect to bluetoothd…"), unstick
         # the UI instead of leaving it frozen on "Scanning…" forever.
-        GLib.timeout_add_seconds(15, self._bt_nearby_scan_watchdog, token)
+        # Watchdog must outlast the scan duration (15 s) + post-processing — 25 s
+        # gives BlueZ time to flush its discovery results without unsticking the
+        # UI prematurely on a healthy long scan.
+        GLib.timeout_add_seconds(25, self._bt_nearby_scan_watchdog, token)
 
     def _bt_nearby_scan_reset_btn(self) -> None:
         """Restore the scan button to its idle refresh icon (clears the spinner)."""
@@ -231,8 +234,12 @@ class SettingsBluetoothMixin:
     def _bt_nearby_scan_thread(self) -> None:
         # known_addrs=None → keep already-paired OBD devices in the unified list,
         # not just brand-new discoveries.
+        # 15 s scan: ELM clones and the MX+ in legacy mode advertise on a slow
+        # duty cycle (~30 s window after power-on, then quiet bursts). A 6 s
+        # window misses them on the first inquiry round and the user sees an
+        # empty list even when the dongle is plugged in and reachable.
         log.info("nearby scan: thread start")
-        devices = scan_bt_nearby_devices(scan_seconds=6, known_addrs=None)
+        devices = scan_bt_nearby_devices(scan_seconds=15, known_addrs=None)
         log.info("nearby scan: scan returned %d device(s), scheduling idle_add", len(devices))
         GLib.idle_add(self._bt_nearby_scan_done, devices)
 
@@ -241,6 +248,10 @@ class SettingsBluetoothMixin:
         # NOT gated on self._closing: that flag flips True the moment this OBD
         # subpage is pushed on top of the main settings page (its "hiding" signal),
         # which previously left every scan stuck on "Scanning…" with a dead button.
+        # Cache the result so the subpage's live-state poller can re-render the
+        # row buttons (Verbinden ↔ ✓ Verbunden) without re-running the scan when
+        # the reader's connection state flips.
+        self._bt_nearby_last_devices = list(devices)
         self._bt_nearby_scan_active = False
         self._bt_nearby_scan_reset_btn()
         for row in self._bt_nearby_rows:
@@ -254,15 +265,42 @@ class SettingsBluetoothMixin:
         self._bt_nearby_expander.set_subtitle(
             _translate(self.language, "settings.bt_obd.found").format(n=len(devices))
         )
+        # Active connection truth from the reader — the same source the top
+        # dropdown queries. Without it a scan hit for the currently-bonded
+        # dongle still shows a "Verbinden" button as if it were unconnected
+        # while the top of the page already renders it green and the
+        # "Verbundener Dongle" panel below says Status: Verbunden.
+        connected_port: str | None = None
+        provider = getattr(self, "_obd_status_provider", None)
+        if provider is not None:
+            try:
+                status = provider() or {}
+                if status.get("connected"):
+                    connected_port = status.get("port") or status.get("obd_port")
+            except Exception:
+                connected_port = None
+
         for label, bt_port in devices:
             addr = bt_port[3:]  # strip "bt:"
-            row = Adw.ActionRow(title=label)
+            # ``scan_bt_nearby_devices`` returns "<name>  (<addr>)" — the MAC
+            # is already a separate sub-line beneath the row, so showing it
+            # twice felt cluttered. Strip the suffix so the title is the bare
+            # advertised name (e.g. "OBDLink MX+ 02393").
+            title = label.rsplit("  (", 1)[0].strip() if "  (" in label else label
+            row = Adw.ActionRow(title=title)
             row.set_activatable(False)
-            connect_btn = Gtk.Button(label=_translate(self.language, "settings.bt_obd.connect"))
-            connect_btn.set_valign(Gtk.Align.CENTER)
-            connect_btn.add_css_class("suggested-action")
-            connect_btn.connect("clicked", self._on_bt_connect_clicked, addr, row, True)
-            row.add_suffix(connect_btn)
+            is_active = (connected_port == bt_port)
+            if is_active:
+                # Show the live state instead of an action: no button means
+                # no accidental re-pair tap when the reader is happily using
+                # this exact adapter.
+                row.set_subtitle(_translate(self.language, "settings.bt_obd.connected"))
+            else:
+                connect_btn = Gtk.Button(label=_translate(self.language, "settings.bt_obd.connect"))
+                connect_btn.set_valign(Gtk.Align.CENTER)
+                connect_btn.add_css_class("suggested-action")
+                connect_btn.connect("clicked", self._on_bt_connect_clicked, addr, row, True)
+                row.add_suffix(connect_btn)
             self._bt_nearby_expander.add_row(row)
             self._bt_nearby_rows.append(row)
         # Auto-expand: rows added to a collapsed Adw.ExpanderRow stay hidden, so

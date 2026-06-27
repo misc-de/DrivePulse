@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 from drivepulse_app.common import OBD_BT_ADDR, OBD_PORT, OBD_SOCKET_URL
@@ -127,6 +128,66 @@ def _has_spp_uuid(addr: str) -> bool:
     return not any(u in out for u in _NON_OBD_UUIDS)
 
 
+def bt_is_reachable(addr: str, timeout: float = 3.0) -> bool:
+    """Cheap pre-flight check: is the device at *addr* actually answering?
+
+    Sends a single L2CAP echo (`l2ping`) which works without pairing — round
+    trip is under 1 s for an in-range, powered dongle. Used before
+    ``pair_bt_device`` so the auto-pair pass doesn't burn ~25 s on a stale
+    cache entry whose hardware is offline (e.g. an old ELM left in another
+    car still lives in BlueZ's known-device list).
+
+    Conservative on uncertain results: only ``Host is down`` /
+    ``Host unreachable`` in l2ping's output counts as a confirmed negative.
+    Permission errors (l2ping needs CAP_NET_RAW on some phones), missing
+    binary, or anything else returns True so the pair attempt still runs. A
+    25 s wasted handshake is cheaper than never trying.
+    """
+    try:
+        result = subprocess.run(
+            ["l2ping", "-c", "1", "-t", str(max(1, int(timeout))), addr],
+            capture_output=True, text=True, timeout=timeout + 1.0, check=False,
+        )
+    except FileNotFoundError:
+        return True
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+        return True
+    out = (result.stdout + " " + result.stderr).lower()
+    if "bytes from" in out:
+        return True
+    if "host is down" in out or "host unreachable" in out or "no route" in out:
+        return False
+    # Anything else (permission denied, "can't create socket", unfamiliar BlueZ
+    # warning) — don't assume offline.
+    return True
+
+
+def scan_bt_known_devices() -> list[tuple[str, str]]:
+    """Return (name, ADDR) for every device BlueZ currently knows about.
+
+    Unlike ``scan_bt_paired_devices`` this also lists cached/discovered but
+    not-yet-bonded devices — useful when the active inquiry on a binder/Phosh
+    stack returns nothing because the system shell is already running its own
+    discovery. The OS Bluetooth panel still populates the BlueZ device cache,
+    and we can pick OBD adapters straight out of it.
+    """
+    try:
+        result = subprocess.run(
+            ["bluetoothctl", "devices"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    devices: list[tuple[str, str]] = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split(" ", 2)
+        if len(parts) >= 2 and parts[0] == "Device":
+            addr = parts[1].upper()
+            name = parts[2].strip() if len(parts) >= 3 else addr
+            devices.append((name, addr))
+    return devices
+
+
 def paired_obd_addresses() -> list[tuple[str, int, str]]:
     """Return (addr, channel=1, name) for paired BT devices that advertise SPP.
 
@@ -173,15 +234,23 @@ def scan_bt_nearby_devices(
             proc.stdin.write("power on\n")
             proc.stdin.flush()
             _time.sleep(0.5)
-            # Force a dual-mode (BR/EDR + LE) discovery filter. Several
-            # binder/bluebinder stacks default to LE-only discovery, so
-            # Bluetooth-Classic OBD dongles (HC-05/06 ELM clones, OBDLink MX+)
-            # never surface in the inquiry. `menu scan` → `transport auto` → `back`
-            # sets SetDiscoveryFilter.Transport; an older bluetoothctl simply
-            # ignores the unknown commands, so this stays safe.
-            proc.stdin.write("menu scan\ntransport auto\nback\n")
+            # Force BR/EDR (Bluetooth-Classic) discovery transport. On
+            # binder/bluebinder phone stacks SetDiscoveryFilter.Transport
+            # defaults to "le" — classic OBD dongles (HC-05/06 ELM clones,
+            # OBDLink MX+ in legacy mode) then never surface in the inquiry
+            # and the auto-pair pass walks away with count=0 even when the
+            # dongle is plugged in and advertising. `bredr` covers OBD without
+            # missing anything we care about; LE-only beacons aren't OBD.
+            # `menu scan` → `transport bredr` → `back` is the BlueZ ≥5.50
+            # syntax; older bluetoothctl ignores the unknown commands and
+            # the scan then falls back to its compile-time default.
+            proc.stdin.write("menu scan\ntransport bredr\nback\n")
             proc.stdin.flush()
             _time.sleep(0.3)
+            # Belt-and-braces: top-level alias used by some BlueZ packagings.
+            proc.stdin.write("set-scan-filter-transport bredr\n")
+            proc.stdin.flush()
+            _time.sleep(0.2)
             proc.stdin.write("scan on\n")
             proc.stdin.flush()
             _time.sleep(scan_seconds)
@@ -243,11 +312,39 @@ def scan_bt_nearby_devices(
         for addr, name in scan_names.items():
             if addr not in known_db:
                 known_db[addr] = name
-        # Only surface devices ACTUALLY DETECTED in this scan — i.e. they sent an
-        # RSSI or were freshly announced. A paired-but-absent dongle (e.g. an MX+
-        # left in another car) lives in bluetoothctl's devices cache with no RSSI;
-        # it is "known", not "nearby", and must not be listed as in range.
+        # Primary source: devices ACTUALLY DETECTED in this scan — RSSI or
+        # freshly announced. A paired-but-absent dongle (e.g. an MX+ left in
+        # another car) lives in bluetoothctl's cache with no RSSI; it'd be a
+        # ghost in the "in range" list.
+        # Secondary source: OBD-named devices in the BlueZ cache that *answer
+        # an L2-ping*. The MX+/ELM only advertise for ~30 s after power-on,
+        # but once they're in the cache and the host can still reach them
+        # over L2CAP, they're functionally "in range" from the user's point
+        # of view — exclude them and Settings shows an empty list even when
+        # the dongle is plugged in and working.
         seen_now = set(rssi_map) | set(scan_names)
+        # Probe-budget for the cache rescue: l2ping is ~1-3 s per address; an
+        # untargeted sweep over every cached device (BLE beacons, headsets,
+        # printers, …) would lock the UI. We only probe entries whose name
+        # already looks like an OBD adapter.
+        _CACHE_PROBE_BUDGET = 4
+        cache_probed = 0
+        for addr, name in known_db.items():
+            if addr in seen_now or (known_addrs and addr in known_addrs):
+                continue
+            if cache_probed >= _CACHE_PROBE_BUDGET:
+                break
+            if not _looks_like_obd(name, addr):
+                continue
+            cache_probed += 1
+            try:
+                if bt_is_reachable(addr, timeout=2.0):
+                    seen_now.add(addr)
+                    # Synthesise a faint RSSI so the entry sorts last among
+                    # the actively-discovered devices but ahead of nothing.
+                    rssi_map.setdefault(addr, -99)
+            except Exception:
+                log.debug("cache reachability probe failed for %s", addr, exc_info=True)
         matched: list[tuple[str, str, int]] = []
         in_range_other: list[tuple[str, str, int]] = []
         for addr, name in known_db.items():
@@ -273,9 +370,25 @@ def scan_bt_nearby_devices(
         return []
 
 
-def _bluetoothctl_session(commands: list[str], timeout: float = 30.0) -> str:
-    """Run *commands* through one interactive bluetoothctl session. Returns combined output."""
+def _bluetoothctl_session(
+    commands: list[str],
+    timeout: float = 30.0,
+    delays: list[float] | None = None,
+) -> str:
+    """Run *commands* through one interactive bluetoothctl session.
+
+    *delays*, if given, sets a per-command sleep (seconds) — same length as
+    *commands*. Commands that trigger a real BlueZ operation (``pair``,
+    ``connect``, ``discoverable``) need a much longer pause than passive ones
+    (``power on``, ``agent`` config) so BlueZ has time to talk to the remote
+    radio and emit its response into stdout before we send the next line.
+    Without per-step pacing the session quits before pairing actually starts.
+
+    Returns combined stdout.
+    """
     import time as _time
+    if delays is not None and len(delays) != len(commands):
+        raise ValueError("delays must match commands length")
     try:
         proc = subprocess.Popen(
             ["bluetoothctl"],
@@ -288,10 +401,10 @@ def _bluetoothctl_session(commands: list[str], timeout: float = 30.0) -> str:
         return ""
     assert proc.stdin is not None
     try:
-        for cmd in commands:
+        for i, cmd in enumerate(commands):
             proc.stdin.write(cmd + "\n")
             proc.stdin.flush()
-            _time.sleep(0.6)
+            _time.sleep(delays[i] if delays is not None else 0.6)
         proc.stdin.write("quit\n")
         proc.stdin.flush()
         out, _ = proc.communicate(timeout=timeout)
@@ -308,65 +421,123 @@ def _bluetoothctl_session(commands: list[str], timeout: float = 30.0) -> str:
         return ""
 
 
-def pair_bt_device(
-    addr: str,
-    pin: str = "1234",
-    timeout: float = 35.0,
-    pin_candidates: tuple[str, ...] | None = None,
-) -> tuple[bool, str]:
-    """Pair, trust and connect a Bluetooth device via bluetoothctl.
-
-    ELM327 BT clones (HC-05/HC-06 modules) speak Bluetooth 2.0 legacy pairing
-    only — they reject Just-Works SSP and need a numeric PIN. So:
-
-    1. ``remove`` first to wipe any stale half-bonded state (a common cause of
-       BlueZ ``AuthenticationFailed`` on the next attempt — see bluez#605).
-    2. ``agent KeyboardOnly`` so this Python side supplies the PIN; BlueZ won't
-       hand the prompt over to the OS agent (Phosh/GNOME) and won't try SSP.
-    3. ``pair`` and feed PIN candidates in succession (1234 is the factory
-       default for HC-05/06; 0000 / 6789 are common alternates).
-    4. ``trust`` + explicit ``connect`` — without ``trust`` BlueZ re-prompts on
-       every reconnect, and some clones won't open the RFCOMM channel until a
-       ``connect`` lands.
-
-    Returns ``(success, message)``. Already-paired devices count as success.
-    """
-    addr = addr.upper()
-    pins = pin_candidates or (pin, "0000", "6789", "0123")
-
-    # Step 1: clear stale state. Idempotent — ignored if device isn't known.
-    _bluetoothctl_session([f"remove {addr}"], timeout=8.0)
-
-    # Step 2: pair + PIN-cascade in a fresh session.
-    cmds: list[str] = [
-        "power on",
-        "agent KeyboardOnly",
-        "default-agent",
-        f"pair {addr}",
-    ]
-    # Feed all candidate PINs; bluetoothctl ignores extras once paired.
-    for p in pins:
-        cmds.append(p)
-    # Trust + explicit connect for legacy adapters that need the bond verified.
-    cmds.extend([f"trust {addr}", f"connect {addr}"])
-    out = _bluetoothctl_session(cmds, timeout=timeout)
-
+def _pair_outcome_ok(out: str) -> bool:
+    """True if a bluetoothctl pair session ended with a confirmed bond."""
     low = out.lower()
-    if (
+    return (
         "pairing successful" in low
         or "alreadyexists" in low
         or "paired: yes" in low
         or "connection successful" in low
-    ):
-        # Best-effort: leave it disconnected so the OBD reader can open the
-        # RFCOMM socket itself (BlueZ won't lend the SPP channel while it
-        # holds an active LE/HFP link). Failure here is harmless.
-        _bluetoothctl_session([f"disconnect {addr}"], timeout=6.0)
-        return True, "paired"
+    )
+
+
+def _pair_outcome_error(out: str) -> str:
+    """Pull the most informative error line out of a failed pair session.
+
+    Falls back to a trimmed tail of the raw bluetoothctl output when no
+    canonical error string appears — that tail almost always contains the
+    actual reason (PinCodeRequest cancelled, AuthenticationRejected, "Device
+    not available", BlueZ "Operation already in progress", …) and we want it
+    in the log so the next iteration can target the real failure mode.
+    """
+    canonical = ("failed to pair", "authenticationfailed", "authentication failed",
+                 "authenticationrejected", "connectionrejected",
+                 "operation already in progress", "not available",
+                 "no agent", "no agent available", "request cancelled",
+                 "passkey", "passkey request", "confirmation request",
+                 "request canceled", "pincoderequest")
     for line in out.splitlines():
-        if "failed to pair" in line.lower() or "authenticationfailed" in line.lower():
-            return False, line.strip()
-    return False, "pairing not confirmed"
+        low = line.lower()
+        if any(c in low for c in canonical):
+            return line.strip()[:300]
+    # Last resort: hand back the trailing 200 chars of the raw output, scrubbed
+    # of empty lines so it stays readable in the JSON log.
+    tail = "\n".join(l for l in out.splitlines() if l.strip())[-200:]
+    return f"unbestätigt: …{tail}" if tail else "pairing not confirmed (no output)"
+
+
+def _pair_attempt(
+    addr: str,
+    agent: str,
+    replies: list[str],
+    timeout: float,
+    pair_wait: float = 8.0,
+    reply_wait: float = 2.5,
+) -> tuple[bool, str]:
+    """One bluetoothctl pair session with the given agent and prompt replies."""
+    cmds: list[str] = ["power on", f"agent {agent}", "default-agent", f"pair {addr}"]
+    delays: list[float] = [0.5, 0.5, 0.5, pair_wait]
+    for r in replies:
+        cmds.append(r)
+        delays.append(reply_wait)
+    cmds.extend([f"trust {addr}", f"connect {addr}"])
+    delays.extend([1.0, 5.0])
+    out = _bluetoothctl_session(cmds, timeout=timeout, delays=delays)
+    if _pair_outcome_ok(out):
+        return True, out
+    return False, out
+
+
+def pair_bt_device(
+    addr: str,
+    pin: str = "1234",
+    timeout: float = 45.0,
+    pin_candidates: tuple[str, ...] | None = None,
+) -> tuple[bool, str]:
+    """Pair a Bluetooth device via an isolated BlueZ-agent subprocess.
+
+    Spawns ``python3 -m drivepulse_app.obd._pair_agent <ADDR> [PIN ...]`` so
+    the agent's GLib main loop runs in its own process — never tangles with
+    the GTK main context. The helper registers a private ``Agent1`` object on
+    the system bus, claims ``RequestDefaultAgent``, calls ``Device1.Pair()``
+    and replies to every PIN/passkey/confirmation callback non-interactively.
+
+    This sidesteps the system Bluetooth agent (Phosh's gnome-bluetooth, GNOME
+    Shell, …) entirely. Those force Secure-Simple-Pairing Numeric Comparison
+    and show a 6-digit "Confirm" dialog the cheap HC-05/06 ELM clones cannot
+    satisfy — every OS-driven pair ends with ``AuthenticationFailed``. With
+    our own agent at ``NoInputNoOutput`` BlueZ falls through to legacy PIN
+    entry; we feed the cascade (1234 / 0000 / 6789 / 0123 / 1111 / 8888)
+    silently. Returns ``(success, message)``. Already-paired devices count as
+    success (the agent's Pair() returns AlreadyExists, mapped here to True).
+    """
+    addr = addr.upper()
+    pins = pin_candidates or (pin, "0000", "6789", "0123", "1111", "8888")
+    # No --capability: let the agent cascade through NoInputNoOutput →
+    # DisplayYesNo → KeyboardOnly. The first that produces a persisted
+    # ``Paired: yes`` bond wins. Covers the entire OBD adapter zoo without
+    # any system config edits.
+    cmd = [sys.executable, "-m", "drivepulse_app.obd._pair_agent", addr, *pins]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True, text=True,
+            timeout=timeout + 5.0, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"pair agent subprocess timeout after {timeout}s"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"pair agent subprocess failed: {exc}"
+
+    stdout = (result.stdout or "").strip()
+    try:
+        last_line = stdout.splitlines()[-1] if stdout else ""
+        import json as _json
+        payload = _json.loads(last_line)
+        ok = bool(payload.get("ok"))
+        msg = str(payload.get("msg") or ("paired" if ok else "no message"))
+    except (ValueError, IndexError):
+        # Helper crashed before printing the JSON tail — surface stderr for diag.
+        err_tail = (result.stderr or "").strip().splitlines()[-1:]
+        msg = err_tail[0] if err_tail else "no result from pair agent"
+        ok = False
+
+    # AlreadyExists from BlueZ means the device is already bonded — treat as ok.
+    if not ok and "AlreadyExists" in msg:
+        ok = True
+        msg = "already paired"
+    return ok, msg
 
 
 def unpair_bt_device(addr: str) -> None:
@@ -454,22 +625,50 @@ OBD_CANDIDATE_PATHS = [
 
 
 def scan_obd_devices() -> list[tuple[str, str, bool]]:
-    """Return (display_label, port_value, is_present) for serial/USB OBD device paths.
+    """Return (display_label, port_value, is_present) for every OBD-usable port.
 
-    BT devices (bt: prefix) are excluded — they are managed via OBD_BT_ADDR env var.
-    is_present=True means the device node currently exists on the system.
+    Lists three classes in priority order:
+
+    1. **Paired Bluetooth dongles that advertise SPP** — brand-agnostic match
+       via ``paired_obd_addresses`` (used by the reader's auto-connect path).
+       These appear *first* so the settings dropdown surfaces what DrivePulse
+       can already drive without any user action.
+    2. **Wired serial/USB devices** under ``/dev/serial/by-id`` and the
+       canonical ``rfcomm*/ttyUSB*/ttyACM*`` patterns.
+    3. **OBD socket URL** from the environment and the common
+       pre-configurable candidate paths (shown as "(not found)" until they
+       actually appear).
+
+    is_present=True means the port is reachable right now (BT bonded, serial
+    node present). False is reserved for the pre-configurable candidate
+    paths so the dropdown can still surface them as choices.
     """
     devices: list[tuple[str, str, bool]] = []
     seen_paths: set[str] = set()
 
-    # /dev/serial/by-id/* — descriptive USB-serial names (only existing)
+    # 1. Paired BT OBD dongles — visible immediately after auto-pair so the
+    # settings UI mirrors the reader's known device set.
+    # MAC-only label by user preference: dongle marketing names ("OBDLink MX+
+    # 02393", "OBDII", "iCar Pro") are noisy and inconsistent across TTS
+    # engines anyway — the MAC alone identifies the device unambiguously and
+    # keeps the dropdown narrow on a phone screen.
+    try:
+        for addr, _ch, _name in paired_obd_addresses():
+            port = f"bt:{addr}"
+            label = f"Bluetooth · {addr}"
+            devices.append((label, port, True))
+            seen_paths.add(port)
+    except Exception:
+        log.debug("paired_obd_addresses() failed in scan_obd_devices", exc_info=True)
+
+    # 2a. /dev/serial/by-id/* — descriptive USB-serial names (only existing)
     for path in sorted(Path("/dev/serial/by-id").glob("*")) if Path("/dev/serial/by-id").exists() else []:
         real = str(path.resolve())
         label = f"{path.name} ({real})"
         devices.append((label, real, True))
         seen_paths.add(real)
 
-    # Directly present wired / already-bound serial devices
+    # 2b. Directly present wired / already-bound serial devices
     for pattern in ("/dev/rfcomm*", "/dev/ttyUSB*", "/dev/ttyACM*"):
         for path in sorted(Path("/").glob(pattern.lstrip("/"))):
             p = str(path)
@@ -477,10 +676,11 @@ def scan_obd_devices() -> list[tuple[str, str, bool]]:
                 devices.append((p, p, True))
                 seen_paths.add(p)
 
+    # 3a. Socket bridge URL (e.g. socat to remote OBD-WiFi adapter)
     if OBD_SOCKET_URL:
         devices.append((OBD_SOCKET_URL, OBD_SOCKET_URL, True))
 
-    # Common candidate paths not yet present — let users pre-configure
+    # 3b. Common candidate paths not yet present — let users pre-configure
     for candidate in OBD_CANDIDATE_PATHS:
         if candidate not in seen_paths:
             devices.append((f"{candidate} (not found)", candidate, False))
