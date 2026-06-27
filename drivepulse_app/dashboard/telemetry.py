@@ -341,11 +341,23 @@ class DashboardTelemetryMixin:
         cmd = int(payload.get("_command_count", 0) or 0)
         errs = int(payload.get("_read_error_count", 0) or 0)
         read_ok = cmd > 0 and errs < cmd
-        if source == "mock" or (active and (read_ok or obd_has_data)):
+        # Only an actual successful round-trip refreshes the holdover. Cached
+        # payload values (``obd_has_data``) would otherwise mark the link as
+        # "healthy" forever after a Dongle-pull, because the reader keeps
+        # emitting the last known PIDs while it's still in idle-backoff and
+        # hasn't trip-wired its reconnect path yet. The dashboard indicator
+        # *did* turn grey because ``active`` flips off when source isn't
+        # ``obd``/``mock`` — but the Settings page's status snapshot kept
+        # rendering the dongle green because the cached payload still flowed.
+        if source == "mock" or (active and read_ok):
             self._obd_last_healthy = time.monotonic()
         obd_link_up = active and (
             time.monotonic() - getattr(self, "_obd_last_healthy", 0.0)
         ) < self.OBD_LINK_HOLDOVER
+        # Cache the exact same truth the indicator renders so the Settings
+        # status snapshot can mirror it without re-deriving (and possibly
+        # disagreeing with) the per-payload ``active`` flag.
+        self._obd_link_up_cached: bool = obd_link_up
         was_obd_active = getattr(self, "_obd_active", False)
         self._obd_active = obd_connected
         if was_obd_active and not obd_connected:

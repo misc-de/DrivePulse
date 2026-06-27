@@ -704,17 +704,23 @@ class DashboardSettingsMixin:
         self.reader.set_configured_port(port)
 
     def _obd_status_snapshot(self) -> dict[str, Any]:
-        """Live OBD connection snapshot for the settings "Connected Dongle:" group.
+        """Live OBD connection snapshot — single source of truth for Settings.
 
-        Defensive: the reader's connection/adapter fields may be absent or
-        mid-transition, so every access is guarded.
+        Uses the exact ``obd_link_up`` value the top-bar indicator just
+        rendered (cached on ``self._obd_link_up_cached``). That guarantees
+        the Dongle dropdown, the Nearby row badges, the "Verbundener Dongle"
+        panel and the top-bar icon never disagree: they all read the same
+        boolean. Falling back to a freshness window when the indicator
+        hasn't computed yet keeps the very first build after app start sane.
+
+        Defensive: every reader/adapter field is guarded.
         """
+        import time as _time
+
         reader = getattr(self, "reader", None)
-        connected = False
         port: str | None = None
         adapter = ""
         try:
-            connected = bool(getattr(reader, "connection", None)) and not bool(getattr(reader, "mock", False))
             port = getattr(reader, "connected_port", None)
             info = getattr(reader, "_adapter_info", None)
             if info is not None:
@@ -725,6 +731,18 @@ class DashboardSettingsMixin:
                 adapter = f"{kind_str} {version}".strip()
         except Exception:
             log.debug("Could not build OBD status snapshot", exc_info=True)
+
+        connected = bool(getattr(self, "_obd_link_up_cached", False))
+        if not hasattr(self, "_obd_link_up_cached"):
+            # Pre-first-payload fallback: trust the reader's own claim only when
+            # it has had at least one healthy round-trip (holdover window).
+            holdover = float(getattr(self, "OBD_LINK_HOLDOVER", 4.0))
+            last_healthy = float(getattr(self, "_obd_last_healthy", 0.0))
+            fresh = last_healthy > 0.0 and (_time.monotonic() - last_healthy) < holdover
+            connection_present = bool(getattr(reader, "connection", None))
+            mock = bool(getattr(reader, "mock", False))
+            connected = connection_present and not mock and fresh
+
         return {"connected": connected, "port": port, "adapter": adapter}
 
     def _set_units(self, units: str) -> None:
