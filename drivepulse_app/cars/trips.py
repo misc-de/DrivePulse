@@ -52,6 +52,18 @@ class CarsTripsMixin:
         except Exception:
             log.exception("Could not list trips for car id=%s", self._selected_car_id)
             trips = []
+        # Trips that never captured any movement (GPS speed = 0 the whole time,
+        # ``distance_km`` NULL or 0) are noise in the list — a car sitting with
+        # the engine on still opens a trip and records OBD-only samples but has
+        # no route to visualise or share. Filter them here (UI only) so sync
+        # and share paths still see the full history for consistency.
+        def _has_motion(row) -> bool:
+            try:
+                dist = row["distance_km"]
+            except (IndexError, KeyError):
+                dist = None
+            return dist is not None and float(dist) > 0.0
+        trips = [t for t in trips if _has_motion(t)]
         if not trips:
             self.value_list.append(self._info_row(_translate(self.language, "cars.trips.empty")))
             return

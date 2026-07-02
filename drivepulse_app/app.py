@@ -205,6 +205,21 @@ class ObdDashboardApp(Adw.Application):
             else:
                 self.window = DashboardWindow(self)
         self.window.present()
+        # Self-repair: FuriOS / MediaTek-binder builds ship with BR/EDR inquiry
+        # scan disabled by default and every ``apt dist-upgrade`` wipes any
+        # runtime tweaks. Without ISCAN the OBD-Dongle Settings page finds
+        # nothing and the auto-pair pipeline can't do its job. The helper
+        # detects the missing config; when repair is needed it first shows an
+        # in-app dialog explaining *why* root is required before invoking
+        # pkexec. Skipped entirely when already fixed, so second and later
+        # launches never prompt.
+        # Runs after ``window.present()`` so it has a proper parent to anchor
+        # the explanation dialog against.
+        try:
+            from drivepulse_app.obd.bt_stack_repair import ensure_bt_inquiry_enabled
+            ensure_bt_inquiry_enabled(parent=self.window)
+        except Exception:
+            log.debug("BT inquiry self-repair invocation failed", exc_info=True)
 
 
 _lock_fh: object | None = None
