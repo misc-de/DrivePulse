@@ -128,20 +128,25 @@ def _has_spp_uuid(addr: str) -> bool:
     return not any(u in out for u in _NON_OBD_UUIDS)
 
 
-def bt_is_reachable(addr: str, timeout: float = 3.0) -> bool:
+def bt_is_reachable(addr: str, timeout: float = 3.0, *, strict: bool = False) -> bool:
     """Cheap pre-flight check: is the device at *addr* actually answering?
 
     Sends a single L2CAP echo (`l2ping`) which works without pairing — round
-    trip is under 1 s for an in-range, powered dongle. Used before
-    ``pair_bt_device`` so the auto-pair pass doesn't burn ~25 s on a stale
-    cache entry whose hardware is offline (e.g. an old ELM left in another
-    car still lives in BlueZ's known-device list).
+    trip is under 1 s for an in-range, powered dongle.
 
-    Conservative on uncertain results: only ``Host is down`` /
-    ``Host unreachable`` in l2ping's output counts as a confirmed negative.
-    Permission errors (l2ping needs CAP_NET_RAW on some phones), missing
-    binary, or anything else returns True so the pair attempt still runs. A
-    25 s wasted handshake is cheaper than never trying.
+    Two modes controlled by *strict*:
+
+    * ``strict=False`` (default, used by ``pair_bt_device``): conservative —
+      only ``Host is down`` counts as a confirmed negative. Permission errors,
+      missing binary, unknown BlueZ warnings all return ``True`` so a pair
+      attempt still runs. Wasting 25 s of handshake is cheaper than never
+      trying when the probe itself is broken.
+    * ``strict=True`` (used by the nearby-scan UI): only a *positive* echo
+      reply (``bytes from``) counts as reachable. Anything else — timeout,
+      permission error, missing tool, ``Host is down`` — excludes the device
+      from the list. Prevents ghost entries from BlueZ's known-device cache
+      cluttering the Settings "OBD-Geräte suchen" list with dongles that
+      were used once and are physically elsewhere now.
     """
     try:
         result = subprocess.run(
@@ -149,12 +154,14 @@ def bt_is_reachable(addr: str, timeout: float = 3.0) -> bool:
             capture_output=True, text=True, timeout=timeout + 1.0, check=False,
         )
     except FileNotFoundError:
-        return True
+        return not strict  # tool missing → conservative: True in loose mode, False in strict
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
-        return True
+        return not strict
     out = (result.stdout + " " + result.stderr).lower()
     if "bytes from" in out:
         return True
+    if strict:
+        return False
     if "host is down" in out or "host unreachable" in out or "no route" in out:
         return False
     # Anything else (permission denied, "can't create socket", unfamiliar BlueZ
@@ -338,7 +345,12 @@ def scan_bt_nearby_devices(
                 continue
             cache_probed += 1
             try:
-                if bt_is_reachable(addr, timeout=2.0):
+                # ``strict=True`` — only *positive* l2ping echoes qualify. A
+                # timeout / permission error does NOT rescue the entry. That
+                # keeps ghost dongles (used once, physically elsewhere now)
+                # out of the "OBD-Geräte suchen" list; the user only sees
+                # what is truly in range.
+                if bt_is_reachable(addr, timeout=2.0, strict=True):
                     seen_now.add(addr)
                     # Synthesise a faint RSSI so the entry sorts last among
                     # the actively-discovered devices but ahead of nothing.

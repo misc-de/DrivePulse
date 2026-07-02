@@ -553,11 +553,16 @@ class SettingsDialog(
         def _setup_header(_fac: object, li: Gtk.ListItem) -> None:
             li.set_child(Gtk.Label(xalign=0, hexpand=True))
 
+        # Green colouring is reserved for the *currently connected* dongle,
+        # not every paired-or-known entry. Painting every historic device green
+        # made the dropdown feel like "everything is fine" while the reader
+        # was actually offline — one green row for the live dongle is the
+        # clean signal.
         def _bind_header(_fac: object, li: Gtk.ListItem) -> None:
             label_widget: Gtk.Label = li.get_child()
             dev: DeviceItem = li.get_item()
             label_widget.set_text(dev._label)
-            if dev._is_present:
+            if dev._is_connected:
                 label_widget.add_css_class("success")
             else:
                 label_widget.remove_css_class("success")
@@ -574,7 +579,7 @@ class SettingsDialog(
             icon: Gtk.Image = label_widget.get_next_sibling()
             dev: DeviceItem = li.get_item()
             label_widget.set_text(dev._label)
-            if dev._is_present:
+            if dev._is_connected:
                 label_widget.add_css_class("success")
             else:
                 label_widget.remove_css_class("success")
