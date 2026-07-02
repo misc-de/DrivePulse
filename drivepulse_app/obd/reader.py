@@ -228,16 +228,16 @@ class ObdReader(GObject.Object):
         self.thread.start()
 
     def _prerender_announce_cache(self) -> None:
-        """Warm the Piper cache with the fixed connect/pair voice phrases.
+        """Warm the Piper cache with the one spoken connect phrase.
 
         Piper synthesizes ~1-2 s per phrase on first call — long enough that
-        a freshly-started reader spits "Dongle verbunden" several seconds
+        a freshly-started reader would speak "Verbunden" several seconds
         after the actual connect. Prerendering at start lets the eventual
         ``speak()`` skip piper and just play the cached PCM (~50 ms total).
         Background-threaded inside ``prerender`` itself; never blocks startup.
-        Banner text still includes the dongle name (visible diagnostic); the
-        spoken sentence stays neutral to avoid TTS engines mangling brand
-        names like "OBDII" or "vLinker" in unexpected ways across languages.
+        All other OBD status messages (pairing, disconnect, no-dongle) are
+        surfaced on the banner only (``speak=False``); "Verbunden" is the
+        sole audible OBD announcement.
         """
         try:
             from drivepulse_app.app_settings import load_settings
@@ -255,11 +255,7 @@ class ObdReader(GObject.Object):
             gender = s.get("tts_voice") or "female"
             quality = s.get("tts_quality") or "medium"
             for phrase in (
-                "Dongle verbunden.",
-                "Dongle gekoppelt.",
-                "Dongle getrennt.",
-                "Kein Dongle gefunden. Bitte in den Einstellungen einen Dongle auswählen.",
-                "Pairing fehlgeschlagen.",
+                "Verbunden.",
             ):
                 _tts.prerender(phrase, lang, gender=gender, quality=quality)
         except Exception:
@@ -346,7 +342,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=self.connected_port, supported_commands=supported)
-                self._announce("Dongle verbunden.")
+                self._announce("Verbunden.")
                 self._probe_adapter()
                 return True
             self._close_connection()
@@ -552,7 +548,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=dev, supported_commands=supported)
-                self._announce("Dongle verbunden.")
+                self._announce("Verbunden.")
                 self._probe_adapter()
                 return True
             self._close_connection()
@@ -657,13 +653,13 @@ class ObdReader(GObject.Object):
                 ok, msg = pair_bt_device(addr)
             except Exception as exc:
                 self._connection_log("auto_pair_exception", addr=addr, error=str(exc))
-                self._announce(f"Pairing-Fehler: {exc}", voice_text="Pairing fehlgeschlagen.")
+                self._announce(f"Pairing-Fehler: {exc}", speak=False)
                 continue
             if not ok:
                 self._connection_log("auto_pair_result", addr=addr, ok=False, msg=msg)
                 self._announce(
                     f"Pairing fehlgeschlagen: {msg}",
-                    voice_text="Pairing fehlgeschlagen.",
+                    speak=False,
                 )
                 continue
             # Paired — verify it's actually a serial/OBD adapter via SPP (brand-
@@ -676,7 +672,7 @@ class ObdReader(GObject.Object):
                 paired_n += 1
                 self._announce(
                     f"{shortname} gekoppelt — verbinde …",
-                    voice_text="Dongle gekoppelt.",
+                    speak=False,
                 )
             elif not named_obd:
                 try:
@@ -710,7 +706,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=port, supported_commands=supported)
-                self._announce("Dongle verbunden.")
+                self._announce("Verbunden.")
                 self._probe_adapter()
                 return True
             self._close_connection()
@@ -807,7 +803,7 @@ class ObdReader(GObject.Object):
         self._connection_log("connect_failed", reason=self.mock_reason, fallback="mock")
         self._announce(
             "Kein Dongle gefunden — bitte in den Einstellungen einen Dongle auswählen.",
-            voice_text="Kein Dongle gefunden. Bitte in den Einstellungen einen Dongle auswählen.",
+            speak=False,
         )
 
     def _try_serial_none(self) -> bool:
@@ -1224,7 +1220,7 @@ class ObdReader(GObject.Object):
         # so a driver had no audible cue the link dropped.
         self._announce(
             "Dongle getrennt — versuche neu zu verbinden.",
-            voice_text="Dongle getrennt.",
+            speak=False,
         )
         self.mock = False
         self.mock_reason = ""
