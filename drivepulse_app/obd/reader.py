@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import gi
 
@@ -215,7 +215,9 @@ class ObdReader(GObject.Object):
             lang = s.get("tts_language") or "auto"
             if lang == "auto":
                 lang = s.get("language") or "de"
-            voice = s.get("tts_voice") or "female"
+            # settings.json is user-editable, so anything can show up here —
+            # normalise to the two voices the TTS service actually supports.
+            voice: Literal["male", "female"] = "male" if s.get("tts_voice") == "male" else "female"
             quality = s.get("tts_quality") or "medium"
             _tts.speak(voice_text or text, lang, gender=voice, quality=quality)
         except Exception:
@@ -252,7 +254,7 @@ class ObdReader(GObject.Object):
             lang = s.get("tts_language") or "auto"
             if lang == "auto":
                 lang = s.get("language") or "de"
-            gender = s.get("tts_voice") or "female"
+            gender: Literal["male", "female"] = "male" if s.get("tts_voice") == "male" else "female"
             quality = s.get("tts_quality") or "medium"
             for phrase in (
                 "Verbunden.",

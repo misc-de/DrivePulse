@@ -92,6 +92,7 @@ class CarsDetailRenderMixin:
 
     get_root: Callable[[], Any]
     refresh_profiles: Callable[..., None]
+    _add_live_vehicle: Callable[[], None]
     _wrap_sub_page: Callable[..., Any]
     _show_toast: Callable[[str], None]
     _parse_ts: Callable[..., Any]
@@ -767,7 +768,9 @@ class CarsDetailRenderMixin:
                 self._add_live_vehicle()
                 self._show_toast(_translate(self.language, "cars.live.vin_saved"))
                 return
-            if self.db is None:
+            # Guarded before the dialog was built; restating it here keeps the
+            # invariant visible inside the closure (and checkable).
+            if self.db is None or car_id is None:
                 return
             try:
                 self.db.update_car_vin(car_id, value)
