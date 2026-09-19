@@ -236,7 +236,7 @@ def test_viewport_lock_resets_flag_on_normal_exit():
 
 # ─── Overpass speed-zone fetch: mirror fallback + result cache ────────────────
 
-from drivepulse_app.map._speed_zones import (  # noqa: E402
+from drivepulse_app.map._speed_zones import (
     _ZONE_CACHE,
     fetch_overpass_speed_zones,
 )

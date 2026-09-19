@@ -68,21 +68,21 @@ class DrivePulseAgent(dbus.service.Object):
         return pin
 
     @dbus.service.method(_AGENT_IFACE, in_signature="", out_signature="")
-    def Release(self) -> None:  # noqa: N802 — D-Bus name
+    def Release(self) -> None:
         self.last_event = "Release"
 
     @dbus.service.method(_AGENT_IFACE, in_signature="o", out_signature="s")
-    def RequestPinCode(self, device: str) -> str:  # noqa: N802
+    def RequestPinCode(self, device: str) -> str:
         pin = self.next_pin()
         self.last_event = f"PinCode -> {pin}"
         return pin
 
     @dbus.service.method(_AGENT_IFACE, in_signature="os", out_signature="")
-    def DisplayPinCode(self, device: str, pincode: str) -> None:  # noqa: N802
+    def DisplayPinCode(self, device: str, pincode: str) -> None:
         self.last_event = f"DisplayPinCode {pincode}"
 
     @dbus.service.method(_AGENT_IFACE, in_signature="o", out_signature="u")
-    def RequestPasskey(self, device: str) -> int:  # noqa: N802
+    def RequestPasskey(self, device: str) -> int:
         pin = self.next_pin()
         try:
             v = int(pin)
@@ -92,25 +92,25 @@ class DrivePulseAgent(dbus.service.Object):
         return dbus.UInt32(v)
 
     @dbus.service.method(_AGENT_IFACE, in_signature="ouq", out_signature="")
-    def DisplayPasskey(self, device: str, passkey: int, entered: int) -> None:  # noqa: N802
+    def DisplayPasskey(self, device: str, passkey: int, entered: int) -> None:
         self.last_event = f"DisplayPasskey {passkey} ({entered})"
 
     @dbus.service.method(_AGENT_IFACE, in_signature="ou", out_signature="")
-    def RequestConfirmation(self, device: str, passkey: int) -> None:  # noqa: N802
+    def RequestConfirmation(self, device: str, passkey: int) -> None:
         # Returning no error = confirm. Just-Works SSP numeric comparison passes.
         self.last_event = f"Confirm {passkey} -> ok"
 
     @dbus.service.method(_AGENT_IFACE, in_signature="o", out_signature="")
-    def RequestAuthorization(self, device: str) -> None:  # noqa: N802
+    def RequestAuthorization(self, device: str) -> None:
         self.last_event = f"Authorize {device}"
 
     @dbus.service.method(_AGENT_IFACE, in_signature="os", out_signature="")
-    def AuthorizeService(self, device: str, uuid: str) -> None:  # noqa: N802
+    def AuthorizeService(self, device: str, uuid: str) -> None:
         # Always allow — auto-accept SPP service profile.
         self.last_event = f"AuthorizeService {uuid}"
 
     @dbus.service.method(_AGENT_IFACE, in_signature="", out_signature="")
-    def Cancel(self) -> None:  # noqa: N802
+    def Cancel(self) -> None:
         self.last_event = "Cancel"
 
 

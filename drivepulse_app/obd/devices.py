@@ -162,11 +162,10 @@ def bt_is_reachable(addr: str, timeout: float = 3.0, *, strict: bool = False) ->
         return True
     if strict:
         return False
-    if "host is down" in out or "host unreachable" in out or "no route" in out:
-        return False
-    # Anything else (permission denied, "can't create socket", unfamiliar BlueZ
-    # warning) — don't assume offline.
-    return True
+    # "Host is down"/unreachable are BlueZ's explicit offline verdicts. Anything
+    # else (permission denied, "can't create socket", unfamiliar BlueZ warning)
+    # is inconclusive — don't assume offline.
+    return not ("host is down" in out or "host unreachable" in out or "no route" in out)
 
 
 def scan_bt_known_devices() -> list[tuple[str, str]]:
@@ -465,7 +464,7 @@ def _pair_outcome_error(out: str) -> str:
             return line.strip()[:300]
     # Last resort: hand back the trailing 200 chars of the raw output, scrubbed
     # of empty lines so it stays readable in the JSON log.
-    tail = "\n".join(l for l in out.splitlines() if l.strip())[-200:]
+    tail = "\n".join(ln for ln in out.splitlines() if ln.strip())[-200:]
     return f"unbestätigt: …{tail}" if tail else "pairing not confirmed (no output)"
 
 

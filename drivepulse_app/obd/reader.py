@@ -324,7 +324,6 @@ class ObdReader(GObject.Object):
             # ``connect_success`` event in the log.
             if connected:
                 try:
-                    iface = getattr(self.connection, "interface", None)
                     port_obj = _serial_port(self.connection)
                     probe = raw_send(port_obj, "ATI", timeout=2.0) if port_obj is not None else ""
                     if not probe.strip():
@@ -609,7 +608,7 @@ class ObdReader(GObject.Object):
                 "auto_pair_cache_done",
                 cache_total=len(cached),
                 obd_candidates=len(cache_candidates),
-                devices=[{"label": l, "port": p} for l, p in cache_candidates],
+                devices=[{"label": label, "port": port} for label, port in cache_candidates],
             )
             nearby = cache_candidates
 
@@ -792,11 +791,10 @@ class ObdReader(GObject.Object):
                     continue
                 if self._try_serial(port) if port else False:
                     return
-                if port is None:
-                    # python-obd's "no port" auto-scan fallback (returns Not Connected
-                    # when nothing usable is found). Still worth one shot.
-                    if self._try_serial_none():
-                        return
+                # python-obd's "no port" auto-scan fallback (returns Not Connected
+                # when nothing usable is found). Still worth one shot.
+                if port is None and self._try_serial_none():
+                    return
 
         self.mock = True
         self.mock_reason = "kein nutzbarer Dongle gefunden"
@@ -1202,9 +1200,8 @@ class ObdReader(GObject.Object):
         if not disconnected and not bt_dead and command_count == 0 and self.connection is not None:
             try:
                 port = _serial_port(self.connection)
-                if port is not None:
-                    if not raw_send(port, "ATI", timeout=1.0).strip():
-                        liveness_dead = True
+                if port is not None and not raw_send(port, "ATI", timeout=1.0).strip():
+                    liveness_dead = True
             except Exception:
                 liveness_dead = True
         failed_read = disconnected or bt_dead or liveness_dead or (command_count > 0 and read_error_count >= command_count)
