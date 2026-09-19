@@ -45,6 +45,8 @@ class SettingsBluetoothMixin:
     _bt_nearby_scan_btn: Gtk.Button
     _bt_nearby_scan_token: int
     _bt_nearby_scan_active: bool
+    # None = noch nie gescannt; [] = gescannt, nichts gefunden.
+    _bt_nearby_last_devices: list[tuple[str, str]] | None
     on_obd_port_changed: Callable[[str | None], None] | None
     _refresh_dongle_dropdown: Callable[[str | None], None]
 

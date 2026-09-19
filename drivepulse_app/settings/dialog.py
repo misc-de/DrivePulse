@@ -1145,7 +1145,7 @@ class SettingsDialog(
                 group.remove(row)
             except Exception:
                 pass
-        self._connected_dongle_rows = []
+        self._connected_dongle_rows: list[Adw.ActionRow] = []
         self._populate_connected_dongle_group(group)
 
     def _build_connected_dongle_group(self) -> Adw.PreferencesGroup:
@@ -1158,7 +1158,7 @@ class SettingsDialog(
             title=_translate(self.language, "settings.obd_dongle.connected_heading"),
         )
         self._connected_dongle_group = group
-        self._connected_dongle_rows: list[Adw.ActionRow] = []
+        self._connected_dongle_rows = []
         self._populate_connected_dongle_group(group)
         return group
 
