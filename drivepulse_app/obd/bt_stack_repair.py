@@ -86,17 +86,23 @@ def _enable_iscan_unprivileged() -> bool:
 
     ``bluetoothctl discoverable on`` sets ISCAN through BlueZ's D-Bus API,
     which polkit grants to the active local session — no password prompt.
-    Verified against the adapter afterwards rather than trusting the exit
-    code, because bluetoothctl reports success for a queued command too.
+
+    The timeout has to go to 0 first. BlueZ defaults ``DiscoverableTimeout``
+    to 180 s and drops ISCAN again when it expires, so without this the repair
+    silently came undone three minutes later — the systemd unit's
+    ``hciconfig piscan`` has no such expiry, and matching it is the whole
+    point. Verified against the adapter afterwards rather than trusting the
+    exit code, because bluetoothctl reports success for a queued command too.
     """
     bluetoothctl = shutil.which("bluetoothctl")
     if bluetoothctl is None:
         return False
     try:
-        subprocess.run(
-            [bluetoothctl, "discoverable", "on"],
-            capture_output=True, text=True, timeout=5, check=False,
-        )
+        for args in (["discoverable-timeout", "0"], ["discoverable", "on"]):
+            subprocess.run(
+                [bluetoothctl, *args],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
         return False
     ok = _adapter_state() == ADAPTER_ISCAN

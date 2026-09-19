@@ -171,6 +171,24 @@ def test_missing_persistence_still_offers_the_one_time_setup(monkeypatch):
     assert calls == {"pkexec": 1, "banner": 1}
 
 
+def test_unprivileged_repair_clears_the_discoverable_timeout_first(monkeypatch):
+    # BlueZ defaults DiscoverableTimeout to 180 s and drops ISCAN when it
+    # expires — the repair would quietly come undone three minutes later.
+    cmds: list[list[str]] = []
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    def _record(cmd, **_kw):
+        cmds.append(cmd)
+        return _mock_run("")()
+
+    monkeypatch.setattr(subprocess, "run", _record)
+    monkeypatch.setattr(repair, "_adapter_state", lambda: repair.ADAPTER_ISCAN)
+
+    assert repair._enable_iscan_unprivileged() is True
+    flat = [" ".join(c[1:]) for c in cmds]
+    assert flat == ["discoverable-timeout 0", "discoverable on"]
+
+
 def test_unprivileged_repair_verifies_against_the_adapter(monkeypatch):
     # bluetoothctl reports success for a queued command too, so the helper
     # must re-read the adapter instead of trusting the exit code.
