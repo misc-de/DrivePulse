@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.5.59"
+version = "0.5.60"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
@@ -63,6 +63,7 @@ select = [
 ignore = [
     "E501",    # line too long — handled by formatter, many existing long lines
     "PLR0913", # too many arguments — GTK callbacks
+    "PLR0917", # too many positional arguments — same GTK/render signatures as PLR0913
     "PLR0912", # too many branches — telemetry dispatchers
     "PLR0915", # too many statements — render loops
     "PLR2004", # magic value comparisons — UI pixel constants
