@@ -2,7 +2,11 @@
 
 <img src="icons/icon.png" alt="DrivePulse" width="128"/>
 
-> **AI-assisted project, under active development.** Features, configuration and data formats may change without notice — not production-ready.
+---
+⚠️ **AI-assisted project**  
+Under active development. Features, configuration and data formats may change without notice — not production-ready.
+
+---
 
 DrivePulse turns a Linux device into an in-car companion. Plug in an OBD-II adapter, optionally pair a GPS receiver and a webcam, and the same app gives you a live dashboard, navigation, dashcam, performance meter and trip log — without sending anything to the cloud.
 
