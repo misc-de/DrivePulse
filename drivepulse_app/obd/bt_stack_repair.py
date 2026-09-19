@@ -6,10 +6,27 @@ install and after every ``apt dist-upgrade``. Without ISCAN, DrivePulse's
 Settings auto-scan sees nothing and no OBD dongle can be paired.
 
 Running ``hciconfig hci0 piscan`` fixes it for the current session; a small
-systemd oneshot makes the setting stick. Both changes need root, which we
-obtain via ``pkexec`` — the OS pops the standard authentication prompt
-exactly once. If the fix is already in place (unit installed *and* adapter
-reports ISCAN), the call is a no-op and no banner appears.
+systemd oneshot makes the setting stick. Installing that unit needs root,
+which we obtain via ``pkexec`` — the OS pops the standard authentication
+prompt exactly once, on first run.
+
+Afterwards we must be careful *not* to prompt again. Two traps, both hit in
+the field:
+
+* The controller does not stay powered when nothing is connected (see
+  ``ObdReader._ensure_bt_powered``). ``hciconfig hci0`` then prints just
+  ``DOWN`` — no ISCAN flag — even though the persistence unit is installed
+  and runs fine on every boot. Reading that as "scan disabled" asked for the
+  password at every single launch. A sleeping adapter says nothing about the
+  configuration, and root cannot fix it either: ``hciconfig hci0 piscan``
+  fails on a down adapter too.
+* A D-Bus power cycle (``bluetoothctl power off/on``) clears ISCAN without
+  emitting the udev ``add`` event the rule keys on, so the flag stays off
+  until something sets it again. ``bluetoothctl discoverable on`` does that
+  through BlueZ — no root needed.
+
+So we only fall back to ``pkexec`` when the persistence is genuinely missing,
+or when a *running* adapter refuses the unprivileged repair.
 
 Invoked from the app's startup hook so users never need to know a shell exists.
 """
@@ -28,25 +45,63 @@ _SYSTEMD_UNIT = Path("/etc/systemd/system/bluetooth-piscan.service")
 _FIX_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "fix-bt-inquiry.sh"
 
 
-def _iscan_active() -> bool:
-    """True when ``hciconfig hci0`` reports ISCAN (inquiry scan) enabled.
+ADAPTER_ISCAN = "iscan"        # up, inquiry scan on — nothing to do
+ADAPTER_NO_ISCAN = "no_iscan"  # up, but inquiry scan off — the one repairable case
+ADAPTER_DOWN = "down"          # powered off / asleep — flags say nothing
+ADAPTER_UNKNOWN = "unknown"    # no hciconfig, or it failed — assume nothing
 
-    Runs unprivileged — ``hciconfig`` reads via netlink and needs no root
-    for status queries on all setups we care about. On error we conservatively
-    return True so a broken helper doesn't nag the user with an unnecessary
-    ``pkexec`` prompt.
+
+def _adapter_state() -> str:
+    """Classify ``hciconfig hci0`` into one of the ``ADAPTER_*`` constants.
+
+    Runs unprivileged — ``hciconfig`` reads via netlink and needs no root for
+    status queries on all setups we care about. The distinction that matters
+    is *down* versus *up-without-ISCAN*: only the latter is a misconfiguration
+    we can act on. Anything we cannot read is ``ADAPTER_UNKNOWN`` and is
+    treated as healthy, so a broken helper never nags for a password.
     """
     hciconfig = shutil.which("hciconfig")
     if hciconfig is None:
-        return True
+        return ADAPTER_UNKNOWN
     try:
         result = subprocess.run(
             [hciconfig, "hci0"],
             capture_output=True, text=True, timeout=3, check=False,
         )
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
-        return True
-    return "ISCAN" in (result.stdout or "").upper()
+        return ADAPTER_UNKNOWN
+    out = (result.stdout or "").upper()
+    if not out.strip():
+        return ADAPTER_UNKNOWN
+    if "ISCAN" in out:
+        return ADAPTER_ISCAN
+    # The flag line reads either "UP RUNNING PSCAN ISCAN" or plain "DOWN".
+    if "DOWN" in out or "UP" not in out:
+        return ADAPTER_DOWN
+    return ADAPTER_NO_ISCAN
+
+
+def _enable_iscan_unprivileged() -> bool:
+    """Switch inquiry scan back on without root; True when it took effect.
+
+    ``bluetoothctl discoverable on`` sets ISCAN through BlueZ's D-Bus API,
+    which polkit grants to the active local session — no password prompt.
+    Verified against the adapter afterwards rather than trusting the exit
+    code, because bluetoothctl reports success for a queued command too.
+    """
+    bluetoothctl = shutil.which("bluetoothctl")
+    if bluetoothctl is None:
+        return False
+    try:
+        subprocess.run(
+            [bluetoothctl, "discoverable", "on"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+        return False
+    ok = _adapter_state() == ADAPTER_ISCAN
+    log.info("unprivileged ISCAN repair via bluetoothctl: %s", "ok" if ok else "no effect")
+    return ok
 
 
 def _persisted() -> bool:
@@ -67,12 +122,17 @@ def _persisted() -> bool:
 
 
 def bt_inquiry_ready() -> bool:
-    """Both conditions must hold for the repair to be skipped.
+    """True when nothing needs a password prompt right now.
 
-    Runtime OK *and* persistence installed. If ISCAN is on but the unit isn't
-    installed the next reboot / update reverts everything, so we still prompt.
+    Persistence must be installed — without the unit the next reboot or update
+    reverts everything, so we still prompt even if ISCAN happens to be on.
+    With it installed, only a *running* adapter that lacks ISCAN is a real
+    finding; a sleeping or unreadable adapter is not something root could fix
+    (see module docstring).
     """
-    return _iscan_active() and _persisted()
+    if not _persisted():
+        return False
+    return _adapter_state() != ADAPTER_NO_ISCAN
 
 
 def _run_pkexec_repair() -> None:
@@ -167,13 +227,23 @@ def ensure_bt_inquiry_enabled(parent=None, async_: bool = True) -> None:
     dialog; when omitted the dialog is application-modal.
     """
     try:
-        if bt_inquiry_ready():
-            log.debug("BT inquiry scan already enabled + persisted; no repair needed")
+        persisted = _persisted()
+        state = _adapter_state()
+        if persisted and state != ADAPTER_NO_ISCAN:
+            log.debug("BT inquiry persisted, adapter state %s — no repair needed", state)
+            return
+        # Persistence is in place and the adapter is awake but lost ISCAN —
+        # typically after a D-Bus power cycle. BlueZ can put it back without
+        # root, so try that before bothering the user for a password.
+        if persisted and _enable_iscan_unprivileged():
             return
     except Exception:
         log.debug("BT inquiry-ready check failed", exc_info=True)
         return
-    log.info("BT inquiry scan disabled or non-persistent — offering repair via pkexec")
+    log.info(
+        "BT inquiry repair needed (persisted=%s, adapter=%s) — offering repair via pkexec",
+        persisted, state,
+    )
 
     def _launch_repair() -> None:
         if async_:
