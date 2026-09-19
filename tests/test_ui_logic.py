@@ -135,6 +135,10 @@ def test_update_from_payload_updates_gauges_and_status(drivepulse_module):
             "coolant_temp": {"value": 91},
             "source": "obd",
             "connection_status": "OBD verbunden: /dev/rfcomm0",
+            # A green link indicator needs proof of a healthy round-trip, not
+            # just a payload tagged source=obd — see _update_from_payload.
+            "_command_count": 4,
+            "_read_error_count": 0,
         }
     )
 
@@ -144,6 +148,26 @@ def test_update_from_payload_updates_gauges_and_status(drivepulse_module):
     assert "OBD verbunden: /dev/rfcomm0" in window.status_label.get_text()
     assert window.rpm_gauge.active is True
     assert "success" in window.obd_indicator["box"].props["css_classes"]
+
+
+def test_obd_indicator_stays_grey_without_healthy_read(drivepulse_module):
+    # Cached source=obd payloads keep flowing for a moment after the dongle
+    # leaves range. Without a successful command cycle the header link must
+    # stay grey instead of claiming a connection that is already gone.
+    window = _payload_window(drivepulse_module)
+
+    window._update_from_payload(
+        {
+            "rpm": {"value": 1234},
+            "source": "obd",
+            "connection_status": "OBD verbunden: /dev/rfcomm0",
+            "_command_count": 3,
+            "_read_error_count": 3,
+        }
+    )
+
+    assert "success" not in window.obd_indicator["box"].props["css_classes"]
+    assert "dim-label" in window.obd_indicator["box"].props["css_classes"]
 
 
 def test_update_from_payload_uses_gps_speed_when_obd_is_missing(drivepulse_module):

@@ -292,8 +292,8 @@ def test_looks_like_obd_rejects_noise_and_unnamed():
 
 # ─── scan_bt_nearby_devices (ranking + in-range fallback) ─────────────────────
 
-import io  # noqa: E402
-import time  # noqa: E402
+import io
+import time
 
 
 class _FakePopen:
@@ -301,7 +301,7 @@ class _FakePopen:
         self._out = out
         self.stdin = io.StringIO()  # supports write()/flush()
 
-    def communicate(self, timeout=None):  # noqa: ARG002
+    def communicate(self, timeout=None):
         return self._out, ""
 
     def kill(self):
@@ -351,16 +351,18 @@ def test_scan_bt_nearby_surfaces_unnamed_in_range_device(monkeypatch):
     assert result == [(f"BT {addr}  ({addr})", f"bt:{addr}")]
 
 
-def test_scan_sets_dual_mode_transport_before_scan_on(monkeypatch):
-    # The scan must set a BR/EDR+LE discovery filter (transport auto) before
-    # `scan on`, so Bluetooth-Classic OBD dongles surface on LE-defaulting stacks.
+def test_scan_sets_bredr_transport_before_scan_on(monkeypatch):
+    # The scan must force the BR/EDR discovery transport before `scan on`, so
+    # Bluetooth-Classic OBD dongles surface on LE-defaulting binder stacks.
+    # Both the `menu scan` form and the top-level alias are written, because
+    # BlueZ packagings differ in which one they understand.
     captured: dict[str, str] = {}
 
     class _Cap:
         def __init__(self) -> None:
             self.stdin = io.StringIO()
 
-        def communicate(self, timeout=None):  # noqa: ARG002
+        def communicate(self, timeout=None):
             captured["stdin"] = self.stdin.getvalue()
             return "", ""
 
@@ -373,5 +375,7 @@ def test_scan_sets_dual_mode_transport_before_scan_on(monkeypatch):
 
     obd_devices.scan_bt_nearby_devices(scan_seconds=0)
     cmds = captured["stdin"]
-    assert "transport auto" in cmds
-    assert cmds.index("transport auto") < cmds.index("scan on")
+    assert "transport bredr" in cmds
+    assert "set-scan-filter-transport bredr" in cmds
+    assert cmds.index("transport bredr") < cmds.index("scan on")
+    assert cmds.index("set-scan-filter-transport bredr") < cmds.index("scan on")

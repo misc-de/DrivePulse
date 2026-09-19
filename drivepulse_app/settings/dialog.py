@@ -19,6 +19,7 @@ from gi.repository import (
 
 from drivepulse_app import updater
 from drivepulse_app.common import SUPPORTED_LANGUAGES, _normalize_language, _translate, language_name
+from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.obd.devices import scan_obd_devices
 from drivepulse_app.settings.bluetooth import SettingsBluetoothMixin
 from drivepulse_app.settings.dashcam import SettingsDashcamMixin
@@ -28,6 +29,8 @@ from drivepulse_app.settings.updates import SettingsUpdatesMixin
 from drivepulse_app.settings.vin_decoder import SettingsVinDecoderMixin
 from drivepulse_app.tts import service as tts_service
 from drivepulse_app.ui.gauge import all_theme_options
+
+log = get_logger(__name__)
 
 
 class DeviceItem(GObject.Object):
@@ -1134,11 +1137,9 @@ class SettingsDialog(
         group = getattr(self, "_connected_dongle_group", None)
         if group is None:
             return
-        # Adw.PreferencesGroup has no public clear() — remove children one by
-        # one via the GTK widget API. The group's internal listbox is a child.
-        child = group.get_first_child()
-        # The first child is the internal header; the rows live in a list under
-        # it. Easiest reliable path: remove every Adw.ActionRow we appended.
+        # Adw.PreferencesGroup has no public clear(), and walking its children
+        # would hit the internal header first. Easiest reliable path: remove
+        # every Adw.ActionRow we appended ourselves.
         for row in list(getattr(self, "_connected_dongle_rows", [])):
             try:
                 group.remove(row)
