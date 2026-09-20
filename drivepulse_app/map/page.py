@@ -286,6 +286,9 @@ class MapPage(
         self._guide_path_layer: Any = None
         self._wp_layer: Any = None
         self._sources: dict[str, Any] = {}
+        self._label_layers: dict[str, Any] = {}
+        self._active_label_layer: Any = None
+        self._pending_label_layer: str = "map"
         self._setting_pos: bool = False
 
         # FAB buttons (None when backend unavailable)
@@ -487,7 +490,7 @@ class MapPage(
         if self._backend == "webkit":
             self._js(js_call("mapSetStyle", layer))
         elif self._shumate_map is not None:
-            self._shumate_map.set_map_source(self._sources[layer])
+            self._shumate_set_layer(layer)
             self._shumate_apply_attribution()
         if self._layer_btn is not None:
             self._layer_btn.set_icon_name(MAP_ICONS.get(layer, "map-symbolic"))

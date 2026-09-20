@@ -116,18 +116,41 @@ MAP_ICONS = {
     "dark": "night-light-symbolic",
     "grayscale": "preferences-color-symbolic",
 }
+# CARTO now burns "API KEY REQUIRED" into its free basemap tiles (the server
+# still answers 200, so only a look at the image shows it), which is why dark
+# and grayscale use Esri's gray canvas here.  Those tiles carry no labels of
+# their own — TILE_LABEL_URLS below supplies the matching label overlay.  The
+# WebKit backend does not use this table at all: it renders OpenFreeMap's
+# vector styles (see map.html), which are keyless and already labelled.
 TILE_URLS = {
     "map": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     "satellite": (
         "https://server.arcgisonline.com/ArcGIS/rest/services"
         "/World_Imagery/MapServer/tile/{z}/{y}/{x}"
     ),
-    "dark": "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png",
-    "grayscale": "https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png",
+    "dark": (
+        "https://server.arcgisonline.com/ArcGIS/rest/services"
+        "/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+    ),
+    "grayscale": (
+        "https://server.arcgisonline.com/ArcGIS/rest/services"
+        "/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+    ),
+}
+# Transparent label tiles drawn on top of the label-less gray canvas layers.
+TILE_LABEL_URLS = {
+    "dark": (
+        "https://server.arcgisonline.com/ArcGIS/rest/services"
+        "/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+    ),
+    "grayscale": (
+        "https://server.arcgisonline.com/ArcGIS/rest/services"
+        "/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+    ),
 }
 TILE_ATTRIBUTION = {
     "map": "© OpenStreetMap contributors",
     "satellite": "© Esri, Maxar, Earthstar Geographics",
-    "dark": "© OpenStreetMap, © CARTO",
-    "grayscale": "© OpenStreetMap, © CARTO",
+    "dark": "© Esri, © OpenStreetMap contributors",
+    "grayscale": "© Esri, © OpenStreetMap contributors",
 }
