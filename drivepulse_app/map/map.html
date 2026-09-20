@@ -87,20 +87,18 @@ function rasterStyle(tiles, attribution, maxzoom) {
   };
 }
 
+// CARTO started watermarking its free basemap tiles with "API KEY REQUIRED"
+// (server still answers 200 — the demand is burnt into the image), so dark and
+// grayscale now use OpenFreeMap's vector styles instead: same source as
+// 'street', no key, and they carry labels and 3D tilt that raster tiles cannot.
 const STYLES = {
   street: 'https://tiles.openfreemap.org/styles/liberty',
-  dark: rasterStyle(
-    ['https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png'],
-    '© OpenStreetMap, © CARTO', 19
-  ),
+  dark: 'https://tiles.openfreemap.org/styles/dark',
   satellite: rasterStyle(
     ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
     '© Esri, Maxar, Earthstar Geographics', 18
   ),
-  grayscale: rasterStyle(
-    ['https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png'],
-    '© OpenStreetMap, © CARTO', 19
-  ),
+  grayscale: 'https://tiles.openfreemap.org/styles/positron',
 };
 
 // Fully self-contained fallback used when there is no internet: every base

@@ -11,7 +11,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gtk
 
 from drivepulse_app.diagnostics import get_logger
-from drivepulse_app.map.services import TILE_URLS, zoom_for_bbox
+from drivepulse_app.map.services import TILE_LABEL_URLS, TILE_URLS, zoom_for_bbox
 
 log = get_logger(__name__)
 
@@ -32,6 +32,11 @@ class MapShumateMixin:
     _initial_zoom: float | None
     _map_type_idx: int
     _sources: dict[str, Any]
+    _label_layers: dict[str, Any]
+    _pending_label_layer: str
+    _active_label_layer: Any
+    _inner_map: Any
+    _guide_path_layer: Any
     _car_marker: Any
     _on_viewport_moved: Callable[..., Any]
     _viewport_lock: Callable[..., Any]
@@ -64,10 +69,25 @@ class MapShumateMixin:
                 except Exception:
                     log.warning("Could not create tile source for %s - using OSM fallback", key)
 
+        # The gray canvas layers ship without labels, so each one gets a
+        # transparent label overlay that is inserted only while it is active.
+        self._label_layers = {}
+        self._active_label_layer = None
+        if hasattr(Shumate, "RasterRenderer") and hasattr(Shumate, "TileDownloader"):
+            for key, url in TILE_LABEL_URLS.items():
+                try:
+                    self._label_layers[key] = Shumate.MapLayer.new(
+                        Shumate.RasterRenderer.new(Shumate.TileDownloader.new(url)),
+                        viewport,
+                    )
+                except Exception:
+                    log.warning("Could not create label overlay for %s", key)
+
         # Start with the remembered layer (index set by MapPage constructor).
         from drivepulse_app.map.services import MAP_TYPES as _MT
         _ik = _MT[self._map_type_idx] if 0 <= self._map_type_idx < len(_MT) else "map"
         self._shumate_map.set_map_source(self._sources.get(_ik, self._sources["map"]))
+        self._pending_label_layer = _ik
         # SimpleMap renders its own square zoom buttons in the top-right
         # corner — hide them so only our circular OSD zoom controls remain.
         try:
@@ -145,6 +165,10 @@ class MapShumateMixin:
 
         self._marker_layer = Shumate.MarkerLayer.new(viewport)
         inner.add_layer(self._marker_layer)
+
+        # Route and markers are already in place, so the label overlay can now
+        # be slotted in underneath them.
+        self._shumate_set_layer(self._pending_label_layer)
 
         # Trip-replay scrubber position (lat, lon) or None. Drawn on the same
         # Cairo overlay as the replay polyline so it always sits on top of the
@@ -569,6 +593,21 @@ class MapShumateMixin:
         if area is not None:
             area.set_visible(False)
             area.queue_draw()
+
+    def _shumate_set_layer(self, key: str) -> None:
+        """Switch base layer and keep its label overlay in sync.
+
+        The overlay is inserted *behind* the guide-route layer so route, markers
+        and traffic pins stay on top of the street names.
+        """
+        self._shumate_map.set_map_source(self._sources.get(key, self._sources["map"]))
+        overlay = self._label_layers.get(key)
+        if self._active_label_layer is not None and self._active_label_layer is not overlay:
+            self._inner_map.remove_layer(self._active_label_layer)
+            self._active_label_layer = None
+        if overlay is not None and self._active_label_layer is None:
+            self._inner_map.insert_layer_behind(overlay, self._guide_path_layer)
+            self._active_label_layer = overlay
 
     def _shumate_apply_scale_unit(self, units: str) -> None:
         """Mirror the user's units setting on the shumate scale ruler."""
