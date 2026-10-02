@@ -273,7 +273,10 @@ function initMap(lat, lon) {
 
   // A failed style/tile request offline surfaces here — fall back so the
   // route and car marker still draw on a plain background instead of nothing.
-  map.on('error', () => {
+  map.on('error', (e) => {
+    const err = e && e.error;
+    postToPython({ action: 'map_error', message: String((err && err.message) || err || 'unknown'),
+                   styleLoaded: map.isStyleLoaded(), offline: _offlineFallback });
     if (!_offlineFallback && !map.isStyleLoaded()) _goOffline();
   });
 
@@ -282,7 +285,12 @@ function initMap(lat, lon) {
     if (_offlineFallback) _applyStyle(_desiredStyleKey);
   });
 
-  if (!startOffline) _armStyleWatchdog();
+  if (startOffline) {
+    postToPython({ action: 'map_offline', style: _desiredStyleKey, startup: true });
+    _scheduleOnlineRetry();
+  } else {
+    _armStyleWatchdog();
+  }
 
   // Keep marker glued to the camera center while we're following GPS, and
   // always recompute the arrow rotation relative to the current map bearing.
@@ -668,20 +676,26 @@ function mapFitBounds(minLat, minLon, maxLat, maxLon) {
 function _goOffline() {
   if (_offlineFallback || !map) return;
   _offlineFallback = true;
+  postToPython({ action: 'map_offline', style: _desiredStyleKey });
   if (_styleWatchdog) { clearTimeout(_styleWatchdog); _styleWatchdog = null; }
-  // The 'online' event only fires after the browser itself saw the network
-  // drop.  A slow first load or one failed request while connected never
-  // produces it, so without this retry the map stayed blank for good.
-  if (_onlineRetry) clearTimeout(_onlineRetry);
-  _onlineRetry = setTimeout(() => {
-    _onlineRetry = null;
-    if (_offlineFallback) _applyStyle(_desiredStyleKey, 12000);
-  }, 15000);
+  _scheduleOnlineRetry();
   // diff:false forces a full style reload so the 'style.load' handler re-fires
   // and addDataLayers re-creates the route/waypoint/guide/traffic layers. The
   // default diff path silently drops every layer not present in the new style
   // (i.e. all of ours) WITHOUT emitting 'style.load', leaving the overlays gone.
   map.setStyle(OFFLINE_STYLE, { diff: false });
+}
+
+// The 'online' event is not a reliable way back: WebKit can report
+// navigator.onLine === false at startup while the network works fine, and a
+// slow first load or one failed request never produces the event at all.
+// Without this retry the map stayed blank for good.
+function _scheduleOnlineRetry() {
+  if (_onlineRetry) clearTimeout(_onlineRetry);
+  _onlineRetry = setTimeout(() => {
+    _onlineRetry = null;
+    if (_offlineFallback) _applyStyle(_desiredStyleKey, 12000);
+  }, 15000);
 }
 
 // After requesting a network-backed style, give it a few seconds to load.

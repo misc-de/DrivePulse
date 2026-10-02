@@ -127,5 +127,15 @@ class MapWebKitMixin:
                 b = data.get("bearing")
                 if z is not None and p is not None and b is not None:
                     GLib.idle_add(self._on_js_map_state, float(z), float(p), float(b))
+            elif action == "map_error":
+                log.warning(
+                    "Map error (style loaded=%s, offline=%s): %s",
+                    data.get("styleLoaded"), data.get("offline"), data.get("message"),
+                )
+            elif action == "map_offline":
+                log.warning(
+                    "Map fell back to offline style (wanted %s, at startup=%s)",
+                    data.get("style"), bool(data.get("startup")),
+                )
         except Exception as exc:
             log.debug("JS message error: %s", exc)
