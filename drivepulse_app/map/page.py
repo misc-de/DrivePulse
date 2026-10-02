@@ -484,6 +484,22 @@ class MapPage(
                 viewport.set_location(self._gps_lat, self._gps_lon)
                 viewport.set_zoom_level(17.0)
 
+    def on_shown(self) -> None:
+        """Re-engage GPS follow whenever the tab is opened.
+
+        A pan from an earlier visit must not leave the map parked on a stale
+        view (or on the default centre). With follow on, the next fix centres
+        the map; a fix we already have is applied right away. A loaded route
+        or a running tour keeps its own camera.
+        """
+        super().on_shown()
+        if (self._tour_active or self._tour_paused
+                or self._route_coords or self._pending_route_draw):
+            return
+        self._set_follow(True)
+        if self._gps_lat is not None and self._gps_lon is not None:
+            self._goto(self._gps_lat, self._gps_lon)
+
     def _on_layer_clicked(self, _btn: Gtk.Button) -> None:
         self._map_type_idx = (self._map_type_idx + 1) % len(MAP_TYPES)
         layer = MAP_TYPES[self._map_type_idx]

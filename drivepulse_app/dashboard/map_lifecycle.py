@@ -29,7 +29,6 @@ class DashboardMapLifecycleMixin:
     map_page: MapPage | None
     _map_unload_timer_id: int | None
     _map_suspended_zoom: float | None
-    _map_suspended_follow: bool
 
     # Concrete-class state surfaced to this mixin. See project_mixin_typing.md
     # for the pattern — these are PEP-526 annotations without values.
@@ -97,8 +96,6 @@ class DashboardMapLifecycleMixin:
         self.map_page.set_tts_language(self.tts_language)
         self.map_page.set_tts_voice(self.tts_voice)
         self.map_page.set_tts_quality(self.tts_quality)
-        if not self._map_suspended_follow:
-            self.map_page._follow_gps = False
         ff = getattr(self, "form_factor", None)
         if ff and hasattr(self.map_page, "set_form_factor"):
             self.map_page.set_form_factor(ff)
@@ -125,7 +122,6 @@ class DashboardMapLifecycleMixin:
         if self.view_stack.get_visible_child_name() == self.PAGE_MAP:
             return False
         self._map_suspended_zoom = getattr(self.map_page, "_map_zoom", None)
-        self._map_suspended_follow = getattr(self.map_page, "_follow_gps", True)
         self._map_rotator.set_child(Gtk.Box())
         self.map_page = None
         return False

@@ -133,7 +133,6 @@ class DashboardWindow(
         self.map_page: MapPage | None = None
         self._map_unload_timer_id: int | None = None
         self._map_suspended_zoom: float | None = None
-        self._map_suspended_follow: bool = True
         self._init_tts_service()
         self._map_rotator = RotatedContainer()
         self._map_rotator.set_hexpand(True)
