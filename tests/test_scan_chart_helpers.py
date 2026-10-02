@@ -233,3 +233,28 @@ def test_prefs_load_returns_empty_when_top_level_is_null(prefs_setup):
     scp, path = prefs_setup
     path.write_text("null", encoding="utf-8")
     assert scp._prefs_load() == {}
+
+
+def test_next_free_color_skips_colors_in_use():
+    from drivepulse_app.chart._helpers import (
+        _COLOR_MAIN,
+        _DEFAULT_COMPARE_COLORS,
+        _color_in,
+        _next_free_color,
+    )
+
+    used = [_COLOR_MAIN]
+    for _ in range(len(_DEFAULT_COMPARE_COLORS) + 10):
+        c = _next_free_color(used)
+        assert not _color_in(c, used)
+        used.append(c)
+
+
+def test_next_free_color_reuses_gap_after_removal():
+    from drivepulse_app.chart._helpers import _COLOR_MAIN, _DEFAULT_COMPARE_COLORS, _next_free_color
+
+    orange, green, violet = _DEFAULT_COMPARE_COLORS[:3]
+    # Orange wurde entfernt, Grün und Violett sind noch da → Orange ist frei
+    assert _next_free_color([_COLOR_MAIN, green, violet]) == orange
+    # Gespeicherte Prefs liefern Floats mit Rundungsrauschen
+    assert _next_free_color([_COLOR_MAIN, (orange[0] + 1e-6, orange[1], orange[2])]) == green

@@ -20,7 +20,7 @@ from drivepulse_app.cars.metadata import _parse_profile_pid_key, _unit_display
 from drivepulse_app.chart._helpers import (
     _CHART_H,
     _COLOR_MAIN,
-    _DEFAULT_COMPARE_COLORS,
+    _color_in,
     _compute_stats_for_car,
     _draw_chart,
     _fmt,
@@ -28,6 +28,7 @@ from drivepulse_app.chart._helpers import (
     _fmt_scan_label,
     _fmt_ts,
     _lookup_card_bg,
+    _next_free_color,
     _rgb_to_hex,
     _safe_pids_count,
 )
@@ -35,6 +36,9 @@ from drivepulse_app.common import LOG_DIR
 from drivepulse_app.diagnostics import atomic_write_text, get_logger
 
 _log = get_logger(__name__)
+
+# Maximaler Zoom: 2 % der vollen Breite (50×)
+_MIN_VIEW_SPAN = 0.02
 _PREFS_FILE = LOG_DIR / "scan_chart_prefs.json"
 
 # Re-exports for tests/callers. ScanChartContent is the public widget; the
@@ -129,7 +133,6 @@ class ScanChartContent(Gtk.Box):
         self._value_pids: list[str] = [main_pid]
         # Vergleichs-Autos (ohne Hauptauto), jeweils {car_id, name, color, stats, row, suffix_box, remove_btn}
         self._compare_cars: list[dict] = []
-        self._next_color_idx = 0
         self._refreshing_add_car_dd = False
 
         # ── Info-Strip ────────────────────────────────────────────────────
@@ -173,12 +176,43 @@ class ScanChartContent(Gtk.Box):
         self._da.set_hexpand(True)
         self._da.set_draw_func(self._draw)
 
+        # Zoom auf der Zeitachse: sichtbarer Ausschnitt als Anteil der vollen
+        # Breite. Pinch / Mausrad zoomen, Wischen links/rechts verschiebt,
+        # Doppeltipp setzt auf 100 % zurück.
+        self._view: tuple[float, float] = (0.0, 1.0)
+        self._plot_geom: tuple[float, float] = (0.0, 1.0)  # (left, width) aus _draw_chart
+        self._pointer_x: float | None = None
+        self._pinch_start: tuple[tuple[float, float], float] | None = None
+        self._pinched = False
+        self._pan_start_view: tuple[float, float] | None = None
+
         # Vertikaler Wisch auf dem Chart-Canvas wechselt zum nächsten/
-        # vorherigen Sensor (hoch = nächster, runter = vorheriger).
-        if self._on_navigate_pid is not None:
-            chart_drag = Gtk.GestureDrag()
-            chart_drag.connect("drag-end", self._on_chart_swipe)
-            self._da.add_controller(chart_drag)
+        # vorherigen Sensor (hoch = nächster, runter = vorheriger);
+        # horizontaler Wisch verschiebt den gezoomten Ausschnitt.
+        chart_drag = Gtk.GestureDrag()
+        chart_drag.connect("drag-begin", self._on_chart_drag_begin)
+        chart_drag.connect("drag-update", self._on_chart_drag_update)
+        chart_drag.connect("drag-end", self._on_chart_swipe)
+        self._da.add_controller(chart_drag)
+
+        pinch = Gtk.GestureZoom()
+        pinch.connect("begin", self._on_pinch_begin)
+        pinch.connect("scale-changed", self._on_pinch_scale)
+        pinch.connect("end", self._on_pinch_end)
+        self._da.add_controller(pinch)
+
+        wheel = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+        wheel.connect("scroll", self._on_chart_scroll)
+        self._da.add_controller(wheel)
+
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", lambda _c, x, _y: setattr(self, "_pointer_x", x))
+        motion.connect("leave", lambda _c: setattr(self, "_pointer_x", None))
+        self._da.add_controller(motion)
+
+        dbl = Gtk.GestureClick()
+        dbl.connect("pressed", self._on_chart_pressed)
+        self._da.add_controller(dbl)
 
         self.append(self._da)
         self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
@@ -556,8 +590,15 @@ class ScanChartContent(Gtk.Box):
         if sel == 0 or sel > len(self._add_car_candidates):
             return
         car_id = self._add_car_candidates[sel - 1]
+        # Nicht im notify::selected-Handler umbauen: set_model() gibt das
+        # Modell frei, das GTK für die gerade angetippte Popup-Zeile noch
+        # benutzt → G_IS_OBJECT-Warnung und kurz darauf Segfault.
+        GLib.idle_add(self._add_compare_car_deferred, car_id)
+
+    def _add_compare_car_deferred(self, car_id: int) -> bool:
         self._add_compare_car(car_id)
         self._refresh_add_car_dropdown()
+        return False
 
     def _add_compare_car(
         self,
@@ -565,11 +606,11 @@ class ScanChartContent(Gtk.Box):
         restored_color: tuple[float, float, float] | None = None,
         restored_scan_ts: str | None = None,
     ) -> None:
-        if restored_color is not None:
+        used = [_COLOR_MAIN, *(e["color"] for e in self._compare_cars)]
+        if restored_color is not None and not _color_in(restored_color, used):
             color = restored_color
         else:
-            color = _DEFAULT_COMPARE_COLORS[self._next_color_idx % len(_DEFAULT_COMPARE_COLORS)]
-            self._next_color_idx += 1
+            color = _next_free_color(used)
 
         entry: dict = {
             "car_id": car_id,
@@ -728,8 +769,13 @@ class ScanChartContent(Gtk.Box):
         self._da.queue_draw()
 
     def _on_remove_car(self, _btn, entry: dict) -> None:
+        # Der Button sitzt in der Zeile, die entfernt wird — erst nach dem
+        # clicked-Signal aus dem Widget-Baum lösen.
+        GLib.idle_add(self._remove_car_deferred, entry)
+
+    def _remove_car_deferred(self, entry: dict) -> bool:
         if entry not in self._compare_cars:
-            return
+            return False
         car_id = entry.get("car_id")
         self._compare_cars.remove(entry)
         self._cars_list.remove(entry["row"])
@@ -738,6 +784,7 @@ class ScanChartContent(Gtk.Box):
             self._rebuild_main_scan_dd()
         self._save_prefs()
         self._da.queue_draw()
+        return False
 
     def _on_color_clicked(self, _btn, entry: dict) -> None:
         cur = entry["color"]
@@ -791,8 +838,86 @@ class ScanChartContent(Gtk.Box):
 
     # ── Chart-Wisch (Sensor wechseln) ────────────────────────────────────
 
+    # ── Zoom ──────────────────────────────────────────────────────────────
+
+    def _x_to_frac(self, x: float, view: tuple[float, float] | None = None) -> float:
+        """Pixel-x im Canvas → Anteil der vollen Breite (für den Ausschnitt view)."""
+        v0, v1 = view or self._view
+        left, width = self._plot_geom
+        rel = min(1.0, max(0.0, (x - left) / width))
+        return v0 + rel * (v1 - v0)
+
+    def _set_zoom(self, span: float, anchor_frac: float, anchor_x: float) -> None:
+        """Ausschnitt der Breite span so setzen, dass anchor_frac unter anchor_x liegt."""
+        span = min(1.0, max(_MIN_VIEW_SPAN, span))
+        left, width = self._plot_geom
+        rel = min(1.0, max(0.0, (anchor_x - left) / width))
+        v0 = anchor_frac - rel * span
+        v0 = min(1.0 - span, max(0.0, v0))
+        self._view = (v0, v0 + span)
+        self._da.queue_draw()
+
+    def _reset_zoom(self) -> None:
+        self._view = (0.0, 1.0)
+        self._da.queue_draw()
+
+    def _on_chart_pressed(self, _g: Gtk.GestureClick, n_press: int, _x: float, _y: float) -> None:
+        if n_press == 2:
+            self._reset_zoom()
+
+    def _on_chart_scroll(self, _c: Gtk.EventControllerScroll, _dx: float, dy: float) -> bool:
+        if dy == 0:
+            return False
+        x = self._pointer_x
+        if x is None:
+            left, width = self._plot_geom
+            x = left + width / 2
+        span = self._view[1] - self._view[0]
+        factor = 1.25 ** max(-4.0, min(4.0, dy))  # dy > 0 = raus
+        if factor > 1.0 and span >= 1.0:
+            return False  # schon bei 100 % → Seite normal scrollen lassen
+        self._set_zoom(span * factor, self._x_to_frac(x), x)
+        return True
+
+    def _on_pinch_begin(self, gesture: Gtk.GestureZoom, _seq) -> None:
+        ok, cx, _cy = gesture.get_bounding_box_center()
+        if not ok:
+            return
+        self._pinch_start = (self._view, self._x_to_frac(cx))
+        self._pinched = True
+
+    def _on_pinch_scale(self, gesture: Gtk.GestureZoom, scale: float) -> None:
+        if self._pinch_start is None or scale <= 0:
+            return
+        ok, cx, _cy = gesture.get_bounding_box_center()
+        if not ok:
+            return
+        (v0, v1), anchor = self._pinch_start
+        # Anker folgt dem Mittelpunkt der Finger → gleichzeitig zoomen + schieben
+        self._set_zoom((v1 - v0) / scale, anchor, cx)
+
+    def _on_pinch_end(self, _gesture: Gtk.GestureZoom, _seq) -> None:
+        self._pinch_start = None
+
+    def _on_chart_drag_begin(self, _g: Gtk.GestureDrag, _x: float, _y: float) -> None:
+        self._pinched = False
+        self._pan_start_view = self._view
+
+    def _on_chart_drag_update(self, _g: Gtk.GestureDrag, dx: float, dy: float) -> None:
+        if self._pinch_start is not None or self._pan_start_view is None:
+            return
+        v0, v1 = self._pan_start_view
+        span = v1 - v0
+        if span >= 1.0 or abs(dx) <= abs(dy):
+            return
+        _left, width = self._plot_geom
+        n0 = min(1.0 - span, max(0.0, v0 - dx / width * span))
+        self._view = (n0, n0 + span)
+        self._da.queue_draw()
+
     def _on_chart_swipe(self, _gesture: Gtk.GestureDrag, dx: float, dy: float) -> None:
-        if self._on_navigate_pid is None:
+        self._pan_start_view = None
+        if self._on_navigate_pid is None or self._pinched:
             return
         # Vertikaler Wisch muss klar dominieren und mindestens 40 px sein
         if abs(dy) < 40 or abs(dy) <= abs(dx) * 1.2:
@@ -931,6 +1056,19 @@ class ScanChartContent(Gtk.Box):
         unit = _unit_display(stats[pid].get("unit", ""), self._language)
         return vals, ts, unit
 
+    @staticmethod
+    def _times_for(
+        stats: dict | None, pid: str | None, scan_id: int | None,
+    ) -> list[float] | None:
+        """Sekunden ab Scan-Start zur Intra-Serie — parallel zu den Werten,
+        die _series_for im Intra-Modus liefert; None im Trend-Modus."""
+        if not stats or not pid or pid not in stats or scan_id is None:
+            return None
+        intra = (stats[pid].get("intra_series") or {}).get(scan_id)
+        if not intra:
+            return None
+        return [t for t, _ in intra]
+
     def _draw(self, _da, cr, w: int, h: int) -> None:
         val1_pid = self._value_pids[0] if self._value_pids else None
         val2_pid = self._value_pids[1] if len(self._value_pids) > 1 else None
@@ -943,7 +1081,10 @@ class ScanChartContent(Gtk.Box):
             self._main_stats, val1_pid, self._main_scan_ts, main_sid)
         main_v2, _main_ts2, val2_unit = self._series_for(
             self._main_stats, val2_pid, self._main_scan_ts, main_sid)
-        groups.append({"color": _COLOR_MAIN, "val1": main_v1, "val2": main_v2})
+        main_t1 = self._times_for(self._main_stats, val1_pid, main_sid) if self._main_scan_ts else None
+        main_t2 = self._times_for(self._main_stats, val2_pid, main_sid) if self._main_scan_ts else None
+        groups.append({"color": _COLOR_MAIN, "val1": main_v1, "val2": main_v2,
+                       "t1": main_t1, "t2": main_t2})
 
         for entry in self._compare_cars:
             stats = entry.get("stats")
@@ -964,14 +1105,18 @@ class ScanChartContent(Gtk.Box):
                 val1_unit = u1
             if not val2_unit and u2:
                 val2_unit = u2
-            groups.append({"color": entry["color"], "val1": v1, "val2": v2})
+            t1 = self._times_for(stats, val1_pid, cmp_sid) if scan_ts else None
+            t2 = self._times_for(stats, val2_pid, cmp_sid) if scan_ts else None
+            groups.append({"color": entry["color"], "val1": v1, "val2": v2,
+                           "t1": t1, "t2": t2})
 
         bg_rgb = _lookup_card_bg(self._da)
-        _draw_chart(
+        self._plot_geom = _draw_chart(
             cr, w, h, groups,
             val1_unit=val1_unit,
             val2_unit=val2_unit,
             has_val2=val2_pid is not None,
             main_ts=main_ts,
             bg_rgb=bg_rgb,
+            view=self._view,
         )

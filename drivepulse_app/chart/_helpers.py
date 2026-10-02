@@ -9,6 +9,7 @@ module and the load/save functions look it up via module globals.
 """
 from __future__ import annotations
 
+import colorsys
 import json
 import math
 import sqlite3
@@ -36,6 +37,30 @@ _DEFAULT_COMPARE_COLORS: list[tuple[float, float, float]] = [
     (0.95, 0.40, 0.50),  # pink
     (0.40, 0.85, 0.85),  # cyan
 ]
+
+
+def _color_in(
+    color: tuple[float, float, float],
+    used: list[tuple[float, float, float]],
+) -> bool:
+    """Gleiche Farbe auf 8-bit-Ebene (gespeicherte Prefs sind Floats)."""
+    return any(_rgb_to_hex(color) == _rgb_to_hex(u) for u in used)
+
+
+def _next_free_color(
+    used: list[tuple[float, float, float]],
+) -> tuple[float, float, float]:
+    """Erste Palettenfarbe, die noch kein Fahrzeug im Diagramm trägt; ist die
+    Palette erschöpft, weitere Farbtöne im Goldener-Winkel-Abstand."""
+    for c in _DEFAULT_COMPARE_COLORS:
+        if not _color_in(c, used):
+            return c
+    for i in range(1, 360):
+        hue = (0.11 + i * 0.381966) % 1.0
+        c = colorsys.hsv_to_rgb(hue, 0.65 if i % 2 else 0.85, 0.95)
+        if not _color_in(c, used):
+            return c
+    return _DEFAULT_COMPARE_COLORS[0]
 
 
 def _fmt(v: float) -> str:
@@ -150,10 +175,17 @@ def _compute_stats_for_car(db, car_id: int) -> dict:
             except (ValueError, TypeError):
                 _log.debug("Unparseable scanned_at for scan_id=%s", scan_id, exc_info=True)
             rows = db.get_scan_samples(scan_id)
+            if not rows:
+                continue
+            # Nullpunkt = Scan-Start; liegen Samples davor (scanned_at erst am
+            # Ende gesetzt), zählt das früheste Sample — sonst wären die
+            # Zeiten negativ und Vergleiche gegeneinander verschoben.
+            first_ts = min(float(row["ts"]) for row in rows)
+            t0 = first_ts if scan_start_ts is None else min(scan_start_ts, first_ts)
             pid_pts: dict[str, list[tuple[float, float]]] = {}
             for row in rows:
                 _pid = str(row["pid"])
-                rel_s = float(row["ts"]) - (scan_start_ts or float(row["ts"]))
+                rel_s = float(row["ts"]) - t0
                 pid_pts.setdefault(_pid, []).append((rel_s, float(row["value"])))
             for _pid, pts in pid_pts.items():
                 if _pid not in stats:
@@ -172,6 +204,18 @@ def _compute_stats_for_car(db, car_id: int) -> dict:
 # Chart drawing — multi-series with up to two value axes
 # ---------------------------------------------------------------------------
 
+def _x_fracs(
+    vals: list[float], times: list[float] | None, t_max: float,
+) -> list[float]:
+    """X-Position jedes Punkts als Anteil 0…1 der vollen (ungezoomten) Breite."""
+    n = len(vals)
+    if t_max > 0 and times is not None and len(times) == n:
+        return [max(0.0, t) / t_max for t in times]
+    if n == 1:
+        return [0.5]
+    return [i / (n - 1) for i in range(n)]
+
+
 def _draw_chart(
     cr,
     w: int,
@@ -182,19 +226,35 @@ def _draw_chart(
     has_val2: bool,
     main_ts: list[str] | None,
     bg_rgb: tuple[float, float, float] | None = None,
-) -> None:
+    view: tuple[float, float] = (0.0, 1.0),
+) -> tuple[float, float]:
     """
     series_groups: each entry is {
         'color': (r,g,b),
         'val1': list[float] | None,
         'val2': list[float] | None,
+        't1': list[float] | None,   # Sekunden ab Scan-Start, parallel zu val1
+        't2': list[float] | None,   # Sekunden ab Scan-Start, parallel zu val2
     }
+
+    Haben Serien Zeitstempel, teilen sie sich eine Zeitachse 0 … längste
+    Laufzeit: eine 4-min-Fahrt belegt dann nur die ersten 4 min neben einer
+    10-min-Fahrt, statt auf die volle Breite gestreckt zu werden.
+
+    view: sichtbarer X-Ausschnitt als Anteil (start, end) der vollen Breite
+    (Zoom). Die Y-Achsen skalieren auf die im Ausschnitt sichtbaren Werte.
+
+    Gibt (plot_left, plot_width) zurück, damit Gesten Pixel in Anteile
+    umrechnen können.
     """
     pl = _PAD_L
     pr = _PAD_R_VAL2 if has_val2 else _PAD_R
     pt = _PAD_T
     plot_w = max(1.0, float(w - pl - pr))
     plot_h = max(1.0, float(h - pt - _PAD_B))
+    vx0, vx1 = view
+    vspan = max(1e-9, vx1 - vx0)
+    zoomed = vx0 > 1e-9 or vx1 < 1.0 - 1e-9
 
     try:
         dark = Adw.StyleManager.get_default().get_dark()
@@ -211,14 +271,31 @@ def _draw_chart(
         cr.rectangle(0, 0, w, h)
         cr.fill()
 
-    # Value range per axis across all series
+    # Gemeinsame Zeitachse über alle Serien mit Zeitstempeln
+    t_max = 0.0
+    for g in series_groups:
+        for key in ("t1", "t2"):
+            ts_list = g.get(key)
+            if ts_list:
+                t_max = max(t_max, ts_list[-1])
+
+    # X-Anteile je Serie vorab, damit der Wertebereich dem Ausschnitt folgt
+    lines: list[tuple[list[float], list[float], tuple[float, float, float], bool]] = []
     val1_all: list[float] = []
     val2_all: list[float] = []
     for g in series_groups:
-        if g.get("val1"):
-            val1_all.extend(g["val1"])
-        if g.get("val2"):
-            val2_all.extend(g["val2"])
+        color = g.get("color") or _COLOR_MAIN
+        for vkey, tkey, bucket, dashed in (
+            ("val1", "t1", val1_all, False),
+            ("val2", "t2", val2_all, True),
+        ):
+            vals = g.get(vkey) or []
+            if not vals:
+                continue
+            fr = _x_fracs(vals, g.get(tkey), t_max)
+            lines.append((vals, fr, color, dashed))
+            visible = [v for v, f in zip(vals, fr, strict=True) if vx0 <= f <= vx1]
+            bucket.extend(visible if visible else vals)
 
     v1_mn, v1_mx = (min(val1_all), max(val1_all)) if val1_all else (0.0, 1.0)
     v2_mn, v2_mx = (min(val2_all), max(val2_all)) if val2_all else (0.0, 1.0)
@@ -272,33 +349,47 @@ def _draw_chart(
         if val2_unit:
             _txt(cr, val2_unit, pl + plot_w, pt - 10, 9.0, rgba=lbl_rgba, align="right")
 
-    # X axis: relative time labels in intra mode, otherwise date
-    if main_ts:
-        ty_x = pt + plot_h + 14
-        # Intra mode: labels are already formatted as "0s", "1m23s"
-        first_ts = main_ts[0]
-        last_ts = main_ts[-1]
+    # X axis: gemeinsame Zeitachse, sonst Datum bzw. Labels der Hauptserie
+    ty_x = pt + plot_h + 14
+    if t_max > 0:
+        for f, align in ((0.0, "left"), (0.5, "center"), (1.0, "right")):
+            _txt(cr, _fmt_rel_s((vx0 + f * vspan) * t_max), pl + f * plot_w, ty_x, 9.5,
+                 rgba=lbl_rgba, align=align)
+        cr.set_source_rgba(*grid_rgba)
+        cr.set_line_width(1.0)
+        cr.set_dash([2.0, 3.0], 0)
+        cr.move_to(pl + plot_w / 2, pt)
+        cr.line_to(pl + plot_w / 2, pt + plot_h)
+        cr.stroke()
+        cr.set_dash([], 0)
+    elif main_ts:
+        # Labels der Hauptserie am Rand des sichtbaren Ausschnitts
+        last_i = len(main_ts) - 1
+        first_ts = main_ts[round(vx0 * last_i)]
+        last_ts = main_ts[round(vx1 * last_i)]
         if first_ts == last_ts:
             _txt(cr, first_ts, pl + plot_w / 2, ty_x, 9.5, rgba=lbl_rgba, align="center")
         else:
             _txt(cr, first_ts, pl, ty_x, 9.5, rgba=lbl_rgba, align="left")
             _txt(cr, last_ts, pl + plot_w, ty_x, 9.5, rgba=lbl_rgba, align="right")
+    if zoomed:
+        _txt(cr, f"{1.0 / vspan:.1f}×", pl + plot_w, pt - 10 if not has_val2 else pt + 8,
+             9.0, rgba=(*fg, 0.6), align="right")
+
+    def xp(f: float) -> float:
+        return pl + (f - vx0) / vspan * plot_w
 
     def _draw_line(
         vals: list[float],
+        fracs: list[float],
         mn: float,
         mx: float,
         color: tuple[float, float, float],
         dashed: bool,
     ) -> None:
         n = len(vals)
-        if n == 0:
-            return
         rng = mx - mn if abs(mx - mn) > 1e-9 else 1.0
         r, g, b = color
-
-        def xp(i: int) -> float:
-            return pl + plot_w / 2 if n == 1 else pl + i * plot_w / (n - 1)
 
         def yp(v: float) -> float:
             return pt + plot_h * (1.0 - (v - mn) / rng)
@@ -309,7 +400,7 @@ def _draw_chart(
             if dashed:
                 cr.set_dash([5.0, 4.0], 0)
             for i, v in enumerate(vals):
-                cr.move_to(xp(i), yp(v)) if i == 0 else cr.line_to(xp(i), yp(v))
+                cr.move_to(xp(fracs[i]), yp(v)) if i == 0 else cr.line_to(xp(fracs[i]), yp(v))
             cr.stroke()
             if dashed:
                 cr.set_dash([], 0)
@@ -317,14 +408,19 @@ def _draw_chart(
         cr.set_source_rgba(r, g, b, 0.92)
         dot_r = 2.6
         for i, v in enumerate(vals):
-            cr.arc(xp(i), yp(v), dot_r, 0, 2 * math.pi)
-            cr.fill()
+            if vx0 - 0.05 * vspan <= fracs[i] <= vx1 + 0.05 * vspan:
+                cr.arc(xp(fracs[i]), yp(v), dot_r, 0, 2 * math.pi)
+                cr.fill()
 
-    for g in series_groups:
-        color = g.get("color") or _COLOR_MAIN
-        v1 = g.get("val1") or []
-        v2 = g.get("val2") or []
-        if v1:
-            _draw_line(v1, v1_mn, v1_mx, color, dashed=False)
-        if v2:
-            _draw_line(v2, v2_mn, v2_mx, color, dashed=True)
+    # Gezoomt: Linien auf die Plotfläche begrenzen (Punkte dürfen den Rand
+    # minimal überragen, sonst werden sie an den Achsen halbiert).
+    cr.save()
+    cr.rectangle(pl - 3, pt - 3, plot_w + 6, plot_h + 6)
+    cr.clip()
+    for vals, fr, color, dashed in lines:
+        if dashed:
+            _draw_line(vals, fr, v2_mn, v2_mx, color, dashed=True)
+        else:
+            _draw_line(vals, fr, v1_mn, v1_mx, color, dashed=False)
+    cr.restore()
+    return float(pl), plot_w

@@ -77,3 +77,15 @@ def test_series_for_returns_empty_for_unknown_pid():
     assert fake._series_for(stats, "ABCD") == ([], [], "")
     assert fake._series_for(None, "010C") == ([], [], "")
     assert fake._series_for(stats, None) == ([], [], "")
+
+
+def test_times_for_returns_seconds_parallel_to_intra_values():
+    stats = {"010C": {"intra_series": {1: [(0.0, 800.0), (5.0, 900.0), (240.0, 1000.0)]}}}
+    assert ScanChartContent._times_for(stats, "010C", 1) == [0.0, 5.0, 240.0]
+
+
+def test_times_for_none_without_intra_series():
+    stats = {"010C": {"intra_series": {}, "values": [("2026-05-01", 1.0)]}}
+    assert ScanChartContent._times_for(stats, "010C", 1) is None
+    assert ScanChartContent._times_for(stats, "010C", None) is None
+    assert ScanChartContent._times_for(None, "010C", 1) is None
