@@ -1,6 +1,7 @@
 """Settings and dialog callbacks for the dashboard window."""
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -125,6 +126,8 @@ class DashboardSettingsMixin:
                 "tts_duck_pre_ms": getattr(self, "tts_duck_pre_ms", 0),
                 "log_app_enabled": getattr(self, "log_app_enabled", True),
                 "log_obd_enabled": getattr(self, "log_obd_enabled", True),
+                "obd_auto_record": getattr(self, "obd_auto_record", True),
+                "background_recording": getattr(self, "background_recording", False),
                 "nhtsa_enabled": getattr(self, "nhtsa_enabled", True),
                 "vindecoder_api_key": getattr(self, "vindecoder_api_key", ""),
                 "vindecoder_secret_key": getattr(self, "vindecoder_secret_key", ""),
@@ -246,6 +249,8 @@ class DashboardSettingsMixin:
             on_log_obd_enabled_changed=self._set_log_obd_enabled,
             current_obd_auto_record=getattr(self, "obd_auto_record", True),
             on_obd_auto_record_changed=self._set_obd_auto_record,
+            current_background_recording=getattr(self, "background_recording", False),
+            on_background_recording_changed=self._set_background_recording,
             current_nhtsa_enabled=getattr(self, "nhtsa_enabled", True),
             on_nhtsa_enabled_changed=self._set_nhtsa_enabled,
             current_vindecoder_api_key=getattr(self, "vindecoder_api_key", ""),
@@ -426,6 +431,23 @@ class DashboardSettingsMixin:
         self.obd_auto_record = enabled
         self.settings["obd_auto_record"] = enabled
         self._save_settings()
+
+    def _set_background_recording(self, enabled: bool) -> None:
+        self.background_recording = enabled
+        self.settings["background_recording"] = enabled
+        # Erst speichern: der Dienst liest die Einstellung beim Start und
+        # beendet sich selbst, sobald sie aus ist.
+        self._save_settings()
+
+        def _apply() -> None:
+            from drivepulse_app.service import unit
+
+            ok, out = unit.enable() if enabled else unit.disable()
+            if not ok:
+                log.warning("Background recorder %s failed: %s",
+                            "enable" if enabled else "disable", out)
+
+        threading.Thread(target=_apply, name="recorder-unit", daemon=True).start()
 
     def _set_photo_thumb_cache_max_mb(self, value: int) -> None:
         self.photo_thumb_cache_max_mb = value

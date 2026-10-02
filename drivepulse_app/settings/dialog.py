@@ -159,6 +159,8 @@ class SettingsDialog(
         on_log_obd_enabled_changed: Callable[[bool], None] | None = None,
         current_obd_auto_record: bool = True,
         on_obd_auto_record_changed: Callable[[bool], None] | None = None,
+        current_background_recording: bool = False,
+        on_background_recording_changed: Callable[[bool], None] | None = None,
         current_nhtsa_enabled: bool = True,
         on_nhtsa_enabled_changed: Callable[[bool], None] | None = None,
         current_vindecoder_api_key: str = "",
@@ -227,6 +229,7 @@ class SettingsDialog(
         self.on_log_app_enabled_changed = on_log_app_enabled_changed
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self.on_obd_auto_record_changed = on_obd_auto_record_changed
+        self.on_background_recording_changed = on_background_recording_changed
         self.on_nhtsa_enabled_changed = on_nhtsa_enabled_changed
         self.on_vindecoder_api_key_changed = on_vindecoder_api_key_changed
         self.on_vindecoder_secret_key_changed = on_vindecoder_secret_key_changed
@@ -502,6 +505,13 @@ class SettingsDialog(
         self.obd_auto_record_row.set_active(current_obd_auto_record)
         self.obd_auto_record_row.connect("notify::active", self._on_obd_auto_record_toggled)
 
+        self.background_recording_row = Adw.SwitchRow(
+            title=_translate(self.language, "settings.background_recording"),
+            subtitle=_translate(self.language, "settings.background_recording.subtitle"),
+        )
+        self.background_recording_row.set_active(current_background_recording)
+        self.background_recording_row.connect("notify::active", self._on_background_recording_toggled)
+
         # OBD hardware group
         obd_devices = scan_obd_devices()  # (label, port, is_present)
         self._obd_port_values: list[str | None] = [None]
@@ -650,6 +660,7 @@ class SettingsDialog(
         logging_group.add(self.log_app_row)
         logging_group.add(self.log_obd_row)
         logging_group.add(self.obd_auto_record_row)
+        logging_group.add(self.background_recording_row)
         app_page.add(logging_group)
 
         self._thumb_cache_row = Adw.SpinRow.new_with_range(10, 2000, 50)

@@ -63,6 +63,7 @@ class SettingsRowCallbacksMixin:
     on_log_app_enabled_changed: Callable[[bool], None] | None
     on_log_obd_enabled_changed: Callable[[bool], None] | None
     on_obd_auto_record_changed: Callable[[bool], None] | None
+    on_background_recording_changed: Callable[[bool], None] | None
     on_nhtsa_enabled_changed: Callable[[bool], None] | None
     on_photo_thumb_cache_max_mb_changed: Callable[[int], None] | None
 
@@ -256,6 +257,10 @@ class SettingsRowCallbacksMixin:
     def _on_obd_auto_record_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_obd_auto_record_changed is not None:
             self.on_obd_auto_record_changed(row.get_active())
+
+    def _on_background_recording_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
+        if self.on_background_recording_changed is not None:
+            self.on_background_recording_changed(row.get_active())
 
     def _on_nhtsa_enabled_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_nhtsa_enabled_changed is not None:

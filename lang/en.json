@@ -595,6 +595,8 @@
   "settings.log_obd.subtitle": "Write drivepulse-log.jsonl and obd-log.jsonl (high volume)",
   "settings.obd_auto_record": "Auto-record drive",
   "settings.obd_auto_record.subtitle": "Record all sensor values while driving (starts when engine is on, stops when car is switched off)",
+  "settings.background_recording": "Record drives in the background",
+  "settings.background_recording.subtitle": "Records drives without the app open as soon as the engine runs. Briefly checks the dongle every 2 minutes, and immediately when charging starts, the phone is unlocked or car Bluetooth connects.",
   "settings.photos.group": "Photos",
   "settings.photos.thumb_cache_max_mb": "Thumbnail Cache Limit (MB)",
   "settings.photos.thumb_cache_max_mb.desc": "Maximum size of the thumbnail cache. Oldest thumbnails are deleted when the limit is exceeded.",

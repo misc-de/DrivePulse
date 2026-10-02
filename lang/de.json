@@ -615,6 +615,8 @@
   "settings.log_obd.subtitle": "drivepulse-log.jsonl und obd-log.jsonl schreiben (hohes Volumen)",
   "settings.obd_auto_record": "Fahrt automatisch aufzeichnen",
   "settings.obd_auto_record.subtitle": "Alle Sensorwerte während der Fahrt speichern (startet bei Motorbetrieb, endet beim Ausschalten)",
+  "settings.background_recording": "Fahrten im Hintergrund erfassen",
+  "settings.background_recording.subtitle": "Zeichnet Fahrten auch ohne geöffnete App auf, sobald der Motor läuft. Prüft dafür alle 2 Minuten kurz den Dongle und sofort beim Laden, Entsperren oder Verbinden mit dem Auto-Bluetooth.",
   "settings.photos.group": "Fotos",
   "settings.photos.thumb_cache_max_mb": "Vorschau-Cache Limit (MB)",
   "settings.photos.thumb_cache_max_mb.desc": "Maximale Größe des Thumbnail-Cache. Bei Überschreitung werden die ältesten Vorschauen gelöscht.",
