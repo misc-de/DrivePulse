@@ -11,12 +11,19 @@ import json
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
+from drivepulse_app.map._geo_import import (
+    SUPPORTED_MIME_TYPES,
+    SUPPORTED_PATTERNS,
+    GeoImportError,
+    import_file,
+)
 from drivepulse_app.map._list_helpers import make_bulk_select_header, make_empty_dim_row
 
 log = get_logger(__name__)
@@ -84,6 +91,15 @@ class MapTourSavedMixin:
         )
         self._saved_tour_trash_btn = trash_btn
         self._saved_tour_share_btn = share_btn
+
+        # Packed last → sits left of the (hidden) bulk buttons, i.e. it is the
+        # right-most visible button outside select mode.
+        import_btn = Gtk.Button(icon_name="list-add-symbolic")
+        import_btn.add_css_class("flat")
+        import_btn.set_tooltip_text(_translate(self.language, "map.tours.import_tooltip"))
+        import_btn.connect("clicked", self._on_saved_tour_import_clicked)
+        header.pack_end(import_btn)
+        self._saved_tour_import_btn = import_btn
 
         toolbar_view = Adw.ToolbarView()
         toolbar_view.add_top_bar(header)
@@ -265,6 +281,9 @@ class MapTourSavedMixin:
         share_btn = getattr(self, "_saved_tour_share_btn", None)
         if share_btn is not None:
             share_btn.set_visible(self._sync_active())
+        import_btn = getattr(self, "_saved_tour_import_btn", None)
+        if import_btn is not None:
+            import_btn.set_visible(False)
 
     def _exit_saved_tour_select_mode(self) -> None:
         if not self._saved_tour_select_mode:
@@ -278,6 +297,9 @@ class MapTourSavedMixin:
         share_btn = getattr(self, "_saved_tour_share_btn", None)
         if share_btn is not None:
             share_btn.set_visible(False)
+        import_btn = getattr(self, "_saved_tour_import_btn", None)
+        if import_btn is not None:
+            import_btn.set_visible(True)
 
     def _on_saved_tour_check_toggled(
         self, check: Gtk.CheckButton, tour_id: int
@@ -373,6 +395,64 @@ class MapTourSavedMixin:
             self._exit_saved_tour_select_mode()
 
         dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
+
+    def _on_saved_tour_import_clicked(self, _btn: Gtk.Button) -> None:
+        fd = Gtk.FileDialog()
+        fd.set_title(_translate(self.language, "map.tours.import_title"))
+        geo_filter = Gtk.FileFilter()
+        geo_filter.set_name(_translate(self.language, "map.tours.import_filter"))
+        for mime in SUPPORTED_MIME_TYPES:
+            geo_filter.add_mime_type(mime)
+        for pattern in SUPPORTED_PATTERNS:
+            geo_filter.add_pattern(pattern)
+            geo_filter.add_pattern(pattern.upper())
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(geo_filter)
+        fd.set_filters(store)
+        fd.set_default_filter(geo_filter)
+        fd.open_multiple(self.get_root(), None, self._on_saved_tour_import_chosen)
+
+    def _on_saved_tour_import_chosen(self, fd: Gtk.FileDialog, result: Any) -> None:
+        try:
+            files = fd.open_multiple_finish(result)
+        except GLib.Error:
+            log.debug("Tour import dialog cancelled or failed", exc_info=True)
+            return
+        db = getattr(self, "_map_db", None)
+        if files is None or db is None:
+            return
+
+        imported = 0
+        failed: list[str] = []
+        now = datetime.now(UTC).isoformat()
+        for i in range(files.get_n_items()):
+            gpath = files.get_item(i).get_path()
+            if gpath is None:
+                continue
+            path = Path(gpath)
+            try:
+                tour = import_file(path)
+                db.save_tour(tour.name, json.dumps(tour.waypoints), now)
+            except (OSError, GeoImportError, sqlite3.Error):
+                log.warning("Could not import tour from %s", path, exc_info=True)
+                failed.append(path.name)
+                continue
+            imported += 1
+
+        if imported:
+            self._rebuild_tour_list()
+        if failed:
+            self._show_tour_import_error(failed)
+
+    def _show_tour_import_error(self, names: list[str]) -> None:
+        dialog = Adw.AlertDialog(
+            heading=_translate(self.language, "map.tours.import_failed_heading"),
+            body=_translate(
+                self.language, "map.tours.import_failed_body", files=", ".join(names)
+            ),
+        )
+        dialog.add_response("ok", "OK")
         dialog.present(self.get_root())
 
     def _load_saved_tour(self, tour: dict) -> None:

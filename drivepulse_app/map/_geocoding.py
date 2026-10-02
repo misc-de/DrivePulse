@@ -9,12 +9,17 @@ from collections.abc import Callable
 from typing import Any
 
 from drivepulse_app.http_client import http_get
+from drivepulse_app.map._geo_import import parse_point
 
 HttpGet = Callable[[str], Any]
 GeocodeFn = Callable[[str], tuple[float, float] | None]
 
 
 def geocode(query: str, http_get_fn: HttpGet = http_get) -> tuple[float, float] | None:
+    # Imported tours store their waypoints as plain "lat, lon" text.
+    point = parse_point(query)
+    if point is not None:
+        return point
     url = (
         "https://nominatim.openstreetmap.org/search"
         f"?q={urllib.parse.quote(query)}&format=json&limit=1"
