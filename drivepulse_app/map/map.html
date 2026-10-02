@@ -123,6 +123,7 @@ let initialized = false;
 let _desiredStyleKey = 'street'; // last base style Python asked for; restored when connectivity returns
 let _offlineFallback = false;    // true while OFFLINE_STYLE is shown instead of the requested base style
 let _styleWatchdog   = null;     // timer that drops to OFFLINE_STYLE if a base style never finishes loading
+let _onlineRetry     = null;     // timer that retries the real base style while OFFLINE_STYLE is shown
 
 let _routeCoords    = [];
 let _guideCoords    = [];
@@ -668,6 +669,14 @@ function _goOffline() {
   if (_offlineFallback || !map) return;
   _offlineFallback = true;
   if (_styleWatchdog) { clearTimeout(_styleWatchdog); _styleWatchdog = null; }
+  // The 'online' event only fires after the browser itself saw the network
+  // drop.  A slow first load or one failed request while connected never
+  // produces it, so without this retry the map stayed blank for good.
+  if (_onlineRetry) clearTimeout(_onlineRetry);
+  _onlineRetry = setTimeout(() => {
+    _onlineRetry = null;
+    if (_offlineFallback) _applyStyle(_desiredStyleKey, 12000);
+  }, 15000);
   // diff:false forces a full style reload so the 'style.load' handler re-fires
   // and addDataLayers re-creates the route/waypoint/guide/traffic layers. The
   // default diff path silently drops every layer not present in the new style
@@ -678,23 +687,26 @@ function _goOffline() {
 // After requesting a network-backed style, give it a few seconds to load.
 // 'street' fetches a style JSON that simply hangs/fails with no connectivity,
 // so isStyleLoaded() never flips — that's our offline signal.
-function _armStyleWatchdog() {
+function _armStyleWatchdog(timeoutMs = 4000) {
   if (_styleWatchdog) clearTimeout(_styleWatchdog);
   _styleWatchdog = setTimeout(() => {
     _styleWatchdog = null;
     if (map && !_offlineFallback && !map.isStyleLoaded()) _goOffline();
-  }, 4000);
+  }, timeoutMs);
 }
 
-function _applyStyle(key) {
+// Retries pass a longer watchdog so a slow but working connection gets to
+// finish loading instead of being cut off again every cycle.
+function _applyStyle(key, watchdogMs = 4000) {
   if (!map) return;
   _desiredStyleKey = key;
   _offlineFallback = false;
+  if (_onlineRetry) { clearTimeout(_onlineRetry); _onlineRetry = null; }
   // diff:false so 'style.load' re-fires and addDataLayers rebuilds our custom
   // layers; the default diff path would keep the new base tiles but quietly
   // drop the route/waypoints (tiles visible, but the track gone).
   map.setStyle(STYLES[key] || STYLES.street, { diff: false });
-  _armStyleWatchdog();
+  _armStyleWatchdog(watchdogMs);
 }
 
 function mapSetStyle(key) {
