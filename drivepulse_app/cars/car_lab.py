@@ -31,6 +31,11 @@ from drivepulse_app.obd.uds import VAG_CODING_DID
 
 log = get_logger(__name__)
 
+# Car Lab is experimental and hidden by default. Creating this (empty) file in
+# the state directory unlocks it; it is checked on every visibility update, so
+# no restart is needed.
+CARLAB_UNLOCK_FILE = LOG_DIR / "carlab.enabled"
+
 _BASELINE_SAMPLES = 5
 _BASELINE_INTERVAL_MS = 400
 
@@ -152,7 +157,8 @@ class CarsCarLabMixin:
         # Visible for a real car detail. Demo/mock cars normally hide it, but in
         # app mock mode we show it so the workflow can be tried without hardware.
         visible = (
-            getattr(self, "_is_real_car", False)
+            CARLAB_UNLOCK_FILE.exists()
+            and getattr(self, "_is_real_car", False)
             and getattr(self, "_detail_pushed", False)
             and (not self._is_selected_car_mock() or getattr(self, "mock_mode", False))
         )
