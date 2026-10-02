@@ -30,6 +30,7 @@ Bluetooth-ELM327:
 
 from __future__ import annotations
 
+import faulthandler
 import fcntl
 import os
 import signal
@@ -54,6 +55,7 @@ from gi.repository import Adw, Gtk
 
 from drivepulse_app.common import (
     APP_ID,
+    LOG_DIR,
     THEMES_DIR,
 )
 from drivepulse_app.common import (
@@ -223,6 +225,23 @@ class ObdDashboardApp(Adw.Application):
 
 
 _lock_fh: object | None = None
+_crash_fh: object | None = None
+
+
+def _enable_crash_log() -> None:
+    """Native Abstürze (SIGSEGV/SIGABRT in GTK, Cairo, GStreamer …) hinterlassen
+    sonst keinerlei Spur — faulthandler schreibt den Python-Stack aller Threads
+    nach crash.log im State-Verzeichnis."""
+    global _crash_fh
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        fh = open(LOG_DIR / "crash.log", "a", encoding="utf-8")  # noqa: SIM115 — bleibt bewusst offen
+        fh.write(f"--- start pid={os.getpid()} {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        fh.flush()
+        faulthandler.enable(fh, all_threads=True)
+        _crash_fh = fh  # Datei muss offen bleiben, solange der Handler aktiv ist
+    except OSError:
+        log.debug("crash.log not available, faulthandler stays off", exc_info=True)
 
 
 def _acquire_lock() -> bool:
@@ -249,6 +268,7 @@ def main() -> int:
         print("DrivePulse is already running.", file=sys.stderr)
         return 1
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+    _enable_crash_log()
     app = ObdDashboardApp()
     return app.run(None)
 
