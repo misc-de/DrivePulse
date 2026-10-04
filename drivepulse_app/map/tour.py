@@ -240,6 +240,13 @@ class MapTourMixin:
         self._start_overpass_speed_fetch()
         self._prerender_upcoming_steps(0, 5)
         self._set_nav_chrome_visible(False)
+        # The planning form (Von/Nach/Tour berechnen) has no role while
+        # navigating — collapse it; untoggling also hides the search bar.
+        plan_btn = getattr(self, "_tour_plan_btn", None)
+        if plan_btn is not None and plan_btn.get_active():
+            plan_btn.set_active(False)
+        if hasattr(self, "_shumate_drop_start_marker"):
+            self._shumate_drop_start_marker()
         self._set_tour_button("stop")
         if hasattr(self, "_update_left_chrome_visibility"):
             self._update_left_chrome_visibility()

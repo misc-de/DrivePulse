@@ -51,6 +51,7 @@ class MapTourRerouteMixin:
     _path_layer: Any
     _guide_path_layer: Any
     _wp_layer: Any
+    _wp_start_marker: Any
     _steps_toggle_btn: Any
     _steps_listbox: Any
     _steps_panel: Any
@@ -308,6 +309,7 @@ class MapTourRerouteMixin:
                 self._guide_path_layer.remove_all()
             if self._wp_layer is not None:
                 self._wp_layer.remove_all()
+                self._wp_start_marker = None
                 for i, pt in enumerate(all_points):
                     role = "start" if i == 0 else ("end" if i == len(all_points) - 1 else "via")
                     # A reroute always happens mid-drive — never re-add the start

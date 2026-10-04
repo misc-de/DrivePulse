@@ -161,6 +161,7 @@ class MapShumateMixin:
         self._route_muted = False
 
         self._wp_layer = Shumate.MarkerLayer.new(viewport)
+        self._wp_start_marker = None
         inner.add_layer(self._wp_layer)
 
         self._marker_layer = Shumate.MarkerLayer.new(viewport)
@@ -372,6 +373,16 @@ class MapShumateMixin:
         for layer in (self._guide_path_layer, self._path_layer, self._wp_layer):
             if layer is not None:
                 layer.remove_all()
+        self._wp_start_marker = None
+
+    def _shumate_drop_start_marker(self) -> None:
+        """Remove the preview start arrow once a tour begins — the route was
+        drawn before _tour_active flipped, so _shumate_show_route kept it."""
+        marker = getattr(self, "_wp_start_marker", None)
+        if marker is None or self._wp_layer is None:
+            return
+        self._wp_layer.remove_marker(marker)
+        self._wp_start_marker = None
 
     def _shumate_show_route(
         self,
@@ -382,6 +393,7 @@ class MapShumateMixin:
         self._shumate_set_route_muted(False)  # a freshly drawn route is the valid one
         if self._wp_layer is not None:
             self._wp_layer.remove_all()
+            self._wp_start_marker = None
             tour_active = getattr(self, "_tour_active", False)
             for i, pt in enumerate(all_points):
                 role = "start" if i == 0 else ("end" if i == len(all_points) - 1 else "via")
@@ -390,7 +402,10 @@ class MapShumateMixin:
                 # so it can't be mistaken for a second vehicle / left hanging.
                 if role == "start" and tour_active:
                     continue
-                self._wp_layer.add_marker(self._make_wp_marker(pt[0], pt[1], role))
+                marker = self._make_wp_marker(pt[0], pt[1], role)
+                if role == "start":
+                    self._wp_start_marker = marker
+                self._wp_layer.add_marker(marker)
         if coords and self._shumate_map is not None:
             lats = [c[1] for c in coords]
             lons = [c[0] for c in coords]

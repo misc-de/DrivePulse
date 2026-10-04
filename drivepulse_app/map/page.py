@@ -285,6 +285,7 @@ class MapPage(
         self._path_layer: Any = None
         self._guide_path_layer: Any = None
         self._wp_layer: Any = None
+        self._wp_start_marker: Any = None
         self._sources: dict[str, Any] = {}
         self._label_layers: dict[str, Any] = {}
         self._active_label_layer: Any = None
