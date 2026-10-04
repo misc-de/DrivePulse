@@ -45,6 +45,7 @@ class MapTourTtsMixin:
         # Look-ahead: fire threshold early enough to compensate for TTS latency.
         # At 50 km/h and 1s latency the car travels ~14m — audible instructions
         # would otherwise describe a maneuver the driver has already reached.
+        # get_latency_s() includes the user-configured lead (GPS/audio lag).
         look_ahead_m = self._gps_speed_mps * tts_service.get_latency_s()
         trigger_dist = distance_m + look_ahead_m
 

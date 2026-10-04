@@ -664,6 +664,8 @@
   "settings.tts.duck_pct.subtitle": "Other audio streams are lowered by this fraction while the announcement plays. 0 disables ducking.",
   "settings.tts.duck_pre_ms": "Pre-roll before speech (ms)",
   "settings.tts.duck_pre_ms.subtitle": "How early the music is lowered before the speech starts, so the first syllable isn't masked.",
+  "settings.tts.lead_ms": "Announcement lead time (ms)",
+  "settings.tts.lead_ms.subtitle": "Navigation announcements fire this much earlier to make up for GPS and audio delay. Raise it if announcements come too late (1000 ms ≈ 14 m at 50 km/h).",
   "tts.in_distance": "In {distance},",
   "tts.distance.m": "{n} meters",
   "tts.distance.km": "{n} kilometers",

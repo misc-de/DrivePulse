@@ -184,6 +184,7 @@ def test_record_launch_latency_updates_via_30_70_ema(monkeypatch):
     # The EMA formula is _tts_latency_s = 0.3 * new + 0.7 * prior.
     # Starting from 1.0, a new measurement of 2.0 should land at 0.3*2 + 0.7*1 = 1.3.
     monkeypatch.setattr(service, "_tts_latency_s", 1.0)
+    monkeypatch.setattr(service, "_lead_ms", 0)
     service._record_launch_latency(2.0)
     assert service.get_latency_s() == pytest.approx(1.3, abs=1e-9)
 
@@ -196,9 +197,23 @@ def test_record_launch_latency_converges_on_constant_input(monkeypatch):
     # With repeated equal measurements the EMA must converge to that value;
     # 100 iterations is more than enough to push the residual below 1e-6.
     monkeypatch.setattr(service, "_tts_latency_s", 5.0)
+    monkeypatch.setattr(service, "_lead_ms", 0)
     for _ in range(100):
         service._record_launch_latency(0.5)
     assert service.get_latency_s() == pytest.approx(0.5, abs=1e-6)
+
+
+def test_get_latency_s_adds_configured_lead(monkeypatch):
+    # The configured lead compensates GPS/audio lag on top of the measured
+    # launch latency; set_lead_ms clamps to 0…8000 and resets garbage to 0.
+    monkeypatch.setattr(service, "_tts_latency_s", 0.2)
+    monkeypatch.setattr(service, "_lead_ms", 0)
+    service.set_lead_ms(3000)
+    assert service.get_latency_s() == pytest.approx(3.2)
+    service.set_lead_ms(99999)
+    assert service._lead_ms == 8000
+    service.set_lead_ms("x")  # type: ignore[arg-type]
+    assert service._lead_ms == 0
 
 
 # ── Piper model path resolution ───────────────────────────────────────────────

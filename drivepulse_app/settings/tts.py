@@ -24,6 +24,7 @@ class SettingsTtsMixin:
     tts_volume_row: Adw.SpinRow
     tts_duck_row: Adw.SpinRow
     tts_duck_pre_row: Adw.SpinRow
+    tts_lead_row: Adw.SpinRow
     _piper_dl_row: Adw.ActionRow
     _piper_dl_bar: Gtk.ProgressBar
 
@@ -35,6 +36,7 @@ class SettingsTtsMixin:
     on_tts_volume_pct_changed: Callable[[int], None] | None
     on_tts_duck_pct_changed: Callable[[int], None] | None
     on_tts_duck_pre_ms_changed: Callable[[int], None] | None
+    on_tts_lead_ms_changed: Callable[[int], None] | None
 
     def _on_tts_enabled_toggled(self, row: Adw.SwitchRow, _param: Any) -> None:
         if self.on_tts_enabled_changed is not None:
@@ -79,6 +81,10 @@ class SettingsTtsMixin:
     def _on_tts_duck_pre_ms_changed(self, *_args: Any) -> None:
         if self.on_tts_duck_pre_ms_changed is not None:
             self.on_tts_duck_pre_ms_changed(int(self.tts_duck_pre_row.get_value()))
+
+    def _on_tts_lead_ms_changed(self, *_args: Any) -> None:
+        if self.on_tts_lead_ms_changed is not None:
+            self.on_tts_lead_ms_changed(int(self.tts_lead_row.get_value()))
 
     def _on_piper_dl_progress(self, model_name: str, fraction: float) -> None:
         """Callback from tts_service — runs on GLib main loop."""

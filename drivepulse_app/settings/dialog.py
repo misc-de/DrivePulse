@@ -153,6 +153,8 @@ class SettingsDialog(
         on_tts_duck_pct_changed: Callable[[int], None] | None = None,
         current_tts_duck_pre_ms: int = 0,
         on_tts_duck_pre_ms_changed: Callable[[int], None] | None = None,
+        current_tts_lead_ms: int = 3000,
+        on_tts_lead_ms_changed: Callable[[int], None] | None = None,
         current_log_app_enabled: bool = True,
         on_log_app_enabled_changed: Callable[[bool], None] | None = None,
         current_log_obd_enabled: bool = True,
@@ -226,6 +228,8 @@ class SettingsDialog(
         self._current_tts_volume_pct = current_tts_volume_pct
         self._current_tts_duck_pct = current_tts_duck_pct
         self._current_tts_duck_pre_ms = current_tts_duck_pre_ms
+        self.on_tts_lead_ms_changed = on_tts_lead_ms_changed
+        self._current_tts_lead_ms = current_tts_lead_ms
         self.on_log_app_enabled_changed = on_log_app_enabled_changed
         self.on_log_obd_enabled_changed = on_log_obd_enabled_changed
         self.on_obd_auto_record_changed = on_obd_auto_record_changed
@@ -456,6 +460,12 @@ class SettingsDialog(
         self.tts_duck_pre_row.set_subtitle(_translate(self.language, "settings.tts.duck_pre_ms.subtitle"))
         self.tts_duck_pre_row.set_value(self._current_tts_duck_pre_ms)
         self.tts_duck_pre_row.connect("notify::value", self._on_tts_duck_pre_ms_changed)
+
+        self.tts_lead_row = Adw.SpinRow.new_with_range(0, 8000, 250)
+        self.tts_lead_row.set_title(_translate(self.language, "settings.tts.lead_ms"))
+        self.tts_lead_row.set_subtitle(_translate(self.language, "settings.tts.lead_ms.subtitle"))
+        self.tts_lead_row.set_value(self._current_tts_lead_ms)
+        self.tts_lead_row.connect("notify::value", self._on_tts_lead_ms_changed)
 
         # Download progress row — shown directly below voice options when a download runs.
         self._piper_dl_row = Adw.ActionRow()
@@ -783,6 +793,7 @@ class SettingsDialog(
         tts_group.add(self.tts_volume_row)
         tts_group.add(self.tts_duck_row)
         tts_group.add(self.tts_duck_pre_row)
+        tts_group.add(self.tts_lead_row)
         tts_group.add(self._piper_dl_row)
         tour_page.add(tts_group)
 

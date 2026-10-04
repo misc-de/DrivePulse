@@ -75,10 +75,26 @@ _prerender_set_lock = threading.Lock()
 # Updated via exponential moving average from actual measurements.
 _tts_latency_s: float = 1.0
 
+# User-configurable announcement lead time in ms. The measured launch latency
+# above only covers spawning the player pipeline (a few ms), not GPS fix lag,
+# audio-server buffering or piper inference — in practice announcements came
+# 40-50 m late in city traffic (~3 s). This fixed lead covers that gap.
+_lead_ms: int = 3000
+
 
 def get_latency_s() -> float:
-    """Return the estimated seconds from speak() call to audible output start."""
-    return _tts_latency_s
+    """Return the estimated seconds from speak() call to audible output start,
+    including the configured announcement lead time."""
+    return _tts_latency_s + _lead_ms / 1000.0
+
+
+def set_lead_ms(value: int) -> None:
+    """Configure the extra announcement lead time (0…8000 ms)."""
+    global _lead_ms
+    try:
+        _lead_ms = max(0, min(8000, int(value)))
+    except (TypeError, ValueError):
+        _lead_ms = 0
 
 
 def _record_launch_latency(seconds: float) -> None:

@@ -56,6 +56,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # streams) and how early (ms before speech) to apply it. 0 disables.
     "tts_duck_pct": 50,
     "tts_duck_pre_ms": 200,
+    # Announcement lead time: navigation speech fires this much earlier to
+    # compensate GPS lag and audio latency (speed × lead = metres earlier).
+    "tts_lead_ms": 3000,
     "log_app_enabled": False,
     "log_obd_enabled": False,
     "obd_auto_record": True,
@@ -181,6 +184,7 @@ def load_settings() -> dict[str, Any]:
         "tts_volume_pct": _bounded_int(data.get("tts_volume_pct"), 100, 1, 200),
         "tts_duck_pct": _bounded_int(data.get("tts_duck_pct"), 50, 0, 90),
         "tts_duck_pre_ms": _bounded_int(data.get("tts_duck_pre_ms"), 200, 0, 2000),
+        "tts_lead_ms": _bounded_int(data.get("tts_lead_ms"), 3000, 0, 8000),
         "log_app_enabled": bool(data.get("log_app_enabled", DEFAULT_SETTINGS["log_app_enabled"])),
         "log_obd_enabled": bool(data.get("log_obd_enabled", DEFAULT_SETTINGS["log_obd_enabled"])),
         "obd_auto_record": bool(data.get("obd_auto_record", DEFAULT_SETTINGS["obd_auto_record"])),
@@ -297,6 +301,7 @@ def save_settings(settings: dict[str, Any]) -> None:
                 "tts_volume_pct": _bounded_int(settings.get("tts_volume_pct"), 100, 1, 200),
                 "tts_duck_pct": _bounded_int(settings.get("tts_duck_pct"), 50, 0, 90),
                 "tts_duck_pre_ms": _bounded_int(settings.get("tts_duck_pre_ms"), 200, 0, 2000),
+                "tts_lead_ms": _bounded_int(settings.get("tts_lead_ms"), 3000, 0, 8000),
                 "log_app_enabled": bool(settings.get("log_app_enabled", False)),
                 "log_obd_enabled": bool(settings.get("log_obd_enabled", False)),
                 "obd_auto_record": bool(settings.get("obd_auto_record", True)),

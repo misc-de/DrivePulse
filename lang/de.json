@@ -684,6 +684,8 @@
   "settings.tts.duck_pct.subtitle": "Andere Audio-Streams werden um diesen Anteil abgesenkt, solange die Sprachausgabe läuft. 0 = aus.",
   "settings.tts.duck_pre_ms": "Vorlauf vor Ansage (ms)",
   "settings.tts.duck_pre_ms.subtitle": "Wie früh die Musik vor der Sprachausgabe leiser werden soll. Hilft, dass die erste Silbe nicht vom Musik-Pegel verschluckt wird.",
+  "settings.tts.lead_ms": "Ansage-Vorlauf Navigation (ms)",
+  "settings.tts.lead_ms.subtitle": "So viel früher werden Abbiege-Ansagen ausgelöst, um GPS- und Audio-Verzögerung auszugleichen. Erhöhen, wenn Ansagen zu spät kommen (1000 ms ≈ 14 m bei 50 km/h).",
   "tts.in_distance": "In {distance},",
   "tts.distance.m": "{n} Metern",
   "tts.distance.km": "{n} Kilometern",
