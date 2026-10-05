@@ -32,12 +32,14 @@ It is designed to feel at home on a Linux phone (Phosh, Mobian) just as much as 
 ## What's inside
 
 - **Dashboard** — multiple gauge themes in light and dark, responsive to portrait/landscape.
-- **Trip log** — every drive recorded as a track with speed, RPM, G-force and map.
+- **Trip log** — every drive recorded as a track with speed, RPM, G-force and map; any trip can be reopened as a tour on the map.
+- **Background recording** — an optional systemd user service (`drivepulse-recorder`) records drives without the app open: it briefly checks the dongle every 2 minutes, and immediately on charging, unlock or car Bluetooth connect.
 - **Performance meter** — acceleration runs (0–100, 100–200 and similar) with split times, a live G-force ball, and replay.
-- **Navigation** — address search, multi-waypoint car routing, turn-by-turn with optional voice, 2D/3D maps and a traffic layer (German Autobahn reports plus live congestion and closures for Cologne and Bonn).
+- **Navigation** — address search, multi-waypoint car routing, turn-by-turn with optional voice (adjustable announcement lead time), automatic rerouting, tour progress that survives a restart, tour import from GPX, KML, KMZ, GeoJSON and CSV, 2D/3D maps (OpenFreeMap, with offline fallback) and a traffic layer (German Autobahn reports and closures, affected sections coloured on the road, plus live congestion for Cologne and Bonn).
 - **Dashcam** — rolling-buffer recording with one-tap event save and optional GPS/speed overlay.
-- **Vehicle library** — your cars with OBD scan history, photos and per-car run records.
-- **Car Lab** — read-only UDS exploration per car: discover control modules (identification DIDs, VAG coding), then find functions by capturing a module baseline, toggling something in the car and recording the changed byte/bit. Findings build up a per-car coding table. Nothing is ever written to the vehicle.
+- **Vehicle library** — your cars with OBD scan history, photos and per-car run records. Scans include a health snapshot (Mode 06 test results, readiness monitors, permanent DTCs, IUMPR) and can be compared over time in a zoomable chart. VIN data can be completed via NHTSA vPIC, auto.dev or vindecoder.eu.
+- **OBD dongles** — ELM327-compatible adapters over Bluetooth or serial, including STN chips (e.g. OBDLink MX+) with batched multi-frame queries. Nearby search, pairing (including legacy-PIN ELM clones) and Bluetooth self-repair on Linux phones are handled in the app.
+- **Car Lab** — read-only UDS exploration per car: discover control modules (identification DIDs, VAG coding), then find functions by capturing a module baseline, toggling something in the car and recording the changed byte/bit. Findings build up a per-car coding table. Nothing is ever written to the vehicle. Hidden by default — create an empty `carlab.enabled` file in the state directory to unlock it.
 - **Device sync** — direct phone-to-laptop database transfer over local Wi-Fi via QR pairing, TLS-encrypted.
 - **Settings** — units, language (EN/DE), gauge theme, mock-mode for development without hardware.
 
@@ -92,6 +94,8 @@ python3 -m drivepulse_app.app
 
 After `pip install .` the same entry is also available as the `drivepulse` command.
 
+Background recording runs as a separate process (`python3 -m drivepulse_app.service`); the settings toggle installs and enables the `drivepulse-recorder.service` systemd user unit for you.
+
 ---
 
 ## Installation (desktop integration)
@@ -112,144 +116,72 @@ bash scripts/uninstall.sh   # to remove
 
 ```
 drivepulse_app/
-  app.py                   Application entry point (Adw.Application subclass, `python3 -m drivepulse_app.app`)
-  app_settings.py          Load / save persistent user settings (JSON)
-  common.py                Shared constants and utility functions
-  translations.py          Translation catalog (EN / DE) and _translate helper
-  diagnostics.py           Logging helpers
-  http_client.py           Shared HTTP client (connection pooling, per-host rate limiting)
+  app.py              Entry point (Adw.Application, `python3 -m drivepulse_app.app`)
+  app_settings.py     Persistent user settings (JSON)
+  common.py, translations.py, diagnostics.py, http_client.py, credentials.py,
+  startup_info.py, updater.py, telemetry_utils.py, trip_recorder.py
 
-  dashboard_window.py      Main application window (Adw.ApplicationWindow)
-  dashboard_layout.py      Responsive gauge layout mixin (portrait / landscape)
-  dashboard_settings.py    Settings callbacks mixin
-  dashboard_telemetry.py   OBD + GPS payload dispatch mixin
-  dashboard_data.py        DashData dataclass used by dashboard themes
-  dashboard.py             Dashboard canvas and theme dispatcher
+  dashboard/          Main window, gauge canvas + DashData, responsive layout,
+                      telemetry dispatch, theming, nav routing
+  cars/               Vehicle library: trips, scans, scan stats, photos, run
+                      records, VIN flow, sharing, live session, Car Lab
+  chart/              Scan comparison chart
+  map/                Navigation page, WebKit (MapLibre GL) and Shumate backends,
+                      routing, geocoding, tour pipeline/progress/reroute/TTS,
+                      speed zones, traffic layer, tour import, replay
+  dashcam/            Dashcam page and segmented loop recorder
+  stopwatch/          Performance meter: canvas, processing, replay
+  obd/                Connection manager, polling, scanner, native ELM327/STN
+                      adapter, UDS, coding diff, Bluetooth stack repair, pairing
+                      agent, device detection, mock simulator
+  sensors/            GPS (GeoClue2 + GPSD), accelerometer, rotation, Bluetooth
+  service/            Background recorder daemon, dongle probe, systemd unit
+  db/                 SQLite storage split per domain (cars, trips, samples,
+                      scans, photos, tours, discoveries, sync)
+  sync/               Device sync: TLS server/client, pairing, QR generator/scanner
+  share/              Share protocol and UI flow
+  settings/           Preferences dialog and subpages (OBD dongle, dashcam,
+                      TTS, VIN decoder, updates)
+  tts/                Text-to-speech service (espeak-ng / piper)
+  vin/                VIN data lookup and review dialogs
+  ui/                 Gauge widget, Cairo helpers, rotated/scaled containers, icons
+  mock/               Mock tour simulator and demo data seed
 
-  gauge.py                 Circular gauge widget (Cairo)
-  draw_helpers.py          Shared Cairo drawing utilities
-  rotated_container.py     Single-child container with 0/90/180/270° rotation
-  rotation.py              Screen rotation state (sensor + manual override)
-
-  stopwatch.py             StopWatch measurement page (GTK widget)
-  stopwatch_canvas.py      G-force ball canvas widget
-  stopwatch_processing.py  Payload processing mixin (timing, G logic)
-  stopwatch_replay.py      Run replay mixin
-
-  cars.py                  Vehicles / trips / scans / stopwatch runs page
-  cars_layout.py           Cars page layout mixin (sidebar / detail split)
-  cars_detail_render.py    Car detail content renderer
-  cars_metadata.py         OBD PID catalogue and category definitions
-  cars_profiles.py         Vehicle profile loader from the SQLite database
-  cars_actions.py          Car CRUD actions (rename, delete)
-  cars_photos.py           Vehicle photo gallery (upload, grid view, delete)
-  cars_trips.py            Trip list and detail widgets
-  cars_trip_widgets.py     Trip detail chart + map widget
-  cars_trip_visuals.py     Trip chart drawing helpers
-  cars_scans.py            Scan list and detail widgets
-  cars_scan_widgets.py     Scan detail widget
-  cars_stopwatch_runs.py   StopWatch run list and detail widgets
-
-  map_page.py              Navigation/Tour page (GPS tracking, routing, turn-by-turn)
-  map_services.py          Map data helpers (routing, traffic, geometry)
-  map_webkit.py            WebKit vector/3D map backend (MapLibre GL JS)
-  map_shumate.py           Shumate raster map backend (GTK4 native, fallback)
-  mock_tour.py             Mock tour simulator (drives OSRM route, emits GPS payloads)
-
-  dashcam_page.py          Dashcam page (live preview, loop recording, screen dimmer)
-  dashcam_recorder.py      Dashcam loop recorder (segmented recording, event save)
-
-  db.py                    SQLite storage (cars, trips, samples, scans, acceleration_runs)
-  trip_recorder.py         Ongoing trip recording logic
-
-  obd_reader.py            OBD connection manager (real + mock)
-  obd_polling.py           OBD polling loop
-  obd_scanner.py           Full OBD scan (PIDs, DTCs, identity)
-  obd_devices.py           ELM327 device detection
-  mock_obd.py              Mock OBD simulator for development
-  bluetooth_bridge.py      Bluetooth RFCOMM helper
-
-  gps_reader.py            GeoClue2 + GPSD reader
-  orientation_reader.py    Accelerometer sensor reader (g-force data)
-
-  sync_dialog.py           Sync UI (server / client flow, QR display)
-  sync_server.py           HTTPS sync server (TLS, port auto-select 8765+)
-  sync_client.py           Sync client (TLS, certificate pinning)
-  sync_flow.py             Pairing URL parsing and sync protocol
-  sync_data.py             Database export / import and paired-device registry
-  sync_crypto.py           TLS key-pair generation, SPKI fingerprint, token helpers
-  sync_identity.py         Persistent device identity (ID + certificate paths)
-  sync_poller.py           Background poller (checks reachability of known sync devices)
-  sync_qrgen.py            Pure-Python QR code generator (SVG → GdkPixbuf)
-  sync_qr_scanner.py       Webcam QR scanner via GStreamer + zxing
-
-  share_flow.py            GTK UI flow for share operations
-  share_protocol.py        Share protocol (payload builders, VIN helpers, server-side import)
-
-  settings_dialog.py       Settings UI (Adw.PreferencesDialog)
-  tts_service.py           Text-to-speech service (espeak-ng / piper backend, non-blocking)
-  icon_registry.py         Bundled SVG icon registration
-  startup_info.py          Python package dependency checker
-  updater.py               Update checker and installer (git pull)
-  telemetry_utils.py       Telemetry helpers
-
-themes/
-  analog.py                Analog halfmoon dashboard theme
-  analog_light.py          Analog halfmoon theme (light variant)
-  cockpit.py               Cockpit theme
-  cockpit_light.py         Cockpit theme (light variant)
-  digital.py               Digital theme
-  digital_light.py         Digital theme (light variant)
-  modern.py                Modern gauge theme
-  modern_light.py          Modern gauge theme (light variant)
-  neon.py                  Neon theme
-  neon_light.py            Neon theme (light variant)
-  racing.py                Racing theme
-  racing_light.py          Racing theme (light variant)
-  sport.py                 Sport theme
-  sport_light.py           Sport theme (light variant)
-  _minimal.py              Minimal theme skeleton
-  _vorlage.py              Theme template / boilerplate
-icons/
-  icon.png                 App icon (128×128 PNG)
-  icons.gresource.xml      GResource manifest
-  icons.gresource          Compiled icon bundle
-  hicolor/symbolic/actions/  SVG icons (currentColor, 16×16)
-scripts/
-  install.sh, uninstall.sh  Desktop-Entry installer
+themes/               Dashboard themes (analog, cockpit, digital, modern, neon,
+                      racing, sport — each with a light variant) plus template
+icons/                App icon, GResource bundle, symbolic SVG icons
+lang/                 UI strings (en.json, de.json)
+scripts/              Desktop installer, Bluetooth fix helpers, UDS exploration
+tests/                pytest suite
 ```
 
 ### DashData variables (used by dashboard themes)
 
-| Field | Type | Source | Description |
-|---|---|---|---|
-| `speed_kmh` | `float\|None` | OBD/GPS | Current speed (km/h) |
-| `obd_speed_kmh` | `float\|None` | OBD | Speed from OBD sensor |
-| `gps_speed_kmh` | `float\|None` | GPS | Speed from GPS |
-| `speed_active` | `bool` | — | Speed value is live |
-| `speed_label` | `str` | — | Formatted speed string |
-| `rpm` | `float\|None` | OBD | Engine RPM |
-| `rpm_active` | `bool` | — | RPM is live |
-| `rpm_label` | `str` | — | Formatted RPM string |
-| `coolant_c` | `float\|None` | OBD | Coolant temperature (°C) |
-| `coolant_active` | `bool` | — | Coolant value is live |
-| `coolant_label` | `str` | — | Formatted temperature string |
-| `fuel_pct` | `float\|None` | OBD | Fuel level (%) |
-| `fuel_active` | `bool` | — | Fuel value is live |
-| `fuel_label` | `str` | — | Formatted fuel string |
-| `voltage_v` | `float\|None` | OBD | Battery/adapter voltage (V) |
-| `voltage_active` | `bool` | — | Voltage value is live |
-| `voltage_label` | `str` | — | Formatted voltage string |
-| `throttle_pct` | `float\|None` | OBD | Throttle position (%) |
-| `engine_load` | `float\|None` | OBD | Engine load (%) |
-| `heading_deg` | `float\|None` | GPS | Compass heading (°) |
-| `gps_lat` | `float\|None` | GPS | Latitude |
-| `gps_lon` | `float\|None` | GPS | Longitude |
-| `gps_altitude_m` | `float\|None` | GPS | Altitude (m) |
-| `acceleration_g` | `float\|None` | OBD | Longitudinal acceleration (g) |
-| `source_label` | `str` | — | Speed source indicator ("OBD" / "GPS") |
-| `language` | `str` | — | Active UI language ("en" / "de") |
-| `units` | `str` | — | Speed unit ("km/h" / "mph") |
+Each value comes as a group of `<name>` (float), `<name>_label` (formatted string) and `<name>_active` (value is live):
+
+| Group | Source | Description |
+|---|---|---|
+| `rpm` (+ `rpm_max`) | OBD | Engine RPM and scale maximum |
+| `speed` (+ `speed_unit`, `speed_max`, `speed_source`) | OBD/GPS | Displayed speed, unit, scale maximum, "OBD"/"GPS" |
+| `coolant` (+ `coolant_min`, `coolant_max`) | OBD | Coolant temperature (°C) |
+| `fuel_pct` | OBD | Fuel level (%) |
+| `throttle_pct` | OBD | Throttle position (%) |
+| `engine_load_pct` | OBD | Engine load (%) |
+| `intake_c` | OBD | Intake air temperature (°C) |
+| `maf_gps` | OBD | Mass air flow (g/s) |
+| `voltage_v` | OBD | Battery/adapter voltage (V) |
+| `accel_g` | OBD/sensor | Longitudinal acceleration (g) |
+| `heading_deg` (+ `heading_str`) | GPS | Compass heading |
+
+Further fields:
+
+| Field | Description |
+|---|---|
+| `obd_speed`, `gps_speed` (+ `_active`) | Raw speed per source |
+| `gps_lat`, `gps_lon`, `gps_altitude_m`, `gps_pos_active` | GPS position |
+| `last_trip_*` | Last trip / live session stats (RPM/coolant min/max, top speed, distance, duration) |
+| `scan_available`, `scan_pids`, `scan_info`, `scan_dtcs`, `scan_pending_dtcs` | Latest scan: PIDs by 4-char code, identity (VIN, brand, protocol, Cal-ID, CVN), trouble codes |
+| `language` | Active UI language ("en" / "de") |
 
 ---
 
@@ -263,7 +195,11 @@ SQLite file at `~/.local/state/drivepulse/drives.sqlite3` by default
 | `cars` | One row per vehicle (identified by VIN or OBD profile path) |
 | `trips` | One row per recorded drive, linked to a car |
 | `samples` | ~1–2 Hz telemetry points (OBD + GPS merged), linked to a trip |
-| `scans` | Full OBD scan snapshots with PIDs and DTCs, linked to a car |
+| `scans` | Full OBD scan snapshots with PIDs, DTCs and health snapshot, linked to a car |
+| `scan_samples` | Time series of PID values recorded during a scan (scan comparison chart) |
+| `car_photos` | Vehicle photos, linked to a car |
+| `saved_tours` | Saved and imported tours (waypoints and route) |
+| `share_conflicts` | Records that collided during a share/sync import, kept for review |
 | `acceleration_runs` | Completed acceleration measurement runs with split times and GPS position, linked to a car |
 | `scanned_modules` | Control modules a scan found present on a car (name + tx/rx addresses) — gates the Car Lab views |
 | `module_discoveries` | Car Lab module-discovery inventories (which DIDs answered, identification strings, DTCs), linked to a car |
