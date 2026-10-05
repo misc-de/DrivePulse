@@ -120,4 +120,7 @@ class SettingsUpdatesMixin:
 
     def _on_restart_response(self, _dialog, response: str) -> None:
         if response == "yes":
-            os.execv(sys.executable, [sys.executable, *sys.argv])
+            # orig_argv keeps "-m drivepulse_app.app"; sys.argv[0] is the
+            # app.py path, and running that as a script puts drivepulse_app/
+            # on sys.path, where our obd package shadows python-obd.
+            os.execv(sys.executable, [sys.executable, *sys.orig_argv[1:]])
