@@ -218,19 +218,48 @@ function addDataLayers() {
   }
 
   // Traffic — filtered to route bounding box (+ ~5 km pad) for performance
-  const trafficFeats = _trafficNearRoute();
+  const near = _trafficFiltered();
   const vis = _trafficVisible ? 'visible' : 'none';
+  if (!map.getSource('traffic-lines')) {
+    // Affected stretches (Autobahn geometry), drawn above the route so a jam
+    // on the planned route stays visible. Colours mirror shumate.py.
+    map.addSource('traffic-lines', { type: 'geojson', data: fcGJ(_trafficLineFeatures(near)) });
+    map.addLayer({ id: 'traffic-lines', type: 'line', source: 'traffic-lines',
+      filter: ['!=', ['get', 'kind'], 'closure'],
+      layout: { 'line-join': 'round', 'line-cap': 'round', visibility: vis },
+      paint: {
+        'line-color': ['case',
+          ['==', ['get', 'level'], 'slow'], '#F59E0A',
+          ['==', ['get', 'kind'], 'roadworks'], '#F5990A',
+          '#E53030'],
+        'line-width': ['match', ['get', 'kind'], 'roadworks', 4, 6],
+        'line-opacity': ['match', ['get', 'kind'], 'roadworks', 0.75, 0.9],
+      } });
+    // Closures: classic dark-red line with white dashes on top.
+    map.addLayer({ id: 'traffic-lines-closure', type: 'line', source: 'traffic-lines',
+      filter: ['==', ['get', 'kind'], 'closure'],
+      layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: vis },
+      paint: { 'line-color': '#8C0D1A', 'line-width': 6, 'line-opacity': 0.9 } });
+    map.addLayer({ id: 'traffic-lines-closure-dash', type: 'line', source: 'traffic-lines',
+      filter: ['==', ['get', 'kind'], 'closure'],
+      layout: { 'line-join': 'round', 'line-cap': 'butt', visibility: vis },
+      paint: { 'line-color': '#FFFFFF', 'line-width': 2, 'line-dasharray': [2, 2] } });
+    _attachTrafficClick('traffic-lines');
+    _attachTrafficClick('traffic-lines-closure');
+  }
   if (!map.getSource('traffic')) {
-    map.addSource('traffic', { type: 'geojson', data: fcGJ(trafficFeats) });
+    map.addSource('traffic', { type: 'geojson', data: fcGJ(_trafficPointFeatures(near)) });
     // One circle layer for every kind; colours mirror _TRAFFIC_MARKER_COLORS
     // in shumate.py.
     map.addLayer({ id: 'traffic-events', type: 'circle', source: 'traffic',
       paint: {
-        'circle-radius': 7,
-        'circle-color': ['match', ['get', 'kind'],
-          'roadworks', '#F5990A', 'closure', '#8C0D1A', 'event', '#9466E0', '#E53030'],
-        'circle-stroke-color': ['match', ['get', 'kind'],
-          'roadworks', '#B36000', 'closure', '#FFFFFF', 'event', '#5C389E', '#9A1A1A'],
+        'circle-radius': 6,
+        'circle-color': ['case', ['==', ['get', 'level'], 'slow'], '#F5990A',
+          ['match', ['get', 'kind'],
+            'roadworks', '#F5990A', 'closure', '#8C0D1A', 'event', '#9466E0', '#E53030']],
+        'circle-stroke-color': ['case', ['==', ['get', 'level'], 'slow'], '#B36000',
+          ['match', ['get', 'kind'],
+            'roadworks', '#B36000', 'closure', '#FFFFFF', 'event', '#5C389E', '#9A1A1A']],
         'circle-stroke-width': 2,
       },
       layout: { visibility: vis } });
@@ -569,8 +598,7 @@ function mapSetRoute(coords) {
   if (map && map.getSource('route'))
     map.getSource('route').setData(lineGJ(coords));
   // Refresh traffic to show only items near the new route
-  if (map && map.getSource('traffic'))
-    map.getSource('traffic').setData(fcGJ(_trafficNearRoute()));
+  _refreshTrafficSources();
 }
 
 function mapSetWaypoints(points) {
@@ -593,6 +621,7 @@ function mapClearRoute() {
     if (map.getSource('route'))     map.getSource('route').setData(lineGJ([]));
     if (map.getSource('waypoints')) map.getSource('waypoints').setData(fcGJ([]));
     if (map.getSource('traffic'))   map.getSource('traffic').setData(fcGJ([]));
+    if (map.getSource('traffic-lines')) map.getSource('traffic-lines').setData(fcGJ([]));
     map.easeTo({ bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, pitch: 0, duration: 600 });
   }
 }
@@ -745,7 +774,7 @@ function mapSetStyle(key) {
   _applyStyle(key);
 }
 
-function _trafficNearRoute() {
+function _trafficFiltered() {
   // No route loaded → show everything so the toggle isn't a silent no-op.
   let filtered = _trafficItems;
   if (_routeCoords.length > 0) {
@@ -762,23 +791,50 @@ function _trafficNearRoute() {
            i.lon >= minLon - pad && i.lon <= maxLon + pad
     );
   }
-  return filtered
+  return filtered;
+}
+
+function _trafficProps(i) {
+  return {
+    kind: i.kind,
+    level: i.level || '',
+    title: i.title || '',
+    subtitle: i.subtitle || '',
+    road: i.road || '',
+    start: i.start || '',
+    blocked: !!i.blocked,
+    delay: i.delay || '',
+    source: i.source || '',
+    // MapLibre property values are flat — encode arrays as JSON.
+    description: JSON.stringify(i.description || []),
+  };
+}
+
+function _trafficPointFeatures(items) {
+  return items.map(i => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [i.lon, i.lat] },
+    properties: _trafficProps(i),
+  }));
+}
+
+function _trafficLineFeatures(items) {
+  return items
+    .filter(i => i.line && i.line.length >= 2)
     .map(i => ({
       type: 'Feature',
-      geometry: { type: 'Point', coordinates: [i.lon, i.lat] },
-      properties: {
-        kind: i.kind,
-        title: i.title || '',
-        subtitle: i.subtitle || '',
-        road: i.road || '',
-        start: i.start || '',
-        blocked: !!i.blocked,
-        delay: i.delay || '',
-        source: i.source || '',
-        // MapLibre property values are flat — encode arrays as JSON.
-        description: JSON.stringify(i.description || []),
-      },
+      geometry: { type: 'LineString', coordinates: i.line },
+      properties: _trafficProps(i),
     }));
+}
+
+function _refreshTrafficSources() {
+  if (!map) return;
+  const near = _trafficFiltered();
+  if (map.getSource('traffic'))
+    map.getSource('traffic').setData(fcGJ(_trafficPointFeatures(near)));
+  if (map.getSource('traffic-lines'))
+    map.getSource('traffic-lines').setData(fcGJ(_trafficLineFeatures(near)));
 }
 
 const TRAFFIC_LABELS = {
@@ -872,9 +928,10 @@ function _attachTrafficFlowClick() {
   map.on('click', 'traffic-flow', (e) => {
     const f = e.features && e.features[0];
     if (!f) return;
-    // Incident dots sit on top — let their own popup win.
-    if (map.getLayer('traffic-events') &&
-        map.queryRenderedFeatures(e.point, { layers: ['traffic-events'] }).length) return;
+    // Incident dots and stretches sit on top — let their own popup win.
+    const above = ['traffic-events', 'traffic-lines', 'traffic-lines-closure']
+      .filter(id => map.getLayer(id));
+    if (above.length && map.queryRenderedFeatures(e.point, { layers: above }).length) return;
     const p = f.properties || {};
     let html = `<h3>${_escapeHtml(_trafficLabel(p.level))}</h3>`;
     if (p.name) html += `<div class="sub">${_escapeHtml(p.name)}</div>`;
@@ -900,13 +957,17 @@ function _attachTrafficClick(layerId) {
   map.on('click', layerId, (e) => {
     const f = e.features && e.features[0];
     if (!f) return;
+    const isPoint = f.geometry.type === 'Point';
+    // A tap on a dot also hits the line underneath — only the dot opens a popup.
+    if (!isPoint && map.getLayer('traffic-events') &&
+        map.queryRenderedFeatures(e.point, { layers: ['traffic-events'] }).length) return;
     new maplibregl.Popup({
         className: 'dp-traffic-popup',
         maxWidth: '260px',
         closeOnMove: true,
         offset: 14,
       })
-      .setLngLat(f.geometry.coordinates.slice())
+      .setLngLat(isPoint ? f.geometry.coordinates.slice() : e.lngLat)
       .setHTML(_buildTrafficPopupHTML(f.properties || {}))
       .addTo(map);
   });
@@ -916,14 +977,14 @@ function _attachTrafficClick(layerId) {
 
 function mapSetTraffic(items) {
   _trafficItems = items;
-  if (map && map.getSource('traffic'))
-    map.getSource('traffic').setData(fcGJ(_trafficNearRoute()));
+  _refreshTrafficSources();
 }
 
 function mapSetTrafficVisible(visible) {
   _trafficVisible = visible;
   if (!map) return;
-  ['traffic-events', 'traffic-flow'].forEach(id => {
+  ['traffic-events', 'traffic-flow', 'traffic-lines', 'traffic-lines-closure',
+   'traffic-lines-closure-dash'].forEach(id => {
     if (map.getLayer(id))
       map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
   });

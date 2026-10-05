@@ -447,11 +447,17 @@ class MapShumateMixin:
         self._traffic_layer.remove_all()
         for item in parsed:
             self._traffic_layer.add_marker(self._make_traffic_marker(item))
+        # Affected stretches are painted by the flow overlay (one Cairo pass).
+        self._traffic_event_lines: list[dict] = [item for item in parsed if item.get("line")]
+        area = getattr(self, "_traffic_flow_area", None)
+        if area is not None:
+            area.queue_draw()
 
     def _make_traffic_marker(self, item: dict) -> Any:
-        fill, border = _TRAFFIC_MARKER_COLORS.get(
-            item.get("kind", "incidents"), _TRAFFIC_MARKER_COLORS["incidents"]
-        )
+        kind = item.get("kind", "incidents")
+        if kind == "incidents" and item.get("level") == "slow":
+            kind = "roadworks"  # same orange as slow traffic on the line
+        fill, border = _TRAFFIC_MARKER_COLORS.get(kind, _TRAFFIC_MARKER_COLORS["incidents"])
         da = Gtk.DrawingArea()
         da.set_size_request(14, 14)
         da.set_draw_func(self._draw_dot, (fill, border))
@@ -493,6 +499,7 @@ class MapShumateMixin:
         area.set_draw_func(self._draw_shumate_traffic_flow)
         self._traffic_flow_area = area
         self._traffic_flow_segments: list[dict] = []
+        self._traffic_event_lines = []
 
         viewport = self._shumate_map.get_viewport()
         for prop in ("latitude", "longitude", "zoom-level"):
@@ -509,32 +516,64 @@ class MapShumateMixin:
         self, area: Gtk.DrawingArea, cr: Any, _w: int, _h: int
     ) -> None:
         segments = getattr(self, "_traffic_flow_segments", None) or []
-        if not segments:
+        events = getattr(self, "_traffic_event_lines", None) or []
+        if not segments and not events:
             return
         viewport = self._shumate_map.get_viewport()
         cr.set_line_cap(1)   # ROUND
         cr.set_line_join(1)  # ROUND
-        # Jams last so they win where sections overlap.
+
+        def trace(coords: list) -> None:
+            started = False
+            for lon, lat in coords:
+                try:
+                    x, y = viewport.location_to_widget_coords(area, lat, lon)
+                except Exception:
+                    started = False
+                    continue
+                if started:
+                    cr.line_to(x, y)
+                else:
+                    cr.move_to(x, y)
+                    started = True
+            cr.stroke()
+
+        # City flow at the bottom; jams last so they win where sections overlap.
         for level in ("free", "slow", "jam"):
             r, g, b = _TRAFFIC_FLOW_COLORS[level]
             cr.set_source_rgba(r, g, b, 0.85)
             cr.set_line_width(5.0 if level == "jam" else 4.0)
             for seg in segments:
-                if seg.get("level") != level:
+                if seg.get("level") == level:
+                    trace(seg.get("coords") or [])
+
+        # Affected stretches of reports: roadworks, then closures, then warnings.
+        for kind in ("roadworks", "closure", "incidents"):
+            for item in events:
+                if item.get("kind") != kind:
                     continue
-                started = False
-                for lon, lat in seg.get("coords") or []:
-                    try:
-                        x, y = viewport.location_to_widget_coords(area, lat, lon)
-                    except Exception:
-                        started = False
-                        continue
-                    if started:
-                        cr.line_to(x, y)
-                    else:
-                        cr.move_to(x, y)
-                        started = True
-                cr.stroke()
+                coords = item.get("line") or []
+                if kind == "roadworks":
+                    r, g, b = _TRAFFIC_FLOW_COLORS["slow"]
+                    cr.set_source_rgba(r, g, b, 0.75)
+                    cr.set_line_width(4.0)
+                    trace(coords)
+                elif kind == "closure":
+                    # Dark red with white dashes, like the WebKit map.
+                    cr.set_source_rgba(0.55, 0.05, 0.10, 0.9)
+                    cr.set_line_width(6.0)
+                    trace(coords)
+                    cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
+                    cr.set_line_width(2.0)
+                    cr.set_dash([4.0, 4.0])
+                    trace(coords)
+                    cr.set_dash([])
+                else:
+                    level = "slow" if item.get("level") == "slow" else "jam"
+                    r, g, b = _TRAFFIC_FLOW_COLORS[level]
+                    cr.set_source_rgba(r, g, b, 0.9)
+                    cr.set_line_width(6.0)
+                    trace(coords)
 
     def _build_shumate_replay_overlay(self, overlay: Gtk.Overlay) -> None:
         """Attach a single Cairo DrawingArea on top of the Shumate map for the

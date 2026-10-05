@@ -112,6 +112,32 @@ SOURCE_KOELN = "Stadt Köln"
 SOURCE_BONN = "Bundesstadt Bonn"
 
 
+# abnormalTrafficType on Autobahn warnings → the same levels as city flow.
+_BAB_TRAFFIC_LEVELS = {
+    "SLOW_TRAFFIC": "slow",
+    "QUEUING_TRAFFIC": "jam",
+    "STATIONARY_TRAFFIC": "jam",
+}
+
+
+def _line_coords(geometry: Any) -> list[list[float]]:
+    """``[[lon, lat], ...]`` of a GeoJSON LineString/MultiLineString, else ``[]``."""
+    if not isinstance(geometry, dict):
+        return []
+    raw = geometry.get("coordinates") or []
+    if geometry.get("type") == "MultiLineString":
+        raw = [p for part in raw for p in part]
+    elif geometry.get("type") != "LineString":
+        return []
+    coords: list[list[float]] = []
+    for p in raw:
+        try:
+            coords.append([round(float(p[0]), 6), round(float(p[1]), 6)])
+        except (TypeError, ValueError, IndexError):
+            continue
+    return coords if len(coords) >= 2 else []
+
+
 def _truthy(raw: Any) -> bool:
     if isinstance(raw, bool):
         return raw
@@ -124,13 +150,18 @@ def normalize_bab_items(items: list[dict]) -> list[dict]:
     Each event has ``lat``, ``lon``, ``kind`` (``roadworks`` / ``incidents``
     / ``closure`` / ``event``), ``title``, ``subtitle``, ``description``
     (list of lines), ``road``, ``start`` (ISO timestamp), ``blocked``,
-    ``delay`` (minutes as string) and ``source``.
+    ``delay`` (minutes as string), ``source``, ``line`` (affected stretch as
+    ``[[lon, lat], ...]``, empty when unknown) and ``level`` (``slow`` /
+    ``jam`` for congestion warnings, else ``None``). Announced-but-not-yet-
+    active entries (``future``) are skipped.
     """
     ordered = sorted(items, key=lambda it: _KIND_PRIORITY.get(it.get("_kind", ""), 3))
     result: list[dict] = []
     for item in ordered:
         if len(result) >= MAX_BAB_EVENTS:
             break
+        if _truthy(item.get("future")):
+            continue
         point = item.get("point") or ""
         try:
             parts = point.split(",")
@@ -158,6 +189,8 @@ def normalize_bab_items(items: list[dict]) -> list[dict]:
             "blocked": _truthy(item.get("isBlocked")),
             "delay": str(item.get("delayTimeValue") or ""),
             "source": SOURCE_AUTOBAHN,
+            "line": _line_coords(item.get("geometry")),
+            "level": _BAB_TRAFFIC_LEVELS.get(item.get("abnormalTrafficType") or ""),
         })
     return result
 
@@ -241,6 +274,8 @@ def koeln_fetch_events(
             "blocked": kind == "closure",
             "delay": "",
             "source": SOURCE_KOELN,
+            "line": [],
+            "level": None,
         })
     return events
 

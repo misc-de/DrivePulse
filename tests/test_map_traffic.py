@@ -125,3 +125,21 @@ def test_fetch_traffic_merges_sources_and_respects_city_flag():
     no_city = tr.fetch_traffic(bundesweit=True, nrw=False, city=False, http_get_fn=fake_get)
     assert [e["source"] for e in no_city["events"]] == [tr.SOURCE_AUTOBAHN]
     assert no_city["flow"] == []
+
+
+def test_normalize_bab_items_keeps_line_level_and_skips_future():
+    items = [
+        {"_kind": "incidents", "point": "50.7,6.8", "abnormalTrafficType": "QUEUING_TRAFFIC",
+         "geometry": {"type": "LineString", "coordinates": [[6.8, 50.7], [6.81, 50.71]]}},
+        {"_kind": "incidents", "point": "50.7,6.8", "abnormalTrafficType": "SLOW_TRAFFIC",
+         "geometry": {"type": "Point", "coordinates": [6.8, 50.7]}},
+        {"_kind": "roadworks", "point": "50.7,6.8", "future": True,
+         "geometry": {"type": "LineString", "coordinates": [[6.8, 50.7], [6.81, 50.71]]}},
+    ]
+
+    events = tr.normalize_bab_items(items)
+
+    assert [(e["level"], e["line"]) for e in events] == [
+        ("jam", [[6.8, 50.7], [6.81, 50.71]]),
+        ("slow", []),
+    ]
