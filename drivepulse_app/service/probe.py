@@ -30,6 +30,10 @@ ENGINE_ON_RISE_V = 0.3
 ENGINE_ON_RPM = 300.0
 
 _CONNECT_TIMEOUT_S = 8.0
+# The first page after a quiet spell fails with "Host is down" — it only wakes
+# the dongle; the next attempt seconds later connects (measured on the MX+).
+_CONNECT_ATTEMPTS = 3
+_RETRY_DELAY_S = 1.0
 _VOLTAGE_RE = re.compile(r"(\d{1,2}(?:[.,]\d{1,2})?)\s*V", re.IGNORECASE)
 _RPM_RE = re.compile(r"41\s*0C\s*([0-9A-F]{2})\s*([0-9A-F]{2})", re.IGNORECASE)
 
@@ -101,6 +105,17 @@ def _cmd(sock: socket.socket, cmd: str, timeout: float = 3.0) -> str:
 
 def probe_dongle(addr: str, channel: int = 1, *, check_rpm: bool = False) -> ProbeResult:
     """Verbinden, Spannung (und optional Drehzahl) lesen, sofort wieder trennen."""
+    result = ProbeResult(False, error="no attempt")
+    for attempt in range(_CONNECT_ATTEMPTS):
+        if attempt:
+            time.sleep(_RETRY_DELAY_S)
+        result = _probe_once(addr, channel, check_rpm=check_rpm)
+        if result.reachable:
+            break
+    return result
+
+
+def _probe_once(addr: str, channel: int, *, check_rpm: bool) -> ProbeResult:
     try:
         sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
     except (OSError, AttributeError) as exc:

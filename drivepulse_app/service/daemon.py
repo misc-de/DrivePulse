@@ -221,6 +221,7 @@ class RecorderService:
 
     def _probe_worker(self, strong: bool) -> None:
         found: tuple[str, int, ProbeResult] | None = None
+        errors: list[str] = []
         try:
             now = time.monotonic()
             if not self._candidates or now - self._candidates_at > CANDIDATE_CACHE_S:
@@ -233,8 +234,11 @@ class RecorderService:
                 if res.reachable:
                     found = (addr, ch, res)
                     break
+                errors.append(f"{addr}: {res.error or 'unreachable'}")
         except Exception:
             log.exception("Dongle probe failed")
+        if found is None:
+            log.info("Dongle not reachable (%s)", "; ".join(errors) or "no candidates")
         GLib.idle_add(self._probe_done, found, strong)
 
     def _probe_done(self, found: tuple[str, int, ProbeResult] | None, strong: bool) -> bool:
