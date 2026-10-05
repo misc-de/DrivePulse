@@ -75,11 +75,11 @@ class DashboardNavRoutingMixin:
         """Switch to the Map tab and reuse the map's own replay machinery
         (speed-coloured polyline, info card, speed/RPM chart) for the
         trip the user picked in the Cars page."""
-        # Older guard used hasattr(self, "map_page") which only checked
-        # attribute existence, not whether the page is currently loaded —
-        # the map widget may have been auto-unloaded after idle.
-        if self.map_page is None:
-            return
+        # The map page is created lazily and auto-unloaded after idle, so
+        # (re)create it here — bailing out on None made a trip tap a no-op
+        # whenever the map tab hadn't been opened yet.
+        self._cancel_map_unload()
+        self._ensure_map_page()
         self.view_stack.set_visible_child_name(self.PAGE_MAP)
 
         def _replay_and_remove() -> bool:
