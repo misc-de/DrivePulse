@@ -15,13 +15,7 @@ It is designed to feel at home on a Linux phone (Phosh, Mobian) just as much as 
 ---
 
 ## Screenshots
-<img width="270" alt="Vehicles" src="docs/screenshots/01-vehicles.webp" />
-<img width="270" alt="Trip log" src="docs/screenshots/02-trip-log.webp" />
-<img width="270" alt="Tour map" src="docs/screenshots/03-tour-map.webp" />
-<img width="270" alt="Dashcam" src="docs/screenshots/04-dashcam.webp" />
-<img width="270" alt="Dashboard" src="docs/screenshots/05-dashboard.webp" />
-<img width="270" alt="Performance meter" src="docs/screenshots/06-performance-meter.webp" />
-<img width="270" alt="Scan comparison" src="docs/screenshots/07-scan-compare.webp" />
+<img width="270" alt="Vehicles" src="docs/screenshots/01-vehicles.webp" /><img width="270" alt="Trip log" src="docs/screenshots/02-trip-log.webp" /><img width="270" alt="Tour map" src="docs/screenshots/03-tour-map.webp" /><img width="270" alt="Dashcam" src="docs/screenshots/04-dashcam.webp" /><img width="270" alt="Dashboard" src="docs/screenshots/05-dashboard.webp" /><img width="270" alt="Performance meter" src="docs/screenshots/06-performance-meter.webp" /><img width="270" alt="Scan comparison" src="docs/screenshots/07-scan-compare.webp" />
 
 ---
 
