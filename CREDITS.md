@@ -121,6 +121,17 @@ Fallback routing engine when Valhalla is unreachable.
 Live traffic incidents and roadworks on German motorways.
 - https://autobahn.api.bund.dev — provided by Autobahn GmbH des Bundes
 
+### Stadt Köln — Verkehrslage & Verkehrskalender
+Live congestion per road section and the city's closures/roadworks calendar
+for the traffic layer.
+- https://www.offenedaten-koeln.de — Datenlizenz Deutschland – Zero – 2.0
+  (Amt für Verkehrsmanagement Stadt Köln)
+
+### Bundesstadt Bonn — Straßenverkehrslage (Realtime)
+Live congestion per road section for the traffic layer.
+- https://opendata.bonn.de — CC0. Datenquelle: Bundesstadt Bonn, Amt 66,
+  https://opendata.bonn.de
+
 ### Esri / ArcGIS World Imagery *(optional tile layer)*
 Satellite imagery for the satellite map style.
 - https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer

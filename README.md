@@ -34,7 +34,7 @@ It is designed to feel at home on a Linux phone (Phosh, Mobian) just as much as 
 - **Dashboard** — multiple gauge themes in light and dark, responsive to portrait/landscape.
 - **Trip log** — every drive recorded as a track with speed, RPM, G-force and map.
 - **Performance meter** — acceleration runs (0–100, 100–200 and similar) with split times, a live G-force ball, and replay.
-- **Navigation** — address search, multi-waypoint car routing, turn-by-turn with optional voice, 2D/3D maps and German Autobahn traffic.
+- **Navigation** — address search, multi-waypoint car routing, turn-by-turn with optional voice, 2D/3D maps and a traffic layer (German Autobahn reports plus live congestion and closures for Cologne and Bonn).
 - **Dashcam** — rolling-buffer recording with one-tap event save and optional GPS/speed overlay.
 - **Vehicle library** — your cars with OBD scan history, photos and per-car run records.
 - **Car Lab** — read-only UDS exploration per car: discover control modules (identification DIDs, VAG coding), then find functions by capturing a module baseline, toggling something in the car and recording the changed byte/bit. Findings build up a per-car coding table. Nothing is ever written to the vehicle.

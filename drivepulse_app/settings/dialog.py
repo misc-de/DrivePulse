@@ -107,6 +107,8 @@ class SettingsDialog(
         on_traffic_bundesweit_changed: Callable[[bool], None] | None = None,
         current_traffic_nrw: bool = False,
         on_traffic_nrw_changed: Callable[[bool], None] | None = None,
+        current_traffic_city: bool = True,
+        on_traffic_city_changed: Callable[[bool], None] | None = None,
         current_last_check: str | None = None,
         on_last_check_updated: Callable[[str], None] | None = None,
         current_dashcam_camera: str = "/dev/video0",
@@ -196,6 +198,7 @@ class SettingsDialog(
         self._initial_force_webkit_map = bool(current_force_webkit_map)
         self.on_traffic_bundesweit_changed = on_traffic_bundesweit_changed
         self.on_traffic_nrw_changed = on_traffic_nrw_changed
+        self.on_traffic_city_changed = on_traffic_city_changed
         self.on_last_check_updated = on_last_check_updated
         self.on_dashcam_camera_changed = on_dashcam_camera_changed
         self.on_dashcam_resolution_changed = on_dashcam_resolution_changed
@@ -352,6 +355,17 @@ class SettingsDialog(
         )
         self.traffic_nrw_row.add_suffix(self.traffic_nrw_switch)
         self.traffic_nrw_row.set_activatable_widget(self.traffic_nrw_switch)
+
+        self.traffic_city_switch = Gtk.Switch()
+        self.traffic_city_switch.set_active(current_traffic_city)
+        self.traffic_city_switch.set_valign(Gtk.Align.CENTER)
+        self.traffic_city_switch.connect("notify::active", self._on_traffic_city_changed)
+        self.traffic_city_row = Adw.ActionRow(
+            title=_translate(self.language, "settings.traffic.city"),
+            subtitle=_translate(self.language, "settings.traffic.city.subtitle"),
+        )
+        self.traffic_city_row.add_suffix(self.traffic_city_switch)
+        self.traffic_city_row.set_activatable_widget(self.traffic_city_switch)
 
         self._NAV_POSITIONS = ["bottom", "top", "left"]
         nav_pos_model = Gtk.StringList()
@@ -782,6 +796,7 @@ class SettingsDialog(
         traffic_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.traffic"))
         traffic_group.add(self.traffic_bundesweit_row)
         traffic_group.add(self.traffic_nrw_row)
+        traffic_group.add(self.traffic_city_row)
         tour_page.add(traffic_group)
 
         tts_group = Adw.PreferencesGroup(title=_translate(self.language, "settings.tts"))

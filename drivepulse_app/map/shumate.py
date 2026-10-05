@@ -15,6 +15,20 @@ from drivepulse_app.map.services import TILE_LABEL_URLS, TILE_URLS, zoom_for_bbo
 
 log = get_logger(__name__)
 
+# (fill, border) RGBA per traffic event kind — mirrors the colours in map.html.
+_TRAFFIC_MARKER_COLORS: dict[str, tuple[tuple[float, ...], tuple[float, ...]]] = {
+    "roadworks": ((0.95, 0.60, 0.0, 1.0), (0.70, 0.40, 0.0, 1.0)),
+    "incidents": ((0.90, 0.20, 0.20, 1.0), (0.60, 0.10, 0.10, 1.0)),
+    "closure": ((0.55, 0.05, 0.10, 1.0), (1.0, 1.0, 1.0, 1.0)),
+    "event": ((0.58, 0.40, 0.88, 1.0), (0.36, 0.22, 0.62, 1.0)),
+}
+
+_TRAFFIC_FLOW_COLORS: dict[str, tuple[float, float, float]] = {
+    "free": (0.18, 0.75, 0.43),
+    "slow": (0.96, 0.62, 0.04),
+    "jam": (0.90, 0.19, 0.19),
+}
+
 SHUMATE_OK = False
 try:
     gi.require_version("Shumate", "1.0")
@@ -423,6 +437,9 @@ class MapShumateMixin:
     def _shumate_set_traffic_visible(self, visible: bool) -> None:
         if self._traffic_layer is not None:
             self._traffic_layer.set_visible(visible)
+        area = getattr(self, "_traffic_flow_area", None)
+        if area is not None:
+            area.set_visible(visible)
 
     def _shumate_show_traffic(self, parsed: list[dict]) -> None:
         if self._traffic_layer is None:
@@ -432,13 +449,9 @@ class MapShumateMixin:
             self._traffic_layer.add_marker(self._make_traffic_marker(item))
 
     def _make_traffic_marker(self, item: dict) -> Any:
-        kind = item.get("kind", "incidents")
-        if kind == "roadworks":
-            fill = (0.95, 0.60, 0.0, 1.0)
-            border = (0.70, 0.40, 0.0, 1.0)
-        else:
-            fill = (0.90, 0.20, 0.20, 1.0)
-            border = (0.60, 0.10, 0.10, 1.0)
+        fill, border = _TRAFFIC_MARKER_COLORS.get(
+            item.get("kind", "incidents"), _TRAFFIC_MARKER_COLORS["incidents"]
+        )
         da = Gtk.DrawingArea()
         da.set_size_request(14, 14)
         da.set_draw_func(self._draw_dot, (fill, border))
@@ -469,6 +482,59 @@ class MapShumateMixin:
         if self._poi_layer is None:
             return
         self._poi_layer.set_visible(visible)
+
+    def _build_shumate_traffic_flow_overlay(self, overlay: Gtk.Overlay) -> None:
+        """Cairo overlay for city congestion lines (same approach as the replay track)."""
+        area = Gtk.DrawingArea()
+        area.set_hexpand(True)
+        area.set_vexpand(True)
+        area.set_can_target(False)
+        area.set_visible(bool(getattr(self, "_traffic_visible", False)))
+        area.set_draw_func(self._draw_shumate_traffic_flow)
+        self._traffic_flow_area = area
+        self._traffic_flow_segments: list[dict] = []
+
+        viewport = self._shumate_map.get_viewport()
+        for prop in ("latitude", "longitude", "zoom-level"):
+            viewport.connect(f"notify::{prop}", lambda *_a: area.queue_draw())
+        overlay.add_overlay(area)
+
+    def _shumate_show_traffic_flow(self, segments: list[dict]) -> None:
+        self._traffic_flow_segments = list(segments)
+        area = getattr(self, "_traffic_flow_area", None)
+        if area is not None:
+            area.queue_draw()
+
+    def _draw_shumate_traffic_flow(
+        self, area: Gtk.DrawingArea, cr: Any, _w: int, _h: int
+    ) -> None:
+        segments = getattr(self, "_traffic_flow_segments", None) or []
+        if not segments:
+            return
+        viewport = self._shumate_map.get_viewport()
+        cr.set_line_cap(1)   # ROUND
+        cr.set_line_join(1)  # ROUND
+        # Jams last so they win where sections overlap.
+        for level in ("free", "slow", "jam"):
+            r, g, b = _TRAFFIC_FLOW_COLORS[level]
+            cr.set_source_rgba(r, g, b, 0.85)
+            cr.set_line_width(5.0 if level == "jam" else 4.0)
+            for seg in segments:
+                if seg.get("level") != level:
+                    continue
+                started = False
+                for lon, lat in seg.get("coords") or []:
+                    try:
+                        x, y = viewport.location_to_widget_coords(area, lat, lon)
+                    except Exception:
+                        started = False
+                        continue
+                    if started:
+                        cr.line_to(x, y)
+                    else:
+                        cr.move_to(x, y)
+                        started = True
+                cr.stroke()
 
     def _build_shumate_replay_overlay(self, overlay: Gtk.Overlay) -> None:
         """Attach a single Cairo DrawingArea on top of the Shumate map for the

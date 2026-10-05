@@ -21,6 +21,7 @@ class MapLayoutMixin:
     _map_type_idx: int
     _map_3d_view: bool
     _poi_visible: bool
+    _traffic_visible: bool
     _tts_enabled: bool
     _speed_warn_enabled: bool
 
@@ -32,6 +33,7 @@ class MapLayoutMixin:
     _build_replay_info_restore_btn: Callable[..., Any]
     _build_replay_chart_restore_btn: Callable[..., Any]
     _build_shumate_replay_overlay: Callable[..., Any]
+    _build_shumate_traffic_flow_overlay: Callable[..., Any]
     _apply_initial_overlay_state: Callable[..., Any]
     _abort_tour: Callable[..., Any]
     _zoom_step: Callable[..., Any]
@@ -46,6 +48,7 @@ class MapLayoutMixin:
     _on_layer_clicked: Callable[..., Any]
     _on_next_wp_clicked: Callable[..., Any]
     _on_poi_toggled: Callable[..., Any]
+    _on_traffic_toggled: Callable[..., Any]
     _on_speed_warn_toggled: Callable[..., Any]
     _on_steps_toggle: Callable[..., Any]
     _on_tour_start_clicked: Callable[..., Any]
@@ -91,6 +94,7 @@ class MapLayoutMixin:
             # Shumate-only: a single Cairo overlay paints the replay polyline.
             # Added first so the UI controls below sit on top of it.
             if self._backend == "shumate":
+                self._build_shumate_traffic_flow_overlay(overlay)
                 self._build_shumate_replay_overlay(overlay)
             overlay.add_overlay(self._build_fab())
             overlay.add_overlay(self._build_zoom_controls())
@@ -146,6 +150,13 @@ class MapLayoutMixin:
         self._poi_btn.set_tooltip_text(_translate(self.language, "map.poi"))
         self._poi_btn.connect("toggled", self._on_poi_toggled)
 
+        self._traffic_btn = Gtk.ToggleButton(icon_name="dp-traffic-symbolic")
+        self._traffic_btn.add_css_class("circular")
+        self._traffic_btn.add_css_class("osd")
+        self._traffic_btn.set_active(self._traffic_visible)
+        self._traffic_btn.set_tooltip_text(_translate(self.language, "map.traffic"))
+        self._traffic_btn.connect("toggled", self._on_traffic_toggled)
+
         _initial_layer = (
             MAP_TYPES[self._map_type_idx]
             if 0 <= self._map_type_idx < len(MAP_TYPES) else "map"
@@ -196,6 +207,7 @@ class MapLayoutMixin:
         self._speed_warn_btn.connect("toggled", self._on_speed_warn_toggled)
 
         fab.append(self._poi_btn)
+        fab.append(self._traffic_btn)
         fab.append(self._layer_btn)
         fab.append(self._heading_up_btn)
         fab.append(self._center_btn)

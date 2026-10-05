@@ -1,4 +1,4 @@
-"""Map traffic layer mixin — Autobahn API, filtering, popover."""
+"""Map traffic layer mixin — Autobahn + city feeds, refresh, popover."""
 from __future__ import annotations
 
 import threading
@@ -10,13 +10,17 @@ from gi.repository import GLib, Gtk
 from drivepulse_app.common import _translate
 from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.map._jsbridge import js_call
-from drivepulse_app.map.services import bab_fetch_sources
+from drivepulse_app.map.services import fetch_traffic
 
 log = get_logger(__name__)
 
+# City congestion feeds update every 5 min — refresh at the same pace while
+# the layer is visible.
+TRAFFIC_REFRESH_S = 300
+
 
 class MapTrafficMixin:
-    """Traffic layer — Bundesautobahn API fetch, filtering and detail widgets."""
+    """Traffic layer — fetches all enabled sources, keeps them fresh, renders details."""
 
     # Concrete MapPage state surfaced to this mixin. See project_mixin_typing.md.
     language: str
@@ -24,13 +28,18 @@ class MapTrafficMixin:
     _route_coords: list[list[float]]
     _status_lbl: Any
     _traffic_btn: Any
+    _traffic_visible: bool
     _traffic_loaded: bool
+    _traffic_fetching: bool
+    _traffic_refresh_id: int
     _traffic_bundesweit: bool
     _traffic_nrw: bool
+    _traffic_city: bool
     _on_traffic_visible_changed: Callable[[bool], None] | None
     _js: Callable[[str], None]
     _shumate_set_traffic_visible: Callable[[bool], None]
     _shumate_show_traffic: Callable[..., None]
+    _shumate_show_traffic_flow: Callable[..., None]
 
     def _on_traffic_toggled(self, btn: Gtk.ToggleButton) -> None:
         visible = btn.get_active()
@@ -39,86 +48,106 @@ class MapTrafficMixin:
             self._js(js_call("mapSetTrafficVisible", visible))
         else:
             self._shumate_set_traffic_visible(visible)
-        if visible and not self._traffic_loaded:
-            self._traffic_loaded = True
-            self._status_lbl.set_text(_translate(self.language, "map.traffic.loading"))
-            threading.Thread(target=self._load_traffic_thread, daemon=True).start()
+        if visible:
+            self._ensure_traffic_loaded()
+        else:
+            self._stop_traffic_refresh()
         if self._on_traffic_visible_changed is not None:
             self._on_traffic_visible_changed(visible)
 
-    def set_traffic_sources(self, *, bundesweit: bool, nrw: bool) -> None:
-        """Update data-source flags; resets cached state so next toggle re-fetches."""
-        if bundesweit != self._traffic_bundesweit or nrw != self._traffic_nrw:
-            self._traffic_bundesweit = bundesweit
-            self._traffic_nrw = nrw
-            self._traffic_loaded = False
+    def set_traffic_sources(self, *, bundesweit: bool, nrw: bool, city: bool) -> None:
+        """Update data-source flags; reloads right away when the layer is shown."""
+        if (bundesweit, nrw, city) == (
+            self._traffic_bundesweit, self._traffic_nrw, self._traffic_city,
+        ):
+            return
+        self._traffic_bundesweit = bundesweit
+        self._traffic_nrw = nrw
+        self._traffic_city = city
+        self._traffic_loaded = False
+        if self._traffic_visible:
+            self._ensure_traffic_loaded()
 
-    def _load_traffic_thread(self) -> None:
-        items = bab_fetch_sources(
-            bundesweit=self._traffic_bundesweit,
-            nrw=self._traffic_nrw,
-        )
-        GLib.idle_add(self._show_traffic, items)
+    def _ensure_traffic_loaded(self) -> None:
+        """First load (with status text) plus the periodic refresh timer."""
+        if not self._traffic_loaded:
+            self._traffic_loaded = True
+            self._status_lbl.set_text(_translate(self.language, "map.traffic.loading"))
+            self._request_traffic_load(announce=True)
+        if not self._traffic_refresh_id:
+            self._traffic_refresh_id = GLib.timeout_add_seconds(
+                TRAFFIC_REFRESH_S, self._on_traffic_refresh_tick,
+            )
 
-    def _parse_traffic_items(self, items: list[dict]) -> list[dict]:
-        result: list[dict] = []
-        for item in items[:500]:
-            point = item.get("point") or ""
-            try:
-                parts = point.split(",")
-                lat = float(parts[0].strip())
-                lon = float(parts[1].strip())
-            except (ValueError, IndexError):
-                continue
-            if lat == 0.0 and lon == 0.0:
-                continue
-            kind = item.get("_kind", "incidents")
-            desc_raw = item.get("description") or []
-            if isinstance(desc_raw, str):
-                description = [desc_raw]
-            else:
-                description = [str(s) for s in desc_raw if s]
-            title = item.get("title") or (description[0] if description else kind)
-            subtitle = item.get("subtitle") or ""
-            road = item.get("_road", "")
-            start_ts = item.get("startTimestamp") or ""
-            is_blocked_raw = item.get("isBlocked")
-            if isinstance(is_blocked_raw, bool):
-                is_blocked = is_blocked_raw
-            else:
-                is_blocked = str(is_blocked_raw or "").lower() == "true"
-            delay = item.get("delayTimeValue") or ""
-            result.append({
-                "lat": lat,
-                "lon": lon,
-                "kind": kind,
-                "title": title,
-                "subtitle": subtitle,
-                "description": description,
-                "road": road,
-                "start": start_ts,
-                "blocked": is_blocked,
-                "delay": str(delay),
-            })
-        return result
+    def _stop_traffic_refresh(self) -> None:
+        if self._traffic_refresh_id:
+            GLib.source_remove(self._traffic_refresh_id)
+            self._traffic_refresh_id = 0
 
-    def _show_traffic(self, items: list[dict]) -> bool:
-        parsed = self._parse_traffic_items(items)
+    def _on_traffic_refresh_tick(self) -> bool:
+        # The dashboard drops an idle MapPage by unparenting it; without this
+        # check the timer would keep the dead page alive and fetching.
+        detached = getattr(self, "get_root", lambda: None)() is None
+        if not self._traffic_visible or detached:
+            self._traffic_refresh_id = 0
+            return False
+        if getattr(self, "get_mapped", lambda: True)():
+            self._request_traffic_load(announce=False)
+        return True
+
+    def _request_traffic_load(self, *, announce: bool) -> None:
+        if self._traffic_fetching:
+            return
+        self._traffic_fetching = True
+        threading.Thread(
+            target=self._load_traffic_thread, args=(announce,), daemon=True,
+        ).start()
+
+    def _load_traffic_thread(self, announce: bool = True) -> None:
+        try:
+            data = fetch_traffic(
+                bundesweit=self._traffic_bundesweit,
+                nrw=self._traffic_nrw,
+                city=self._traffic_city,
+            )
+        except Exception:
+            log.warning("Traffic fetch failed", exc_info=True)
+            data = {"events": [], "flow": []}
+        GLib.idle_add(self._show_traffic, data, announce)
+
+    def _show_traffic(self, data: dict[str, list[dict]], announce: bool = True) -> bool:
+        self._traffic_fetching = False
+        events = data.get("events") or []
+        flow = data.get("flow") or []
+        if not announce and not events and not flow:
+            # A refresh that came back empty is almost always a network
+            # hiccup — keep showing the previous data instead of wiping it.
+            return False
 
         if self._backend == "webkit":
-            # WebKit filters by route bounding box inside JS (mapSetTraffic).
-            self._js(js_call("mapSetTraffic", parsed))
-            if self._traffic_btn is not None and self._traffic_btn.get_active():
-                self._js("mapSetTrafficVisible(true)")
+            # WebKit filters events by route bounding box inside JS (mapSetTraffic).
+            self._js(js_call("mapSetTraffic", events))
+            self._js(js_call("mapSetTrafficFlow", flow))
+            self._js(js_call("mapSetTrafficVisible", self._traffic_visible))
         else:
-            filtered = self._filter_traffic_by_route(parsed)
-            self._shumate_show_traffic(filtered)
+            self._shumate_show_traffic(self._filter_traffic_by_route(events))
+            self._shumate_show_traffic_flow(flow)
 
-        if self._traffic_btn is not None and self._traffic_btn.get_active():
-            self._status_lbl.set_text(
-                _translate(self.language, "map.traffic.count").format(count=len(parsed))
-            )
+        # Periodic refreshes stay silent — the status line is shared with
+        # routing/tour messages that shouldn't be clobbered every 5 min.
+        if announce and self._traffic_visible:
+            self._status_lbl.set_text(self._traffic_summary(events, flow))
         return False
+
+    def _traffic_summary(self, events: list[dict], flow: list[dict]) -> str:
+        jams = sum(1 for seg in flow if seg.get("level") == "jam")
+        slow = sum(1 for seg in flow if seg.get("level") == "slow")
+        text = _translate(self.language, "map.traffic.count").format(count=len(events))
+        if flow:
+            text += " · " + _translate(self.language, "map.traffic.flow_summary").format(
+                jam=jams, slow=slow,
+            )
+        return text
 
     def _filter_traffic_by_route(self, items: list[dict]) -> list[dict]:
         """Keep only items within ~5 km of the route bounding box.
@@ -146,6 +175,8 @@ class MapTrafficMixin:
             from datetime import datetime
             cleaned = raw.replace("Z", "+00:00")
             dt = datetime.fromisoformat(cleaned)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone()
             return dt.strftime("%d.%m.%Y %H:%M")
         except (ValueError, TypeError):
             return raw
@@ -213,5 +244,15 @@ class MapTrafficMixin:
             desc.set_wrap(True)
             desc.set_max_width_chars(40)
             box.append(desc)
+
+        source = item.get("source") or ""
+        if source:
+            src_lbl = Gtk.Label(
+                label=_translate(self.language, "map.traffic.source").format(source=source),
+                xalign=0.0,
+            )
+            src_lbl.add_css_class("dim-label")
+            src_lbl.add_css_class("caption")
+            box.append(src_lbl)
 
         return box

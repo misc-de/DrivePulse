@@ -43,6 +43,7 @@ class SettingsRowCallbacksMixin:
     force_webkit_map_switch: Gtk.Switch
     traffic_bundesweit_switch: Gtk.Switch
     traffic_nrw_switch: Gtk.Switch
+    traffic_city_switch: Gtk.Switch
 
     # External callbacks. The first two are required in SettingsDialog's
     # constructor (no None-default), so they're typed without Optional.
@@ -54,6 +55,7 @@ class SettingsRowCallbacksMixin:
     on_force_webkit_map_changed: Callable[[bool], None] | None
     on_traffic_bundesweit_changed: Callable[[bool], None] | None
     on_traffic_nrw_changed: Callable[[bool], None] | None
+    on_traffic_city_changed: Callable[[bool], None] | None
     on_nav_position_changed: Callable[[str], None] | None
     on_ui_scale_changed: Callable[[int], None] | None
     on_rotation_mode_changed: Callable[[str], None] | None
@@ -236,6 +238,10 @@ class SettingsRowCallbacksMixin:
     def _on_traffic_nrw_changed(self, *_args: Any) -> None:
         if self.on_traffic_nrw_changed is not None:
             self.on_traffic_nrw_changed(self.traffic_nrw_switch.get_active())
+
+    def _on_traffic_city_changed(self, *_args: Any) -> None:
+        if self.on_traffic_city_changed is not None:
+            self.on_traffic_city_changed(self.traffic_city_switch.get_active())
 
     def _on_sync_access_selected(self, *_args: Any) -> None:
         if self.on_sync_access_changed is None:

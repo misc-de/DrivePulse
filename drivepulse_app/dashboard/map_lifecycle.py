@@ -40,6 +40,7 @@ class DashboardMapLifecycleMixin:
     map_traffic_visible: bool
     map_traffic_bundesweit: bool
     map_traffic_nrw: bool
+    map_traffic_city: bool
     map_3d_view: bool
     map_layer: str
     map_heading_up: bool
@@ -76,6 +77,7 @@ class DashboardMapLifecycleMixin:
             traffic_visible=self.map_traffic_visible,
             traffic_bundesweit=self.map_traffic_bundesweit,
             traffic_nrw=self.map_traffic_nrw,
+            traffic_city=self.map_traffic_city,
             map_3d_view=self.map_3d_view,
             map_layer=self.map_layer,
             map_heading_up=self.map_heading_up,

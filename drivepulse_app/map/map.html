@@ -47,6 +47,7 @@
     }
     .dp-traffic-popup h3 { font-size: 13px; margin-bottom: 3px; }
     .dp-traffic-popup .sub { opacity: 0.8; margin-bottom: 4px; }
+    .dp-traffic-popup .src { opacity: 0.6; font-size: 10px; margin-top: 4px; }
     .dp-traffic-popup .blocked { color: #ff7676; font-weight: 700; margin-bottom: 3px; }
     .dp-traffic-popup .delay { margin-bottom: 3px; }
     .dp-traffic-popup .since { opacity: 0.7; font-size: 11px; margin-bottom: 4px; }
@@ -130,6 +131,7 @@ let _guideCoords    = [];
 let _wpStart        = null;   // [lat, lon]
 let _wpEnd          = null;
 let _trafficItems   = [];
+let _trafficFlow    = [];       // [{coords:[[lon,lat],…], level:'free'|'slow'|'jam', name, speed, source}]
 let _trafficVisible = false;
 let _gpsLon = null, _gpsLat = null;
 let _poiVisible     = false;  // POIs are opt-in per session — keep them hidden until Python toggles them on
@@ -167,6 +169,21 @@ function wpFeat(latlon, role) {
 
 // ── Custom data layers (re-created after every style.load) ────────────────────
 function addDataLayers() {
+  // Traffic flow (city congestion lines) — added first so the route,
+  // waypoints and incident dots all draw on top of it.
+  if (!map.getSource('traffic-flow')) {
+    map.addSource('traffic-flow', { type: 'geojson', data: fcGJ(_trafficFlowFeatures()) });
+    map.addLayer({ id: 'traffic-flow', type: 'line', source: 'traffic-flow',
+      layout: { 'line-join': 'round', 'line-cap': 'round',
+                visibility: _trafficVisible ? 'visible' : 'none' },
+      paint: {
+        'line-color': ['match', ['get', 'level'], 'jam', '#E53030', 'slow', '#F59E0A', '#2EC06E'],
+        'line-width': ['match', ['get', 'level'], 'jam', 6, 5],
+        'line-opacity': 0.85,
+      } });
+    _attachTrafficFlowClick();
+  }
+
   // Guide-to-start (dashed gray, shown below main route)
   if (!map.getSource('guide')) {
     map.addSource('guide', { type: 'geojson', data: lineGJ(_guideCoords) });
@@ -205,18 +222,19 @@ function addDataLayers() {
   const vis = _trafficVisible ? 'visible' : 'none';
   if (!map.getSource('traffic')) {
     map.addSource('traffic', { type: 'geojson', data: fcGJ(trafficFeats) });
-    map.addLayer({ id: 'traffic-rw', type: 'circle', source: 'traffic',
-      filter: ['==', ['get', 'kind'], 'roadworks'],
-      paint: { 'circle-radius': 7, 'circle-color': '#F5990A',
-               'circle-stroke-color': '#B36000', 'circle-stroke-width': 2 },
+    // One circle layer for every kind; colours mirror _TRAFFIC_MARKER_COLORS
+    // in shumate.py.
+    map.addLayer({ id: 'traffic-events', type: 'circle', source: 'traffic',
+      paint: {
+        'circle-radius': 7,
+        'circle-color': ['match', ['get', 'kind'],
+          'roadworks', '#F5990A', 'closure', '#8C0D1A', 'event', '#9466E0', '#E53030'],
+        'circle-stroke-color': ['match', ['get', 'kind'],
+          'roadworks', '#B36000', 'closure', '#FFFFFF', 'event', '#5C389E', '#9A1A1A'],
+        'circle-stroke-width': 2,
+      },
       layout: { visibility: vis } });
-    map.addLayer({ id: 'traffic-inc', type: 'circle', source: 'traffic',
-      filter: ['==', ['get', 'kind'], 'incidents'],
-      paint: { 'circle-radius': 7, 'circle-color': '#E53030',
-               'circle-stroke-color': '#9A1A1A', 'circle-stroke-width': 2 },
-      layout: { visibility: vis } });
-    _attachTrafficClick('traffic-rw');
-    _attachTrafficClick('traffic-inc');
+    _attachTrafficClick('traffic-events');
   }
 
   setBasePoiVisibility(_poiVisible);
@@ -756,6 +774,7 @@ function _trafficNearRoute() {
         start: i.start || '',
         blocked: !!i.blocked,
         delay: i.delay || '',
+        source: i.source || '',
         // MapLibre property values are flat — encode arrays as JSON.
         description: JSON.stringify(i.description || []),
       },
@@ -766,6 +785,11 @@ const TRAFFIC_LABELS = {
   blocked: { de: 'Strecke gesperrt', en: 'Road blocked' },
   delay:   { de: 'Verzögerung: ca. {n} Min.', en: 'Delay: approx. {n} min' },
   since:   { de: 'Seit {t}', en: 'Since {t}' },
+  source:  { de: 'Quelle: {s}', en: 'Source: {s}' },
+  free:    { de: 'Freie Fahrt', en: 'Free flow' },
+  slow:    { de: 'Zähfließend', en: 'Slow traffic' },
+  jam:     { de: 'Stau', en: 'Traffic jam' },
+  speed:   { de: 'Ø {n} km/h', en: 'avg. {n} km/h' },
 };
 let _trafficLang = 'de';
 
@@ -796,8 +820,9 @@ function _formatTrafficStart(raw) {
 }
 
 function _buildTrafficPopupHTML(props) {
-  const road = _escapeHtml(props.road || '');
-  const title = _escapeHtml(props.title || '');
+  // Raw values here — escaped once when interpolated below.
+  const road = props.road || '';
+  const title = props.title || '';
   const subtitle = _escapeHtml(props.subtitle || '');
   let descList = [];
   try { descList = JSON.parse(props.description || '[]'); } catch (_) {}
@@ -824,7 +849,51 @@ function _buildTrafficPopupHTML(props) {
     if (truncated) text += '\n…';
     html += `<div class="desc">${_escapeHtml(text)}</div>`;
   }
+  if (props.source) {
+    html += `<div class="src">${_escapeHtml(_trafficLabel('source', {s: props.source}))}</div>`;
+  }
   return html || `<div>${_escapeHtml(title || props.kind || '')}</div>`;
+}
+
+function _trafficFlowFeatures() {
+  return _trafficFlow.map(seg => ({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: seg.coords },
+    properties: {
+      level: seg.level,
+      name: seg.name || '',
+      speed: seg.speed == null ? '' : String(seg.speed),
+      source: seg.source || '',
+    },
+  }));
+}
+
+function _attachTrafficFlowClick() {
+  map.on('click', 'traffic-flow', (e) => {
+    const f = e.features && e.features[0];
+    if (!f) return;
+    // Incident dots sit on top — let their own popup win.
+    if (map.getLayer('traffic-events') &&
+        map.queryRenderedFeatures(e.point, { layers: ['traffic-events'] }).length) return;
+    const p = f.properties || {};
+    let html = `<h3>${_escapeHtml(_trafficLabel(p.level))}</h3>`;
+    if (p.name) html += `<div class="sub">${_escapeHtml(p.name)}</div>`;
+    if (p.speed) html += `<div class="delay">${_escapeHtml(_trafficLabel('speed', {n: p.speed}))}</div>`;
+    if (p.source) html += `<div class="src">${_escapeHtml(_trafficLabel('source', {s: p.source}))}</div>`;
+    new maplibregl.Popup({ className: 'dp-traffic-popup', maxWidth: '260px',
+                           closeOnMove: true, offset: 6 })
+      .setLngLat(e.lngLat)
+      .setHTML(html)
+      .addTo(map);
+  });
+  map.on('mouseenter', 'traffic-flow', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'traffic-flow', () => { map.getCanvas().style.cursor = ''; });
+}
+
+function mapSetTrafficFlow(segments) {
+  _trafficFlow = segments || [];
+  if (map && map.getSource('traffic-flow'))
+    map.getSource('traffic-flow').setData(fcGJ(_trafficFlowFeatures()));
 }
 
 function _attachTrafficClick(layerId) {
@@ -854,7 +923,7 @@ function mapSetTraffic(items) {
 function mapSetTrafficVisible(visible) {
   _trafficVisible = visible;
   if (!map) return;
-  ['traffic-rw', 'traffic-inc'].forEach(id => {
+  ['traffic-events', 'traffic-flow'].forEach(id => {
     if (map.getLayer(id))
       map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
   });

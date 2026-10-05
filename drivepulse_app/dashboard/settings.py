@@ -98,6 +98,7 @@ class DashboardSettingsMixin:
                 "map_traffic_visible": getattr(self, "map_traffic_visible", False),
                 "map_traffic_bundesweit": getattr(self, "map_traffic_bundesweit", True),
                 "map_traffic_nrw": getattr(self, "map_traffic_nrw", False),
+                "map_traffic_city": getattr(self, "map_traffic_city", True),
                 "map_3d_view": getattr(self, "map_3d_view", True),
                 "map_layer": getattr(self, "map_layer", "map"),
                 "map_heading_up": getattr(self, "map_heading_up", True),
@@ -198,6 +199,8 @@ class DashboardSettingsMixin:
             on_traffic_bundesweit_changed=self._set_map_traffic_bundesweit,
             current_traffic_nrw=getattr(self, "map_traffic_nrw", False),
             on_traffic_nrw_changed=self._set_map_traffic_nrw,
+            current_traffic_city=getattr(self, "map_traffic_city", True),
+            on_traffic_city_changed=self._set_map_traffic_city,
             current_last_check=getattr(self, "last_update_check", None),
             on_last_check_updated=self._set_last_update_check,
             current_dashcam_camera=getattr(self, "dashcam_camera", "/dev/video0"),
@@ -899,22 +902,27 @@ class DashboardSettingsMixin:
         if enabled == getattr(self, "map_traffic_bundesweit", True):
             return
         self.map_traffic_bundesweit = enabled
-        self._save_settings()
-        if getattr(self, "map_page", None) is not None:
-            self.map_page.set_traffic_sources(
-                bundesweit=enabled,
-                nrw=getattr(self, "map_traffic_nrw", False),
-            )
+        self._apply_map_traffic_sources()
 
     def _set_map_traffic_nrw(self, enabled: bool) -> None:
         if enabled == getattr(self, "map_traffic_nrw", False):
             return
         self.map_traffic_nrw = enabled
+        self._apply_map_traffic_sources()
+
+    def _set_map_traffic_city(self, enabled: bool) -> None:
+        if enabled == getattr(self, "map_traffic_city", True):
+            return
+        self.map_traffic_city = enabled
+        self._apply_map_traffic_sources()
+
+    def _apply_map_traffic_sources(self) -> None:
         self._save_settings()
         if getattr(self, "map_page", None) is not None:
             self.map_page.set_traffic_sources(
                 bundesweit=getattr(self, "map_traffic_bundesweit", True),
-                nrw=enabled,
+                nrw=getattr(self, "map_traffic_nrw", False),
+                city=getattr(self, "map_traffic_city", True),
             )
 
     def _set_last_update_check(self, timestamp: str) -> None:

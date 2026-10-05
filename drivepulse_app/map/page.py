@@ -102,6 +102,7 @@ class MapPage(
         traffic_visible: bool = False,
         traffic_bundesweit: bool = True,
         traffic_nrw: bool = False,
+        traffic_city: bool = True,
         map_3d_view: bool = True,
         map_layer: str = "map",
         map_heading_up: bool = True,
@@ -315,6 +316,9 @@ class MapPage(
         self._traffic_loaded: bool = False
         self._traffic_bundesweit: bool = bool(traffic_bundesweit)
         self._traffic_nrw: bool = bool(traffic_nrw)
+        self._traffic_city: bool = bool(traffic_city)
+        self._traffic_fetching: bool = False
+        self._traffic_refresh_id: int = 0
 
         # POI layer
         self._poi_btn: Gtk.ToggleButton | None = None
@@ -391,10 +395,8 @@ class MapPage(
             self._shumate_set_poi_visible(self._poi_visible)
             self._shumate_set_traffic_visible(self._traffic_visible)
             self._shumate_apply_attribution()
-        if self._traffic_visible and not self._traffic_loaded:
-            self._traffic_loaded = True
-            self._status_lbl.set_text(_translate(self.language, "map.traffic.loading"))
-            threading.Thread(target=self._load_traffic_thread, daemon=True).start()
+        if self._traffic_visible:
+            self._ensure_traffic_loaded()
 
     def _on_webview_load_changed(self, wv: Any, load_event: Any) -> None:
         super()._on_webview_load_changed(wv, load_event)
@@ -751,9 +753,9 @@ class MapPage(
 
     # ── Mock mode / map state ─────────────────────────────────────────────────
 
-    def set_traffic_sources(self, *, bundesweit: bool, nrw: bool) -> None:
-        """Change which data sources are used when the traffic button is activated."""
-        MapTrafficMixin.set_traffic_sources(self, bundesweit=bundesweit, nrw=nrw)
+    def set_traffic_sources(self, *, bundesweit: bool, nrw: bool, city: bool) -> None:
+        """Change which data sources feed the traffic layer."""
+        MapTrafficMixin.set_traffic_sources(self, bundesweit=bundesweit, nrw=nrw, city=city)
 
     def set_mock_mode(self, mock_mode: bool) -> None:
         self.mock_mode = bool(mock_mode)

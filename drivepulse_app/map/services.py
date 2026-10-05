@@ -6,7 +6,7 @@ The actual implementations live in:
 
 * ``_geometry``     — math helpers (haversine, bearing, snap_to_route, …)
 * ``_routing``      — OSRM + Valhalla backends and step flatteners
-* ``_traffic``      — German Autobahn incident fetchers
+* ``_traffic``      — Autobahn + city (Köln, Bonn) traffic fetchers
 * ``_geocoding``    — Nominatim wrapper + resolve_route_points
 * ``_speed_zones``  — Overpass speed-limit queries + mock helpers
 * ``_format``       — display formatters and maneuver icon/text lookups
@@ -91,6 +91,8 @@ from drivepulse_app.map._traffic import (  # noqa: F401
     bab_fetch_nrw,
     bab_fetch_road,
     bab_fetch_sources,
+    fetch_traffic,
+    normalize_bab_items,
 )
 
 log = get_logger(__name__)

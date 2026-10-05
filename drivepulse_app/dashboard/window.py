@@ -159,6 +159,7 @@ class DashboardWindow(
         self.map_traffic_visible: bool = bool(self.settings.get("map_traffic_visible", False))
         self.map_traffic_bundesweit: bool = bool(self.settings.get("map_traffic_bundesweit", True))
         self.map_traffic_nrw: bool = bool(self.settings.get("map_traffic_nrw", False))
+        self.map_traffic_city: bool = bool(self.settings.get("map_traffic_city", True))
         self.map_3d_view: bool = bool(self.settings.get("map_3d_view", True))
         self.map_layer: str = str(self.settings.get("map_layer", "map"))
         self.map_heading_up: bool = bool(self.settings.get("map_heading_up", True))
