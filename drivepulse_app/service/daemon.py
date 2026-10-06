@@ -443,9 +443,6 @@ def _make_reader_class() -> type:
         def _announce(self, text: str, *, speak: bool = True, voice_text: str | None = None) -> None:
             log.debug("reader: %s", text)
 
-        def _prerender_announce_cache(self) -> None:
-            return
-
         def _rfcomm_bind(self, addr: str, channel: int) -> str | None:
             return None
 
