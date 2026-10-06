@@ -1,6 +1,6 @@
 [project]
 name = "drivepulse"
-version = "0.5.82"
+version = "0.5.83"
 description = "OBD-II dashboard — GTK4/libadwaita, GPS, navigation, dashcam"
 requires-python = ">=3.11"
 dependencies = [
@@ -98,3 +98,11 @@ disallow_untyped_defs = false
 [[tool.mypy.overrides]]
 module = ["gi", "gi.repository", "gi.repository.*"]
 follow_imports = "skip"
+
+# numpy is an optional speed-up (OSM tile greyscale) used in one place. Its
+# stubs use Python 3.12+ syntax, so mypy with python_version 3.11 aborts on
+# newer numpy installs before checking anything — import it as Any instead.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
