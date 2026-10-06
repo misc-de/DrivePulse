@@ -13,7 +13,10 @@ from typing import Any
 from gi.repository import Adw, Gtk
 
 from drivepulse_app.common import SUPPORTED_LANGUAGES, _translate
+from drivepulse_app.diagnostics import get_logger
 from drivepulse_app.obd.devices import parse_bt_port, scan_obd_devices
+
+log = get_logger(__name__)
 
 
 class SettingsRowCallbacksMixin:
@@ -124,7 +127,7 @@ class SettingsRowCallbacksMixin:
                 status = provider() or {}
                 live_connected = bool(status.get("connected"))
             except Exception:
-                pass
+                log.debug("OBD status provider failed", exc_info=True)
 
         self._dongle_updating = True
         try:

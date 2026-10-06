@@ -830,7 +830,7 @@ class DashboardWindow(
                 try:
                     self.reader._run_vehicle_scan(force_rescan=True)
                 except Exception:
-                    pass
+                    log.warning("Vehicle rescan after DTC clear failed", exc_info=True)
 
         threading.Thread(target=_worker, name="obd-clear-dtc", daemon=True).start()
 

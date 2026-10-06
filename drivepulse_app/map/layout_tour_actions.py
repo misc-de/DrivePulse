@@ -136,7 +136,7 @@ class MapTourActionsMixin:
             self._rebuild_tour_list()
             self._rebuild_tour_history_rows()
         except Exception:
-            pass
+            log.warning("Rebuilding tour lists after sync change failed", exc_info=True)
 
     def _make_share_flow(self) -> Any:
         from drivepulse_app.share.flow import ShareFlow

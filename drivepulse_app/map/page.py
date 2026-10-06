@@ -906,7 +906,7 @@ class MapPage(
             try:
                 self._prerender_upcoming_steps(0, 2)
             except Exception:
-                pass
+                log.debug("Prerendering first route announcements failed", exc_info=True)
             if self._steps_toggle_btn is not None and self._steps_toggle_btn.get_active():
                 self._steps_toggle_btn.set_active(False)
             elif self._steps_panel is not None:

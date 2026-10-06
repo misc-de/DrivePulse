@@ -378,7 +378,7 @@ class CarsPhotosMixin:
                     if p.exists():
                         last_photo_path = thumb_cache.get_or_create(p) or p
             except Exception:
-                pass
+                log.debug("Loading last photo of car %s failed", car_id, exc_info=True)
 
         def _on_captured(jpeg_path: Path) -> Path | None:
             try:
