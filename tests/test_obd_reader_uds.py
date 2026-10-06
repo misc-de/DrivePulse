@@ -21,10 +21,11 @@ class _Conn:
 
 
 def _wire_reader(monkeypatch, drivepulse_module, raw_send_fake):
+    from drivepulse_app.obd import _uds as obd_uds
     from drivepulse_app.obd import reader as obd_reader
 
     monkeypatch.setattr(obd_reader, "obd", types.SimpleNamespace())  # truthy
-    monkeypatch.setattr(obd_reader, "raw_send", raw_send_fake)
+    monkeypatch.setattr(obd_uds, "raw_send", raw_send_fake)
     reader = drivepulse_module.ObdReader(lambda payload: None)
     reader.mock = False
     reader.connection = _Conn()
