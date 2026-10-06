@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -17,11 +18,20 @@ log = get_logger(__name__)
 
 _APP_DIR = Path(__file__).parent.parent
 _GITHUB_REPO = "misc-de/DrivePulse"
-_RAW_BASE = f"https://raw.githubusercontent.com/{_GITHUB_REPO}/main"
-_ZIP_URL = f"https://github.com/{_GITHUB_REPO}/archive/refs/heads/main.zip"
+_BRANCH = "main"
+_API_COMMIT_URL = f"https://api.github.com/repos/{_GITHUB_REPO}/commits/{_BRANCH}"
+_RAW_URL = "https://raw.githubusercontent.com/" + _GITHUB_REPO + "/{ref}/VERSION"
+_ZIP_URL = "https://github.com/" + _GITHUB_REPO + "/archive/{ref}.zip"
 
-# Files/dirs that must never be overwritten during a zip update
-_ZIP_SKIP = {".git", "drivepulse.db"}
+# Top-level entries of the install dir that belong to the user, never to an
+# update: they are carried over into the new tree untouched.
+_ZIP_KEEP = {".git", "drivepulse.db"}
+# Records which top-level entries the last zip update installed, so the next
+# one can drop entries that were removed upstream instead of leaving them.
+_MANIFEST_NAME = ".update-manifest.json"
+# Files a downloaded tree must contain before it may replace the install.
+_REQUIRED_FILES = ("VERSION", "drivepulse_app/__init__.py", "drivepulse_app/app.py")
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 class UpdateInfo(NamedTuple):
@@ -31,6 +41,21 @@ class UpdateInfo(NamedTuple):
 
 def get_current_version() -> str:
     return APP_VERSION
+
+
+def _parse_version(text: str | None) -> tuple[int, ...] | None:
+    """``"0.5.81"`` → ``(0, 5, 81)``; anything else → None."""
+    parts = (text or "").strip().split(".")
+    if not parts or not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def _is_newer(remote: str | None, local: str = APP_VERSION) -> bool:
+    """Only a strictly higher remote version counts as an update — an older
+    or unparsable one (rollback, broken VERSION file) never does."""
+    r, cur = _parse_version(remote), _parse_version(local)
+    return r is not None and cur is not None and r > cur
 
 
 def _is_git_repo() -> bool:
@@ -60,17 +85,17 @@ def _git(*args: str, timeout: int = 30) -> tuple[int, str]:
 
 def _current_branch() -> str:
     _, branch = _git("rev-parse", "--abbrev-ref", "HEAD")
-    return branch or "main"
+    return branch or _BRANCH
 
 
 # ---------------------------------------------------------------------------
 # zip / HTTP helpers
 # ---------------------------------------------------------------------------
 
-def _http_get_text(url: str, timeout: int = 15) -> str | None:
+def _http_get_text(url: str, timeout: int = 15, headers: dict[str, str] | None = None) -> str | None:
     try:
         import requests as _req
-        r = _req.get(url, timeout=timeout)
+        r = _req.get(url, timeout=timeout, headers=headers)
         r.raise_for_status()
         return r.text.strip()
     except Exception as exc:
@@ -125,11 +150,17 @@ def _check_git() -> UpdateInfo:
     if not behind:
         return UpdateInfo(False, None)
     _, remote_ver = _git("show", f"origin/{branch}:VERSION")
-    return UpdateInfo(True, remote_ver.strip() or None)
+    remote_ver = remote_ver.strip()
+    if not _is_newer(remote_ver):
+        log.info("origin/%s is ahead but not newer (%s vs %s) — no update", branch, remote_ver, APP_VERSION)
+        return UpdateInfo(False, None)
+    return UpdateInfo(True, remote_ver)
 
 
 def _apply_git() -> bool:
-    code, out = _git("pull", "--quiet", timeout=120)
+    # --ff-only: never create a merge commit on the device; a diverged
+    # checkout must be sorted out by hand instead of half-merged.
+    code, out = _git("pull", "--ff-only", "--quiet", timeout=120)
     if code != 0:
         log.error("git pull failed: %s", out)
         return False
@@ -141,54 +172,124 @@ def _apply_git() -> bool:
 # zip strategy
 # ---------------------------------------------------------------------------
 
+def _resolve_remote_sha() -> str | None:
+    """Pin the update to one commit so VERSION check and download always
+    refer to the same tree (the branch may move in between)."""
+    sha = _http_get_text(_API_COMMIT_URL, headers={"Accept": "application/vnd.github.sha"})
+    if sha and _SHA_RE.match(sha):
+        return sha
+    log.warning("Could not resolve %s to a commit: %r", _BRANCH, sha)
+    return None
+
+
 def _check_zip() -> UpdateInfo:
-    remote_ver = _http_get_text(f"{_RAW_BASE}/VERSION")
-    if not remote_ver:
+    sha = _resolve_remote_sha()
+    if not sha:
         return UpdateInfo(False, None)
-    if remote_ver == APP_VERSION:
+    remote_ver = _http_get_text(_RAW_URL.format(ref=sha))
+    if not _is_newer(remote_ver):
         return UpdateInfo(False, None)
     return UpdateInfo(True, remote_ver)
 
 
 def _apply_zip() -> bool:
+    sha = _resolve_remote_sha()
+    if not sha:
+        return False
     with tempfile.TemporaryDirectory() as tmp:
         zip_path = Path(tmp) / "drivepulse.zip"
-        log.info("Downloading update zip…")
-        if not _http_download(_ZIP_URL, zip_path):
+        log.info("Downloading update %s…", sha[:12])
+        if not _http_download(_ZIP_URL.format(ref=sha), zip_path):
             return False
 
         extract_dir = Path(tmp) / "extracted"
         extract_dir.mkdir()
         try:
             with zipfile.ZipFile(zip_path) as zf:
+                if zf.testzip() is not None:
+                    log.error("ZIP archive is corrupt")
+                    return False
                 zf.extractall(extract_dir)
         except Exception as exc:
             log.error("ZIP extraction failed: %s", exc)
             return False
 
-        # GitHub extracts to a single subdirectory (e.g. DrivePulse-main)
+        # GitHub extracts to a single subdirectory (e.g. DrivePulse-<sha>)
         subdirs = [d for d in extract_dir.iterdir() if d.is_dir()]
         if len(subdirs) != 1:
             log.error("Unexpected ZIP structure: %s", subdirs)
             return False
         src_root = subdirs[0]
+        if not _validate_tree(src_root):
+            return False
 
-        _copy_update(src_root, _APP_DIR)
+        try:
+            _install_tree(src_root, _APP_DIR)
+        except Exception:
+            log.exception("Installing the update failed — previous version kept")
+            return False
         _run_migrations()
         return True
 
 
-def _copy_update(src: Path, dst: Path) -> None:
-    """Recursively copy src → dst, skipping entries in _ZIP_SKIP."""
-    for item in src.iterdir():
-        if item.name in _ZIP_SKIP:
+def _validate_tree(root: Path) -> bool:
+    """Refuse a downloaded tree that is incomplete or not actually newer."""
+    missing = [f for f in _REQUIRED_FILES if not (root / f).is_file()]
+    if missing:
+        log.error("Update tree incomplete, missing: %s", missing)
+        return False
+    version = (root / "VERSION").read_text(encoding="utf-8").strip()
+    if not _is_newer(version):
+        log.error("Downloaded version %r is not newer than %s", version, APP_VERSION)
+        return False
+    return True
+
+
+def _read_manifest(app_dir: Path) -> set[str] | None:
+    try:
+        return set(json.loads((app_dir / _MANIFEST_NAME).read_text(encoding="utf-8")))
+    except Exception:
+        return None
+
+
+def _install_tree(src: Path, app_dir: Path) -> None:
+    """Replace *app_dir* with *src* as one directory swap.
+
+    The new tree is assembled next to the install (same filesystem), then
+    swapped in with two renames, so an interrupted update leaves either the
+    old or the new version — never a mix of both. Upstream-deleted files
+    disappear with the old tree. Top-level entries the user owns (database,
+    .git, anything an earlier update did not install) are moved across.
+    """
+    parent = app_dir.parent
+    staging = parent / f".{app_dir.name}.update"
+    backup = parent / f".{app_dir.name}.previous"
+    for leftover in (staging, backup):
+        if leftover.exists():
+            shutil.rmtree(leftover)
+
+    shutil.copytree(src, staging, symlinks=True)
+    installed = sorted(p.name for p in staging.iterdir())
+    previous = _read_manifest(app_dir)
+    for item in app_dir.iterdir():
+        if item.name == _MANIFEST_NAME or (staging / item.name).exists():
             continue
-        target = dst / item.name
-        if item.is_dir():
-            target.mkdir(exist_ok=True)
-            _copy_update(item, target)
-        else:
-            shutil.copy2(item, target)
+        if item.name in _ZIP_KEEP or previous is None or item.name not in previous:
+            # User-owned (or unknown on the very first manifest-less update):
+            # keep it. Copy rather than move so a failed swap loses nothing.
+            if item.is_dir():
+                shutil.copytree(item, staging / item.name, symlinks=True)
+            else:
+                shutil.copy2(item, staging / item.name)
+    atomic_write_text(staging / _MANIFEST_NAME, json.dumps(installed))
+
+    app_dir.rename(backup)
+    try:
+        staging.rename(app_dir)
+    except Exception:
+        backup.rename(app_dir)
+        raise
+    shutil.rmtree(backup, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
