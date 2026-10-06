@@ -225,43 +225,8 @@ class ObdReader(GObject.Object):
 
     def start(self) -> None:
         self._connection_log("reader_start")
-        self._prerender_announce_cache()
         self.thread = threading.Thread(target=self._run, name="obd-reader", daemon=True)
         self.thread.start()
-
-    def _prerender_announce_cache(self) -> None:
-        """Warm the Piper cache with the one spoken connect phrase.
-
-        Piper synthesizes ~1-2 s per phrase on first call — long enough that
-        a freshly-started reader would speak "Verbunden" several seconds
-        after the actual connect. Prerendering at start lets the eventual
-        ``speak()`` skip piper and just play the cached PCM (~50 ms total).
-        Background-threaded inside ``prerender`` itself; never blocks startup.
-        All other OBD status messages (pairing, disconnect, no-dongle) are
-        surfaced on the banner only (``speak=False``); "Verbunden" is the
-        sole audible OBD announcement.
-        """
-        try:
-            from drivepulse_app.app_settings import load_settings
-            from drivepulse_app.tts import service as _tts
-        except Exception:
-            log.debug("TTS prerender: import failed", exc_info=True)
-            return
-        try:
-            s = load_settings()
-            if not s.get("tts_enabled"):
-                return
-            lang = s.get("tts_language") or "auto"
-            if lang == "auto":
-                lang = s.get("language") or "de"
-            gender: Literal["male", "female"] = "male" if s.get("tts_voice") == "male" else "female"
-            quality = s.get("tts_quality") or "medium"
-            for phrase in (
-                "Verbunden.",
-            ):
-                _tts.prerender(phrase, lang, gender=gender, quality=quality)
-        except Exception:
-            log.debug("TTS prerender: failed to prime cache", exc_info=True)
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -343,7 +308,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=self.connected_port, supported_commands=supported)
-                self._announce("Verbunden.")
+                self._announce("Verbunden.", speak=False)
                 self._probe_adapter()
                 return True
             self._close_connection()
@@ -549,7 +514,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=dev, supported_commands=supported)
-                self._announce("Verbunden.")
+                self._announce("Verbunden.", speak=False)
                 self._probe_adapter()
                 return True
             self._close_connection()
@@ -707,7 +672,7 @@ class ObdReader(GObject.Object):
                 self.failed_read_count = 0
                 supported = sorted(str(c) for c in getattr(self.connection, "supported_commands", set()))
                 self._connection_log("connect_success", port=port, supported_commands=supported)
-                self._announce("Verbunden.")
+                self._announce("Verbunden.", speak=False)
                 self._probe_adapter()
                 return True
             self._close_connection()
