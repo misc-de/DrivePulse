@@ -10,6 +10,7 @@ from drivepulse_app.db._schema import (
     _MIGRATION_STATEMENTS_V1,
     _MIGRATION_STATEMENTS_V2,
     _MIGRATION_STATEMENTS_V3,
+    _MIGRATION_STATEMENTS_V4,
     _SCHEMA,
     _SCHEMA_VERSION,
 )
@@ -67,6 +68,8 @@ class _DriveDBBase:
             self._apply_migration(_MIGRATION_STATEMENTS_V2)
         if version < 3:
             self._apply_migration(_MIGRATION_STATEMENTS_V3)
+        if version < 4:
+            self._apply_migration(_MIGRATION_STATEMENTS_V4)
         if version < _SCHEMA_VERSION:
             self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
             self._conn.commit()

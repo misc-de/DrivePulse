@@ -21,6 +21,18 @@ from drivepulse_app.diagnostics import get_logger
 log = get_logger(__name__)
 
 
+# Anything outside this band is a "no altitude" sentinel or garbage, not a
+# place a car can be (Dead Sea shore ≈ -430 m, highest passes < 6000 m).
+_ALTITUDE_MIN_M = -500.0
+_ALTITUDE_MAX_M = 10000.0
+
+
+def _plausible_altitude(value: float | None) -> float | None:
+    if value is None or not _ALTITUDE_MIN_M <= value <= _ALTITUDE_MAX_M:
+        return None
+    return value
+
+
 class GpsReader:
     """Reads GPS speed from GeoClue2 (D-Bus) with GPSD as fallback."""
 
@@ -151,7 +163,9 @@ class GpsReader:
             heading = self._geoclue_double(location, "Heading")
             if heading is not None and 0 <= heading < 360:
                 gps_payload["gps_heading"] = {"value": heading, "unit": "deg"}
-            altitude = self._geoclue_double(location, "Altitude")
+            # GeoClue reports -DBL_MAX when the source has no altitude
+            # (WiFi/cell fix) — finite, so it needs the range check.
+            altitude = _plausible_altitude(self._geoclue_double(location, "Altitude"))
             if altitude is not None:
                 gps_payload["gps_altitude"] = {"value": altitude, "unit": "meter"}
             self.on_update(gps_payload)
@@ -226,7 +240,7 @@ class GpsReader:
             gps_payload["gps_lat"] = {"value": lat_value, "unit": "degree"}
             gps_payload["gps_lon"] = {"value": lon_value, "unit": "degree"}
         altitude = data.get("alt")
-        altitude_value = self._finite_float(altitude)
+        altitude_value = _plausible_altitude(self._finite_float(altitude))
         if altitude_value is not None:
             gps_payload["gps_altitude"] = {"value": altitude_value, "unit": "meter"}
         GLib.idle_add(self.on_update, gps_payload)

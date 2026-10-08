@@ -211,3 +211,26 @@ def test_profiles_load_vehicle_scan_data_from_database(tmp_path):
         assert profiles[0]["data"]["vehicle_info"]["CALIBRATION_ID"] == "CAL"
     finally:
         db.close()
+
+
+def test_db_migration_v4_clears_geoclue_altitude_sentinel(tmp_path):
+    from drivepulse_app.db import DriveDB
+
+    path = tmp_path / "drivepulse.sqlite3"
+    first = DriveDB(path)
+    car_id = first.upsert_car(vin="VIN-ALT")
+    trip_id = first.start_trip(car_id)
+    first.add_sample(trip_id, ts=1.0, altitude_m=-1.7976931348623157e308)
+    first.add_sample(trip_id, ts=2.0, altitude_m=77.2)
+    first.add_sample(trip_id, ts=3.0, altitude_m=-12.0)
+    with first._lock:
+        first._conn.execute("PRAGMA user_version=3")
+        first._conn.commit()
+    first.close()
+
+    second = DriveDB(path)
+    try:
+        alts = [r["altitude_m"] for r in second.samples_for_trip(trip_id)]
+        assert alts == [None, 77.2, -12.0]
+    finally:
+        second.close()

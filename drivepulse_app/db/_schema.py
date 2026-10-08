@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 def _is_duplicate_column_error(exc: sqlite3.OperationalError) -> bool:
@@ -40,6 +40,12 @@ _MIGRATION_STATEMENTS_V2 = (
 
 _MIGRATION_STATEMENTS_V3 = (
     "ALTER TABLE cars ADD COLUMN autodev_raw_json TEXT",
+)
+
+# GeoClue's "no altitude" sentinel (-DBL_MAX) used to be stored verbatim and
+# wrecked the altitude chart; same plausible band as sensors/gps.py.
+_MIGRATION_STATEMENTS_V4 = (
+    "UPDATE samples SET altitude_m = NULL WHERE altitude_m < -500 OR altitude_m > 10000",
 )
 
 

@@ -488,3 +488,19 @@ def test_obd_scanner_emits_scan_profile_without_profile_file(drivepulse_module):
     assert complete["scan_profile"]["vin"] == "TESTVIN123"
     assert identity["profile_path"] == "vin_TESTVIN123"
     assert "vin_TESTVIN123" in cache
+
+
+def test_gps_altitude_sentinels_are_dropped(drivepulse_module):
+    from drivepulse_app.sensors.gps import GpsReader, _plausible_altitude
+
+    # GeoClue: -DBL_MAX means "no altitude" (WiFi/cell fix) — finite, not real.
+    assert _plausible_altitude(-1.7976931348623157e308) is None
+    assert _plausible_altitude(99999.0) is None
+    assert _plausible_altitude(None) is None
+    assert _plausible_altitude(-12.0) == -12.0
+    assert _plausible_altitude(38.8) == 38.8
+
+    updates = []
+    reader = GpsReader(updates.append)
+    reader._handle_gpsd_line(json.dumps({"class": "TPV", "mode": 3, "speed": 1, "alt": -1.7976931348623157e308}))
+    assert "gps_altitude" not in updates[0]
