@@ -120,6 +120,12 @@ let carEl = null;
 let carArrowEl = null;
 let followMode = true;
 let initialized = false;
+// Trip replay can arrive before MapLibre exists (map page still hidden or
+// just pushed) or while a style is (re)loading. Keep the track and the
+// requested view here and apply them once the map is ready, instead of
+// dropping them and leaving the map on DEFAULT_CENTER.
+let _coloredTrack = null;  // FeatureCollection shown by mapSetColoredTrack
+let _pendingFit = null;    // [minLat, minLon, maxLat, maxLon] awaiting a map
 
 let _desiredStyleKey = 'street'; // last base style Python asked for; restored when connectivity returns
 let _offlineFallback = false;    // true while OFFLINE_STYLE is shown instead of the requested base style
@@ -317,6 +323,9 @@ function initMap(lat, lon) {
     .addTo(map);
 
   map.on('style.load', addDataLayers);
+  // Style changes (offline fallback, base map switch) wipe custom layers.
+  map.on('style.load', _applyColoredTrack);
+  map.once('load', () => _applyPendingFit());
 
   // A failed style/tile request offline surfaces here — fall back so the
   // route and car marker still draw on a plain background instead of nothing.
@@ -648,11 +657,25 @@ function mapGoTo(lat, lon, zoom) {
 // segment, each carrying a `color` property. line-color is data-driven so
 // the polyline gets a speed-based gradient (blue → green → red).
 function mapSetColoredTrack(features) {
+  _coloredTrack = { type: 'FeatureCollection', features: features };
   if (!map) return;
   // Hide the single-colour route layer in case it was left over.
   if (map.getSource('route')) map.getSource('route').setData(lineGJ([]));
   if (map.getSource('waypoints')) map.getSource('waypoints').setData(fcGJ([]));
-  const data = { type: 'FeatureCollection', features: features };
+  _applyColoredTrack();
+}
+
+function _applyColoredTrack() {
+  if (!map || !_coloredTrack) return;
+  const data = _coloredTrack;
+  try {
+    _addOrUpdateColoredTrack(data);
+  } catch (e) {
+    // "Style is not done loading" — the style.load listener retries.
+  }
+}
+
+function _addOrUpdateColoredTrack(data) {
   if (!map.getSource('colored-track')) {
     map.addSource('colored-track', { type: 'geojson', data: data });
     map.addLayer({
@@ -671,6 +694,7 @@ function mapSetColoredTrack(features) {
 }
 
 function mapClearColoredTrack() {
+  _coloredTrack = null;
   if (!map) return;
   if (map.getLayer('colored-track-line')) map.removeLayer('colored-track-line');
   if (map.getLayer('colored-track-case')) map.removeLayer('colored-track-case');
@@ -712,9 +736,26 @@ function mapSetRouteVisible(visible) {
   });
 }
 
+function _mapHasSize() {
+  const el = map && map.getContainer();
+  return !!el && el.clientWidth > 0 && el.clientHeight > 0;
+}
+
+function _applyPendingFit() {
+  if (!_pendingFit || !map || !_mapHasSize()) return;
+  const [minLat, minLon, maxLat, maxLon] = _pendingFit;
+  _pendingFit = null;
+  map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 48, pitch: 0, duration: 0 });
+}
+
 function mapFitBounds(minLat, minLon, maxLat, maxLon) {
-  if (!initialized) return;
-  if (!map) return;
+  if (!map || !_mapHasSize()) {
+    // No map yet, or hidden (0×0 — fitBounds can't compute a
+    // zoom): remember it; initMap's 'load' and the ResizeObserver apply it.
+    _pendingFit = [minLat, minLon, maxLat, maxLon];
+    return;
+  }
+  _pendingFit = null;
   map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 48, pitch: 0, duration: 900 });
 }
 
@@ -1004,7 +1045,10 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function tryInit() {
     if (!initialized && mapEl.clientWidth > 0 && mapEl.clientHeight > 0) {
-      initMap(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon);
+      const c = _pendingFit
+        ? { lat: (_pendingFit[0] + _pendingFit[2]) / 2, lon: (_pendingFit[1] + _pendingFit[3]) / 2 }
+        : DEFAULT_CENTER;
+      initMap(c.lat, c.lon);
     }
   }
 
@@ -1016,6 +1060,7 @@ window.addEventListener('DOMContentLoaded', () => {
         tryInit();
       } else if (map) {
         map.resize();
+        _applyPendingFit();
       }
     }).observe(mapEl);
   }
