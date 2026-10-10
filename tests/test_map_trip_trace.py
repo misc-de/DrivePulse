@@ -120,3 +120,36 @@ def test_failed_trip_trace_preserves_timestamps_for_retry(monkeypatch):
     assert page._pending_trip_trace_args == (
         coords, "Trip", 12.3, 456.0, timestamps,
     )
+
+
+def test_trip_trace_result_moves_start_and_end_with_the_route(monkeypatch):
+    """After "Umkehren" the reversed route must also flip start/end —
+    otherwise the markers, guide-to-start and arrival stay on the old ends."""
+    from drivepulse_app.map import page as map_page
+    from drivepulse_app.map.page import MapPage
+
+    monkeypatch.setattr(map_page, "annotate_uturns", lambda coords, steps: steps)
+    page = MapPage.__new__(MapPage)
+    page.language = "en"
+    page._tour_start_btn = _Button()
+    page._tour_reverse_btn = None
+    page._steps_toggle_btn = None
+    page._steps_panel = None
+    page._backend = "none"
+    page._shumate_map = None
+    page._set_route_loading = lambda _active: None
+    page._set_tour_button = lambda _mode: None
+    page._compute_route_progress_tables = lambda: None
+    page._populate_trip_route_info = lambda *a: None
+    page._prerender_upcoming_steps = lambda *a: None
+    page._start_coord = (50.0, 7.0)
+    page._end_coord = (50.1, 7.1)
+    page._tour_waypoints = [(50.0, 7.0), (50.1, 7.1)]
+
+    reversed_route = [[7.1, 50.1], [7.05, 50.05], [7.0, 50.0]]
+    page._trip_trace_result((reversed_route, 300.0, 1600.0, []), reversed_route, "Trip", 1.6, 300.0)
+
+    assert page._start_coord == (50.1, 7.1)
+    assert page._end_coord == (50.0, 7.0)
+    assert page._tour_waypoints == [(50.1, 7.1), (50.0, 7.0)]
+    assert page._reverse_source[0] == "trace"

@@ -436,7 +436,12 @@ class MapShumateMixin:
             alloc = self._shumate_map.get_allocation()
             px_w = max(alloc.width, 400)
             px_h = max(alloc.height, 600)
-            zoom = zoom_for_bbox(min(lats), min(lons), max(lats), max(lons), px_w, px_h)
+            # Fit into the inner part of the map: tour buttons (top-left),
+            # FAB column (right) and the flag above the end point would
+            # otherwise cover start/end.
+            zoom = zoom_for_bbox(
+                min(lats), min(lons), max(lats), max(lons), int(px_w * 0.7), int(px_h * 0.65)
+            )
             viewport = self._shumate_map.get_viewport()
             with self._viewport_lock():
                 viewport.set_zoom_level(zoom)
@@ -798,7 +803,9 @@ class MapShumateMixin:
             da.set_size_request(44, 44)
             da.set_draw_func(self._draw_start_arrow, None)
         elif role == "end":
-            da.set_size_request(22, 30)
+            # Markers are centred on their location: the flag sits in the
+            # upper half so the foot of the pole is exactly on the target.
+            da.set_size_request(40, 80)
             da.set_draw_func(self._draw_destination_flag, None)
         else:
             da.set_size_request(14, 14)
@@ -837,23 +844,39 @@ class MapShumateMixin:
         cr.restore()
 
     def _draw_destination_flag(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
-        """Destination flag: vertical pole with a red pennant at the top."""
-        pole_x = width * 0.35
-        pole_top = 1.0
-        pole_bot = float(height) - 1.0
-        cr.set_source_rgb(0.35, 0.35, 0.35)
-        cr.set_line_width(2.0)
-        cr.move_to(pole_x, pole_top)
-        cr.line_to(pole_x, pole_bot)
-        cr.stroke()
-        flag_h = (pole_bot - pole_top) * 0.48
-        flag_w = width - pole_x - 2.0
-        cr.set_source_rgb(0.91, 0.30, 0.24)
-        cr.rectangle(pole_x, pole_top, flag_w, flag_h)
+        """Checkered finish flag; the pole's foot is the widget centre."""
+        foot_y = height / 2.0
+        pole_x = 6.0
+        top = 4.0
+        flag_w = width - pole_x - 3.0
+        flag_h = foot_y * 0.55
+        cols, rows = 4, 3
+        cell_w, cell_h = flag_w / cols, flag_h / rows
+        # Pole: dark core with a light halo so it reads on dark and light maps.
+        for colour, lw in (((1.0, 1.0, 1.0), 5.0), ((0.15, 0.15, 0.15), 2.5)):
+            cr.set_source_rgb(*colour)
+            cr.set_line_width(lw)
+            cr.move_to(pole_x, top)
+            cr.line_to(pole_x, foot_y)
+            cr.stroke()
+        cr.set_source_rgb(1.0, 1.0, 1.0)
+        cr.rectangle(pole_x - 1.0, top - 1.0, flag_w + 2.0, flag_h + 2.0)
         cr.fill()
-        cr.set_source_rgb(0.60, 0.15, 0.10)
-        cr.set_line_width(1.0)
-        cr.rectangle(pole_x, pole_top, flag_w, flag_h)
+        cr.set_source_rgb(0.08, 0.08, 0.08)
+        for r in range(rows):
+            for c in range(cols):
+                if (r + c) % 2 == 0:
+                    cr.rectangle(pole_x + c * cell_w, top + r * cell_h, cell_w, cell_h)
+        cr.fill()
+        cr.set_line_width(1.5)
+        cr.rectangle(pole_x, top, flag_w, flag_h)
+        cr.stroke()
+        # Foot marker on the exact destination point.
+        cr.set_source_rgb(0.91, 0.30, 0.24)
+        cr.arc(pole_x, foot_y, 4.0, 0, 2 * math.pi)
+        cr.fill_preserve()
+        cr.set_source_rgb(1.0, 1.0, 1.0)
+        cr.set_line_width(1.5)
         cr.stroke()
 
     def _draw_dot(self, _da: Any, cr: Any, w: int, h: int, data: tuple) -> None:

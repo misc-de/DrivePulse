@@ -902,6 +902,13 @@ class MapPage(
             # into ordinary turns; relabel it so the reversal is announced.
             steps = annotate_uturns(snapped_coords, steps)
             self._tour_coords = snapped_coords
+            # Start/end follow the calculated route — after "Umkehren" the
+            # old ends would otherwise keep the markers, the guide-to-start
+            # and the arrival target on the previous direction.
+            if snapped_coords:
+                self._start_coord = (snapped_coords[0][1], snapped_coords[0][0])
+                self._end_coord = (snapped_coords[-1][1], snapped_coords[-1][0])
+                self._tour_waypoints = [self._start_coord, self._end_coord]
             self._tour_steps = steps
             self._tour_step_idx = 0
             self._step_min_dist = None

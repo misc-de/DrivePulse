@@ -615,11 +615,7 @@ class MapLayoutMixin:
 
         # "Richtung umkehren" — right of "Tour starten" while a calculated
         # tour waits to be started (abort/next-wp are hidden then).
-        reverse_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        reverse_inner.append(Gtk.Image.new_from_icon_name("object-flip-horizontal-symbolic"))
-        reverse_inner.append(Gtk.Label(label=_translate(self.language, "map.tour_reverse")))
-        self._tour_reverse_btn = Gtk.Button()
-        self._tour_reverse_btn.set_child(reverse_inner)
+        self._tour_reverse_btn = Gtk.Button.new_from_icon_name("object-flip-horizontal-symbolic")
         self._tour_reverse_btn.add_css_class("osd")
         self._tour_reverse_btn.set_tooltip_text(_translate(self.language, "map.tour_reverse.tooltip"))
         self._tour_reverse_btn.set_visible(False)
