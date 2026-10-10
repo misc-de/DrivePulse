@@ -11,7 +11,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gtk
 
 from drivepulse_app.diagnostics import get_logger
-from drivepulse_app.map.services import TILE_LABEL_URLS, TILE_URLS, zoom_for_bbox
+from drivepulse_app.map.services import TILE_LABEL_URLS, TILE_MAX_ZOOM, TILE_URLS, zoom_for_bbox
 
 log = get_logger(__name__)
 
@@ -36,6 +36,16 @@ try:
     SHUMATE_OK = True
 except (ValueError, ImportError):
     Shumate = None
+
+
+def _raster_source(key: str, url: str, max_zoom: int | None = None) -> Any:
+    """URL tile source that reports its real max zoom (see TILE_MAX_ZOOM);
+    a plain ``RasterRenderer.new`` claims 18 for every server."""
+    return Shumate.RasterRenderer.new_full_from_url(
+        key, key, "", "", 0,
+        max_zoom if max_zoom is not None else TILE_MAX_ZOOM.get(key, 18),
+        256, Shumate.MapProjection.MERCATOR, url,
+    )
 
 
 class MapShumateMixin:
@@ -77,9 +87,7 @@ class MapShumateMixin:
                 if not url:
                     continue
                 try:
-                    self._sources[key] = Shumate.RasterRenderer.new(
-                        Shumate.TileDownloader.new(url)
-                    )
+                    self._sources[key] = _raster_source(key, url)
                 except Exception:
                     log.warning("Could not create tile source for %s - using OSM fallback", key)
 
@@ -91,7 +99,7 @@ class MapShumateMixin:
             for key, url in TILE_LABEL_URLS.items():
                 try:
                     self._label_layers[key] = Shumate.MapLayer.new(
-                        Shumate.RasterRenderer.new(Shumate.TileDownloader.new(url)),
+                        _raster_source(f"{key}-labels", url, TILE_MAX_ZOOM.get(key, 18)),
                         viewport,
                     )
                 except Exception:

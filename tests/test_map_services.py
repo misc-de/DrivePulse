@@ -316,3 +316,15 @@ def test_valhalla_trace_route_retries_untyped_shape_after_edge_walk_error(monkey
     assert distance_m == 100.0
     assert "type" in seen[0][1]["shape"][0]
     assert "type" not in seen[1][1]["shape"][0]
+
+
+def test_every_raster_source_has_a_max_zoom():
+    """Esri's gray canvas has no imagery past z16 (it serves a "Map data not
+    yet available" placeholder) — every raster source needs a real ceiling so
+    Shumate clamps the tour zoom instead of showing placeholder tiles."""
+    from drivepulse_app.map.services import TILE_LABEL_URLS, TILE_MAX_ZOOM, TILE_URLS
+
+    assert set(TILE_URLS) <= set(TILE_MAX_ZOOM)
+    assert set(TILE_LABEL_URLS) <= set(TILE_MAX_ZOOM)
+    assert TILE_MAX_ZOOM["dark"] == 16
+    assert TILE_MAX_ZOOM["grayscale"] == 16

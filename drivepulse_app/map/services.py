@@ -150,6 +150,16 @@ TILE_LABEL_URLS = {
         "/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
     ),
 }
+# Deepest zoom each raster source has real imagery for. Esri's gray canvas
+# stops at 16 — beyond it the server still answers 200 with a gray "Map data
+# not yet available" placeholder, which is what the tour view showed when it
+# zoomed in to ~18. Shumate clamps the viewport to the source's max zoom.
+TILE_MAX_ZOOM = {
+    "map": 19,
+    "satellite": 19,
+    "dark": 16,
+    "grayscale": 16,
+}
 TILE_ATTRIBUTION = {
     "map": "© OpenStreetMap contributors",
     "satellite": "© Esri, Maxar, Earthstar Geographics",
