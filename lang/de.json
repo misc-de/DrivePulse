@@ -413,7 +413,6 @@
   "cars.trip.samples": "Samples",
   "cars.trip.open_in_tour": "In Tour öffnen",
   "cars.trip.speed_chart": "Geschwindigkeit (km/h)",
-  "cars.trip.no_data": "Keine Messwerte für diese Fahrt.",
   "cars.trip.ongoing": "laufend",
   "cars.trip.title": "Fahrt #{id}",
   "cars.trip.delete_title": "Fahrt löschen?",

@@ -413,7 +413,6 @@
   "cars.trip.samples": "Samples",
   "cars.trip.open_in_tour": "Open in tour",
   "cars.trip.speed_chart": "Speed (km/h)",
-  "cars.trip.no_data": "No data for this trip.",
   "cars.trip.ongoing": "ongoing",
   "cars.trip.title": "Trip #{id}",
   "cars.trip.delete_title": "Delete trip?",

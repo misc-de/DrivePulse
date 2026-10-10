@@ -166,7 +166,7 @@ class CarsTripsMixin:
         # "In Tour öffnen" under the stats hands the trip to the map, which
         # replays it and prepares it as a tour (calculate → start).
         open_in_tour = self._trip_open_in_tour_callback(trip_id, trip, samples)
-        page_content = _build_trip_detail_widget(self.language, trip, samples, open_in_tour)
+        page_content = _build_trip_detail_widget(self.language, trip, open_in_tour)
         title = self._trip_detail_title(trip)
 
         page_ref: list[Adw.NavigationPage | None] = [None]

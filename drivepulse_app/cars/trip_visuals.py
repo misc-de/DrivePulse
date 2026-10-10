@@ -1,4 +1,4 @@
-"""Trip charts and colour helpers for the Cars page and the map replay.
+"""Trip charts and colour helpers for the map's trip replay.
 
 The interactive metric/time chart lives in ``_trip_chart._build_chart_widget``.
 It's re-exported at the bottom of this module so existing
