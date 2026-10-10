@@ -412,7 +412,6 @@
   "cars.trip.avg_speed": "Durchschnitt",
   "cars.trip.samples": "Samples",
   "cars.trip.open_in_tour": "In Tour öffnen",
-  "cars.trip.route": "Strecke",
   "cars.trip.speed_chart": "Geschwindigkeit (km/h)",
   "cars.trip.no_data": "Keine Messwerte für diese Fahrt.",
   "cars.trip.ongoing": "laufend",

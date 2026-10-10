@@ -15,8 +15,6 @@ from gi.repository import Adw, GLib, Gtk
 from drivepulse_app.cars.metadata import _CHART_METRICS
 from drivepulse_app.cars.trip_visuals import (
     _build_chart_widget,
-    _build_osm_map_widget,
-    _draw_gps_track,
     lift_dropdown_popover,
 )
 from drivepulse_app.common import _translate
@@ -28,7 +26,10 @@ def _build_trip_detail_widget(
     samples: list[Any],
     on_open_in_tour: Callable[[], None] | None = None,
 ) -> Gtk.Widget:
-    """Stat-Karte + GPS-Track + Speed-Verlauf für eine einzelne Fahrt.
+    """Stat-Karte + Datenverlauf für eine einzelne Fahrt.
+
+    No map here on purpose — the route is shown only on the Tour map
+    ("In Tour öffnen").
 
     *on_open_in_tour* adds an "In Tour öffnen" button under the stats; it is
     only passed for trips with a usable GPS track.
@@ -80,8 +81,10 @@ def _build_trip_detail_widget(
         outer.append(tour_btn)
 
     # --- Build per-metric point lists: (ts, value|None, lat, lon) ---
-    # Base: all samples that have GPS coordinates (needed for map cursor sync)
-    _base = [s for s in samples if s["lat"] is not None and s["lon"] is not None]
+    # All samples count — without a map there is no need for a GPS fix, so
+    # OBD-only trips (GPS never started) still get their charts.
+    _base = list(samples)
+    _gps_base = [s for s in samples if s["lat"] is not None and s["lon"] is not None]
 
     def _finite(v: Any) -> bool:
         """True only for finite, non-NaN numbers — rejects None, nan, inf, strings."""
@@ -90,7 +93,7 @@ def _build_trip_detail_widget(
         except (TypeError, ValueError):
             return False
 
-    _min_valid = max(2, int(len(_base) * 0.30))  # mindestens 30 % der GPS-Samples
+    _min_valid = max(2, int(len(_base) * 0.30))  # mindestens 30 % der Samples
     metric_data: dict[str, list] = {}
     for _mk, _ml, _mu, _mc, _mf in _CHART_METRICS:
         _pts = [(s["ts"], s[_mk] if _finite(s[_mk]) else None, s["lat"], s["lon"])
@@ -99,11 +102,11 @@ def _build_trip_detail_widget(
             metric_data[_mk] = _pts
 
     # Computed: cumulative Haversine distance along GPS track
-    if len(_base) >= 2:
+    if len(_gps_base) >= 2:
         _cum_km = 0.0
         _elapsed_pts = []
         _prev_s = None
-        for s in _base:
+        for s in _gps_base:
             if _prev_s is not None:
                 _dlat = math.radians(s["lat"] - _prev_s["lat"])
                 _dlon = math.radians(s["lon"] - _prev_s["lon"])
@@ -148,47 +151,11 @@ def _build_trip_detail_widget(
 
     # Shared cursor state: idx = index into chart_state["pts"], -1 = none
     cursor_state: dict[str, Any] = {"idx": -1}
-    map_widget_ref: list[Any] = [None]
-    map_center_ref: list[Any] = [None]
     chart_area_ref: list[Any] = [None]
 
     def _on_cursor_change() -> None:
-        if map_center_ref[0] is not None and chart_state:
-            idx = cursor_state.get("idx", -1)
-            pts = chart_state.get("pts") or []
-            if 0 <= idx < len(pts):
-                clat, clon = pts[idx][2], pts[idx][3]
-                if clat is not None and clon is not None:
-                    map_center_ref[0](clat, clon)
-        if map_widget_ref[0]:
-            map_widget_ref[0].queue_draw()
         if chart_area_ref[0]:
             chart_area_ref[0].queue_draw()
-
-    # --- GPS-Track / OSM Map ---
-    gps_points = [(s["lat"], s["lon"], s["speed_kmh"]) for s in samples
-                  if s["lat"] is not None and s["lon"] is not None]
-    if gps_points:
-        gps_title = Gtk.Label(label=_translate(language, "cars.trip.route"), xalign=0.0)
-        gps_title.add_css_class("heading")
-        outer.append(gps_title)
-        map_result = _build_osm_map_widget(
-            gps_points,
-            chart_state=chart_state if chart_state else None,
-            cursor_state=cursor_state,
-        )
-        if map_result is not None:
-            map_widget, map_center_fn = map_result
-            map_widget_ref[0] = map_widget
-            map_center_ref[0] = map_center_fn
-            outer.append(map_widget)
-        else:
-            gps_area = Gtk.DrawingArea()
-            gps_area.set_content_height(240)
-            gps_area.set_hexpand(True)
-            gps_area.add_css_class("card")
-            gps_area.set_draw_func(lambda area, cr, w, h, pts=gps_points: _draw_gps_track(cr, w, h, pts))
-            outer.append(gps_area)
 
     # --- Datenverlauf ---
     if _avail and chart_state:
@@ -219,8 +186,6 @@ def _build_trip_detail_widget(
                     cursor_state["idx"] = -1
                     if chart_area_ref[0]:
                         chart_area_ref[0].queue_draw()
-                    if map_widget_ref[0]:
-                        map_widget_ref[0].queue_draw()
 
             _dropdown.connect("notify::selected", _on_metric_selected)
             lift_dropdown_popover(_dropdown)
@@ -230,7 +195,7 @@ def _build_trip_detail_widget(
         chart_area_ref[0] = sp_area
         outer.append(sp_area)
 
-    if not gps_points and not _avail:
+    if not _avail:
         empty = Gtk.Label(label=_translate(language, "cars.trip.no_data"), xalign=0.0)
         empty.add_css_class("dim-label")
         outer.append(empty)

@@ -412,7 +412,6 @@
   "cars.trip.avg_speed": "Average Speed",
   "cars.trip.samples": "Samples",
   "cars.trip.open_in_tour": "Open in tour",
-  "cars.trip.route": "Route",
   "cars.trip.speed_chart": "Speed (km/h)",
   "cars.trip.no_data": "No data for this trip.",
   "cars.trip.ongoing": "ongoing",

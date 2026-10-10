@@ -52,10 +52,6 @@ Offline neural text-to-speech for voice navigation. Voice models are
 downloaded from Hugging Face on demand.
 - https://github.com/rhasspy/piper — MIT
 
-### NumPy *(optional)*
-Speeds up greyscaling OSM tiles for the trip map previews.
-- https://numpy.org — BSD 3-Clause
-
 ---
 
 ## Bundled JavaScript
