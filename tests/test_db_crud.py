@@ -556,7 +556,7 @@ def test_list_tour_history_merges_trips_and_tours_chronologically(db):
     cid = db.upsert_car(vin="VIN-HIST")
     # A completed trip in February.
     t = db.start_trip(cid)
-    db.add_sample(t, ts=1.0, speed_kmh=50)
+    db.add_sample(t, ts=1.0, speed_kmh=50, lat=50.9, lon=6.96)
     db.end_trip(t)
     # Manually overwrite the trip's started_at so we can assert ordering.
     db._conn.execute(
@@ -579,3 +579,18 @@ def test_list_tour_history_merges_trips_and_tours_chronologically(db):
     by_kind = {r["kind"]: r for r in history}
     assert by_kind["trip"]["car_id"] == cid
     assert by_kind["tour"]["car_id"] is None
+
+
+def test_list_tour_history_skips_trips_without_gps(db):
+    cid = db.upsert_car(vin="VIN-NOGPS")
+    no_gps = db.start_trip(cid)
+    db.add_sample(no_gps, ts=1.0, speed_kmh=50)
+    db.add_sample(no_gps, ts=2.0, speed_kmh=50, lat=0.0, lon=0.0)  # no fix yet
+    db.end_trip(no_gps)
+    with_gps = db.start_trip(cid)
+    db.add_sample(with_gps, ts=3.0, speed_kmh=50)
+    db.add_sample(with_gps, ts=4.0, speed_kmh=50, lat=50.9, lon=6.96)
+    db.end_trip(with_gps)
+
+    ids = [r["id"] for r in db.list_tour_history(limit=10) if r["kind"] == "trip"]
+    assert ids == [with_gps]

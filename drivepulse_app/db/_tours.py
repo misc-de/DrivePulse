@@ -41,6 +41,9 @@ class ToursMixin:
         Each row carries a ``kind`` column ("trip" or "tour") so callers can
         render them differently. Trips also expose distance/duration plus the
         owning car's identity; saved tours only have a name.
+
+        Trips without a single real GPS fix are left out — there is nothing
+        to show on the map for them (they stay in the car's Fahrtenbuch).
         """
         with self._lock:
             return self._conn.execute(
@@ -52,6 +55,12 @@ class ToursMixin:
                        t.car_id AS car_id
                 FROM trips t
                 JOIN cars c ON c.id = t.car_id
+                WHERE EXISTS (
+                    SELECT 1 FROM samples s
+                    WHERE s.trip_id = t.id
+                      AND s.lat IS NOT NULL AND s.lon IS NOT NULL
+                      AND NOT (s.lat = 0 AND s.lon = 0)
+                )
                 UNION ALL
                 SELECT 'tour' AS kind, st.id AS id, st.created_at AS ts,
                        NULL AS distance_km, NULL AS duration_s,
