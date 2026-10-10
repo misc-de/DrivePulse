@@ -412,6 +412,7 @@
   "cars.trip.max_speed": "Höchstgeschwindigkeit",
   "cars.trip.avg_speed": "Durchschnitt",
   "cars.trip.samples": "Samples",
+  "cars.trip.no_gps": "Keine GPS-Daten – diese Fahrt kann nicht als Tour geöffnet werden",
   "cars.trip.open_in_tour": "In Tour öffnen",
   "cars.trip.speed_chart": "Geschwindigkeit (km/h)",
   "cars.trip.ongoing": "laufend",

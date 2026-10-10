@@ -25,7 +25,8 @@ def _build_trip_detail_widget(
     only on the Tour map ("In Tour öffnen").
 
     *on_open_in_tour* adds an "In Tour öffnen" button under the stats; it is
-    only passed for trips with a usable GPS track.
+    only passed for trips with a usable GPS track — without it a short
+    "no GPS data" note takes the button's place.
     """
     outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
     outer.set_margin_top(14)
@@ -72,6 +73,13 @@ def _build_trip_detail_widget(
         tour_btn.set_halign(Gtk.Align.CENTER)
         tour_btn.connect("clicked", lambda _b: on_open_in_tour())
         outer.append(tour_btn)
+    else:
+        # Same spot as the button, so a trip without GPS doesn't leave the
+        # user wondering where "In Tour öffnen" went.
+        no_gps = Gtk.Label(label=_translate(language, "cars.trip.no_gps"), xalign=0.5)
+        no_gps.add_css_class("dim-label")
+        no_gps.set_wrap(True)
+        outer.append(no_gps)
 
     scroll = Gtk.ScrolledWindow()
     scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
