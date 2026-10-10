@@ -803,9 +803,10 @@ class MapShumateMixin:
             da.set_size_request(44, 44)
             da.set_draw_func(self._draw_start_arrow, None)
         elif role == "end":
-            # Markers are centred on their location: the flag sits in the
-            # upper half so the foot of the pole is exactly on the target.
-            da.set_size_request(40, 80)
+            # Markers are centred on their location (both axes): the pole
+            # stands on the widget centre, the flag fills the upper-right
+            # quarter, so the foot of the pole is exactly on the target.
+            da.set_size_request(72, 80)
             da.set_draw_func(self._draw_destination_flag, None)
         else:
             da.set_size_request(14, 14)
@@ -846,7 +847,7 @@ class MapShumateMixin:
     def _draw_destination_flag(self, _da: Any, cr: Any, width: int, height: int, _data: Any) -> None:
         """Checkered finish flag; the pole's foot is the widget centre."""
         foot_y = height / 2.0
-        pole_x = 6.0
+        pole_x = width / 2.0
         top = 4.0
         flag_w = width - pole_x - 3.0
         flag_h = foot_y * 0.55
