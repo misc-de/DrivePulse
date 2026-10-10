@@ -225,6 +225,7 @@
   "map.topnav.history": "Recent tours",
   "map.history.empty": "No tours or trips recorded yet",
   "map.history.kind_trip": "Trip",
+  "map.history.no_gps": "This trip has no GPS data – nothing to show on the map.",
   "map.history.kind_tour": "Tour",
   "map.replay.minimize": "Minimize overlay",
   "map.replay.restore": "Show trip data",

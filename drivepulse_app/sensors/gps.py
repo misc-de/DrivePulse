@@ -47,6 +47,10 @@ class GpsReader:
     GPSD_HOST = "localhost"
     GPSD_PORT = 2947
     GPSD_RETRY_INTERVAL = 10.0
+    # GeoClue is D-Bus-activated; when the phone just woke up, GetClient can
+    # time out while the daemon is still starting. Retry instead of giving up
+    # for the whole session (a background trip then had no GPS at all).
+    GEOCLUE_RETRY_S = 5
 
     def __init__(
         self,
@@ -60,6 +64,7 @@ class GpsReader:
         self._geoclue_bus: Any = None
         self._geoclue_client: Any = None
         self._geoclue_client_path: str | None = None
+        self._geoclue_retry_id = 0
 
     def start(self) -> None:
         if self.mock_mode:
@@ -81,7 +86,8 @@ class GpsReader:
         if self.mock_mode or self.stop_event.is_set():
             return
         if self._geoclue_client is None:
-            GLib.idle_add(self._start_geoclue)
+            if not self._geoclue_retry_id:
+                GLib.idle_add(self._start_geoclue)
         else:
             try:
                 self._geoclue_client.call_sync("Start", None, Gio.DBusCallFlags.NONE, 1000, None)
@@ -90,6 +96,9 @@ class GpsReader:
 
     def stop(self) -> None:
         self.stop_event.set()
+        if self._geoclue_retry_id:
+            GLib.source_remove(self._geoclue_retry_id)
+            self._geoclue_retry_id = 0
         if self._geoclue_client is not None:
             try:
                 self._geoclue_client.call_sync("Stop", None, Gio.DBusCallFlags.NONE, 1000, None)
@@ -100,7 +109,14 @@ class GpsReader:
     # GeoClue2
     # ------------------------------------------------------------------
 
+    def _retry_geoclue(self) -> bool:
+        self._geoclue_retry_id = 0
+        self._start_geoclue()
+        return False
+
     def _start_geoclue(self) -> bool:
+        if self.stop_event.is_set():
+            return False
         try:
             bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
             manager = Gio.DBusProxy.new_sync(
@@ -133,7 +149,13 @@ class GpsReader:
             client.connect("g-signal", self._on_geoclue_signal)
             client.call_sync("Start", None, Gio.DBusCallFlags.NONE, 3000, None)
         except Exception:
-            log.info("GeoClue startup failed; GPSD fallback remains active", exc_info=True)
+            log.info(
+                "GeoClue startup failed; retrying in %ss (GPSD fallback stays active)",
+                self.GEOCLUE_RETRY_S, exc_info=True,
+            )
+            self._geoclue_client = None
+            if not self.stop_event.is_set() and not self._geoclue_retry_id:
+                self._geoclue_retry_id = GLib.timeout_add_seconds(self.GEOCLUE_RETRY_S, self._retry_geoclue)
         return False
 
     def _on_geoclue_signal(self, _proxy: Any, _sender: str, signal_name: str, params: Any) -> None:

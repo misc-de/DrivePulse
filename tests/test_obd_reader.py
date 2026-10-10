@@ -504,3 +504,38 @@ def test_gps_altitude_sentinels_are_dropped(drivepulse_module):
     reader = GpsReader(updates.append)
     reader._handle_gpsd_line(json.dumps({"class": "TPV", "mode": 3, "speed": 1, "alt": -1.7976931348623157e308}))
     assert "gps_altitude" not in updates[0]
+
+
+def test_geoclue_startup_failure_schedules_retry(monkeypatch, drivepulse_module):
+    from drivepulse_app.sensors import gps as gps_mod
+
+    def boom(*_a, **_k):
+        raise RuntimeError("GetClient: Timeout was reached")
+
+    scheduled = []
+    monkeypatch.setattr(gps_mod.Gio, "bus_get_sync", boom, raising=False)
+    monkeypatch.setattr(
+        gps_mod.GLib, "timeout_add_seconds",
+        lambda secs, fn: (scheduled.append((secs, fn)), 42)[1],
+        raising=False,
+    )
+    monkeypatch.setattr(gps_mod.GLib, "source_remove", lambda _id: True, raising=False)
+
+    reader = gps_mod.GpsReader(lambda _p: None)
+    reader._start_geoclue()
+
+    assert len(scheduled) == 1
+    assert scheduled[0][0] == reader.GEOCLUE_RETRY_S
+    # A second failure while a retry is pending must not stack timers.
+    reader._start_geoclue()
+    assert len(scheduled) == 1
+
+    # The retry fires, fails again and re-arms itself.
+    scheduled[0][1]()
+    assert len(scheduled) == 2
+
+    # After stop() nothing is retried any more.
+    reader.stop()
+    assert reader._geoclue_retry_id == 0
+    reader._retry_geoclue()
+    assert len(scheduled) == 2

@@ -31,6 +31,7 @@ class MapReplayMixin:
     _backend: str
     _map_db: Any
     _js: Callable[[str], None]
+    _status_lbl: Gtk.Label
     _set_follow: Callable[[bool], bool]
     _set_tour_controls_visible: Callable[[bool], None]
     load_trip_as_route: Callable[..., Any]
@@ -442,6 +443,9 @@ class MapReplayMixin:
             (s["lat"], s["lon"], s["speed_kmh"]) for s in filtered_samples
         ]
         if not latlon_speed:
+            # e.g. GPS never got a fix during a background recording — say so
+            # instead of silently leaving the map where it was.
+            self._status_lbl.set_text(_translate(self.language, "map.history.no_gps"))
             return
 
         # Get the trip row for the actual ended_at (history meta only has ts=started_at)

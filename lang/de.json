@@ -225,6 +225,7 @@
   "map.topnav.history": "Letzte Touren",
   "map.history.empty": "Noch keine Touren oder Fahrten aufgezeichnet",
   "map.history.kind_trip": "Fahrt",
+  "map.history.no_gps": "Diese Fahrt enthält keine GPS-Daten – nichts auf der Karte anzuzeigen.",
   "map.history.kind_tour": "Tour",
   "map.replay.minimize": "Anzeige minimieren",
   "map.replay.restore": "Tourdaten anzeigen",
