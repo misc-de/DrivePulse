@@ -53,6 +53,12 @@ def test_load_trip_as_route_waits_for_calculate_click():
     assert page._pending_trip_trace_args == (coords, "Trip", 12.3, 456.0, None)
     assert page._button_modes == ["calculate"]
     assert page._js_calls == ["mapClearRoute()"]
+    # Waypoints / start / end are (lat, lon) like everywhere else; (lon, lat)
+    # sent the start marker and the tour-start camera to Somalia.
+    assert page._start_coord == (50.0, 7.0)
+    assert page._end_coord == (50.1, 7.1)
+    assert page._tour_waypoints == [(50.0, 7.0), (50.1, 7.1)]
+    assert page._reverse_source is None
 
 
 def test_failed_trip_trace_keeps_calculate_retry_available(monkeypatch):

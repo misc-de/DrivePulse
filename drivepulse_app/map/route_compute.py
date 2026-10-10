@@ -50,6 +50,7 @@ class MapRouteComputeMixin:
     _resume_checked: bool
     _loaded_tour_id: int | None
     _loaded_tour_name: str | None
+    _reverse_source: tuple[str, Any] | None
 
     _js: Callable[[str], None]
     _restore_route_btn: Callable[..., Any]
@@ -122,6 +123,7 @@ class MapRouteComputeMixin:
         self._start_coord = all_points[0]
         self._end_coord = all_points[-1]
         self._tour_waypoints = list(all_points)
+        self._reverse_source = ("plan", list(all_points))
         # The duration/distance OSD card is built but kept hidden after route
         # calculation — the user did not want an info bar auto-appearing on the
         # map.  The status label still conveys transient routing-state messages.

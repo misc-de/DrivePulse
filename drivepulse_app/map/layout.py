@@ -52,6 +52,7 @@ class MapLayoutMixin:
     _on_speed_warn_toggled: Callable[..., Any]
     _on_steps_toggle: Callable[..., Any]
     _on_tour_start_clicked: Callable[..., Any]
+    _on_tour_reverse_clicked: Callable[..., Any]
     _on_tts_btn_toggled: Callable[..., Any]
 
     """Map area construction: backend selection (WebKit/Shumate/placeholder),
@@ -611,6 +612,19 @@ class MapLayoutMixin:
         self._tour_abort_btn.set_visible(False)
         self._tour_abort_btn.connect("clicked", lambda _b: self._abort_tour())
         grid.attach(self._tour_abort_btn, 1, 0, 1, 1)
+
+        # "Richtung umkehren" — right of "Tour starten" while a calculated
+        # tour waits to be started (abort/next-wp are hidden then).
+        reverse_inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        reverse_inner.append(Gtk.Image.new_from_icon_name("object-flip-horizontal-symbolic"))
+        reverse_inner.append(Gtk.Label(label=_translate(self.language, "map.tour_reverse")))
+        self._tour_reverse_btn = Gtk.Button()
+        self._tour_reverse_btn.set_child(reverse_inner)
+        self._tour_reverse_btn.add_css_class("osd")
+        self._tour_reverse_btn.set_tooltip_text(_translate(self.language, "map.tour_reverse.tooltip"))
+        self._tour_reverse_btn.set_visible(False)
+        self._tour_reverse_btn.connect("clicked", self._on_tour_reverse_clicked)
+        grid.attach(self._tour_reverse_btn, 3, 0, 1, 1)
 
         # "Nächstes Ziel" button — visible only during active navigation when
         # the car is within 200 m of an intermediate waypoint.  Shown to the

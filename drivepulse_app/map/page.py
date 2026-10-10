@@ -58,6 +58,7 @@ from drivepulse_app.map.shumate import MapShumateMixin
 from drivepulse_app.map.state_poll import MapStatePollMixin
 from drivepulse_app.map.tour import MapTourMixin
 from drivepulse_app.map.tour_reroute import MapTourRerouteMixin
+from drivepulse_app.map.tour_reverse import MapTourReverseMixin
 from drivepulse_app.map.tour_speed import MapTourSpeedMixin
 from drivepulse_app.map.tour_tts import MapTourTtsMixin
 from drivepulse_app.map.traffic import MapTrafficMixin
@@ -83,6 +84,7 @@ class MapPage(
     MapTourTtsMixin,
     MapTourSpeedMixin,
     MapTourRerouteMixin,
+    MapTourReverseMixin,
     MapTrafficMixin,
     MapGpsFilterMixin,
     MapStatePollMixin,
@@ -792,8 +794,11 @@ class MapPage(
         coords = [[float(c[0]), float(c[1])] for c in coords_lonlat]
         start_lonlat = coords[0]
         end_lonlat = coords[-1]
-        start = (start_lonlat[0], start_lonlat[1])
-        end = (end_lonlat[0], end_lonlat[1])
+        # Waypoints and _start/_end_coord are (lat, lon) everywhere else —
+        # handing over (lon, lat) put start/end markers and the tour-start
+        # camera at swapped coordinates (Somalia instead of Cologne).
+        start = (start_lonlat[1], start_lonlat[0])
+        end = (end_lonlat[1], end_lonlat[0])
 
         self._tour_steps = []
         self._tour_step_idx = 0
@@ -844,6 +849,7 @@ class MapPage(
             self._shumate_clear_route_layers()
 
         self._pending_trip_trace_args = (coords, label, distance_km, duration_s, timestamps)
+        self._reverse_source = None
         self._set_tour_button("calculate")
 
     def _fetch_trip_trace(
@@ -885,6 +891,8 @@ class MapPage(
         orig_timestamps: list[float] | None = None,
     ) -> bool:
         self._set_route_loading(False)
+        if result is not None:
+            self._reverse_source = ("trace", (orig_coords, label, orig_distance_km, orig_duration_s, orig_timestamps))
         self._set_tour_button("start" if result is not None else "calculate")
         if self._tour_start_btn is not None:
             self._tour_start_btn.set_sensitive(True)

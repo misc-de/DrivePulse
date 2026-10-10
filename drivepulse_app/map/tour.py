@@ -430,6 +430,11 @@ class MapTourMixin:
         abort_btn = getattr(self, "_tour_abort_btn", None)
         if abort_btn is not None:
             abort_btn.set_visible(mode == "resume")
+        # Reversing only makes sense for a calculated tour that hasn't started.
+        reverse_btn = getattr(self, "_tour_reverse_btn", None)
+        if reverse_btn is not None:
+            reverse_btn.set_visible(mode == "start" and getattr(self, "_reverse_source", None) is not None)
+            reverse_btn.set_sensitive(True)
 
     def _set_nav_chrome_visible(self, visible: bool) -> None:
         """Show/hide UI chrome that clutters the screen during active navigation."""

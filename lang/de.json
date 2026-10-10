@@ -211,6 +211,8 @@
   "map.tour_stop": "Tour stoppen",
   "map.tour_resume": "Tour fortfahren",
   "map.tour.resumed": "Vorherige Tour wiederhergestellt – auf Start tippen zum Fortsetzen",
+  "map.tour_reverse": "Umkehren",
+  "map.tour_reverse.tooltip": "Tour in umgekehrter Richtung neu berechnen",
   "map.tour_abort": "Tour abbrechen",
   "map.tour_reset.tooltip": "Tour bzw. Planung verwerfen",
   "map.next_waypoint": "Nächstes Ziel",
